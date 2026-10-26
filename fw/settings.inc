@@ -137,7 +137,7 @@ enum { SW_VOL = 0, SW_PAL, SW_REP, SW_RETIRED_SHUF, SW_RETIRED_RESUME, SW_VIZ, S
         * PERSIST32_READY() here -- every read/write of these five goes through set_rd32()/set_wr32()
         * below instead of the plain set_rd()/set_wr(), which do that gating once, not five times. A
         * hand-tuned CUSTOM meter (every value, not just which preset) still has no persistence path;
-        * that stays the QR-export workaround B-216 already settled on. */
+        * that stays the report-export workaround B-216 already settled on. */
        SW_THEME, SW_POL, SW_MPRE_BARS, SW_MPRE_SCOPE, SW_MPRE_CHLADNI,
        SW_N };
 
@@ -196,7 +196,7 @@ static void     set_wr32(uint32_t w, uint32_t v) { persist32_probe_ensure(); if 
 
 /* Publish every current value. Called at boot after adopting, and whenever a
  * setting changes. Two MMIO writes per word -- nothing to debounce. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
 /* fw/suite.inc keeps its four-word summary in the words the (now-retired) legacy playlist
  * name/hash used (SW_RETIRED_PLN0..SW_RETIRED_PLHASH). While a summary is held it is what gets
  * published there instead; a summary is recognised by (word & 15) == 1 with that character below
@@ -211,15 +211,16 @@ static int settings_store(void)
     set_wr(SW_PAL,  ui_pal_idx);
     set_wr(SW_REP,  rep_mode);
     set_wr(SW_VIZ,  (viz_mode == VIZ_BARS && bars_layout) ? VIZ_RETIRED_MIRROR : viz_mode);
-    set_wr(SW_EQ,   eq_idx);
-#if TAU_DIAGNOSTIC
+    if (hal_sel < 31u) hal_saved = hal_sel;          /* the Halcyon selection (the id was the old preset EQ's); CUSTOM keeps the last preset on file */
+    set_wr(SW_EQ,   hal_saved);
+#if TAU_DX_CHECK
     if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_RETIRED_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); }
 #endif
     set_wr(SW_LIBH, lib_h & 0x7FFFFFFFu);
     set_wr(SW_LIBB, lib_hb & 0x7FFFFFFFu);
     set_wr(SW_LIBS, lib_hs & 0x7FFFFFFFu);
     set_wr32(SW_THEME, th_theme);
-    set_wr32(SW_POL,   th_pol ? 1u : 0u);
+    set_wr32(SW_POL,   (th_pol ? 1u : 0u) | ((uint32_t)rg_mode << 4));   /* bit 0 polarity, bits 4-5 ReplayGain mode (B-599): an old file has 0 there = Off */
     set_wr32(SW_MPRE_BARS,    mtr_pi_winamp_bars);
     set_wr32(SW_MPRE_SCOPE,   mtr_pi_winamp_scope);
     set_wr32(SW_MPRE_CHLADNI, mtr_pi_chladni);
@@ -242,7 +243,7 @@ static int settings_load(void)
     for (uint32_t w = 0; w < SW_N; w++) any |= set_rd(w);
     if (!any) return 0;
 
-    v = set_rd(SW_VOL);   if (v <= VOL_MAX)      { volume = v; vol_apply(); }
+    v = set_rd(SW_VOL);   if (v <= VOL_MAX)      { volume = v; vol_apply_snap(); }
     v = set_rd(SW_PAL);   if (v < UI_PALETTE_N)  { ui_pal_idx = v;
                                                    ui_accent = th_accent_of(v); }
     v = set_rd(SW_REP);   if (v <= REP_ONE)        rep_mode = (uint8_t)v;
@@ -251,8 +252,10 @@ static int settings_load(void)
     v = set_rd(SW_VIZ);
     if (v == VIZ_RETIRED_MIRROR) { viz_mode = VIZ_BARS; bars_layout = 1u; }          /* the saved form of BARS in its mirrored layout */
     else if (v < VIZ_COUNT && viz_selectable(v))  viz_mode = (uint8_t)v;
-    v = set_rd(SW_EQ);    if (v < EQ_COUNT)      { eq_idx = (uint8_t)v;
-                                                   REG(R_EQ) = eq_idx; }
+    /* The Halcyon selection (the id was the old preset EQ's). Adopted only when it DIFFERS from what was last saved: this function also re-runs when Core Settings changes any other
+     * value, and re-applying an unchanged selection would click and would drop the Halcyon page's own CUSTOM controls. Applied by the main loop once cold code is up. */
+    v = set_rd(SW_EQ);
+    if (v < 31u && v != hal_saved) { hal_saved = (uint8_t)v; hal_sel = (uint8_t)v; hal_restore = 1u; }
     /* Retired ids (Shuffle, Resume, Resume point): nothing here reads them into any firmware
      * variable any more, but set_pub[] must still be kept in sync with whatever APF/the persist
      * file holds for them -- otherwise settings_poll_menu()'s comparison sees them permanently
@@ -262,7 +265,7 @@ static int settings_load(void)
     set_pub[SW_RETIRED_SHUF]     = set_rd(SW_RETIRED_SHUF);
     set_pub[SW_RETIRED_RESUME]   = set_rd(SW_RETIRED_RESUME);
     set_pub[SW_RETIRED_RESUMEON] = set_rd(SW_RETIRED_RESUMEON);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     chk_rec_on = 0u;
     { uint32_t w0 = set_rd(SW_RETIRED_PLN0);
       if ((w0 & 15u) == 1u && (w0 & 0x7Fu) < 0x20u) { chk_rec_on = 1u; for (uint32_t k = 0; k < 4u; k++) chk_w[k] = set_rd(SW_RETIRED_PLN0 + k); } }
@@ -280,7 +283,7 @@ static int settings_load(void)
      * theme 0 (TAU), Dark, no saved preset for any of the three meters -- exactly today's defaults, so
      * this degrades to "nothing persisted" rather than to a wrong or corrupted value. */
     v = set_rd32(SW_THEME); if (v < TH_COUNT()) th_theme = (uint8_t)v;
-    th_pol = set_rd32(SW_POL) ? 1u : 0u;
+    { const uint32_t pw = set_rd32(SW_POL); th_pol = (pw & 1u) ? 1u : 0u; rg_mode = (uint8_t)(((pw >> 4) & 3u) < RG_MODES ? ((pw >> 4) & 3u) : RG_OFF); }
     v = set_rd32(SW_MPRE_BARS);    if (v < mtr_d_winamp_bars.npre)  mtr_apply_preset(&mtr_d_winamp_bars,  v);
     v = set_rd32(SW_MPRE_SCOPE);   if (v < mtr_d_winamp_scope.npre) mtr_apply_preset(&mtr_d_winamp_scope, v);
     v = set_rd32(SW_MPRE_CHLADNI); if (v < mtr_d_chladni.npre)      mtr_apply_preset(&mtr_d_chladni,      v);

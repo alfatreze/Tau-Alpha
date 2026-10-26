@@ -1,0 +1,19 @@
+{
+  "verified_date": "2026-10-13",
+  "evidence": "host-analysis-only",
+  "tau_revision": "ae11a8fee5a7cf3e7873a4a654bccf5a7df6b908",
+  "source_files": 482,
+  "tracked_files": 933,
+  "lexical_firmware_functions": 767,
+  "checks": [
+    "All 482 pinned source hashes, SLOC masks, CSV rows and complete non-overlapping origin ranges reconcile",
+    "Scopes, author totals, percentages and unique-original survival counts reconcile",
+    "All 767 lexical firmware function records have valid pinned-source ranges and counts",
+    "Comment/string/preprocessor masks checked for C, SystemVerilog, Python and assembler",
+    "Report and complete module inventory links resolve; Markdown code fences are paired",
+    "All evidence Python sources parse and JSON outputs load",
+    "New report/evidence source whitespace passes; empty TSV fields preserved",
+    "Audit IDs and tracked diff whitespace pass; production sources unchanged"
+  ],
+  "production_build_or_hardware_tested": false
+}

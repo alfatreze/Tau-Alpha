@@ -27,6 +27,7 @@ from blit_reference import Renderer, load_font_words  # noqa: E402
 TB = ROOT / "sim" / "tb_blit_scene.v"
 MP3_FB = ROOT / "src" / "fpga" / "core" / "mp3_fb.sv"
 FONT_ROM = ROOT / "src" / "fpga" / "core" / "font_rom.v"
+FONT_RAM = ROOT / "src" / "fpga" / "core" / "font_ram.v"      # mp3_fb.sv instantiates it in an unused generate branch
 BUILD = ROOT / "build" / "rtl"
 
 
@@ -81,7 +82,7 @@ def run_rtl_scene(mutation: str | None = None) -> dict[int, int]:
     cmd = ["iverilog", "-g2012"]
     if mutation:
         cmd.append(f"-Ptb_blit_scene.{mutation}=1")
-    cmd += ["-o", str(vvp), str(TB), str(MP3_FB), str(FONT_ROM)]
+    cmd += ["-o", str(vvp), str(TB), str(MP3_FB), str(FONT_ROM), str(FONT_RAM)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"iverilog failed: {r.stdout}\n{r.stderr}")

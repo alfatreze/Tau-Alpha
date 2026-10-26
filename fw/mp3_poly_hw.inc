@@ -31,12 +31,17 @@ void tau_poly_hw_clear(void)
     tau_poly_hw_enable = 0;                             /* clear itself never finished: don't trust the unit any further this session */
 }
 
-int tau_poly_hw_slot(const int *w0, const int *w1, short *pcm)
+int tau_poly_hw_start(const int *w0, const int *w1)
 {
     if (!tau_poly_hw_enable) return 0;
     for (int i = 0; i < 32; i++) REG(R_POLY_PUSH) = (uint32_t)w0[i];
     for (int i = 0; i < 32; i++) REG(R_POLY_PUSH) = (uint32_t)w1[i];
     REG(R_POLY_CTL) = 2u;                              /* bit 1: go -- compute the pending slot, both channels */
+    return 1;
+}
+
+int tau_poly_hw_finish(short *pcm)
+{
     int i;
     for (i = 0; i < 400000; i++) {
         if (!(REG(R_POLY_ST) & 2u)) break;
@@ -50,4 +55,9 @@ int tau_poly_hw_slot(const int *w0, const int *w1, short *pcm)
     }
     tau_poly_stat_slots++;
     return 1;
+}
+
+int tau_poly_hw_slot(const int *w0, const int *w1, short *pcm)
+{
+    return tau_poly_hw_start(w0, w1) && tau_poly_hw_finish(pcm);
 }

@@ -64,6 +64,7 @@ uint32_t (*mp3_tick)(void);
 uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc, mp3_dequant_cyc, mp3_alias_cyc, mp3_xform_cyc;
 uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
 uint32_t mp3_dequant_total_cyc, mp3_alias_total_cyc, mp3_xform_total_cyc;
+uint32_t mp3_sub_fdct_total_cyc, mp3_sub_hw_total_cyc;   /* Cymo C0: Subband split (subband.c) */
 uint32_t mp3_huff_vum_cyc, mp3_imdct_vum_cyc, mp3_sub_vum_cyc;   /* B-347 */
 uint32_t mp3_dequant_vum_cyc, mp3_alias_vum_cyc, mp3_xform_vum_cyc;
 #endif

@@ -407,7 +407,8 @@ SETTINGS_SRC = (ROOT / "fw/settingsui.inc").read_text(encoding="utf-8")
 SETTINGS_SRC += (ROOT / "fw/meter_gen_names.h").read_text(encoding="utf-8")
 # Fixtures model the standard (non-cold) build: take the #else branch of "#if TAU_COLD ... #else ... #endif" blocks.
 SETTINGS_SRC = re.sub(r"#if TAU_COLD\n(.*?)#else\n(.*?)#endif\n", r"\2", SETTINGS_SRC, flags=re.S)
-EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")
+# The fixtures model the default build, where TAU_TEMPO is 0 (B-558): drop the "#if TAU_TEMPO ... #endif" blocks (the TEMPO row).
+SETTINGS_SRC = re.sub(r"#if TAU_TEMPO\n.*?#endif\n", "", SETTINGS_SRC, flags=re.S)
 
 
 def ui_mix(a, b, t, n):
@@ -606,21 +607,22 @@ def _sconst(name):
     return int(re.search(rf"#define\s+{name}\s+(\d+)u", SETTINGS_SRC).group(1))
 
 
-SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
+SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT", "REPLAYGAIN": "OFF",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
                 "PLAYLIST CHECK": "PASS 13", "COLD CODE TEST": "PASS 31.6 C/W", "CLEAR COUNTERS": "DONE",
-                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF", "ACCEPT ALL RATES": "OFF"}
+                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF", "ACCEPT ALL RATES": "OFF",
+                "CYMO RESAMPLER": "OFF", "16-BIT OUTPUT": "OFF", "HW GAIN": "NO UNIT", "HALCYON EQ": "NO UNIT"}
 
 
 def settings_menu(page, selected):
     """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
     rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
-                  "set_diag_rows", "set_tests_rows", "set_stress_rows", "set_dgn_rows")[page])
+                  "set_tests_rows", "set_stress_rows", "set_dgn_rows")[page])
     title = _names(SETTINGS_SRC, "set_menu_title")[page]
-    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (4, 6, 7)
-            else "A RUN   B BACK" if page == 5 else "A CHANGE   B BACK")
+    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (5, 6)
+            else "A RUN   B BACK" if page == 4 else "A CHANGE   B BACK")
     frame, g = ov_frame(title, "", hint)
     row_h = _sconst("SET_MENU_ROW_H")
     for i, (label, kind, _arg) in enumerate(rows):
@@ -645,7 +647,7 @@ def settings_menu(page, selected):
 
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "NO",
-               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0", "HW 5120 SLOTS 0 BAD 0 TMO", "NONE", "NONE", "OFF")
+               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0", "HW 5120 SLOTS 0 BAD 0 TMO", "NONE", "NONE", "READY 42 OK 0 FAIL", "OK 7BEF/7BEF 0000/0000 F800/F800", "S 000000 D 000000", "CPU 0 DISP 0 OK", "A 153", "0861/0000 0861/0000 0861/0000 W0861", "OFF", "278/279 AVG 278 N40100", "LIVE - S0 D0 Q2", "D812 O812 K40 15187/51824US S2", "C312 CPU 41234 UNW 3210 PRES 900US", "1.00x I63/51 O4 WS2.1X", "TRACK -6.5 DB", "HW T30581 C30581 F0", "LAST 412 MAX 412 N1 BUF 43", "150:0 300:1 600:0 1K:0 2K:0 +:0 A412", "LAST 118 MAX 118 N1 A118 T3", "4/2/1/0 X212", "F31420 M18200 C482100 H0 U0", "N2 F600 HO1 +412MS", "N1 T12/12 D40 F48000 FL0", "N2 PUT 530437 EXP 530437 D0")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
 
@@ -716,15 +718,16 @@ def settings_stress_status():
 
 
 def settings_choice(choice, cursor, active, top=0):
-    """set_draw_choice() fixture. choice: colour, meter, eq, repeat, blank."""
+    """set_draw_choice() fixture. choice: colour, meter, repeat, blank."""
     titles = _names(SETTINGS_SRC, "set_ch_title")
-    idx = ("colour", "meter", "eq", "repeat", "blank", "speed", "stress", "soak").index(choice)
+    idx = ("colour", "meter", "repeat", "blank", "speed", "stress", "soak").index(choice)
+    want = {"colour": "COLOUR", "meter": "METER", "repeat": "REPEAT", "blank": "SCREEN BLANK", "speed": "SPEED", "stress": "STRESS LEVEL", "soak": "SOAK"}[choice]
+    assert titles[idx] == want, f"settings fixture index {idx} is {titles[idx]!r}, expected {want!r}: the choice order in this file no longer matches set_ch_title[]"
     if choice == "colour":
         names = _names(PLAYER, "ui_palette_name")
         colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
     else:
         names = {"meter": lambda: [_names(SETTINGS_SRC, "set_viz")[m] for m in viz_rows()],
-                 "eq": lambda: _names(EQ_SRC, "eq_name"),
                  "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
                  "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm"),
                  "speed": lambda: _names(SETTINGS_SRC, "set_speed_nm"),
@@ -879,11 +882,10 @@ FIXTURES = {
     "settings-appearance": lambda: settings_menu(1, 0),
     "settings-audio": lambda: settings_menu(2, 0),
     "settings-playback": lambda: settings_menu(3, 1),
-    "settings-diagnostics": lambda: settings_menu(4, 0),
     "settings-info": settings_info,
-    "settings-tests": lambda: settings_menu(5, 0),
-    "settings-stress": lambda: settings_menu(6, 0),
-    "settings-diagnostics-group": lambda: settings_menu(7, 0),
+    "settings-tests": lambda: settings_menu(4, 0),
+    "settings-stress": lambda: settings_menu(5, 0),
+    "settings-diagnostics-group": lambda: settings_menu(6, 0),
     "settings-check-idle": lambda: check_page("idle", ()),
     "settings-check-running": lambda: check_page("run", ["PASS"] * 5, running_step=5, countdown=9),
     "settings-check-pass": lambda: check_page("done", ["PASS"] * 7),
@@ -895,7 +897,6 @@ FIXTURES = {
     "settings-stress-status": settings_stress_status,
     "settings-colour": lambda: settings_choice("colour", 3, 0),
     "settings-meter": lambda: settings_choice("meter", 4, 4),
-    "settings-eq": lambda: settings_choice("eq", 2, 0),
     "settings-repeat": lambda: settings_choice("repeat", 1, 0),
     "settings-blank": lambda: settings_choice("blank", 2, 0),
     "paused": lambda: now_playing_base("paused"),

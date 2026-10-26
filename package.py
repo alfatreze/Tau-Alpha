@@ -30,7 +30,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 BITSTREAM_SRC = os.path.join(PROJECT_ROOT, "src", "fpga", "output_files", "ap_core.rbf")
 DIST_CORE     = os.path.join(PROJECT_ROOT, "dist", "Cores", "alfatreze.TAU")
 BITSTREAM_DST = os.path.join(DIST_CORE, "bitstream.rbf_r")
-ROM_DST       = os.path.join(PROJECT_ROOT, "dist", "Assets", "tau", "common", "tau.rom")
+ROM_DST       = os.path.join(PROJECT_ROOT, "dist", "Assets", "tau", "alfatreze.TAU", "tau.rom")   # core-specific (tools/tau_layout.py)
 README_PATH   = os.path.join(PROJECT_ROOT, "README.md")
 
 

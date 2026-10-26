@@ -9,6 +9,7 @@ through data slot 8. Any problem with the file means the built-in themes only; t
 
 Theme JSON is the same shape as themes/*.json (name, dark{...}, light{...}); extra themes are appended after the built-in ones.
 """
+import os
 import argparse, json, re, shutil, struct, sys, zlib
 from pathlib import Path
 
@@ -17,6 +18,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import gen_themes as gt  # noqa: E402
 
 FILE_MAX_THEMES = 4          # fw/theme.h TH_FILE_MAX
+FILE_MAX_BYTES = 0x10000     # fw/assets_core.h AS_MAX_FILE (B-628: was 1024); up to 4096 bytes is read into the tag buffer as before, larger files go through the PSRAM staging area
 NAME_LEN = 16
 ASSETS_MAGIC, THEM_MAGIC = b"TAUA", b"TTHM"
 VERSION = 1
@@ -109,6 +111,34 @@ def parse(blob):
         out["themes"] = parse_themes(out["sections"]["THEM"])
     if "METR" in out["sections"]:
         out["meters"] = parse_meters(out["sections"]["METR"])
+    if "PRST" in out["sections"]:                      # B-626: Halcyon presets (tools/halcyon_assets.py, docs/features/HALCYON_DATA_FORMAT.md)
+        import halcyon_assets
+        out["presets"] = halcyon_assets.parse_presets(out["sections"]["PRST"])
+    if "MPKB" in out["sections"]:                      # meter packs (docs/features/meters/METER_PACKS.md): the bundle of tools/player2/pack_bundle.py
+        out["packs"] = parse_packs(out["sections"]["MPKB"])
+    return out
+
+
+def parse_packs(d):
+    """MPKB: 'TPKB' | version u16 (1) | count u16 | the packs back to back, each a 48-byte 'TMPK' header and its image (fw2/cores/meter_pack_core.h). Returns [{meter, abi, size, entry}]."""
+    if len(d) < 8 or d[:4] != b"TPKB":
+        raise ValueError("bad MPKB magic")
+    ver, count = struct.unpack("<HH", d[4:8])
+    if ver != 1:
+        raise ValueError(f"unsupported MPKB version {ver}")
+    out, off = [], 8
+    for _ in range(count):
+        if off + 48 > len(d) or d[off:off + 4] != b"TMPK":
+            raise ValueError("MPKB: a pack header is missing or malformed")
+        abi, meter, size, org, entry, c = struct.unpack("<HHIIII", d[off + 4:off + 24])
+        if size == 0 or off + 48 + size > len(d):
+            raise ValueError("MPKB: a pack runs past the end")
+        if crc(d[off + 48:off + 48 + size]) != c:
+            raise ValueError("MPKB: a pack's CRC does not match its image")
+        out.append({"meter": meter, "abi": abi, "size": size, "entry": entry})
+        off += 48 + size
+    if off != len(d):
+        raise ValueError("MPKB: bytes after the last pack")
     return out
 
 
@@ -219,18 +249,21 @@ def cmd_pack(a):
     secs = [(b"THEM", pack_themes(themes))] if themes else []
     if a.meters:
         secs.append((b"METR", pack_meters(json.loads(Path(a.meters).read_text()))))
+    if a.packs:
+        secs.append((b"MPKB", Path(a.packs).read_bytes()))
+        parse_packs(secs[-1][1])
     if not secs:
-        raise ValueError("nothing to pack: give theme files and/or --meters")
+        raise ValueError("nothing to pack: give theme files, --meters and/or --packs")
     blob = pack_container(secs)
-    if len(blob) > 1024:
-        raise ValueError(f"file is {len(blob)} bytes; the firmware reads at most 1024")
+    if len(blob) > FILE_MAX_BYTES:
+        raise ValueError(f"file is {len(blob)} bytes; the firmware reads at most {FILE_MAX_BYTES} (fw/assets_core.h AS_MAX_FILE; files over 4096 bytes are staged in PSRAM)")
     Path(a.output).write_bytes(blob)
     print(f"wrote {a.output}: {len(blob)} bytes, {len(themes)} theme(s), sections: " + ", ".join(t.decode() for t, _ in secs))
 
 
 def cmd_dump(a):
     r = parse(Path(a.file).read_bytes())
-    print(json.dumps({"meters": r.get("meters"), "sections": {k: len(v) for k, v in r["sections"].items()},
+    print(json.dumps({"meters": r.get("meters"), "packs": r.get("packs"), "sections": {k: len(v) for k, v in r["sections"].items()},
                       "themes": [{**t, "dark": ["0x%04X" % x for x in t["dark"]], "light": ["0x%04X" % x for x in t["light"]]}
                                  for t in r.get("themes", [])]}, indent=1))
 
@@ -250,9 +283,9 @@ def cmd_install(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("pack"); p.add_argument("themes", nargs="*"); p.add_argument("--meters", help="meters.json: preset sets per meter");  p.add_argument("-o", "--output", required=True); p.set_defaults(fn=cmd_pack)
+    p = sub.add_parser("pack"); p.add_argument("themes", nargs="*"); p.add_argument("--meters", help="meters.json: preset sets per meter"); p.add_argument("--packs", help="tau-packs.bin from tools/player2/pack_bundle.py: loadable meters");  p.add_argument("-o", "--output", required=True); p.set_defaults(fn=cmd_pack)
     d = sub.add_parser("dump"); d.add_argument("file"); d.set_defaults(fn=cmd_dump)
-    i = sub.add_parser("install"); i.add_argument("file"); i.add_argument("--core", required=True); i.add_argument("--card", default="/Volumes/Pock"); i.set_defaults(fn=cmd_install)
+    i = sub.add_parser("install"); i.add_argument("file"); i.add_argument("--core", required=True); i.add_argument("--card", default=os.environ.get("TAU_CARD", "/Volumes/CARDWRITE")); i.set_defaults(fn=cmd_install)
     a = ap.parse_args()
     try:
         a.fn(a)

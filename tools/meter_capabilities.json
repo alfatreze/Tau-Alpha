@@ -158,6 +158,16 @@
    "cost_basis": "model",
    "fallback": "software mtr_onset from the spectrum",
    "note": "docs/HARDWARE_METER_IDEAS.md item 1."
+  },
+  {
+   "key": "blit_shift",
+   "provider": "OP_BLIT rect copy inside the framebuffer via fb_blit() (B1), used as a scroll",
+   "status": "design-only",
+   "ready_probe": "BLIT_READY()",
+   "cost": "1 command per strip of at most 127 px (3-4 for a 400 px box)",
+   "cost_basis": "model",
+   "fallback": "full redraw of every column (layered_wave SMOOTH/BLOCKS)",
+   "note": "Rows are bursts through the 127-word row buffer: an overlapping shift needs the far strip first and has not been simulated or measured; OP_BLIT replication in Chladni and the Scope trail blit are proven, an overlapping shift is not."
   }
  ]
 }

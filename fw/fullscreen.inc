@@ -10,7 +10,7 @@
  * HOW IT COEXISTS WITH THE NORMAL UI: while ui_fullscreen is set FB_HELD() is true, exactly as for the settings and playlist
  * overlays, so every ordinary draw call (chrome, progress, clock, transport, toasts, the other meters) is a silent no-op while
  * their state machines keep running -- elapsed time, resume position and audio are untouched. This module draws with ov_draw
- * set, the same bypass the overlays use. Leaving fullscreen repaints the normal screen through pl_ui_restore.
+ * set, the same bypass the overlays use. Leaving fullscreen repaints the normal screen through helios_view_switch().
  *
  * All of this is COLD code. Hot entries: ui_draw_chrome() -> ui_fs_frame() only while ui_fullscreen is set (which only the cold-gated toggle can
  * do), ui_draw_dynamic() -> ui_fs_dynamic() after its COLD_READY() check, and poll_input() -> the two Select combos, gated on COLD_READY().
@@ -28,6 +28,10 @@
 
 static uint32_t fs_last_sec = 0xFFFFFFFFu;
 static uint8_t  fs_last_state = 0xFFu, fs_force;
+
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything toggling fullscreen needs, same as before this existed. */
+static const helios_view_t fullscreen_view = { 0, 0, HELIOS_INV_ALL };
 
 static void fs_upper(char *d, const char *s, uint32_t n)
 {
@@ -87,22 +91,52 @@ COLD_FN3 static void fs_draw_progress(void)
 
 #define FS_LABEL_EXCL 0u   /* helios_excl[] slot reserved for this corner */
 
-/* The top-right corner: hint and CPU load on a black plate. Kept as an exclusion rect (helios.inc)
- * so the figure's own outer clear skips it instead of covering it and relying on this to repaint
- * every frame -- that redraw-after approach is what glitched: the beam can pass through this
- * corner between the figure's clear and this repaint. Still called every frame (the CPU% text
- * itself changes), which also keeps the exclusion rect's width current for next frame -- see
- * ui_fs_dynamic()'s use of helios_fill_excl(). */
-COLD_FN3 static void fs_draw_label(void)
+/* The top-right corner: hint and CPU load on a black plate. Three rules keep it from flickering:
+ *   1. The figure never draws into it. Its rectangle is a helios_excl[] slot, and while a Winamp/Layered Wave figure is drawn fig_clip_on makes
+ *      fb_rect()/fb_bar() split around it (helios_clip_rect/helios_clip_bar), so the plate is not overwritten and need not be repainted after every figure.
+ *   2. The label is repainted only when its text changes (CPU% updates once a second) or the screen was wiped, never per figure.
+ *   3. Chladni fills by replicating a computed tile with block copies, which cannot be clipped (the vertical copies would carry the hole's pixels down), so
+ *      its figure and the label repaint run only while the beam is well clear of the label rows (fs_corner_ok()).
+ * fs_label_prepare() runs BEFORE the figure so the exclusion rect always matches the width the label will have. A width change forces one full figure
+ * repaint (its outer clear honours the new rect) so no sliver of the old, wider plate is left behind. */
+static char     fs_lbl_txt[8];
+static uint32_t fs_lbl_x, fs_lbl_w;
+static uint8_t  fs_lbl_dirty = 1u;
+
+/* The beam is inside the active picture and well below the label rows (22) and well above the bottom, so a draw of a few ms finishes before it wraps. */
+COLD_FN3 static int fs_corner_ok(void)
+{
+    if (!helios_beam_ok) return 1;
+    const uint32_t vc = REG(R_SCAN) & 0x1FFu;
+    if (vc < HELIOS_VOFF || vc >= HELIOS_VOFF + HELIOS_VACT) return 0;
+    const uint32_t by = vc - HELIOS_VOFF;
+    return by >= 26u && by <= 290u;
+}
+
+COLD_FN3 static void fs_label_prepare(void)
 {
     char b[8], *q = b;
     q = ui_dec(q, ui_cpu_pct()); *q++ = '%'; *q = 0;
     const uint32_t wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(b, TS_1X);
-    const uint32_t w = wh + 12u + wp + 14u, x = FS_W - w;
-    helios_exclude_set(FS_LABEL_EXCL, (int32_t)x, 0, (int32_t)w, 22);
-    fb_rect(x, 0u, w, 22u, 0u);
+    const uint32_t w = wh + 12u + wp + 14u;
+    helios_exclude_set(FS_LABEL_EXCL, (int32_t)(FS_W - w), 0, (int32_t)w, 22);
+    uint32_t same = (fs_lbl_w == w);
+    for (uint32_t i = 0; i < sizeof fs_lbl_txt; i++) { if (fs_lbl_txt[i] != b[i]) same = 0u; if (!b[i]) break; }
+    if (same) return;
+    for (uint32_t i = 0; i < sizeof fs_lbl_txt; i++) { fs_lbl_txt[i] = b[i]; if (!b[i]) break; }
+    if (fs_lbl_w && fs_lbl_w != w) fs_force = 1u;
+    fs_lbl_w = w; fs_lbl_x = FS_W - w; fs_lbl_dirty = 1u;
+}
+
+/* Paint the plate and its two texts. `now` skips the beam check (Chladni, which only calls this inside its own beam-checked figure). */
+COLD_FN3 static void fs_label_paint(int now)
+{
+    if (!fs_lbl_dirty || (!now && !fs_corner_ok())) return;
+    const uint32_t x = fs_lbl_x, wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(fs_lbl_txt, TS_1X);
+    fb_rect(x, 0u, fs_lbl_w, 22u, 0u);
     fb_set_color(UI_DIM, 0u);   fb_text_clipped(x + 8u, 3u, "SELECT+Y", TS_1X, TS_1X, wh);
-    fb_set_color(UI_WHITE, 0u); fb_text_clipped(x + 8u + wh + 12u, 3u, b, TS_1X, TS_1X, wp);
+    fb_set_color(UI_WHITE, 0u); fb_text_clipped(x + 8u + wh + 12u, 3u, fs_lbl_txt, TS_1X, TS_1X, wp);
+    fs_lbl_dirty = 0u;
 }
 
 /* Called by ui_draw_chrome() in place of the normal screen: a black frame, the bar, and a request for an immediate figure. */
@@ -113,36 +147,42 @@ COLD_FN3 static void ui_fs_frame(void)
     fs_draw_text();
     fs_draw_progress();
     ov_draw = o;
-    fs_force = 1u;
+    fs_force = 1u; fs_lbl_dirty = 1u;        /* the wipe above took the label with it */
 }
 
 /* Called every display frame while fullscreen (after the normal, now silent, dynamic pass). */
-static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE; }
+static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_LAYERED_WAVE; }
 
 COLD_FN3 static void ui_fs_dynamic(void)
 {
     if (UI_OVERLAY_UP) return;
-    if (!fs_capable()) { ui_fullscreen = 0u; helios_view_changed(); ui_wave_force = 1u; return; }   /* B-350 */
+    if (!fs_capable()) { ui_fullscreen = 0u; helios_view_switch(&fullscreen_view, &helios_player_view); ui_wave_force = 1u; return; }   /* B-350/item 4 */
     const uint8_t o = ov_draw; ov_draw = 1u;
     /* NO beam gate here (B-288). It used to require the whole 323-row figure to be clear of the beam, which is true only in vertical
      * blanking and while the beam is in the last 40 rows: about 19 percent of the time. ui_draw_dynamic() is called once per decoded frame
      * (26 ms), not polled, so a closed gate meant no figure at all until the NEXT frame: about 38 x 0.19 = 7 figures a second, which is
      * the "very slow" fullscreen. The figures are all drawn so that a partly finished frame is still a coherent picture (Winamp Bars
      * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
-    if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope: explicit geometry, black ground */
-        /* helios_fill_excl(), not fb_rect(): skip the label's corner (fs_draw_label()'s exclusion
-         * rect) instead of clearing over it every time it's forced -- see fs_draw_label(). This
-         * covers the outer clear; a bar or the scope trace swinging all the way to the top rows
-         * could still touch the corner from inside wviz_bars_tick()/wviz_scope_tick()'s own fills,
-         * which is a separate, deeper follow-up (docs/HELIOS_SPEC.md), not attempted here. */
+    fs_label_prepare();
+    if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope / Layered Wave: explicit geometry, black ground */
+        /* helios_fill_excl() skips the label's corner for the outer clear; helios_meter(HM_CLIP) keeps the figure's own fills out of it. */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
-        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
-        else                             wviz_scope_tick(&in, 0);
-        fs_force = 0u; fs_draw_label();
+        (void)helios_meter(viz_mode, &in, HM_CLIP);
+        fs_force = 0u; fs_label_paint(0);
     } else {
-        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
-        if (chladni_tick_box(&in)) { fs_force = 0u; fs_draw_label(); }
+        /* Chladni composes off-screen and is presented around the label rect by helios_meter(HM_CLIP), so the label is untouched and only repainted when its
+         * text changes. Without the H2 back buffer the tile copies still overwrite the corner: then the label is repainted after the figure, and the figure
+         * only runs while the beam is clear of the label rows. */
+        if (helios_offscreen_ok() || fs_corner_ok()) {
+            const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
+            const uint32_t r = helios_meter(VIZ_CHLADNI, &in, HM_CLIP);
+            if (r & HM_DREW) {
+                fs_force = 0u;
+                if (!(r & HM_COMPOSED)) { fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
+                else fs_label_paint(0);
+            }
+        }
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
     ov_draw = o;
@@ -154,7 +194,10 @@ COLD_FN3 static void ui_fs_toggle(void)
     if (idle) return;
     if (!fs_capable()) { ui_toast_msg("FULLSCREEN: CHLADNI AND WINAMP ONLY"); return; }
     ui_fullscreen = (uint8_t)!ui_fullscreen;
-    helios_view_changed();                  /* B-350: repaint -- the fullscreen frame, or the normal screen again */
+    /* B-350/item 4: repaint -- the fullscreen frame, or the normal screen again. Direction is picked
+     * from the NEW value just set above, not tracked global state (see fw/helios.inc's own comment). */
+    if (ui_fullscreen) helios_view_switch(&helios_player_view, &fullscreen_view);
+    else               helios_view_switch(&fullscreen_view, &helios_player_view);
     ui_wave_force = 1u;
     fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
 }
@@ -173,7 +216,7 @@ COLD_FN3 static void meter_preset_next(void)
         ui_wave_clear(); ui_wave_force = 1u;
         settings_mark_dirty();
         ui_toast_msg(bars_layout ? "PRESET: MIRRORED" : "PRESET: BARS");
-    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER) {
+    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER || viz_mode == VIZ_LAYERED_WAVE) {
         const mtr_data_t *md = mtr_of(viz_mode);
         const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
         mtr_apply_preset(md, p);

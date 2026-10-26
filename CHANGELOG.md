@@ -1,6 +1,145 @@
 # Changelog
 
-What changed in each release, newest first.
+What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
+
+## v0.6.1 — 21 October 2026
+
+A small release that makes the card setup clearer and meets the openFPGA Library's requirements.
+
+- **Fallback screens.** When TAU has no usable library it now says so instead of showing an empty player: no library file, a library that can't be read (with its error code), an empty library, or a library whose track files aren't on the card. Each one shows the Tau Omega address (github.com/alfatreze/Tau-Omega) and what to do. A opens Help.
+- **Menu > HELP.** Three pages: adding music with Tau Omega (Mac, Windows and Linux), where things are on the card, and the Python alternative from the repository (`tools/sync_media.py`), with pointers to the Tau Omega help and `docs/guide/MEDIA_AND_TOOLS.md`.
+- **Core details.** `core.json` now carries the repository URL (an openFPGA Library requirement) and a description that says music is synced with Tau Omega or the repo's tools; the About screen (`info.txt`) explains the card setup.
+- Omega: nothing changed in the files or persist ids since v0.6.0; the core's description and url fields are new.
+
+## v0.6.0 — 17 October 2026
+
+The first release on the **Stable** channel of the new scheme: **TAU** (Player 2) on platform `tau`, replacing the TAU core of v0.5.0. Player 2 is a rewrite of the player firmware (fw2/); the diagnostics (Info, Check, report grids) are
+part of it, so there is no separate Diagnostics core any more (remove `TAU_DIAGNOSTIC` / `TAU Diagnostics` / `TAU Preview` cores from older installs). Needs the matching new bitstream (writable font memory, CORE_VERSION rev 27).
+Everything in v0.6.0-preview.1 and preview.2 is included: Halcyon EQ as the only EQ, 192 KB RAM and 66.667 MHz clock, hardware MP3 window and FLAC LPC units, FLAC Rice fast path, dB volume with ReplayGain, audiobook tempo,
+gapless FLAC, the Cymo resampler, the pixel-grid report codes and the full-version splash.
+
+- **New now-playing screen** laid out after the Figma frames: cover top left, SMOOTH / format tags, title, artist, album, a full-width meter, progress bar with elapsed, track n/m and total, and a bottom bar with the Select and Start hints and repeat, shuffle and volume icons (the 14-pixel player icons). The no-track state shows a note icon and "SELECT A TRACK".
+- **Settings > CONTROLS** lists every button and combination, with the player icons.
+- **Fonts.** Tamzen Regular is the default; Tamzen Bold, Space Grotesk SemiBold and Bold are in Settings > Appearance > FONT (saved). Latin-1 accented text works; Japanese is not supported yet.
+- **Speed and Time Stretch.** SPEED (varispeed) and TEMPO (pitch-preserving, MP3 only) are separate rows with their own speed lists; Normal only has 1.0x. FLAC plays at 1.00x only.
+- **Meters.** Double-buffered, flicker-free redraws, the Winamp Scope trail fades by alpha blend, Settings pages cross-fade, presets (Select+X) and a Configure page with colour pickers, experimental Layered Wave options, saved tuned values and a code export; presets can be replaced from the METR section of tau-assets.bin.
+- **Diagnostics** (Settings > Diagnostics): runtime toggles and the audio tests in Check, plus FONT MEMORY and ICONS rows.
+- **Known:** seek acceleration while holding is untested; tempo above 1.75x still clicks; font sizes and icon use need more tuning (0.7).
+- Omega: persist id 29 (meter presets) and word 18 bits 20-22 (font) are new since v0.6.0-preview.1; ids 20-23 carry the saved meter tuning; the Diagnostics core is no longer shipped.
+
+## v0.6.0-preview.2 — 17 October 2026
+
+**Player 2.** The player firmware is rewritten (fw2/) and ships as one core, **TAU Preview**, which includes the diagnostics (Info, Check, report grids). The old Diagnostics core of preview.1 is not
+replaced: remove it. Needs the matching new bitstream (writable font memory, CORE_VERSION rev 27); the firmware refuses an older one.
+
+- **Fonts.** Tamzen Regular is the default; Tamzen Bold, Space Grotesk SemiBold and Bold are in Settings > Appearance > FONT (saved). Latin-1 accented text works; Japanese is not supported yet. Fonts live in the cold image and are loaded into a new writable font memory.
+- **Icons.** A 14-icon player strip is loaded and drawn through the palette blit (not yet used by the screens: transport icons still use the drawn ones; this comes in 0.7).
+- **Speed and Time Stretch.** SPEED (varispeed) and TEMPO (pitch-preserving, MP3 only) are separate rows, each with its own speed list; Normal only has 1.0x. FLAC plays at 1.00x only.
+- **FLAC** uses the new decoder (the old one is retired); gapless FLAC verified with a 1 kHz tone.
+- **Meters.** Double-buffered, flicker-free redraws (Chladni and Layered Wave compose off screen), the Winamp Scope trail fades by alpha blend, Settings pages cross-fade, presets (Select+X) and a Configure page with colour pickers, experimental Layered Wave options, saved tuned values and a QR/grid export of a tuned config; presets can be replaced from the METR section of tau-assets.bin (also over 4 KiB).
+- **Audio diagnostics are back:** runtime toggles under Diagnostics and the audio tests in Check (plus FONT MEMORY and ICONS rows).
+- **Known:** seek acceleration while holding is untested; tempo above 1.75x still clicks; font sizes and icon use need more tuning (0.7).
+- Omega: persist id 29 (meter presets) and word 18 bits 20-22 (font) are new; the card layout is unchanged from preview.1 except that `TAU Preview Diagnostics` is no longer shipped.
+
+## v0.6.0-preview.1 — 9 October 2026
+
+First release on the new channel scheme. **TAU Preview** and **TAU Preview Diagnostics** install beside your existing TAU (they have their own entries in the Select Core list and read the music, covers
+and theme file already on your card, so nothing is copied twice). Each core shows its full version on the splash and under Menu > Info. The next alpha of the 0.6.0 line, `v0.6.0-alpha.4`, was never published: everything in it is in this release too (listed below it).
+
+- **Halcyon EQ replaces the old equalizer.** The fixed-preset EQ (eight presets) is removed from the hardware and the firmware. Settings > Audio > HALCYON EQ opens the full page (response
+  curve, six sliders, presets in the header: Up from the first slider selects the preset area, Left/Right change it); **Y** steps the Halcyon preset. Your saved EQ choice is now the Halcyon
+  preset. Needs the matching new bitstream (older ones show NO UNIT and play without an EQ).
+- **No more flutter on the EQ, and a softer preset change.** The engine's sample clock is exact now (the 30 Hz flutter on every non-flat setting is gone) and stereo pairs can no longer
+  tear. A preset change fades the sound down and up over about 16 ms (it was about 5 ms and could pop). The same fade is used by the Cymo resampler and 16-bit output switches in the Diagnostic Build.
+- **Audiobook tempo (MP3, Settings > Playback > TEMPO) is in the normal core now**, not only the Diagnostic Build. It keeps the pitch and is clean to about 1.50x; at 1.75x there are still occasional clicks (known, being worked on).
+- **Report codes are the pixel grid only** (Check, Info export): the QR code encoder is removed to free memory; press X on a report to switch between the robust and the lossless grid. Tau Omega
+  reads the grid.
+- **Info page export in the normal core** (A on Menu > Info shows every Info row as a report code).
+- **Smaller:** the hardware gain stage no longer pops when switched off after a track start; ReplayGain, dB volume and the rest of alpha.4 are unchanged.
+- **Diagnostic Build:** Diagnostics are a build-time register now (smaller builds can drop pieces); the Info page's I2S JITTER average wraps after about a minute of playback (cosmetic). `Track changes`
+  still fails in Check (a test issue).
+- **Installing:** use Tau Omega or copy the zips to the card root; the files that belong to a core now live in that core's own folder, so a Preview and a Stable core can never overwrite each other.
+- Omega: the tau-compat.json of this release describes the new per-core file layout; the persisted EQ choice (id 16) now holds the Halcyon preset, and ids 20-23 keep carrying the report as before.
+
+## v0.6.0-alpha.4 — 7 October 2026
+
+- **Simpler menu.** The Settings group is gone: Diagnostics (Diagnostic Build only) and Info are now on the main menu, with Info always last.
+- **Volume is a dB taper with a click-free ramp** (100 positions over 60 dB); hold Up/Down repeats the volume. Saved
+  volumes sound quieter than before (same number, different loudness); the default is higher to compensate.
+- **ReplayGain** (Off / Track / Album) under Settings > Audio, reading ID3 and FLAC tags, attenuate-only. The setting
+  now saves correctly and the row is shown in the menu.
+- **FLAC 24-bit files are rounded, not truncated**, when reduced to 16 bits (removes a small DC offset and distortion).
+- **Cymo resampler** and the 16-bit output switch toggle without a level step (Diagnostic Build); hardware gain stage
+  and 24-bit EQ coefficient groundwork are in the firmware as probes that stay off on this bitstream.
+- **Report codes** (Check, Info) are shown as a pixel grid by default, with the QR code one press away.
+- **Diagnostic Build:** gap-latency and hardware-gain Info rows, MP3 LAME gapless tag parsing, Halcyon EQ data format
+  and tools (not active), more Check measurements. `Track changes` still fails in Check (a test issue).
+- **Info page export in the normal core.** Press A on Menu > Info to show every Info row as a report code (pixel grid, X for the QR code), as the Diagnostic Build already did.
+- **Audiobook tempo** (MP3 only, Settings > Playback > TEMPO) is now in the Diagnostic Build; it works to about 1.75x and clicks at 2.00x.
+- The bitstream is the same as alpha.3 (no hardware changes).
+
+## v0.6.0-alpha.3 — 4 October 2026
+
+- **MP3 playback uses much less CPU.** On a stereo MP3 at 1.00x the processor was busy 55% of the time; it is now
+  44%. Two firmware changes: the hardware synthesis-window unit now works while the CPU runs the next slot's
+  software transform (the CPU used to wait for it), and audio samples are pushed to the output FIFO in bursts
+  instead of one status check per sample. Output is sample-for-sample identical (checked against the old path on
+  the host); the extra headroom goes to meters, speed changes and the UI. The bitstream is the same as alpha.2.
+- **Diagnostic Build: stress tests no longer fill the screen with noise.** The SDRAM stress pump overlapped the
+  second display buffer used by the double-buffered UI; it now works on memory nothing else uses.
+- **Diagnostic Build: new report and measurement tools.** Check and the Info page can show their report as a pixel
+  grid as well as a QR code, and the Check report now includes CPU load over the audio window and where the time
+  goes (decode, meters, sample push).
+- **Release tooling.** Packaging now refuses a firmware that the bitstream would refuse at boot (the cause of the
+  alpha.1 normal core not starting).
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue). Audiobook tempo is
+  built but not in this release.
+
+## v0.6.0-alpha.2 — 4 October 2026
+
+- **FLAC decodes much faster.** The residual (Rice) decoding was rewritten around a 32-bit window with an
+  inline leading-zero count. On a hard 48 kHz stereo file (415 kbps) the CPU went from fully busy (0% idle,
+  12 FIFO stalls in 30 s) to 45% idle with none. Output is bit-identical to before (checked on random
+  streams and on eight real files, including a 96 kHz 24-bit one). Speed changes remain MP3 only.
+- **Layered Wave meter**, a new nested-envelope meter, plus fixes for meter flicker and for the Configure
+  screen; Settings and fullscreen meters no longer steal time from the audio.
+- **Start opens Settings** (on release), **Start+Y** jumps to Meter > Configure; **hold Up/Down repeats the
+  volume**; the speed list goes up to 2.00x for MP3.
+- **Better diagnostics.** A HEADROOM row on the Info page (idle CPU, worst second, projected maximum speed),
+  a library-file-missing screen, CPU LOAD and fullscreen label fixes. The Diagnostic Build also counts every
+  FIFO stall and reports the heap peak in Check.
+- **Audio hand-off fix (bitstream).** The resampler's input hand-off no longer repeats or drops samples
+  (hardware-confirmed); the resampler is on by default only in the Diagnostic Build, for 44.1 kHz files at
+  1.00x.
+- **Cover and splash colours fixed.** Cover art and the meter previews had their palette shifted by one
+  slot (a hardware write-address skew); the hardware now writes the right slot and the firmware detects
+  which behaviour it is on. The boot splash uses a 256-colour palette. Meter previews now draw correctly in
+  both display buffers, and the embedded-JPEG cover fallback uses less on-chip RAM.
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue). Audiobook
+  tempo is built but not in this release.
+
+## v0.6.0-alpha.1 — 30 September 2026
+
+- **FLAC decoding on hardware.** Like MP3's synthesis filterbank in v0.5.0, FLAC's LPC/FIXED sample
+  reconstruction (the largest single share of FLAC decode cost) now runs in the FPGA, bit-exact with the
+  software version and falling back to it if the unit ever disagrees.
+- **More on-chip memory and a faster clock.** The CPU's on-chip RAM was reorganised (freeing 64 KB) and the
+  system clock raised from 60 to 66.667 MHz -- both built and closed together on real hardware with real
+  timing margin, and firmware now fits the smaller RAM comfortably (15.8 KB of free heap to spare).
+- **Settings persist properly.** Theme and Dark/Light mode are now remembered across a restart (previously
+  reset every time); two leftover "Load Audio File" / "Load Playlist" actions from the old playlist mode
+  are gone from Core Settings.
+- **Meter fixes.** Fullscreen Winamp Bars no longer clip at 127 rows -- the hardware field behind them was
+  widened. Winamp Scope's fade trail no longer accumulates into a solid smear on repeated use. The
+  Chladni-pattern meter no longer goes blank after leaving Settings, fullscreen or the Configure page. All
+  four live-preview meters (Bars, Scope, Chladni, VU Master) now animate correctly on the Configure page
+  instead of freezing. The MASTER VU meter, listed since v0.5.0 but never actually wired in, now works.
+- **Smoother menu transitions.** Settings menu changes now cross-fade using the display hardware's own
+  alpha blend instead of a software colour trick.
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue, playback is
+  unaffected; carried over from v0.5.0). Meter preset choices (not theme/mode) still reset on restart --
+  there is persistence storage to spare, but the display file's own hard 16-entry cap left them out of
+  this round. Speeds above 1.20x remain Diagnostic Build only.
 
 ## v0.5.0 — 27 September 2026
 

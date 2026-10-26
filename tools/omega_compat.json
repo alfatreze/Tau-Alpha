@@ -1,0 +1,23 @@
+{
+  "min_omega": "0.3.0",
+  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read.",
+  "obsolete": [
+    {
+      "core_id": "alfatreze.TAU",
+      "path": "Assets/tau/alfatreze.TAU/TAU.json"
+    },
+    {
+      "core_id": "alfatreze.TAU",
+      "path": "Assets/tau/common/tau.rom"
+    },
+    {
+      "core_id": "alfatreze.TAU",
+      "path": "Assets/tau/common/tau-cold.bin"
+    },
+    {
+      "core_id": "alfatreze.TAU",
+      "path": "Assets/tau/common/tau-loading.bin"
+    }
+  ],
+  "obsolete_why": "Card paths an update must remove, per core (role obsolete in that core's layout). A path may only be listed once the release no longer ships or uses it. The two TAU*.json files were inert instance files written by the packagers until 2026-10-08. The common/ copies of tau.rom, tau-cold.bin and tau-loading.bin became obsolete when those files moved to the core's own folder (H4, 2026-10-08); an installer removes them only when no other core on the platform still reads them from common/."
+}

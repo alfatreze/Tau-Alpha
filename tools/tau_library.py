@@ -22,6 +22,9 @@ import unicodedata
 import zlib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tau_details
+
 ROOT_PREFIX = "/Assets/tau/common/"
 MAGIC = 0x42494C54          # 'TLIB'
 VERSION = 1
@@ -47,6 +50,26 @@ def ascii_text(s, limit=63):
     return " ".join(d.split())[:limit].strip()
 
 
+_TYPO = {0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'", 0x201C: '"', 0x201D: '"', 0x201E: '"', 0x2013: "-", 0x2014: "-", 0x2212: "-", 0x2026: "...", 0x00A0: " ", 0x2022: "*", 0x2122: "TM", 0x20AC: "EUR"}
+
+
+def latin1_text(s, limit=63):
+    """Display text for the index (docs/features/FONT_SPEC.md 3.6): Latin-1, one byte per character. Code points up to U+00FF stay (the firmware draws the accented letters as their plain letter until the font memory
+    carries them), the common typographic ones are folded (curly quotes, dashes, the ellipsis), a letter that decomposes to a Latin-1 letter loses only its mark, anything else becomes '?'. A text with no real
+    character left (only '?' and spaces) is empty, so the caller falls back to the file name. Never splits a character; the limit counts characters."""
+    out = []
+    for c in unicodedata.normalize("NFC", s):
+        o = ord(c)
+        if o in _TYPO: out.append(_TYPO[o])
+        elif 0x20 <= o <= 0x7E or 0xA1 <= o <= 0xFF and o != 0xAD: out.append(c)
+        elif unicodedata.combining(c) or o == 0xAD or o < 0x20 or 0x7F <= o <= 0xA0: out.append(" " if o in (0x09, 0x0A, 0x0D, 0xA0) else "")
+        else:
+            base = "".join(x for x in unicodedata.normalize("NFKD", c) if not unicodedata.combining(x))
+            out.append(base if base and all(0x20 <= ord(x) <= 0x7E or 0xA1 <= ord(x) <= 0xFF for x in base) else "?")
+    r = " ".join("".join(out).split())[:limit].strip()
+    return r if r.replace("?", "").strip() else ""
+
+
 def ascii_name(s):
     """Same conversion as sync_media.ascii_part (names already converted on the card pass through unchanged)."""
     d = unicodedata.normalize("NFKD", s)
@@ -64,6 +87,7 @@ def sort_key(s):
         if t.startswith(art) and len(t) > len(art):
             t = t[len(art):]
             break
+    t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))     # a letter with a mark sorts as its plain letter
     cls = ord(t[0]) - 96 if t and "a" <= t[0] <= "z" else 0
     toks = tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in re.split(r"(\d+)", t) if x)
     return (cls, toks)
@@ -77,7 +101,11 @@ def nat(s):
 def _dec(enc, b):
     try:
         if enc == 0:
-            return b.decode("latin-1")
+            if all(x < 0x80 for x in b): return b.decode("latin-1")
+            try: return b.decode("utf-8")                        # many taggers write UTF-8 under encoding 0: a strict decode that succeeds is the right reading (v1.5.0 of the upstream player does the same)
+            except UnicodeDecodeError: pass
+            try: return b.decode("cp1252")                       # else Windows-1252, the usual Latin-1 superset
+            except UnicodeDecodeError: return b.decode("latin-1")
         if enc == 1:
             return b.decode("utf-16")
         if enc == 2:
@@ -243,18 +271,26 @@ def scan(common, cache=None, playlists=False):
         rel = p.relative_to(common).as_posix()
         st = p.stat()
         key = f"{rel}|{st.st_size}|{st.st_mtime_ns}"
-        if cache is not None and key in cache:
-            tags, secs, fmt = cache[key]
+        if cache is not None and key in cache and len(cache[key]) > 3:
+            tags, secs, fmt, det = cache[key]
+            det = dict(det)
         else:
             try:
                 tags, secs, fmt = read_tags(p)
             except Exception as e:                               # unreadable tag: keep the file, use names
                 warns.append(f"{rel}: tags unreadable ({e})")
                 tags, secs, fmt = {}, 0, AUDIO[p.suffix.lower()]
+            try:
+                det = tau_details.extract(p)
+            except Exception as e:                               # unreadable technical data: the track still plays
+                warns.append(f"{rel}: details unreadable ({e})")
+                det = dict(codec=AUDIO[p.suffix.lower()], ch=2, bits=0, flags=0, rate=0, size=st.st_size, kbps=0, cover_kib=0, enc="")
             if cache is not None:
-                cache[key] = [tags, secs, fmt]
+                cache[key] = [tags, secs, fmt, det]
+        # the sidecar can appear without the audio file changing: always look again
+        det["flags"] = (det.get("flags", 0) & ~tau_details.F_SIDECAR) | (tau_details.F_SIDECAR if (p.parent / tau_details.SIDECAR).is_file() else 0)
         entries.append(dict(rel=rel, dir=rel.rpartition("/")[0], file=rel.rpartition("/")[2], tags=tags,
-                            secs=secs, fmt=fmt))
+                            secs=secs, fmt=fmt, det=det))
     pls = []
     if playlists:
         by_rel = {e["rel"]: i for i, e in enumerate(entries)}
@@ -307,7 +343,7 @@ class Pool:
     def add(self, s):
         if s not in self.idx:
             self.idx[s] = len(self.buf)
-            self.buf += s.encode("ascii") + b"\x00"
+            self.buf += s.encode("latin-1") + b"\x00"
         return self.idx[s]
 
 
@@ -321,7 +357,7 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
     albums = {}
     for i, e in enumerate(entries):
         t = e["tags"]
-        title = ascii_text(t.get("TIT2", "")) or ascii_text(re.sub(r"^[\d\s._-]+", "", Path(e["file"]).stem)) or "Track"
+        title = latin1_text(t.get("TIT2", "")) or ascii_text(re.sub(r"^[\d\s._-]+", "", Path(e["file"]).stem)) or "Track"
         disc = _num(t.get("TPOS"), 63)
         trk = _num(t.get("TRCK"), 1023)
         e["_title"], e["_tno"] = title, (disc << 10) | trk
@@ -336,11 +372,11 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
         first = entries[ids[0]]["tags"]
         artist = "Unknown Artist"
         for i in ids:
-            a = ascii_text(entries[i]["tags"].get("TPE2", "")) or ascii_text(entries[i]["tags"].get("TPE1", ""))
+            a = latin1_text(entries[i]["tags"].get("TPE2", "")) or latin1_text(entries[i]["tags"].get("TPE1", ""))
             if a:
                 artist = a
                 break
-        title = ascii_text(first.get("TALB", "")) or ascii_text(d.rpartition("/")[2]) or "Unknown Album"
+        title = latin1_text(first.get("TALB", "")) or ascii_text(d.rpartition("/")[2]) or "Unknown Album"
         year = next((y for y in (_year(entries[i]["tags"]) for i in ids) if y), 0)
         alb.append(dict(dir=d, ids=ids, artist=artist, title=title, year=year))
     art_names = sorted({a["artist"] for a in alb}, key=lambda s: (sort_key(s), s))
@@ -351,7 +387,7 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
         raise LibError(14, f"library too large: {n_tr} tracks, {n_al} albums, {n_ar} artists, {len(pls)} playlists")
     pool = Pool()
     root = pool.add(root_prefix)
-    tracks, track_new = bytearray(), {}
+    tracks, track_new, det_b = bytearray(), {}, bytearray()
     albums_b = bytearray()
     first_alb = {}
     for ai, a in enumerate(alb):
@@ -363,6 +399,9 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
             track_new[i] = len(tracks) // 16
             tracks += struct.pack("<IIHHHBB", pool.add(e["_title"]), pool.add(e["file"]), min(e["secs"], 65535),
                                   e["_tno"], ai, e["fmt"], 0)
+            if e.get("det"):
+                d = dict(e["det"]); d["enc"] = ascii_text(d.get("enc", ""), 40)
+                det_b += tau_details.pack(d, pool)
     artists_b = b"".join(struct.pack("<IHH", pool.add(n), *first_alb[i]) for i, n in enumerate(art_names))
     album_titles = [a["title"] for a in alb]
     track_titles = [entries[i]["_title"] for a in alb for i in a["ids"]]
@@ -395,6 +434,11 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
         table.append((len(out), len(body[name])))
         out += body[name]
     _align(out)
+    det_entry = (0, 0)
+    if n_tr and len(det_b) == n_tr * tau_details.REC:          # B-727: the optional details section (header bytes 112..119)
+        det_entry = (len(out), 16 + len(det_b))
+        out += tau_details.section(det_b)
+        _align(out)
     if len(out) > CAPS["file"] or len(pool.buf) > CAPS["strings"]:
         raise LibError(14, "index over the size caps")
     crc = zlib.crc32(bytes(out[HDR:])) & 0xFFFFFFFF
@@ -403,6 +447,7 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
     struct.pack_into("<HHHHII", out, 32, n_ar, n_al, n_tr, len(pls), root, 0)
     for k, (o, ln) in enumerate(table):
         struct.pack_into("<II", out, 48 + 8 * k, o, ln)
+    struct.pack_into("<II", out, 112, *det_entry)
     struct.pack_into("<I", out, 124, zlib.crc32(bytes(out[:124])) & 0xFFFFFFFF)
     return bytes(out)
 
@@ -443,10 +488,23 @@ def parse(data, sample_walk=True):
     for name, ln in want.items():
         if ix.sec[name][1] != ln:
             raise LibError(15, f"section {name} length {ix.sec[name][1]} != {ln}")
+    do, dl = struct.unpack_from("<II", data, 112)               # B-727: optional track details (older loaders ignore these bytes)
+    ix.details = None
+    if dl:
+        if do % 16 or do < HDR or do + dl > len(data) or dl != 16 + n_tr * tau_details.REC:
+            raise LibError(15, "details section out of range")
+        dm, dv, dr, dn, _z = struct.unpack_from("<4sHHII", data, do)
+        if dm != b"TDET" or dr != tau_details.REC or dn != n_tr:
+            raise LibError(15, "details section header")
+        ix.details = [tau_details.unpack(data[do + 16 + i * tau_details.REC:do + 16 + (i + 1) * tau_details.REC]) for i in range(n_tr)]
     so, sl = ix.sec["strings"]
     ix.strings = data[so:so + sl]
     if root >= sl:
         raise LibError(17, "root string out of range")
+    if ix.details:
+        for i, d in enumerate(ix.details):
+            if d["enc_off"] >= sl:
+                raise LibError(17, f"details {i}: encoder string out of range")
     ix.root = ix.str(root)
 
     def rec(name, size, fmt):
@@ -483,7 +541,7 @@ def _str(ix, off):
     if off >= len(ix.strings):
         raise LibError(17, f"string offset {off}")
     end = ix.strings.index(b"\x00", off)
-    return ix.strings[off:end].decode("ascii")
+    return ix.strings[off:end].decode("latin-1")
 
 
 Index.str = _str
@@ -587,6 +645,8 @@ def report(data):
     unk = sum(1 for t in ix.tracks if t[2] == 0)
     nt = sum(1 for t in ix.tracks if (t[3] & 1023) == 0)
     print(f"unknown duration {unk}  unknown track number (tile shows 00) {nt}")
+    if ix.details:
+        print(f"track details: {len(ix.details)} records of {tau_details.REC} B ({len(ix.details) * tau_details.REC + 16:,} B)")
 
 
 # ------------------------------------------------------------------ synthetic
@@ -594,7 +654,7 @@ _W = ("Amber Blue Cold Dawn Echo Fire Glass Hollow Iron Jade Kite Lunar Moss Neo
       "Umber Velvet Wild Xenon Yarn Zinc River Stone Night Ghost Paper Copper Ember Harbor Meadow Signal Static").split()
 
 
-def synth(tracks, albums, artists, seed=1, real=None):
+def synth(tracks, albums, artists, seed=1, real=None, details=False):
     rnd = random.Random(seed)
     entries = list(real or [])
     names = [" ".join(rnd.choice(_W) for _ in range(rnd.randint(1, 2))) + f" {i}" for i in range(artists)]
@@ -613,6 +673,11 @@ def synth(tracks, albums, artists, seed=1, real=None):
             entries.append(dict(rel=f"{d}/{t + 1:02d} {title}.mp3", dir=d, file=f"{t + 1:02d} {title}.mp3",
                                 tags=dict(TIT2=title, TPE1=art, TPE2=art, TALB=alb, TRCK=f"{t + 1}/{per[a]}",
                                           TYER=str(1970 + a % 50)), secs=rnd.randint(90, 480), fmt=1))
+            if details:                                          # B-727: plausible, deterministic technical data for the section tests
+                fl = rnd.randint(0, 255)
+                entries[-1]["det"] = dict(codec=1, ch=rnd.choice((1, 2)), bits=0, flags=fl, rate=rnd.choice((44100, 48000, 32000)), size=rnd.randint(1 << 20, 1 << 26),
+                                          kbps=rnd.choice((96, 128, 192, 256, 320)), cover_kib=rnd.choice((0, 36, 156, 1800)), tg=rnd.randint(-900, 600), ag=rnd.randint(-900, 600),
+                                          tp=rnd.randint(1000, 40000), ap=rnd.randint(1000, 40000), delay=576, pad=rnd.randint(0, 2000), enc=rnd.choice(("", "LAME3.100", "LAME4.0", "Lavf58.76.100")))
             left -= 1
     return entries
 
@@ -666,7 +731,7 @@ def main(argv=None):
     b = sub.add_parser("build")
     b.add_argument("common", nargs="?")
     b.add_argument("--core")
-    b.add_argument("--card", default="/Volumes/Pock")
+    b.add_argument("--card", default=os.environ.get("TAU_CARD", "/Volumes/CARDWRITE"))
     b.add_argument("--out")
     b.add_argument("--cache")
     b.add_argument("--playlists", action="store_true")

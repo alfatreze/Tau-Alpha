@@ -13,13 +13,16 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
- * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
+/* The home is titled MENU: APPEARANCE, AUDIO, PLAYBACK, then (Diagnostic Build) DIAGNOSTICS = SET_DGN with Tests, Stress and the test switches, and INFO last. (alpha.4: the SETTINGS group
+ * that held Info and Diagnostics was removed; both moved up to the home.) The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
-enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_N };
-#if TAU_DIAGNOSTIC
-static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
+enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
+enum { CH_COLOUR = 0, CH_METER, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
+#ifndef TAU_INFO_EXPORT
+#define TAU_INFO_EXPORT 1                /* the Info page's report-code export (A on the Info page): in the normal core too since alpha.4 (INFO_EXPORT=0 in fw/build.sh turns it off) */
+#endif
+#if TAU_INFO_EXPORT
+static uint8_t info_rep_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
 
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
@@ -38,9 +41,17 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #endif
 #define SET_METERSWEEP_PG ((uint8_t)(SET_BLITTEST_PG + 1u))   /* Meter cost sweep, B-301 (fw/suite.inc) */
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
+#define SET_PIXGRID_PG ((uint8_t)(SET_METERTRACE_PG + 1u))    /* Pixel grid fidelity test, barcode study (fw/suite.inc) */
+#endif
+#if TAU_HALCYON_FW
+#if TAU_DIAGNOSTIC
+#define SET_HAL_PG ((uint8_t)(SET_PIXGRID_PG + 1u))    /* Halcyon: six controls and the live response curve (fw/halcyon_page.inc) */
+#else
+#define SET_HAL_PG ((uint8_t)(SET_WVIZCFG_PG + 1u))
+#endif
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS, TG_RATES };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -48,7 +59,10 @@ typedef struct { const char *label; uint8_t type, arg; } set_row_t;
 static const set_row_t set_home_rows[] = {
     { "APPEARANCE", RT_GROUP, SET_APPEAR }, { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
-    { "SETTINGS", RT_GROUP, SET_DIAG },
+#if TAU_DIAGNOSTIC
+    { "DIAGNOSTICS", RT_GROUP, SET_DGN },
+#endif
+    { "INFO", RT_GROUP, SET_INFO_PG },            /* always the last row of the menu */
 };
 static const set_row_t set_appear_rows[] = {
     { "COLOUR", RT_CHOICE, CH_COLOUR }, { "THEME", RT_CHOICE, CH_THEME }, { "MODE", RT_CHOICE, CH_MODE },
@@ -56,29 +70,59 @@ static const set_row_t set_appear_rows[] = {
     { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
-    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
-static const set_row_t set_play_rows[] = {
-    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED } };
-static const set_row_t set_diag_rows[] = {
-    { "INFO", RT_GROUP, SET_INFO_PG },
-#if TAU_DIAGNOSTIC
-    { "DIAGNOSTICS", RT_GROUP, SET_DGN },
+    { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG }
+#if TAU_HALCYON_FW
+    , { "HALCYON EQ", RT_GROUP, SET_HAL_PG }
 #endif
 };
-/* Diagnostic Build only: reached from SETTINGS > DIAGNOSTICS. */
+static const set_row_t set_play_rows[] = {
+    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED }
+#if TAU_TEMPO
+    , { "TEMPO", RT_CHOICE, CH_TEMPO }
+#endif
+};
+/* Diagnostic Build only: reached from MENU > DIAGNOSTICS. */
 static const set_row_t set_dgn_rows[] = {
 #if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
     { "TESTS", RT_GROUP, SET_TESTS },
+#endif
+#if TAU_DX_STRESS
     { "STRESS", RT_GROUP, SET_STRESS },
+#endif
+#if TAU_FX_ALL_SPEEDS
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
+#endif
+#if TAU_FX_ACCEPT_ALL_RATES
     { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
+#endif
+#if TAU_FX_CYMO_TOGGLE
+    { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
+#endif
+#if TAU_FX_OUT16_TOGGLE
+    { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
+#endif
+#if TAU_FX_GAIN_TOGGLE
+    { "HW GAIN", RT_TOGGLE, TG_GAIN },
+#endif
+#if TAU_DX_CHECK
     { "CHECK", RT_GROUP, SET_CHECK_PG },
-#if MP3_PROFILE || FLAC_PROFILE
+#endif
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
+#if TAU_DX_BLIT_TEST
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
+#endif
+#if TAU_DX_SWEEPS
     { "METER SWEEP", RT_GROUP, SET_METERSWEEP_PG },
+#endif
+#if TAU_DX_METER_TRACE
     { "METER TRACE", RT_GROUP, SET_METERTRACE_PG },
+#endif
+#if TAU_DX_PIXEL_GRID_TEST
+    { "PIXEL GRID TEST", RT_GROUP, SET_PIXGRID_PG },
+#endif
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -96,34 +140,35 @@ static const set_row_t set_stress_rows[] = {
     { "LEVEL", RT_CHOICE, CH_STRESS }, { "SOAK", RT_CHOICE, CH_SOAK },
     { "STATUS", RT_GROUP, SET_STAT_PG } };
 static const set_row_t *const set_menu_rows[SET_MENUS] = {
-    set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
+    set_home_rows, set_appear_rows, set_audio_rows, set_play_rows,
     set_tests_rows, set_stress_rows, set_dgn_rows };
+/* B-605: the Audio and Playback counts were hard-coded (2u, 4u): REPLAYGAIN, the third Audio row added in B-599, was never drawn or selectable. Always derive them from the tables. */
 static const uint8_t set_menu_n[SET_MENUS] = {
-    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
+    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), SET_COUNT(set_audio_rows), SET_COUNT(set_play_rows), SET_COUNT(set_tests_rows),
     SET_COUNT(set_stress_rows), SET_COUNT(set_dgn_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
-    "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "SETTINGS", "TESTS", "STRESS", "DIAGNOSTICS" };
+    "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "TESTS", "STRESS", "DIAGNOSTICS" };
 /* Where B goes from each menu page. */
-static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
-    SET_DGN, SET_DGN, SET_DIAG };
-static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE" };
-static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR };
-/* Only the speeds that play cleanly are offered (A-133/A-135: 1.30x and above degrade and 1.25x micro-stuttered on some
- * material, the decoder budget at 60 MHz allows about 1.20x). The higher entries stay in speed_num/speed_den in
- * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
-#define SET_SPEED_SHOWN 5u
+static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME,
+    SET_DGN, SET_DGN, SET_HOME };
+static const char *const set_ch_title[] = { "COLOUR", "METER", "REPEAT",
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO", "REPLAYGAIN" };
+static const uint8_t set_ch_parent[] = { SET_APPEAR, SET_APPEAR, SET_PLAY,
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY, SET_AUDIO };
+_Static_assert(sizeof(set_ch_title) / sizeof(set_ch_title[0]) == CH_N, "set_ch_title must have exactly one entry per CH_ value, in enum order");
+_Static_assert(sizeof(set_ch_parent) / sizeof(set_ch_parent[0]) == CH_N, "set_ch_parent must have exactly one entry per CH_ value, in enum order");
+/* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
+ * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
+ * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
+ * work). Above 1.20x is not a promise for every file: a stereo MP3 has about a quarter of the CPU free at 1.50x. 2.50x stays behind Diagnostics > ALL SPEEDS. A FLAC
+ * always plays at 1.00x (B-554). The speed table itself lives in player.c. */
+#define SET_SPEED_SHOWN 9u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
-#if TAU_DIAGNOSTIC
 static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X",
     "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
-#else
-static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X" };
-#endif
-/* Diagnostic Build only: Diagnostics > ALL SPEEDS offers the whole speed table (up to 2.50x) in the speed list, as a
- * test bed for the audio work. Not persisted; off at every start; turning it off returns a fast speed to 1.00x. */
-#if TAU_DIAGNOSTIC
+/* Diagnostic Build only: Diagnostics > ALL SPEEDS adds the last table entry (2.50x) to the speed list, as a
+ * test bed for the audio work. Not persisted; off at every start; turning it off returns 2.50x to 1.00x. */
+#if TAU_FX_ALL_SPEEDS
 static uint8_t set_speed_all;
 #define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
 #else
@@ -151,10 +196,17 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 _Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
+/* B-410 (owner-reported: "when the menu is visible and overflows it will overlay the action bar"):
+ * set_draw_menu() drew every row in set_menu_rows[p] unconditionally, with no bound against the
+ * visible list area -- unlike set_draw_choice()'s own set_ch_top[]/set_ch_follow() scrolling, which
+ * this mirrors. Never hit before because no plain menu had grown past SET_MENU_VIS rows until the
+ * Diagnostics submenu (set_dgn_rows) did. */
+static uint8_t set_top[SET_MENUS];
+#define SET_MENU_VIS (SET_LIST_H / SET_MENU_ROW_H)
 
 #include "meter_thumbs.h"
-_Static_assert(VIZ_COUNT == 16 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
-               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14 && VIZ_VU_MASTER == 15,
+_Static_assert(VIZ_COUNT == 17 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
+               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14 && VIZ_VU_MASTER == 15 && VIZ_LAYERED_WAVE == 16,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 
 /* Theme step 0c: the previews are stored as neutral greys (plus an accent-blue placeholder in the newest three), so their palette is
@@ -224,11 +276,22 @@ _Static_assert(TIMG_PLANE_Y == THUMB_STASH_Y + THUMB_LIVE_SLOTS * METER_THUMB_H 
 #endif
 static uint8_t thumb_flat_ready;
 
+/* B-412 (audit after B-410/B-411): same lazy-cache-marked-ready-regardless-of-success pattern as
+ * ui_bg_restore()'s own bug, though its only real caller (set_draw_thumb(), reached from Settings'
+ * own choice-list draw or wvcfg_preview_tick(), both of which already set ov_draw=1 around their own
+ * call) means FB_HELD() should already be false whenever this genuinely runs -- fixed anyway so it
+ * can't become a real bug if a future caller reaches it from a context that doesn't. */
 COLD_FN static void set_thumb_flat_build(void)
 {
+    if (FB_HELD()) return;
+    /* B-572: the index plane must live in buffer 0, where set_draw_thumb()'s CLUT blit reads it (blit-mode commands follow the sticky bases,
+     * never R_DBUF_CPU). fb_rect() follows R_DBUF_CPU, which Settings leaves on the DISPLAYED buffer (0 or 1 depending on how many chrome
+     * redraws the session has had), so build with it forced to 0 and restore it once the commands have really executed. */
+    const uint32_t was_cpu = ui_bg_cur_buf();
+    if (was_cpu) REG(R_DBUF_CPU) = 0u;
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
 #if TAU_ART_TIMG
-        if (viz == VIZ_VU_MASTER) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
+        if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
 #endif
         const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
         uint32_t pos = 0;
@@ -247,6 +310,7 @@ COLD_FN static void set_thumb_flat_build(void)
         }
     }
     fb_wait();
+    if (was_cpu) { fb_fence(); REG(R_DBUF_CPU) = was_cpu; }
     thumb_flat_ready = 1u;
 }
 
@@ -254,7 +318,7 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
 {
     if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
 #if TAU_ART_TIMG
-    if (viz == VIZ_VU_MASTER) { set_draw_thumb_soft(x, y, viz); return; }                  /* excluded from the compacted stash, see thumb_slot() */
+    if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) { set_draw_thumb_soft(x, y, viz); return; }                  /* excluded from the compacted stash, see thumb_slot() */
 #endif
     blit_probe_ensure();                                                                    /* B-162: first need, not at boot */
     if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
@@ -262,10 +326,17 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     uint16_t pal[8];
     set_thumb_pal(viz, pal);
     fb_clut_load(pal, 8u);
+    /* B-572: source = the plane in buffer 0, destination = the buffer the page is being drawn into (R_DBUF_CPU: the displayed one, or the
+     * back buffer during the menu cross-fade render). fb_fence() makes the blit EXECUTE before the bases are restored and before the next
+     * preview reloads the (single, shared) CLUT: fb_clut_load() only waits for FIFO space, so without it the previews drew with each
+     * other's palettes. */
+    fb_set_bases(0u, ui_bg_cur_buf() ? DBUF_BASE1_W : 0u);
     fb_cblit(0u, THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
+    fb_fence();
+    fb_set_bases(0u, 0u);
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 /* ---- Timed soak (Diagnostic Build): runs the stress pump for N minutes beside normal playback,
  * then stops it and reports PASS (no data mismatch or timeout) or FAIL. Late underruns are counted
  * and shown on the status page but are not part of the verdict (at R3 they can be CPU starvation). ---- */
@@ -298,6 +369,7 @@ static void dg_soak_tick(void)
 }
 #else
 #define dg_soak_active() 0u
+#define dg_soak_cancel() ((void)0)
 #endif
 
 COLD_FN static uint32_t set_ch_count(uint32_t c)
@@ -305,9 +377,9 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     /* VIZ_SEL_COUNT, not VIZ_COUNT: retired meters (cassette, magic eye, L/R levels, mirrored bars)
      * have no row, so the choice list offers fewer rows than the enum has values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
-         : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
+         : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
-         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : 5u;
+         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : c == CH_RG ? (uint32_t)RG_MODES : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -318,26 +390,35 @@ COLD_FN static uint32_t set_blank_idx(void)
 COLD_FN static uint32_t set_ch_active(uint32_t c)
 {
     if (c == CH_STRESS) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         return stress_on ? stress_level : 0u;
 #else
         return 0u;
 #endif
     }
     if (c == CH_SOAK) return dg_soak_active();
-    if (c == CH_SPEED) return speed_idx;
+    if (c == CH_SPEED) return speed_eff();      /* a FLAC always plays at 1.00x (B-554) */
     if (c == CH_THEME) return th_theme;
     if (c == CH_MODE) return th_pol;
-    return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
+    if (c == CH_RG) return rg_mode;
+#if TAU_TEMPO
+    if (c == CH_TEMPO) return tempo_idx;
+#endif
+    return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode)
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
 COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
 {
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[viz_sel_to_mode(i)]
-         : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
+         : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
-         : c == CH_MODE ? (i ? "LIGHT" : "DARK") : set_blank_nm[i];
+         : c == CH_MODE ? (i ? "LIGHT" : "DARK")
+         : c == CH_RG ? (i == RG_TRACK ? "TRACK" : i == RG_ALBUM ? "ALBUM" : "OFF")
+#if TAU_TEMPO
+         : c == CH_TEMPO ? tempo_txt[i]
+#endif
+         : set_blank_nm[i];
 }
 COLD_FN static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -348,25 +429,35 @@ COLD_FN static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_
 COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
 {
     if (c == CH_STRESS || c == CH_SOAK) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         if (c == CH_STRESS) { dg_soak_cancel(); stress_set_level((uint8_t)i); }
         else                dg_soak_start(i);
 #endif
         return;
     }
     if (c == CH_SPEED) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("SPEED: MP3 ONLY"); return; }   /* B-554: no speed for FLAC */
+#if TAU_TEMPO
+        tempo_idx = 0u;                          /* B-558: choosing a varispeed speed turns tempo off */
+#endif
         speed_idx = (uint8_t)i;
         pcm_rate_apply(track_hz);
         ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
         ui_mode_dirty = 1u;
         return;                                  /* not persisted */
     }
-    if (c == CH_THEME || c == CH_MODE) {          /* session-only (step 0b): reapplies every colour, nothing persisted */
-        if (c == CH_THEME) th_theme = (uint8_t)i; else th_pol = (uint8_t)i;
-        th_apply();
-        ui_last_sec = 0xFFFFFFFFu;
-        return;
+#if TAU_TEMPO
+    if (c == CH_TEMPO) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("TEMPO: MP3 ONLY"); return; }
+        tempo_idx = (uint8_t)i;
+        if (i) speed_idx = SPEED_1X;             /* tempo and varispeed exclude each other */
+        tempo_cfg_key = 0u;                      /* the stretcher starts again at the next frame */
+        pcm_rate_apply(track_hz);
+        ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
+        ui_mode_dirty = 1u;
+        return;                                  /* not persisted */
     }
+#endif
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
         ui_accent = th_accent_of(i);
@@ -380,12 +471,25 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
             wave_drawn[k] = 0xFFu; wave_pk_drawn[k] = 0xFFu;
             for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
         }
-    } else if (c == CH_EQ) {
-        eq_idx = (uint8_t)i;
-        eq_apply = 1u;
     } else if (c == CH_REPEAT) {
         rep_mode = (uint8_t)i;
         ui_mode_dirty = 1u;
+    } else if (c == CH_RG) {
+        rg_mode = (uint8_t)i;                    /* B-599: ReplayGain Off / Track / Album; takes effect now, saved with the theme polarity word */
+        rg_update();
+    } else if (c == CH_THEME || c == CH_MODE) {
+        /* B-416 (owner-reported: theme and mode fail to persist across a restart, while colour and
+         * meter preset both pass): this comment used to say "session-only (step 0b): reapplies every
+         * colour, nothing persisted" and returned immediately -- true before persist widening (step
+         * 0d) existed, stale ever since. SW_THEME/SW_POL are genuinely saved/loaded via
+         * set_wr32()/set_rd32() in settings_save()/settings_load() (fw/settings.inc), but nothing
+         * ever triggered that save for THIS specific change: the old early `return` skipped the same
+         * settings_mark_dirty() call every other branch here reaches at the bottom. Fixed by moving
+         * this into the same if/else-if chain as CH_COLOUR/CH_METER/CH_EQ/CH_REPEAT instead of being
+         * a separate block with its own return, so it falls through the identical way they do. */
+        if (c == CH_THEME) th_theme = (uint8_t)i; else th_pol = (uint8_t)i;
+        th_apply();
+        ui_last_sec = 0xFFFFFFFFu;
     } else {
         blank_min = set_blank[i];
         ui_blank_touch();
@@ -398,7 +502,7 @@ COLD_FN static void set_toggle(uint32_t t)
 {
     if (t == TG_ART) {
         art_toggle = 1u;                         /* the main loop applies it, as for the hold */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ALL_SPEEDS
     } else if (t == TG_SPEEDS) {
         set_speed_all = (uint8_t)!set_speed_all;
         if (!set_speed_all && speed_idx >= SET_SPEED_SHOWN) {
@@ -408,12 +512,48 @@ COLD_FN static void set_toggle(uint32_t t)
             ui_mode_dirty = 1u;
         }
         return;                                  /* not persisted */
+#endif
+#if TAU_FX_ACCEPT_ALL_RATES
     } else if (t == TG_RATES) {
         /* 2026-09-28, B-356: lets a FLAC above FLAC_MAX_RATE (measured, not chosen -- see the comment on
          * that constant) load and run for a real decode-stage Check reading, instead of being refused
          * outright. Off at every start, never persisted, same convention as TG_SPEEDS: this is a test
          * switch, not a listening preference. */
         flac_accept_all_rates = (uint8_t)!flac_accept_all_rates;
+        return;                                  /* not persisted */
+#endif
+#if TAU_FX_CYMO_TOGGLE
+    } else if (t == TG_CYMO) {
+        /* B-471..B-478: first-ever hardware test of the Cymo resampler's live audio path. No-op if the
+         * bitstream doesn't have it (the write lands on an unmapped register, same convention as every
+         * other inert-when-absent register here). Off at every start, never persisted -- a test switch,
+         * not a listening preference, same convention as TG_RATES/TG_SPEEDS. */
+        if (CYMO_RESAMP_READY()) {
+            gain_dip_begin();       /* B-620: no step into the listener's ears when the signal path changes */
+            cymo_live_toggle = (uint8_t)!cymo_live_toggle;
+            cymo_guard_apply(0u);   /* B-530: engages only for a 44.1 kHz file at 1.00x */
+            gain_dip_end();
+        }
+        return;                                  /* not persisted */
+#endif
+#if TAU_FX_OUT16_TOGGLE
+    } else if (t == TG_OUT16) {
+        /* B-602 (Cymo C3, F2): the Pocket's I2S slot carries 16 bits, the core's serializer sends the input shifted right by one (15 bits, 6 dB down).
+         * This switch sends the whole word (about +6 dB) for the hardware A/B. Lower the volume before switching it on. No-op on a bitstream without the
+         * switch. Off at every start, never persisted. */
+        if (hw_a16) {
+            gain_dip_begin();       /* B-620: the slot change is +-6 dB in one sample: dip, change, ramp back */
+            a16_on = (uint8_t)!a16_on;
+            REG(R_AUDIO_CFG) = a16_on ? 1u : 0u;
+            gain_dip_end();
+        }
+        return;                                  /* not persisted */
+#endif
+#if TAU_FX_GAIN_TOGGLE
+    } else if (t == TG_GAIN) {
+        /* B-615: A/B of the hardware gain stage against the firmware gain. ON is the default whenever the bitstream has the stage; this switch takes the gain back to software
+         * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
+        if (hw_gain) gain_handover((uint8_t)!vol_st.hw);          /* B-653: muted, flushed, then flipped (fw/gain_handover.h) */
         return;                                  /* not persisted */
 #endif
     }
@@ -430,7 +570,7 @@ COLD_FN static void set_volume(int dir)
 }
 
 static char *set_str(char *q, const char *s) { while (*s) *q++ = *s++; return q; }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
 #include "settings_diag.inc"
 #else
 #define dg_base_under 0u
@@ -442,7 +582,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     const char *s = "";
     char *q = o;
     if (r->type == RT_GROUP) s = "";
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
     else if (r->type == RT_ACTION) s = dg_res[r->arg];
 #else
     else if (r->type == RT_ACTION) s = "";
@@ -450,8 +590,17 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_CHOICE) s = set_ch_name(r->arg, set_ch_active(r->arg));
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ACCEPT_ALL_RATES
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
+#endif
+#if TAU_FX_OUT16_TOGGLE
+    else if (r->arg == TG_OUT16)  s = !hw_a16 ? "NO UNIT" : a16_on ? "ON" : "OFF";
+#endif
+#if TAU_FX_GAIN_TOGGLE
+    else if (r->arg == TG_GAIN)   s = !hw_gain ? "NO UNIT" : vol_st.hw ? "ON" : "OFF";
+#endif
+#if TAU_FX_CYMO_TOGGLE
+    else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
     while (*s) *q++ = *s++;
@@ -467,12 +616,19 @@ COLD_FN static void set_disc(uint32_t cx, uint32_t cy, uint32_t d, uint16_t colo
 COLD_FN static void set_draw_menu(uint32_t p)
 {
     const set_row_t *rows = set_menu_rows[p];
+    uint32_t n = set_menu_n[p], top = set_top[p];
     ov_frame(set_menu_title[p], "",
              p == SET_HOME ? "A OPEN   B CLOSE"
-             : p == SET_DIAG || p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
+             : p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
-    for (uint32_t i = 0; i < set_menu_n[p]; i++) {
-        uint32_t y = PL_UI_LIST_Y + i * SET_MENU_ROW_H;
+    if (n > SET_MENU_VIS) {                      /* scroll track, as set_draw_choice()'s own */
+        uint32_t tx = PL_UI_X + PL_UI_W - 11u, th = SET_LIST_H * SET_MENU_VIS / n;
+        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, SET_LIST_H, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
+        fb_rect(tx, PL_UI_LIST_Y - 2u + (SET_LIST_H - th) * top / (n - SET_MENU_VIS), 3u, th, ui_accent);
+    }
+    for (uint32_t k = 0; k < SET_MENU_VIS && top + k < n; k++) {
+        uint32_t i = top + k;
+        uint32_t y = PL_UI_LIST_Y + k * SET_MENU_ROW_H;
         int sel = (i == set_sel[p]);
         uint16_t bg = sel ? ui_accent : OV_BODY;
         if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 8u, SET_MENU_ROW_H - 4u, 5u, bg, OV_BODY);
@@ -534,25 +690,84 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 23u   /* B-370: +1 for FLAC LPC (last row).
+#define SET_INFO_ROWS 44u   /* +1 for GP AUDIT (pairs put for the track that ended against what it holds). */ /* before: 43u   /* +1 for GP SWAP (what the firmware saw at the last gapless display swap). */ /* before: 42u   /* +1 for UND CTX (ring fill and time since the last gapless hand-off at each FIFO-dry edge). */ /* before: 41u   /* B-747: +1 for RING (the hardware PCM ring: fill, lowest fill, pushed pairs, hold, FIFO-ran-dry count). */ /* before: 40u:   /* B-731: +1 for POLL GAP (longest CPU stalls between poll_input calls). B-725 earlier:   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+                              * update interval (clk_sys cycles) since reset, measured via a single-bit
+                              * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
+                              * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
+                              * after the MCLK PLL fix (B-457/B-460/B-463) measured no SINAD improvement on
+                              * real hardware (B-467): this checks whether the CDC itself, the one remaining
+                              * unverified layer, behaves as cleanly on real silicon as it does in
+                              * simulation (ideal: min/max within 1-2 cycles of CLK_HZ/44100). 0 on any
+                              * bitstream without TAU_I2S_DIAG. See sound_i2s.v/mp3_soc.v.
+                              * B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
-                                              * +1 for VBLANK (last row either way) -- proves the
+                                              * +1 for VBLANK -- proves the
                                               * new Helios/Talos H0 MMIO end to end (edges/sec,
                                               * should read this core's real vertical rate once a
                                               * TAU_VBLANK bitstream is installed; 0 on any other
                                               * bitstream, see vblank_sample()'s own comment).
                                               * The legacy-playlist-only PLAYLIST row was removed
-                                              * with legacy playlist mode. */
-static const char *const set_info_label[SET_INFO_ROWS] = {
+                                              * with legacy playlist mode. B-413: +1 for SCOPE BG
+                                              * (last row) -- live blend attempt/fail counters and
+                                              * ui_bg_ready, for the still-unexplained Winamp Scope
+                                              * trail "accumulation" report; see fw/player.c's
+                                              * wviz_scope_tick() for what increments them. B-433:
+                                              * +1 for STRIP -- Option A of the same investigation,
+                                              * reads back the gradient strip's actual SDRAM content
+                                              * against what ui_grad_at() expects right now, to tell
+                                              * a corrupted strip apart from a correct strip feeding a
+                                              * broken blend datapath; see dbg_strip_check() in
+                                              * fw/player.c. B-434: +1 for BASES -- owner confirmed
+                                              * STRIP always reads OK, so before JTAG this shows the
+                                              * sticky SRC_BASE/DST_BASE fields' shadow (write-only in
+                                              * hardware) at the moment of the last Scope trail blend;
+                                              * see fb_set_bases()'s own comment in fw/player.c. B-439:
+                                              * +1 for DBUF -- STRIP/BASES both read clean during a live
+                                              * repro, so this checks the last remaining addressing gap:
+                                              * whether R_DBUF_CPU (what RECT-class draws follow) and
+                                              * R_DBUF_DISP (what's actually shown) agree at the moment
+                                              * of the blend; see dbg_strip_check() in fw/player.c.
+                                              * B-440: +1 for ALPHA -- trail 5% and 80% look identical
+                                              * on hardware, so this shows fb_blend_on()'s own shadow of
+                                              * the last alpha value actually written (write-only in
+                                              * hardware); see fw/blit_probe.inc. B-444: +1 for PIXHIST
+                                              * -- JTAG polling proved it can't catch a real decay curve
+                                              * (a genuinely fading pixel converges too fast for any
+                                              * opportunistic poll), so this instead logs one fixed
+                                              * on-screen pixel's actual content across the last 4
+                                              * blend attempts; see dbg_pixel_log() in fw/player.c. */
+/* B-725: the pointer table lives in the cold image (only the Info page, which is cold code, reads it): 4 bytes per row less hot RAM; the label strings themselves stay in the ROM. */
+static const char set_info_label[SET_INFO_ROWS][16] COLD_DATA = {   /* fixed-width rows in the cold image: the label strings are no longer hot ROM (about 500 B) */
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
     , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
+    , "SCOPE BG"
+    , "STRIP"
+    , "BASES"
+    , "DBUF"
+    , "ALPHA"
+    , "PIXHIST"
     , "FLAC LPC"
+    , "I2S JITTER"
+    , "CYMO RESAMP"
+    , "METER DRAW"
+    , "LW COST"
+    , "HEADROOM"
+    , "REPLAYGAIN"
+    , "HW GAIN"
+    , "GAP LATENCY"
+    , "GAP HIST"
+    , "SLOT SETTLE"
+    , "POLL GAP"
+    , "RING"
+    , "UND CTX"
+    , "GP SWAP"
+    , "GP AUDIT"
     };
 static uint32_t set_info_at;
 
@@ -561,7 +776,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 {
     char *q = o;
     switch (i) {
-    case 0: q = set_str(q, APP_VER); break;
+    case 0: q = set_str(q, app_version()); break;      /* the full stamped version (tools/tau_version.py) */
     case 1: {
         uint32_t v = REG(R_VERSION);
         for (int sh = 24; sh >= 0; sh -= 8) q = ui_hex2(q, (uint8_t)(v >> sh));
@@ -592,7 +807,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         if (!art_bad_code) q = set_str(q, art_have ? "OK" : "-");
         else { q = set_str(q, "E"); q = ui_hex2(q, art_bad_code); }
         break;
-    case 8: q = ui_dec(q, pcm_under_n - dg_base_under); break;
+    case 8: q = ui_dec(q, pcm_under_n - dg_base_under);
+#if TAU_DX_UNDERRUN_LOG
+        q = set_str(q, " ALL "); q = ui_dec(q, ur_all.n);   /* B-546: every stall since boot; the first number is at most one per flush */
+#endif
+        break;
     case 9: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
     case 10:
         q = ui_dec(q, ld_head); *q++ = '/'; q = ui_dec(q, ld_size); *q++ = '/';
@@ -666,7 +885,69 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         else if (mf_n) { q = ui_dec(q, mf_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
         break;
-    default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
+    case 22:   /* SCOPE BG (B-413): ready=1/0 (the lazy gradient-strip cache flag), then attempted blends OK/failed
+                * (only counted when a blend was genuinely attempted -- use_gradient && trail && !paused all true) */
+        q = set_str(q, ui_bg_ready ? "READY " : "STALE ");
+        q = ui_dec(q, dbg_scope_blend_ok); q = set_str(q, " OK ");
+        q = ui_dec(q, dbg_scope_blend_fail); q = set_str(q, " FAIL");
+        break;
+    case 23:   /* STRIP (B-433): OK/BAD across the last 3-row sample, then actual vs expected RGB565 for
+                * each row (hex), so a mismatch is visible without needing a screenshot decode. */
+        q = set_str(q, dbg_strip_bad ? "BAD " : "OK ");
+        for (uint32_t k = 0; k < 3u; k++) {
+            q = ui_hex2(q, (uint8_t)(dbg_strip_actual[k] >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_actual[k]);
+            q = set_str(q, "/");
+            q = ui_hex2(q, (uint8_t)(dbg_strip_expect[k] >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_expect[k]);
+            q = set_str(q, " ");
+        }
+        break;
+    case 24:   /* BASES (B-434): dbg_strip_base_src/dst, the sticky SRC_BASE/DST_BASE fields' last-known
+                * value at the moment the last Scope trail blend fired (write-only in hardware, this is
+                * the only way to see them). Nonzero here would mean that blend and ui_bg_blend()'s own
+                * destination pre-read targeted the wrong SDRAM region -- worth chasing before JTAG. */
+        q = set_str(q, "S "); q = ui_hex2(q, (uint8_t)(dbg_strip_base_src >> 16));
+        q = ui_hex2(q, (uint8_t)(dbg_strip_base_src >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_src);
+        q = set_str(q, " D "); q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 16));
+        q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_dst);
+        break;
+    case 25:   /* DBUF (B-439): R_DBUF_CPU/R_DBUF_DISP's own buffer-select bits at the moment of the last
+                * Scope trail blend. RECT-class draws (the trace bars, the strip build) auto-follow
+                * R_DBUF_CPU; the blend's own fb_blit() does not -- if CPU != DISP here, the blend is
+                * silently updating a buffer nothing is looking at while the trace keeps drawing on the
+                * one that IS displayed, which is exactly "new draws pile up, nothing ever fades." */
+        q = set_str(q, "CPU "); q = ui_dec(q, dbg_dbuf_cpu);
+        q = set_str(q, " DISP "); q = ui_dec(q, dbg_dbuf_disp);
+        q = set_str(q, dbg_dbuf_cpu != dbg_dbuf_disp ? " MISMATCH" : " OK");
+        break;
+    case 26:   /* ALPHA (B-440): dbg_strip_alpha, the last value actually WRITTEN to the sticky BLEND
+                * field's alpha bits (write-only in hardware, fb_blend_on()'s own shadow). Owner reports
+                * trail 5% and 80% look identical -- if this reads a plausible nonzero value matching
+                * the configured trail, firmware's write is correct and hardware isn't applying it; if
+                * it reads 0 or something unexpected, the bug is firmware's own computation, not the
+                * blend datapath. */
+        q = set_str(q, "A "); q = ui_dec(q, dbg_strip_alpha);
+        break;
+    case 27:   /* PIXHIST (B-444/B-445): the last 3 raw mailbox reads (both 16-bit halves each -- (x,y)
+                * stays fixed so whichever half is this pixel's own stays the SAME half every read,
+                * telling it apart from its neighbour's unrelated content by which one actually trends)
+                * of one fixed on-screen pixel (the Scope box's own top-left corner), oldest first, then
+                * W=the row's current expected background. JTAG polling proved unable to catch a real
+                * decay curve (a genuinely fading pixel converges within ~4-5 frames, far faster than any
+                * opportunistic poll) -- this instead shows the actual frame-by-frame sequence: one half
+                * trending down toward W each entry means the blend IS decaying correctly; staying near a
+                * stuck bright value means it genuinely isn't. 3 entries, not 4 -- B-445: 4 overflowed
+                * set_draw_ro()'s fixed char v[40] row buffer and crashed hardware on real Pocket
+                * silicon the instant this row scrolled into view; always check the byte count against
+                * that buffer before adding to any row here. See dbg_pixel_log() in fw/player.c. */
+        for (uint32_t k = 0; k < DBG_PIXHIST_N; k++) {
+            uint32_t idx = (dbg_pixhist_pos + k) % DBG_PIXHIST_N;   /* oldest first */
+            uint32_t v = dbg_pixhist[idx];
+            q = ui_hex2(q, (uint8_t)(v >> 8)); q = ui_hex2(q, (uint8_t)v); q = set_str(q, "/");
+            q = ui_hex2(q, (uint8_t)(v >> 24)); q = ui_hex2(q, (uint8_t)(v >> 16)); q = set_str(q, " ");
+        }
+        q = set_str(q, "W"); q = ui_hex2(q, (uint8_t)(dbg_pixhist_want >> 8)); q = ui_hex2(q, (uint8_t)dbg_pixhist_want);
+        break;
+    case 28:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW
         if (!hw_lpc) { q = set_str(q, "NO UNIT"); break; }
         q = set_str(q, tau_lpc_hw_enable ? "HW " : "SW ");
@@ -676,6 +957,190 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
+    case 29: {   /* I2S JITTER (B-467): min/max/avg interval, in clk_sys cycles, between real I2S DAC-domain
+                  * sample updates since reset -- see this row's own SET_INFO_ROWS comment above. */
+        if (!(REG(R_I2S_DIAG_ST) & 1u)) { q = set_str(q, "NO UNIT"); break; }
+        uint32_t mm = REG(R_I2S_DIAG_MINMAX), cnt = REG(R_I2S_DIAG_CNT), sum = REG(R_I2S_DIAG_SUM);
+        q = ui_dec(q, mm & 0xFFFFu); q = set_str(q, "/");
+        q = ui_dec(q, mm >> 16); q = set_str(q, " AVG ");
+        q = ui_dec(q, cnt ? sum / cnt : 0u); q = set_str(q, " N");
+        q = ui_dec(q, cnt);
+        break;
+    }
+    case 31:   /* METER DRAW (docs/issues/022): redraws of the full-repaint meters (Layered Wave, Chladni), how many were composed off-screen and presented, F = drains
+                * that never finished (frame dropped), K = Layered Wave redraws skipped for the audio, last and worst time in microseconds (to engine completion in a Diagnostic Build), and Layered Wave's stride */
+        q = set_str(q, "D"); q = ui_dec(q, helios_n_draw);
+        q = set_str(q, " O"); q = ui_dec(q, helios_n_comp);
+        if (helios_n_fail) { q = set_str(q, " F"); q = ui_dec(q, helios_n_fail); }
+        if (hm_n_skip) { q = set_str(q, " K"); q = ui_dec(q, hm_n_skip); }          /* redraws skipped to protect the audio (rate limit / low FIFO) */
+        q = set_str(q, " "); q = ui_dec(q, helios_t_last / (CLK_HZ / 1000000u));
+        q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
+        q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
+        break;
+    case 33: {   /* HEADROOM (Cymo C0a, B-538/B-541/B-544): `<speed> I<latest>/<worst> O<io> WS<x.x>X`. I = idle share (spare CPU) of the latest / the worst second of plain
+                  * playback since the track or speed changed; seconds with a menu or this page up are not counted (redrawing is not decode load). O = the most any such
+                  * second spent blocked waiting for file bytes, in percent (FLAC only; a stall there, not CPU, can cause a click). WS = the speed the WORST second projects
+                  * with the tempo stretcher's ESTIMATED fixed cost taken off first (fw/headroom.h; an approximation, confirm with a run). */
+        if (idle || paused || hr.last > 99u) { q = set_str(q, "PLAY 10 S, NO MENUS"); break; }   /* needs a few seconds of plain playback first */
+        uint32_t n, d;
+        speed_ratio(&n, &d);
+        const uint32_t m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
+        /* <speed> I<latest idle>/<worst idle> O<worst file-wait> WS<x.x>X -- at most 25 characters: a longer value runs into the label (DEV 74 showed that). */
+        { const char *sm = speed_marker(); q = set_str(q, sm ? sm : "1.00x"); } q = set_str(q, " I");
+        q = ui_dec(q, hr.last); q = set_str(q, "/"); q = ui_dec(q, hr.min_idle);
+        q = set_str(q, " O"); q = ui_dec(q, hr.max_io);
+        q = set_str(q, " WS");
+        if (m1 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m1 / 100u); q = set_str(q, "."); q = ui_dec(q, (m1 % 100u) / 10u); }
+        q = set_str(q, "X");
+        break;
+    }
+    case 34: {   /* REPLAYGAIN (B-599, B-603): the mode, the gain this track's tags ask for, then H = which tags were found (bit 0 track, bit 1 album: 0 = no tag read from this file) and W = the saved settings word read back (bit 0 polarity, bits 4-5 the mode: 16 = Track, 32 = Album) */
+        q = set_str(q, rg_mode == RG_OFF ? "OFF" : rg_mode == RG_TRACK ? "TRACK" : "ALBUM");
+        if (rg_mode != RG_OFF && (rg_cur.have & 3u)) {
+            const uint8_t from_album = (rg_mode == RG_ALBUM && (rg_cur.have & 2u)) || !(rg_cur.have & 1u);
+            int32_t c = from_album ? rg_cur.album_cdb : rg_cur.track_cdb;
+            q = set_str(q, from_album ? " A" : " T");
+            if (c < 0) { q = set_str(q, "-"); c = -c; } else q = set_str(q, "+");
+            q = ui_dec(q, (uint32_t)c / 100u); q = set_str(q, "."); q = ui_dec(q, ((uint32_t)c % 100u) / 10u);
+        }
+        q = set_str(q, " H"); q = ui_dec(q, rg_cur.have);
+        q = set_str(q, " C"); q = ui_dec(q, ((rg_cap_hw ? rg_cap_hw : RG_UNITY) * 100u + 16384u) >> 15);   /* B-720: C = the largest total gain this track may have, in percent of unity (100 = no boost possible, 200 = +6 dB) */
+        q = set_str(q, " W"); q = ui_dec(q, set_rd32(SW_POL));
+        break;
+    }
+    case 35: {   /* HW GAIN (B-625): who owns the gain (HW = the hardware stage, SW = the firmware path, NO UNIT = bitstream without the stage), the target and the gain in force (Q15, 32768 = unity), and F1 while a fade-in runs */
+#if TAU_FX_GAIN_TOGGLE
+        if (!hw_gain) { q = set_str(q, "NO UNIT"); break; }
+        q = set_str(q, vol_st.hw ? "HW" : "SW");
+        q = set_str(q, " T"); q = ui_dec(q, REG(R_GAIN_TARGET) & 0xFFFFu);
+        q = set_str(q, " C"); q = ui_dec(q, REG(R_GAIN_CUR) & 0xFFFFu);
+        q = set_str(q, " F"); q = ui_dec(q, (REG(R_GAIN_CTRL) >> 2) & 1u);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    }
+    case 36:   /* GAP LATENCY (B-633): the last and the longest time from the decoder meeting the end of a file to the first frame of the next track being pushed, how many track ends were timed, and how
+                * much audio the FIFO still held at the end of the file (all in ms). If LAST is above BUF the listener hears a gap; the FIFO is about 46 ms deep. */
+#if TAU_DX_GAP_TIMING
+        if (!gap_n) { q = set_str(q, "NO TRACK END YET"); break; }
+        q = set_str(q, "LAST "); q = ui_dec(q, gap_last_ms);
+        q = set_str(q, " MAX "); q = ui_dec(q, gap_max_ms);
+        q = set_str(q, " N"); q = ui_dec(q, gap_n);
+        q = set_str(q, " BUF "); q = ui_dec(q, gap_buf_ms);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 37:   /* GAP HIST (B-730; B-725 added the row and its label but no case, so it read as CYMO RESAMP): natural-end gaps in buckets <150 <300 <600 <1000 <2000 >=2000 ms, then the mean */
+#if TAU_DX_GAP_TIMING
+        if (!gap_n) { q = set_str(q, "NO TRACK END YET"); break; }
+        for (uint32_t b = 0; b < 6u; b++) { if (b) *q++ = '/'; q = ui_dec(q, gap_hist[b]); }
+        q = set_str(q, " A"); q = ui_dec(q, gap_sum / gap_n);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 38:   /* SLOT SETTLE (B-730): the slot-open settle loop of read_track_head(): last and longest time (ms), loads timed, most reads one load needed */
+#if TAU_DX_GAP_TIMING
+        if (!gset_n) { q = set_str(q, "NO LOAD YET"); break; }
+        q = set_str(q, "L"); q = ui_dec(q, gset_last);
+        q = set_str(q, " X"); q = ui_dec(q, gset_max);
+        q = set_str(q, " N"); q = ui_dec(q, gset_n);
+        q = set_str(q, " T"); q = ui_dec(q, gset_tries_max);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 39:   /* POLL GAP (B-731): how long the CPU stayed away from poll_input(): counts of stalls 20-46 / 46-300 / 300-1000 / 1000+ ms, then the worst (ms).
+                * Stalls above 46 ms are where a firmware ring drain could not run (the FIFO holds 46 ms), so they are what the gapless ring has to be fed from. */
+#if TAU_DX_GAP_TIMING
+        for (uint32_t b = 0; b < 4u; b++) { if (b) *q++ = '/'; q = ui_dec(q, pg_b[b]); }
+        q = set_str(q, " X"); q = ui_dec(q, pg_max_ms);
+        q = set_str(q, " @");   /* B-738: where the CPU left poll_input() before the worst stall > where it came back: the address bits 27..4 (hot code is 0002xx, cold code 24xxxx); nm the ELF */
+        q = ui_hex2(q, (uint8_t)(pg_ra_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 4));
+        q = set_str(q, ">");
+        q = ui_hex2(q, (uint8_t)(pg_rb_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 4));
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 40:   /* RING (B-747, the hardware PCM ring, fw/pcm_ring_fw.inc): "-" in a build without TAU_PCM_RING_FW, NO UNIT / OFF when the bitstream has no ring or it is not in use, otherwise
+                * F = pairs in the ring now, M = the lowest fill since it was armed (a low M means the reader or the decoder ran close to dry), C = pairs pushed into the FIFO, H = 1 while the
+                * reader is held (paused), U = times the FIFO ran dry while the ring still held pairs (the reader fell behind: it must stay 0), G = gapless boundaries applied / abandoned (another rate or codec), P = a boundary is pending. */
+#if TAU_PCM_RING_FW
+        if (!rg_on) { q = set_str(q, (REG(R_RING_CTRL) >> 31) ? "OFF" : "NO UNIT"); break; }
+        { const uint32_t ridx = REG(R_RING_RIDX);
+          q = set_str(q, "F"); q = ui_dec(q, prh_fill(&rg, ridx));
+          q = set_str(q, " M"); q = ui_dec(q, rg_min == RG_SIZE ? 0u : rg_min);
+          q = set_str(q, " C"); q = ui_dec(q, REG(R_RING_CNT));
+          q = set_str(q, " H"); q = ui_dec(q, rg_held);
+          q = set_str(q, " U"); q = ui_dec(q, rg_und);
+          q = set_str(q, " G"); q = ui_dec(q, gp_applied); *q++ = '/'; q = ui_dec(q, gp_aborted); if (gp_pend) q = set_str(q, " P"); }   /* G2b: gapless boundaries applied / abandoned for another rate or codec, P = one is pending */
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 41:   /* UND CTX: the context of the FIFO-dry edges counted in UNDERRUNS -- N = edges since boot, F = ring fill (pairs) when the last one was seen, MS = time since the
+                * last gapless hand-off (- if none yet), HO = hand-offs applied by then. Tells a hand-off underrun from an ordinary track start. */
+#if TAU_PCM_RING_FW
+        if (!rg_ux_n) { q = set_str(q, "NONE"); break; }
+        q = set_str(q, "N"); q = ui_dec(q, rg_ux_n);
+        q = set_str(q, " F"); q = ui_dec(q, rg_ux_w >= rg_ux_r ? rg_ux_w - rg_ux_r : rg_ux_w + RG_SIZE - rg_ux_r);
+        q = set_str(q, " HO"); q = ui_dec(q, rg_ux_ho);
+        if (rg_ho_t) { q = set_str(q, " +"); q = ui_dec(q, (rg_ux_t - rg_ho_t) / (CLK_HZ / 1000u)); q = set_str(q, "MS"); }
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 42:   /* GP SWAP: at the last gapless display swap -- N = swaps, T = seconds the old track clock showed, L = its length, D = pairs heard beyond the marker, F = ring fill, FL = flushes while the boundary was pending */
+#if TAU_PCM_RING_FW
+        if (!gp_sw_n) { q = set_str(q, "NONE"); break; }
+        q = set_str(q, "N"); q = ui_dec(q, gp_sw_n);
+        q = set_str(q, " T"); q = ui_dec(q, gp_sw_sec); q = set_str(q, "/"); q = ui_dec(q, gp_sw_len);
+        q = set_str(q, " D"); if (gp_sw_d < 0) { *q++ = '-'; q = ui_dec(q, (uint32_t)(-gp_sw_d)); } else q = ui_dec(q, (uint32_t)gp_sw_d);
+        q = set_str(q, " F"); q = ui_dec(q, gp_sw_fill);
+        q = set_str(q, " FL"); q = ui_dec(q, gp_sw_fl);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 43:   /* GP AUDIT: the track that just ended -- N = tracks audited, PUT = pairs put into the ring for it, EXP = pairs it should hold (FLAC: STREAMINFO; MP3: the trimmed length, 0 = unknown), D = PUT - EXP (negative = pairs lost before the ring) */
+#if TAU_PCM_RING_FW
+        if (!gp_au_n) { q = set_str(q, "NONE"); break; }
+        q = set_str(q, "N"); q = ui_dec(q, gp_au_n); q = set_str(q, " PUT "); q = ui_dec(q, gp_au_put);
+        q = set_str(q, " EXP "); q = ui_dec(q, gp_au_exp);
+        if (gp_au_exp) { const int32_t d = (int32_t)(gp_au_put - gp_au_exp); q = set_str(q, " D"); if (d < 0) { *q++ = '-'; q = ui_dec(q, (uint32_t)(-d)); } else q = ui_dec(q, (uint32_t)d); }
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
+        q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
+        q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
+        q = set_str(q, " UNW "); q = ui_dec(q, lw_t_unw / (CLK_HZ / 1000000u));
+        q = set_str(q, " PRES "); q = ui_dec(q, helios_t_pres / (CLK_HZ / 1000000u));
+        q = set_str(q, "US");
+        break;
+    default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
+                  * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can
+                  * confirm the probe passed before relying on the toggle having any real effect. */
+#if TAU_FX_CYMO_TOGGLE
+        if (!CYMO_RESAMP_READY()) { q = set_str(q, "NO UNIT"); break; }
+        uint32_t st = REG(R_CYMO_STATUS), dg = REG(R_CYMO_DIAG);
+        q = set_str(q, (st & 0x10u) ? "LIVE " : "READY ");
+        q = set_str(q, (st & 0x8u) ? "POP " : "- ");
+        /* B-527: S = consumes that found no pushed sample (the resampler repeated one), D = ticks dropped because the hand-off queue was full, Q = the queue
+         * level now. Both counters clear when the toggle is switched on and keep their value when it is switched off. With the elastic hand-off S and D should
+         * stay at 0 (the old tick-gated hand-off read thousands within a second, B-527); Q should sit at 2-3. */
+        q = set_str(q, "S"); q = ui_dec(q, dg & 0xFFFFu);
+        q = set_str(q, " D"); q = ui_dec(q, dg >> 16);
+        q = set_str(q, " Q"); q = ui_dec(q, (st >> 5) & 7u);
+#else
+        q = set_str(q, "OFF");
+#endif
+        break;
+    }
     }
     *q = 0;
 }
@@ -688,7 +1153,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 #define SET_RO_VIS 12u
 static uint8_t set_ro_top;                       /* first visible row; reset to 0 when the page is left */
 
-COLD_FN static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
+COLD_FN static void set_draw_ro(int full, const char *title, const void *labels, uint32_t stride, uint32_t n,
                         void (*value)(uint32_t, char *))
 {
     const uint32_t vis = (n < SET_RO_VIS) ? n : SET_RO_VIS;
@@ -697,7 +1162,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     /* Up/Down scrolling is self-evident. The Info page (diagnostic build) says what A does. */
     const char *hint = "B BACK";
 #if TAU_DIAGNOSTIC
-    if (title[0] == 'I' && title[1] == 'N' && title[2] == 'F' && title[3] == 'O' && !title[4]) hint = "A QR CODE   B BACK";
+    if (title[0] == 'I' && title[1] == 'N' && title[2] == 'F' && title[3] == 'O' && !title[4]) hint = "A CODE   B BACK";
 #endif
     if (full) ov_frame(title, "", hint);
     if (n > vis) {                               /* scroll track, as the lists */
@@ -711,7 +1176,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
         value(i, v);
         fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 16u, PL_UI_ROW_H, OV_BODY);
         fb_set_color(UI_DIM, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, y, labels[i], TS_1X, TS_1X, 170u);
+        fb_text_clipped(PL_UI_TEXT_X, y, stride ? (const char *)labels + i * stride : ((const char *const *)labels)[i], TS_1X, TS_1X, 170u);
         uint32_t w = fb_text_width(v, TS_1X);
         fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_X + PL_UI_W - 20u - w, y, v, TS_1X, TS_1X, w + 2u);
@@ -724,7 +1189,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     ov_hint_repaint(hint);
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #define SET_STAT_ROWS 11u
 static const char *const set_stat_label[SET_STAT_ROWS] = {
     "LEVEL", "STATE", "PASSES", "OPERATIONS", "FAILURES", "EARLY UNDERRUNS", "LATE UNDERRUNS",
@@ -762,17 +1227,20 @@ COLD_FN static void set_info_tick(void)
     set_info_at = cycles() + CLK_HZ;
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page == SET_INFO_PG) {
-#if TAU_DIAGNOSTIC
-        if (!info_qr_up)
+#if TAU_INFO_EXPORT
+        if (!info_rep_up)
 #endif
-            set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+            set_draw_ro(0, "INFO", set_info_label, 16u, SET_INFO_ROWS, set_info_value);
     }
-#if TAU_DIAGNOSTIC
-    else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+#if TAU_DX_STRESS
+    else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, 0u, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
 }
 
+#if TAU_INFO_EXPORT
+#include "report.inc"                    /* shared report plumbing: record builder, report buffers, pixel-grid view */
+#endif
 #if TAU_DIAGNOSTIC
 #include "suite.inc"
 #endif
@@ -784,13 +1252,25 @@ COLD_FN static void set_info_tick(void)
  * meter's live values; nothing is persisted (B-216).
  *
  * Rows: PRESET, METER (cycles the meters that have parameters), the meter's parameters that are visible under their `when` clause,
- * EXPORT QR. Placed after suite.inc's own #include because the QR export needs sr_tlv()/qr_encode() (Diagnostic Build only). */
+ * EXPORT CODE. Placed after suite.inc's own #include because the report export needs sr_tlv()/qr_encode() (Diagnostic Build only). */
 #define WVR_PRESET 0u
 #define WVR_METER  1u
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
 #define WVR_EXPORT 250u
-#define WVCFG_ROWS_VISIBLE 8u
-#define WVCFG_MAX_ROWS 16u
+/* Page layout (B-647). The content area of every Settings page is PL_UI_LIST_Y down to SET_CONTENT_Y1, just above the action bar the page frame reserves (OV_HINT_Y, ov_frame() /
+ * ov_hint_repaint(): nothing but the hint may be drawn there). The Configure page's geometry is DERIVED from that, not hand-counted: the live preview is the same width as the rows'
+ * highlight (no strip of body colour at its sides), the list gets what is left, and _Static_assert refuses a layout that would reach the action bar. (Until then 8 rows of 22 px
+ * started at y 190: the last two reached into the action bar and the 8th ran off the screen.) */
+#define SET_CONTENT_Y1      (OV_HINT_Y - 6u)
+#define WVCFG_PX            (PL_UI_X + 4u)                     /* the preview spans exactly the rows' highlight: x 12..388 */
+#define WVCFG_PW            (PL_UI_W - 8u)
+#define WVCFG_PY            PL_UI_LIST_Y
+#define WVCFG_PH            UI_WAVE_H
+#define WVCFG_LIST_Y        (WVCFG_PY + WVCFG_PH + 10u)
+#define WVCFG_ROWS_VISIBLE  ((SET_CONTENT_Y1 - WVCFG_LIST_Y) / PL_UI_ROW_H)
+_Static_assert(WVCFG_ROWS_VISIBLE >= 4u, "the Configure page keeps at least four rows");
+_Static_assert(WVCFG_LIST_Y + WVCFG_ROWS_VISIBLE * PL_UI_ROW_H <= OV_HINT_Y, "the Configure page's rows must stay above the action bar");
+#define WVCFG_MAX_ROWS 48u
 static uint8_t wvcfg_sel, wvcfg_top;
 static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
 static const mtr_data_t *wvcfg_md;
@@ -810,12 +1290,28 @@ static void wvcfg_build_vis(void)
 
 static inline uint32_t wvcfg_row(uint32_t k) { return wvcfg_vis[k]; }
 
+static uint8_t wvcfg_direct;                 /* B-524: the page was opened by the Start+Y shortcut: B closes Settings instead of going back to Appearance */
 static void wvcfg_open(void)
 {
+    wvcfg_direct = 0u;
     wvcfg_sel = 0u; wvcfg_top = 0u;
     if (!mtr_of(viz_mode)) viz_mode = mtr_modules[0]->viz;      /* editing a meter without parameters: start with the first that has some */
     wvcfg_build_vis();
     wviz_force = 1u;   /* B-234: entering at a different rect than the player screen's own */
+}
+
+/* Start+Y shortcut (fw/player.c, moved from Start+X in B-522 when Start began opening Settings on release): jump straight to Meter > Configure from the player screen, skipping
+ * the Home -> Appearance -> Meter navigation chain. Mirrors set_input()'s own Start-opens-at-SET_HOME
+ * path (closing any open library browser first, running the one-time hardware-blend probe before
+ * FB_HELD() becomes true) but lands directly on the Configure page and calls its own open() the same way
+ * normal RT_GROUP menu navigation does, instead of SET_HOME. */
+COLD_FN static void set_open_wvizcfg_direct(void)
+{
+    if (lib_ui_open) lib_ui_close();
+    blend_ensure();
+    set_open = 1u; set_page = SET_WVIZCFG_PG; set_dirty = 1u;
+    wvcfg_open();
+    wvcfg_direct = 1u;                  /* after wvcfg_open(), which clears it for the ordinary route */
 }
 
 COLD_FN static void wvcfg_follow(void)
@@ -824,17 +1320,19 @@ COLD_FN static void wvcfg_follow(void)
     else if (wvcfg_sel >= wvcfg_top + WVCFG_ROWS_VISIBLE) wvcfg_top = (uint8_t)(wvcfg_sel - WVCFG_ROWS_VISIBLE + 1u);
 }
 
-/* B-218/M2: exports the live values of the meter being edited as a QR code (SR_T_METERCFG), reusing the record/text/QR pipeline
+/* B-218/M2: exports the live values of the meter being edited as a report code (SR_T_METERCFG), reusing the record/text/report pipeline
  * fw/suite.inc built for Check/Blit Test (this page and those are never open together, so sharing their SDRAM staging is safe).
- * Diagnostic-Build only, like every QR feature here; outside one the row is present but inert. */
-#if TAU_DIAGNOSTIC
+ * Diagnostic-Build only, like every report feature here; outside one the row is present but inert. */
+#if TAU_DX_CONFIG_EXPORT
 #include "wvcfg_export.inc"
+#endif
+#if TAU_INFO_EXPORT
 #include "info_export.inc"
 #endif
 
 COLD_FN static void wvcfg_row_name(uint32_t row, char *o)
 {
-    const char *t = row == WVR_PRESET ? "PRESET" : row == WVR_METER ? "METER" : row == WVR_EXPORT ? "EXPORT QR"
+    const char *t = row == WVR_PRESET ? "PRESET" : row == WVR_METER ? "METER" : row == WVR_EXPORT ? "EXPORT CODE"
                   : (wvcfg_md && row >= WVR_P0 && row - WVR_P0 < wvcfg_md->n) ? wvcfg_md->p[row - WVR_P0].label : "";
     char *q = set_str(o, t);
     *q = 0;
@@ -849,7 +1347,7 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
     } else if (row == WVR_METER) {
         q = set_str(q, wvcfg_md ? wvcfg_md->name : "");
     } else if (row == WVR_EXPORT) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
         q = set_str(q, "PRESS A");
 #else
         q = set_str(q, "DIAG BUILD ONLY");
@@ -859,7 +1357,11 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
         const uint32_t v = wvcfg_md->val[row - WVR_P0];
         if (p->type == MTR_ENUM) q = set_str(q, p->enums[v]);
         else if (p->type == MTR_BOOL) q = set_str(q, v ? "ON" : "OFF");
-        else { q = ui_dec(q, v); q = set_str(q, p->unit); }
+        else {
+            const int32_t sv = (int32_t)v + (int32_t)p->off;
+            if (sv < 0) { *q++ = '-'; q = ui_dec(q, (uint32_t)(-sv)); } else if (p->off) { if (sv) *q++ = '+'; q = ui_dec(q, (uint32_t)sv); } else q = ui_dec(q, v);
+            q = set_str(q, p->unit);
+        }
     }
     *q = 0;
 }
@@ -890,10 +1392,11 @@ COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 
 COLD_FN static void wvcfg_draw(void)
 {
-#if TAU_DIAGNOSTIC
-    if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
+#if TAU_DX_CONFIG_EXPORT
+    if (wvcfg_rep_up) { wvcfg_draw_rep(); return; }
 #endif
-    ov_frame("METER CONFIGURE", "", (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK");
+    const char *hint = (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK";
+    ov_frame("METER CONFIGURE", "", hint);
 
     /* Live preview, pinned to the top of the page -- still reads real playing
      * audio (spec_lvl[]/wav_v[]), same wviz_bars_tick()/wviz_scope_tick() the
@@ -901,12 +1404,12 @@ COLD_FN static void wvcfg_draw(void)
      * and against the panel's flat background instead of the gradient
      * (B-234: wviz_scope_tick()'s use_gradient=0 path fixes the previously-
      * garbled preview -- see that function's own comment). */
-    uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
+    const uint32_t px = WVCFG_PX, pw = WVCFG_PW, py = WVCFG_PY, ph = WVCFG_PH;
     fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, OV_BODY);
     wviz_force = 1u;                      /* the panel was just wiped: the meters' change caches must repaint everything */
     mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
 
-    uint32_t list_y = py + ph + 16u;
+    const uint32_t list_y = WVCFG_LIST_Y;
     if (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) {                      /* scroll track, as the other lists */
         const uint32_t n = wvcfg_vis_n, vis = WVCFG_ROWS_VISIBLE, tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
         fb_rect(tx, list_y - 2u, 3u, lh, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
@@ -928,37 +1431,64 @@ COLD_FN static void wvcfg_draw(void)
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
         fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
+    ov_hint_repaint(hint);                /* the action bar is the page frame's alone: re-assert it last, whatever the list drew */
 }
 
 /* Once per display frame while the page is open: ONLY the live preview. The rest of the page is drawn on demand (set_dirty);
  * redrawing it every frame wiped the preview panel under the meters' change caches, which is why bars vanished and the page
  * glitched. */
+/* The preview is a Helios region (B-647), like the player screen's meter box (ui_meter_region, fw/player.c): the draw callback runs through helios_flush(), which defers it while the display beam is inside
+ * the preview's rows (helios_rows_safe_counted) and retries on the next main-loop pass, so the live meter no longer draws into rows being scanned out. Registered once, cold-aware. */
+static uint8_t wvcfg_region = 0xFFu;
+
+COLD_FN static void wvcfg_preview_redraw(void)
+{
+    /* B-452: meters_publish() (fw/player.c) is normally only reached from ui_draw_dynamic_cold() while
+     * !UI_OVERLAY_UP -- correct for the ordinary player screen, but Settings being open here is itself
+     * a UI_OVERLAY_UP case, so without this call peak_l/peak_r/spec_lvl[] (everything but Winamp
+     * Scope's own self-contained R_WAVE_CTL capture) were frozen at whatever they held the moment
+     * Settings opened, reading as "only Scope actually plays" in the preview. meters_feed() (the decode
+     * path) keeps accumulating peak_acc* regardless of any overlay -- this is only the missing PUBLISH
+     * step, deliberately bypassing the overlay gate for exactly the meter being previewed. */
+    meters_publish();
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    mtr_preview(viz_mode, WVCFG_PX, WVCFG_PY, WVCFG_PW, WVCFG_PH, UI_PANEL);
+    ov_draw = o;
+}
+
 COLD_FN static void wvcfg_preview_tick(void)
 {
-#if TAU_DIAGNOSTIC
-    if (wvcfg_qr_up) return;
+#if TAU_DX_CONFIG_EXPORT
+    if (wvcfg_rep_up) return;
 #endif
-    const uint8_t o = ov_draw; ov_draw = 1u;
-    const uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
-    mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
-    ov_draw = o;
+    if (wvcfg_region == 0xFFu) wvcfg_region = helios_region_register_rows_cold(wvcfg_preview_redraw, (uint16_t)WVCFG_PY, (uint16_t)(WVCFG_PY + WVCFG_PH));
+    helios_mark_dirty(wvcfg_region);
+    helios_flush();
 }
 
 static int wvcfg_input(uint32_t edge)
 {
-#if TAU_DIAGNOSTIC
-    if (wvcfg_qr_up) {                             /* QR screen: anything closes it */
-        if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
+#if TAU_DX_CONFIG_EXPORT
+    if (wvcfg_rep_up) {                             /* report screen: X changes the view, anything else closes it */
+        if (REP_KEY(edge)) return 1;
+        if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_rep_up = 0u; set_dirty = 1u; }
         return 1;
     }
 #endif
-    if (edge & (KEY_B | KEY_START)) { set_page = SET_APPEAR; wviz_force = 1u; set_dirty = 1u; return 1; }
+    /* Start closes Settings from any depth (like every other page); B goes back one level, or closes when the page was opened by the Start+Y shortcut
+     * (there is no Appearance page behind it to return to in the user's head). B-524. */
+    if (edge & KEY_START) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); return 1; }
+    if (edge & KEY_B) {
+        if (wvcfg_direct) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); }
+        else { set_page = SET_APPEAR; wviz_force = 1u; set_dirty = 1u; }
+        return 1;
+    }
     if (edge & KEY_UP)    { wvcfg_sel = wvcfg_sel ? (uint8_t)(wvcfg_sel - 1u) : (uint8_t)(wvcfg_vis_n - 1u); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_DOWN)  { wvcfg_sel = (uint8_t)((wvcfg_sel + 1u) % wvcfg_vis_n); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_LEFT)  { wvcfg_adjust(wvcfg_row(wvcfg_sel), -1); set_dirty = 1u; }
     if (edge & KEY_RIGHT) { wvcfg_adjust(wvcfg_row(wvcfg_sel),  1); set_dirty = 1u; }
-#if TAU_DIAGNOSTIC
-    if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_qr(); wvcfg_qr_up = 1u; set_dirty = 1u; }
+#if TAU_DX_CONFIG_EXPORT
+    if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_rep(); wvcfg_rep_up = 1u; set_dirty = 1u; }
 #endif
     return 1;
 }
@@ -974,17 +1504,32 @@ static int wvcfg_input(uint32_t edge)
  * exactly mirror the ones on each page's own definition (SET_CHECK_PG etc., lines ~26-40) and on
  * suite.inc's own #include (TAU_DIAGNOSTIC) -- a page that would not compile in this build simply has
  * no row, same as the old chains simply had no branch for it. */
+#include "halcyon_page.inc"
 typedef struct { uint8_t page; void (*draw)(void); int (*input)(uint32_t); void (*open)(void); } set_spg_t;
 static const set_spg_t set_spg[] = {
     { SET_WVIZCFG_PG, wvcfg_draw, wvcfg_input, wvcfg_open },
+#if TAU_HALCYON_FW
+    { SET_HAL_PG, hal_pg_draw, hal_pg_input, hal_pg_open },
+#endif
 #if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     { SET_CHECK_PG, chk_draw, chk_input, chk_open },
-#if MP3_PROFILE || FLAC_PROFILE
+#endif
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
     { SET_SWEEP_PG, sw_draw, sw_input, sw_open },
 #endif
+#if TAU_DX_BLIT_TEST
     { SET_BLITTEST_PG, bt_draw, bt_input, bt_open },
+#endif
+#if TAU_DX_SWEEPS
     { SET_METERSWEEP_PG, mw_draw, mw_input, 0 },
+#endif
+#if TAU_DX_METER_TRACE
     { SET_METERTRACE_PG, mt_draw, mt_input, 0 },
+#endif
+#if TAU_DX_PIXEL_GRID_TEST
+    { SET_PIXGRID_PG, pg_draw, pg_input, 0 },
+#endif
 #endif
 };
 #define SET_SPG_N SET_COUNT(set_spg)
@@ -999,7 +1544,7 @@ static const set_spg_t *set_spg_find(uint8_t page)
  * this: the page is simply redrawn a few times with every role colour (and the accent) mixed toward the body colour by an eased factor, then
  * once more at full strength. Text is drawn with a foreground and a background from the same roles, so its anti-aliasing stays consistent.
  * The role table is faded in place for the duration of one draw and restored straight after, so nothing else ever sees a faded colour.
- * Pages that draw live content, a QR code or thumbnails that are cached from the roles (the meter list) are not faded. */
+ * Pages that draw live content, a report code or thumbnails that are cached from the roles (the meter list) are not faded. */
 #ifndef TAU_MENU_FADE
 #define TAU_MENU_FADE 1
 #endif
@@ -1009,12 +1554,99 @@ static uint16_t set_fade_last = 0xFFFFu;         /* page drawn last; a different
 static uint8_t  set_fade_step = SET_FADE_STEPS;  /* == SET_FADE_STEPS: not fading */
 static uint32_t set_fade_at;
 
+/* ---- real hardware crossfade, upgrading the colour-interpolation fade above where it can run -----
+ * B-334's own comment says "there is no blend in this" -- true then (TAU_BLIT_BLEND was shelved for
+ * a timing failure, and H2 double buffering didn't exist yet), not true now: T2-00 (B-388/398) closed
+ * blend's own old timing problem as a side effect of fixing glyphbuf, and H2 (B-396) gives a second,
+ * already-idle buffer (Settings holds FB_HELD(), so dbuf_redraw_begin() itself refuses it, B-402) to
+ * use as scratch render space. Render the NEW page ONCE, normally, into that buffer; then blend it
+ * onto the buffer actually being shown, at increasing alpha over the SAME eased curve/cadence
+ * set_fade_k[]/SET_FADE_STEPS already defined -- no recolouring, so unlike the fallback below this
+ * does not need set_fade_page_ok()'s exclusions (the meter list's cached thumbnails, a live report code) at
+ * all; kept scoped to the SAME eligible pages for this pass regardless, to change one thing at a
+ * time. Falls back to the colour-interpolation fade whenever SET_XFADE_READY() is false (any
+ * bitstream without both TAU_BLIT_BLEND and TAU_DBUF) -- old behaviour, unchanged.
+ *
+ * B-408: BLEND_READY() only reports the answer to the one-time blend_probe() (fw/blit_probe.inc);
+ * nothing ran that probe on its own, and the ONLY caller anywhere in this codebase used to be
+ * ui_bg_blend() (Winamp Scope's own trail effect) -- so this crossfade was silently DISABLED (plain
+ * colour fade) for the whole boot until the user happened to view the Scope trail at least once, an
+ * incidental, confusing trigger for a feature with no relation to Scope. Tried calling blend_ensure()
+ * from HERE first -- wrong: blend_probe() itself refuses while FB_HELD() (fw/blit_probe.inc), and
+ * SET_XFADE_READY() is only ever evaluated from inside set_draw(), which only runs while Settings'
+ * OWN overlay already holds FB_HELD() true -- the probe would refuse every single time from this
+ * call site. Fixed at the actual point FB_HELD() is still false: set_input()'s own Start-opens-
+ * Settings handler, right before `set_open` flips to 1 (see there). */
+#define SET_XFADE_READY() (BLEND_READY() && DBUF_READY())
+/* The crossfade below claims the H2 back buffer through helios_back_busy (fw/helios.inc, set/cleared in place of the old set_xfade_active), so no meter composes into it meanwhile. */
+static uint32_t set_xfade_src_base, set_xfade_dst_base;
+
+COLD_FN static void set_draw_now(void);
+
+/* Renders the new page into whichever buffer is NOT currently displayed, then restores R_DBUF_CPU to
+ * the displayed buffer immediately -- every OTHER draw call in this codebase assumes CPU writes land
+ * in the displayed buffer, so this window must be as short as this one render pass, nothing else.
+ *
+ * B-410 (owner-reported on hardware, real corruption on every "rich" diagnostic subpage -- Check,
+ * Blit Test, etc.): this used to restore R_DBUF_CPU to `front` IMMEDIATELY after set_draw_now()
+ * RETURNS, but set_draw_now() only QUEUES its draw commands -- it does not wait for the hardware to
+ * actually execute them. R_DBUF_CPU is a sticky field, consulted at command EXECUTION time (same
+ * class as every other sticky field this codebase has repeatedly hit this exact race with: blend-on,
+ * the CLUT reload, B-349's corner-cut LUT race). Any command still queued when R_DBUF_CPU flipped
+ * back landed in `front` -- the LIVE DISPLAYED buffer -- instead of `back`, corrupting the real
+ * screen with fragments of the new page while leaving `back` incomplete. Rich pages queue far more
+ * commands than a plain menu list, so the race window was wide enough to hit reliably there while
+ * staying invisible on the simpler pages this feature was first tested against. Fixed the same way
+ * set_xfade_step_draw() already handles its own fb_fence() call: ov_draw must be set here too, or
+ * fb_fence() (like every draw primitive) silently no-ops under FB_HELD() and waits for nothing. */
+COLD_FN static void set_xfade_render(void)
+{
+    const uint32_t front = REG(R_DBUF_DISP) & 1u;
+    const uint32_t back  = front ^ 1u;
+    set_xfade_dst_base = front ? DBUF_BASE1_W : 0u;
+    set_xfade_src_base = back  ? DBUF_BASE1_W : 0u;
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    REG(R_DBUF_CPU) = back;
+    set_draw_now();
+    fb_fence();
+    REG(R_DBUF_CPU) = front;
+    ov_draw = o;
+    fb_set_bases(set_xfade_src_base, set_xfade_dst_base);
+}
+
+/* One animation step: composite the rendered page onto the displayed buffer at this step's alpha.
+ * fb_blit()'s underlying glyphbuf is 128 words wide (the same FB_COPY_MAX limit fb_copy() itself
+ * splits around), so the full FB_W=400 columns need several calls -- each still covers all FB_H=360
+ * rows in one command, only the column count is chunked. k==256 (the last step) is drawn as a plain
+ * copy, not a 255/256 blend, so the final frame is pixel-exact against what was actually rendered,
+ * not a near-miss with an imperceptible but real trace of the old buffer left in it; this is also
+ * the one point that restores the sticky bases to (0, 0) so no later, unrelated caller inherits
+ * them. ov_draw must be set for the SAME reason set_draw_now() itself sets it: FB_HELD() would
+ * otherwise silently no-op every fb_blit() call here, since Settings holds UI_OVERLAY_UP the entire
+ * time and this runs outside set_draw_now()'s own ov_draw bracket. */
+COLD_FN static void set_xfade_step_draw(uint32_t k)
+{
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    const int last = (k >= 256u);
+    if (!last) fb_blend_on(k);
+    uint32_t x = 0u, w = FB_W;
+    while (w) {
+        uint32_t n = (w < 100u) ? w : 100u;
+        fb_blit(x, 0u, x, 0u, n, FB_H);
+        x += n; w -= n;
+    }
+    fb_fence();
+    if (!last) fb_blend_off();
+    else       fb_set_bases(0u, 0u);
+    ov_draw = o;
+}
+
 COLD_FN static int set_fade_page_ok(void)
 {
     if (set_page < SET_MENUS) return 1;
     if (set_page == SET_INFO_PG)
-#if TAU_DIAGNOSTIC
-        return info_qr_up ? 0 : 1;
+#if TAU_INFO_EXPORT
+        return info_rep_up ? 0 : 1;
 #else
         return 1;
 #endif
@@ -1022,15 +1654,47 @@ COLD_FN static int set_fade_page_ok(void)
     return 0;
 }
 
-COLD_FN static void set_draw_now(void);
 COLD_FN static void set_draw(void)
 {
 #if TAU_MENU_FADE
     const int fade_ok = set_fade_page_ok();
     if (set_page != set_fade_last) {
         set_fade_last = set_page;
+        /* An xfade abandoned mid-flight (a key pressed before the last step, changing page again)
+         * must not leave the sticky bases nonzero for whatever unrelated blit-mode caller runs
+         * next -- the normal "reset on the last step" path (set_xfade_step_draw()) never got there.
+         * B-412 (found auditing every sticky-field redirect after B-410/B-411): a PRIOR tick's
+         * set_xfade_step_draw() may have just queued its fb_blit() composite using the OLD non-zero
+         * bases -- resetting them here without fb_fence() first (and ov_draw, since this runs before
+         * set_draw_now()/set_xfade_render() ever set it, matching those functions' own precedent) risks
+         * that still-queued blit executing AFTER the reset and reading (0,0) instead of the bases it
+         * was actually issued under, same race class as B-410. */
+        if (helios_back_busy) {
+            const uint8_t o = ov_draw; ov_draw = 1u;
+            fb_fence();
+            fb_set_bases(0u, 0u);
+            ov_draw = o;
+        }
+        helios_back_busy = 0u;
+        if (fade_ok && SET_XFADE_READY()) {
+            set_xfade_render();
+            helios_back_busy = 1u;
+            set_fade_step = 0u;
+            set_fade_at = cycles();
+            set_dirty = 1u;
+            return;
+        }
         set_fade_step = fade_ok ? 0u : SET_FADE_STEPS;
         set_fade_at = cycles();
+    }
+    if (helios_back_busy) {
+        if ((int32_t)(cycles() - set_fade_at) < 0) { set_dirty = 1u; return; }
+        set_xfade_step_draw(set_fade_k[set_fade_step]);
+        set_fade_step++;
+        set_fade_at = cycles() + CLK_HZ / 60u;
+        if (set_fade_step < SET_FADE_STEPS) { set_dirty = 1u; return; }
+        helios_back_busy = 0u;
+        return;         /* the displayed buffer already shows the exact final frame -- nothing left to draw */
     }
     if (!fade_ok) set_fade_step = SET_FADE_STEPS;
     if (set_fade_step < SET_FADE_STEPS) {
@@ -1059,32 +1723,43 @@ COLD_FN static void set_draw_now(void)
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
     else if (spg)                            spg->draw();
     else if (set_page == SET_INFO_PG) {
-#if TAU_DIAGNOSTIC
-        if (info_qr_up) { info_draw_qr(); ov_draw = o; return; }
+#if TAU_INFO_EXPORT
+        if (info_rep_up) { info_draw_rep(); ov_draw = o; return; }
 #endif
-        set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+        set_draw_ro(1, "INFO", set_info_label, 16u, SET_INFO_ROWS, set_info_value);
     }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     else if (set_page == SET_STAT_PG)
-        set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+        set_draw_ro(1, "STRESS STATUS", set_stat_label, 0u, SET_STAT_ROWS, set_stat_value);
 #endif
     else                                     set_draw_choice(set_page - SET_MENUS);
     ov_draw = o;
 }
 
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything closing Settings needs, same as before this existed. */
+static const helios_view_t settings_view = { 0, 0, HELIOS_INV_ALL };
+
 COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME;
     set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
+    if (helios_back_busy) {   /* B-405/B-412: same reasoning as set_draw()'s own abandon case -- fence before resetting bases */
+        const uint8_t o = ov_draw; ov_draw = 1u;
+        fb_fence();
+        fb_set_bases(0u, 0u);
+        ov_draw = o;
+        helios_back_busy = 0u;
+    }
     /* Missing since the legacy playlist overlay was removed (45630c3): that overlay's own close site
      * was apparently the only one still setting the shared repaint flag (fw/player.c's own comment on
      * pl_ui_restore claims settings does this too -- it never did after that removal, only
      * lib_ui_close() did). Without it the main loop never calls ui_chrome_paint()/ui_art_draw(), never
      * clears ui_bg_ready, and never forces the meter/wave caches stale on return from Settings --
      * exactly the "closing the menu leaves visual leftovers" symptom (B-349). Now routed through the
-     * shared helios_view_changed() (B-350) rather than a bare flag write, so this can't be silently
-     * dropped again the way the bare write was. */
-    helios_view_changed();
+     * shared helios_view_switch() (B-350/item 4) rather than a bare flag write, so this can't be
+     * silently dropped again the way the bare write was. */
+    helios_view_switch(&settings_view, &helios_player_view);
 }
 
 COLD_FN static void set_ch_follow(uint32_t c)
@@ -1092,6 +1767,14 @@ COLD_FN static void set_ch_follow(uint32_t c)
     uint32_t vis = set_ch_visible(c), cur = set_ch_cur[c];
     if (cur < set_ch_top[c]) set_ch_top[c] = (uint8_t)cur;
     else if (cur >= set_ch_top[c] + vis) set_ch_top[c] = (uint8_t)(cur - vis + 1u);
+}
+
+/* B-410: the plain-menu equivalent of set_ch_follow() above, same logic. */
+COLD_FN static void set_menu_follow(uint32_t p)
+{
+    uint32_t cur = set_sel[p];
+    if (cur < set_top[p]) set_top[p] = (uint8_t)cur;
+    else if (cur >= set_top[p] + SET_MENU_VIS) set_top[p] = (uint8_t)(cur - SET_MENU_VIS + 1u);
 }
 
 /* Returns 1 when the input was consumed. Start opens (tap) and closes. */
@@ -1104,8 +1787,25 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
             /* One overlay at a time: an open library browser would keep repainting its
              * marquee row over the settings (its rows draw through the ov_draw gate), so
-             * it is closed here. Closing settings returns to the player, not to the browser. */
-            lib_ui_open = 0u;
+             * it is closed here. Closing settings returns to the player, not to the browser.
+             * B-406: this used to be a bare `lib_ui_open = 0u;`, bypassing lib_ui_close()'s own
+             * helios_view_switch() call entirely -- no invalidation was queued, so nothing repainted
+             * the player screen Library had been covering before Settings' own hardware crossfade
+             * (set_xfade_render()) captured "whatever is currently displayed" as its source frame.
+             * Combined with the helios_pending_mask reorder above this file's own #include point
+             * (fw/player.c, same B-406), the repaint now lands in the SAME tick, before set_draw()
+             * runs below. */
+            if (lib_ui_open) lib_ui_close();
+            /* B-408: run the one-time hardware-blend probe HERE, the last point before FB_HELD()
+             * becomes true (set_open below flips it) -- blend_probe() (fw/blit_probe.inc) refuses
+             * outright while FB_HELD(), so this is the ONLY place in Settings' own open path where it
+             * can ever succeed. Without this, SET_XFADE_READY() depends entirely on whether Winamp
+             * Scope's ui_bg_blend() happened to run first (the previously ONLY caller of
+             * blend_ensure() anywhere in this codebase) -- an incidental trigger with no relation to
+             * Settings, and the reason the crossfade (and whatever it does right or wrong) looked
+             * like it was "caused by" viewing Scope. A no-op once already probed (blend_ensure()'s
+             * own guard). */
+            blend_ensure();
             set_open = 1u; set_page = SET_HOME; set_dirty = 1u;
             return 1;
         }
@@ -1116,44 +1816,52 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
      * ran this first) -- the table lookup preserves that by construction, still ahead of KEY_START. */
     { const set_spg_t *spg = set_spg_find(set_page); if (spg) return spg->input(edge); }
     if (edge & KEY_START) { set_close(); return 1; }
+    /* B-073/B-446: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a
+     * step on the edge, a hold delay, then steady) -- a menu used to need one tap per row, which read as
+     * inconsistent next to the lists. Computed here, before EVERY page's own Up/Down handling (including
+     * the read-only Info/Stress-Status scroll below, which used to `return` before this ever ran --
+     * owner-reported: "let me know if you want continuous scroll while holding" -- so it never got the
+     * repeat treatment B-073 gave every other list). */
+    static kr_t set_kr;
+    uint32_t rep;
+    edge = kr_step(&set_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, &rep);   /* B-534: the shared primitive */
+
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
-#if TAU_DIAGNOSTIC
-        if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: anything closes it */
-            if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
+#if TAU_INFO_EXPORT
+        if (set_page == SET_INFO_PG && info_rep_up) {     /* report screen: X changes the view, anything else closes it */
+            if (REP_KEY(edge)) return 1;
+            if (edge & (KEY_A | KEY_B | KEY_START)) { info_rep_up = 0u; set_dirty = 1u; }
             return 1;
         }
 #endif
         uint32_t n = SET_INFO_ROWS;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         if (set_page == SET_STAT_PG) n = SET_STAT_ROWS;
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
-#if TAU_DIAGNOSTIC
-        if (set_page == SET_INFO_PG && (edge & KEY_A)) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
+#if TAU_INFO_EXPORT
+        if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_rep(); info_rep_up = 1u; set_dirty = 1u; return 1; }
 #endif
-        if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
-        if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
-        if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
+        /* Wraps like every other list here (helios_wrap_index(), fw/helios.inc): past the last visible
+         * window, Down jumps back to the top; Up from the top jumps to the last window. `maxtop + 1` is
+         * the count of valid `set_ro_top` positions (0..maxtop inclusive). */
+        if (edge & KEY_UP)   { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 1); set_dirty = 1u; }
+        if (edge & KEY_DOWN) { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 0); set_dirty = 1u; }
+        if ((edge & (KEY_B | KEY_LEFT)) && !rep) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_HOME; set_dirty = 1u; }   /* Info -> the menu */
         return 1;
     }
-    /* B-073: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a step on the edge, a
-     * hold delay, then steady) -- a menu used to need one tap per row, which read as inconsistent next to the lists. */
-    static uint32_t set_rep_at;
-    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
-    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
 
     if (set_page >= SET_MENUS) {                  /* a choice list */
         uint32_t c = set_page - SET_MENUS, n = set_ch_count(c);
-        if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)(set_ch_cur[c] ? set_ch_cur[c] - 1u : n - 1u); set_ch_follow(c); set_dirty = 1u; }
-        if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)((set_ch_cur[c] + 1u) % n); set_ch_follow(c); set_dirty = 1u; }
+        if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 1); set_ch_follow(c); set_dirty = 1u; }
+        if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 0); set_ch_follow(c); set_dirty = 1u; }
         if ((edge & (KEY_A | KEY_RIGHT)) && !rep) { set_ch_apply(c, set_ch_cur[c]); set_dirty = 1u; }     /* Right = forward = select */
         if ((edge & (KEY_B | KEY_LEFT)) && !rep)  { set_page = set_ch_parent[c]; set_dirty = 1u; }         /* Left = back */
         return 1;
     }
     uint8_t *sel = &set_sel[set_page];
-    if (edge & KEY_UP)   { *sel = *sel ? (uint8_t)(*sel - 1u) : (uint8_t)(set_menu_n[set_page] - 1u); set_dirty = 1u; }
-    if (edge & KEY_DOWN) { *sel = (uint8_t)((*sel + 1u) % set_menu_n[set_page]); set_dirty = 1u; }
+    if (edge & KEY_UP)   { *sel = (uint8_t)helios_wrap_index(*sel, set_menu_n[set_page], 1); set_menu_follow(set_page); set_dirty = 1u; }
+    if (edge & KEY_DOWN) { *sel = (uint8_t)helios_wrap_index(*sel, set_menu_n[set_page], 0); set_menu_follow(set_page); set_dirty = 1u; }
     if (rep) return 1;      /* a repeat only ever moves the cursor: A/B/Left/Right below react to a real press */
     const set_row_t *r = &set_menu_rows[set_page][*sel];
     if (edge & (KEY_A | KEY_RIGHT)) {
@@ -1167,7 +1875,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
             set_ch_follow(r->arg);
             set_dirty = 1u;
         } else if (r->type == RT_TOGGLE) { set_toggle(r->arg); set_dirty = 1u; }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
         else if (r->type == RT_ACTION && (edge & KEY_A)) { dg_run(r->arg); set_dirty = 1u; }
 #endif
         else if (r->type == RT_VOL && (edge & KEY_RIGHT)) { set_volume(1); set_dirty = 1u; }

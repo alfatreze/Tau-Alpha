@@ -102,9 +102,19 @@ static int art_psram_ready(void)
 #else
 #define art_psram_ready() 1
 #endif
-static uint16_t art_rowcnt[ART_IMG];    /* source rows feeding each dest row */
-static uint16_t art_colcnt[ART_IMG];    /* source cols feeding each dest col */
-static uint16_t art_line[ART_IMG];      /* the row currently being emitted   */
+/* B-567: the embedded-JPEG fallback is rare (TIM1 covers are the normal path), so its low-traffic work buffers live in PSRAM
+ * (.psram_state, uninitialised: every one is written before it is read, proved by the poisoned-buffer run of
+ * sim/test_art_decode.py) instead of hot RAM. They are only touched after art_psram_ready() has proved the window. The
+ * high-traffic ones stay hot: picojpeg's MCU and coefficient buffers take 20+ M accesses on a 1024 px cover, which at about
+ * 48 cycles per uncached access would add 15+ s to the load. Measured accesses and the sums in docs/features/RAM_BSS_AUDIT.md. */
+#if TAU_ART_PSRAM
+#define ART_COLD_BSS __attribute__((section(".psram_state.art")))
+#else
+#define ART_COLD_BSS
+#endif
+static uint16_t art_rowcnt[ART_IMG] ART_COLD_BSS;    /* source rows feeding each dest row */
+static uint16_t art_colcnt[ART_IMG] ART_COLD_BSS;    /* source cols feeding each dest col */
+static uint16_t art_line[ART_IMG] ART_COLD_BSS;      /* the row currently being emitted   */
 
 /* Source coordinate -> accumulator cell, precomputed.
  *
@@ -114,8 +124,8 @@ static uint16_t art_line[ART_IMG];      /* the row currently being emitted   */
  * decode was added for. The row map absorbs the `% ART_ACC_ROWS` too, a second
  * divide by a non-power-of-two. Both maps depend only on the axis, so the whole
  * cost collapses into sw+sh divisions done once. */
-static uint8_t art_xmap[ART_FULL_MAX];  /* sx -> accumulator column   */
-static uint8_t art_yslot[ART_FULL_MAX]; /* sy -> accumulator row slot */
+static uint8_t art_xmap[ART_FULL_MAX] ART_COLD_BSS;  /* sx -> accumulator column   */
+static uint8_t art_yslot[ART_FULL_MAX] ART_COLD_BSS; /* sy -> accumulator row slot */
 static uint32_t art_jpg_pos, art_jpg_end;   /* file offsets of the image data */
 
 /* Why the last art_decode() gave up, as picojpeg reported it. 0 means either
@@ -420,8 +430,22 @@ COLD_FN2 static uint32_t art_sig_of(uint32_t tag_len)
     return h ? h : 1u;
 }
 
-COLD_FN2 static int art_decode(uint32_t tag_len)
+/* B-735 (gapless G1b): the decode is split into begin / run. art_decode_begin() finds the picture, initialises picojpeg and primes the job; art_decode_run() decodes MCUs until a
+ * budget is spent and can be called again later (the state lives in art_job, in PSRAM); art_decode() is begin plus one unlimited run, so the blocking path and the stepped path are
+ * the SAME code and sim/test_art_decode.py requires identical stashes for every budget. The caller guarantees the slot still serves the same file between steps (the player compares
+ * the 0190 file identity before each step) and that nothing else needs tagbuf's window: it is dropped after every step and the unread part re-read next time. */
+typedef struct {
+    uint8_t  reduce, mono, running;
+    uint16_t my, mx, mcus_row, mcus_col;
+    uint32_t next_ay, aw, ah, sw, sh, mcu_w, mcu_h, bxn, byn;
+    unsigned char *pr, *pg, *pb;      /* picojpeg's MCU buffers (static in picojpeg) */
+    uint32_t t0, sig, last;           /* when the job began (cycles), the cover's signature for the cache, and the cycles the last step took */
+} art_job_t;
+static art_job_t art_job ART_COLD_BSS;
+
+COLD_FN2 static int art_decode_begin(uint32_t tag_len)
 {
+    art_job.running = 0u;
     /* Same decoder, different finder. */
     art_fail_code = 0;
     int found = (track_fmt == FMT_FLAC)
@@ -504,13 +528,39 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
             art_acc[s][dx][0] = art_acc[s][dx][1] = art_acc[s][dx][2] = 0u;
     art_line[0] = 0u;
 
-    uint32_t next_ay = 0;
-    for (uint32_t my = 0; my < (uint32_t)info.m_MCUSPerCol; my++) {
-        for (uint32_t mx = 0; mx < (uint32_t)info.m_MCUSPerRow; mx++) {
-            {
-                unsigned char st = pjpeg_decode_mcu();
-                if (st) { art_fail_code = st; return 0; }
-            }
+    art_job.reduce = (uint8_t)reduce; art_job.mono = (uint8_t)(info.m_comps == 1);
+    art_job.my = 0; art_job.mx = 0;
+    art_job.mcus_row = (uint16_t)info.m_MCUSPerRow; art_job.mcus_col = (uint16_t)info.m_MCUSPerCol;
+    art_job.next_ay = 0; art_job.aw = aw; art_job.ah = ah; art_job.sw = sw; art_job.sh = sh;
+    art_job.mcu_w = mcu_w; art_job.mcu_h = mcu_h; art_job.bxn = bxn; art_job.byn = byn;
+    art_job.pr = info.m_pMCUBufR; art_job.pg = info.m_pMCUBufG; art_job.pb = info.m_pMCUBufB;
+    art_job.running = 1u;
+    return 1;
+}
+
+/* Decode MCUs until max_mcus (0 = no limit) or budget_cycles (0 = no limit) is spent, at least one per call. Returns 0 = more to do, 1 = finished (the stash holds the cover),
+ * -1 = failed (art_fail_code says why). Between calls the window of tagbuf is given back (the unread part is re-read next time). */
+COLD_FN2 static int art_decode_run(uint32_t max_mcus, uint32_t budget_cycles)
+{
+    if (!art_job.running) return -1;
+    const art_job_t j = art_job;                 /* one PSRAM read; the loop works on the copy */
+    const uint32_t reduce = j.reduce, bxn = j.bxn, byn = j.byn, mcu_w = j.mcu_w, mcu_h = j.mcu_h;
+    const uint32_t sw = j.sw, sh = j.sh, aw = j.aw, ah = j.ah;
+    const int mono = j.mono;
+    unsigned char *const pr = j.pr, *const pg = j.pg, *const pb = j.pb;
+    uint32_t next_ay = j.next_ay, n = 0;
+    const uint32_t t0 = budget_cycles ? cycles() : 0u;
+    uint32_t my = j.my, mx = j.mx;
+    while (my < j.mcus_col) {
+        if (n && ((max_mcus && n >= max_mcus) || (budget_cycles && (uint32_t)(cycles() - t0) >= budget_cycles))) {
+            art_job.my = (uint16_t)my; art_job.mx = (uint16_t)mx; art_job.next_ay = next_ay;
+            art_jpg_pos -= art_win_len - art_win_pos; art_win_len = 0; art_win_pos = 0;   /* give the window back */
+            return 0;
+        }
+        {
+            unsigned char st = pjpeg_decode_mcu();
+            if (st) { art_fail_code = st; art_job.running = 0u; return -1; }
+        }
             for (uint32_t by = 0; by < byn; by++) {
                 for (uint32_t bx = 0; bx < bxn; bx++) {
                     /* Blocks sit in a fixed 2x2 grid of 64-byte slots, so a
@@ -537,14 +587,13 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
                         uint32_t obase = blk + (reduce ? 0u : j * 8u);
                         uint32_t sxbase = reduce ? (mx * bxn + bx)
                                                  : (mx * mcu_w + bx * 8u);
-                        int mono = (info.m_comps == 1);
                         for (uint32_t i = 0; i < pn; i++) {
                             uint32_t sx = sxbase + (reduce ? 0u : i);
                             if (sx >= sw) break;
                             uint32_t o = obase + (reduce ? 0u : i);
-                            uint8_t r = info.m_pMCUBufR[o];
-                            uint8_t g = mono ? r : info.m_pMCUBufG[o];
-                            uint8_t b = mono ? r : info.m_pMCUBufB[o];
+                            uint8_t r = pr[o];
+                            uint8_t g = mono ? r : pg[o];
+                            uint8_t b = mono ? r : pb[o];
                             uint16_t *cell = arow[art_xmap[sx]];
                             cell[0] += r;
                             cell[1] += g;
@@ -553,17 +602,78 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
                     }
                 }
             }
+        n++;
+        if (++mx == (uint32_t)j.mcus_row) {
+            mx = 0;
+            /* Emit every accumulator row whose last source row has now arrived. */
+            uint32_t sy_done = (my + 1u) * mcu_h;
+            if (sy_done > sh) sy_done = sh;
+            while (next_ay < ah && art_last_sy(next_ay, sh, ah) < sy_done)
+                art_flush_row(next_ay++, aw, ah);
+            my++;
         }
-        /* Emit every accumulator row whose last source row has now arrived. */
-        uint32_t sy_done = (my + 1u) * mcu_h;
-        if (sy_done > sh) sy_done = sh;
-        while (next_ay < ah && art_last_sy(next_ay, sh, ah) < sy_done)
-            art_flush_row(next_ay++, aw, ah);
     }
     while (next_ay < ah) art_flush_row(next_ay++, aw, ah);
+    art_job.running = 0u;
 
     /* Deliberately does NOT derive an accent from the cover. That was tried:
      * the accent then changed on every track, which read as inconsistency
      * rather than as a feature. One fixed accent everywhere. */
     return 1;
 }
+
+/* The blocking decode: begin, then everything in one run. */
+COLD_FN2 static int art_decode(uint32_t tag_len)
+{
+    if (!art_decode_begin(tag_len)) return 0;
+    return art_decode_run(0u, 0u) == 1;
+}
+
+#ifndef ART_NO_JOB          /* the host harness (tools/host/art_decode_harness.c) has no player around it: it tests begin/run only */
+/* ---- B-735 (gapless G1b): the cover decodes in the background -------------------------------------------------------------------------------------------------------
+ * art_job_launch() is what load_track() calls instead of the blocking decode: it finds the picture and primes the job (begin), then returns at once. art_job_tick() runs from
+ * ui_draw_dynamic_cold(), once per decoded frame (MP3) or UI period (FLAC), and decodes MCUs for a few ms when it is safe: the audio FIFO holds at least ART_JOB_MIN_PAIRS,
+ * no load or reload is in progress, no overlay holds the draw engine (the stash rows are written with engine commands, which an overlay drops), and no asynchronous audio read is
+ * pending (the job's own reads are synchronous and drain it first, but there is no reason to queue behind it). Anything that can switch the slot's file clears art_job_on
+ * (load_track, the 0192 open in pl_cmd); a reload request is also checked here. A step costs at most the budget, one MCU and one 4 KB window read (about 13 ms worst), against a FIFO
+ * of at least 23 ms. When the job ends the stash holds the cover: it is rounded, drawn and cached under its signature exactly as the blocking path did. */
+#define ART_JOB_MIN_PAIRS  1000u                       /* a frame's decode and UI (about 17 ms) plus margin must still fit after a step */
+#define ART_JOB_MAX_NEED   1900u                       /* never ask for more than the FIFO normally holds, or a slow step would stop the job for good */
+#define ART_JOB_BUDGET     (CLK_HZ / 333u)             /* 3 ms of decoding per step (plus one MCU and the 4 KB window read the step must repeat) */
+COLD_FN2 static int art_job_launch(uint32_t tag_len, uint32_t sig)
+{
+    if (!art_decode_begin(tag_len)) return 0;
+    art_job.t0 = cycles(); art_job.sig = sig; art_job.last = 0u;
+    art_job_on = 1u;
+    return 1;
+}
+COLD_FN2 static void art_job_tick(void)
+{
+    if (reload_pending || reload_armed || ui_loader_on || FB_HELD() || rd_pending) return;
+    /* B-735 (DEV 119 hardware): a fixed 1,024-pair floor let a step end with 6 ms of audio left and the next frame's decode underrun it (24 FIFO stalls in a 5 s cover job).
+     * The floor is now the frame time plus what the LAST step actually cost (its window re-read varies from 5 to 13 ms), so a slow step makes the next one wait for a fuller FIFO. */
+    const uint32_t hz = track_hz ? track_hz : 44100u;
+    uint32_t need = ART_JOB_MIN_PAIRS + (art_job.last / (CLK_HZ / 1000u)) * hz / 1000u;
+    if (need > ART_JOB_MAX_NEED) need = ART_JOB_MAX_NEED;
+    if (pcm_level() < need) return;
+    const uint32_t t_step = cycles();
+    const int r = art_decode_run(0u, ART_JOB_BUDGET);
+    art_job.last = cycles() - t_step;
+    if (r == 0) return;
+    art_job_on = 0u;
+    ld_art = LD_MS(cycles() - art_job.t0);           /* LOAD MS' cover field now shows the whole background decode */
+    if (r == 1) {
+        art_sig = art_job.sig;
+        ui_art_round();
+        art_ready = 1;
+        if (art_shown) ui_art_draw();
+    } else {                                          /* present and unreadable (the blocking path's `art_bad` branch) */
+        art_bad = 1; art_bad_code = art_fail_code; art_bad_sig = art_job.sig; art_have = 0;
+        ui_art_mount();
+        ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
+        ui_art_round();
+        ui_toast_msg(art_bad_code == PJPG_UNSUPPORTED_MODE ? "COVER: PROGRESSIVE JPEG" : "COVER: CANNOT BE READ");
+        if (art_shown) ui_art_draw();
+    }
+}
+#endif /* ART_NO_JOB */

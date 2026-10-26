@@ -746,6 +746,7 @@ set_global_assignment -name VERILOG_FILE core/sync_fifo.v
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
 set_global_assignment -name QIP_FILE core/mf_pllbase.qip
 set_global_assignment -name SIP_FILE core/mf_pllbase.sip
+set_global_assignment -name VERILOG_FILE core/mf_pllbase_mclk.v
 # -- MP3 player SoC -----------------------------------------------------------
 # Not an arcade port: no MiSTer RTL, no game ROM. VexRiscv soft CPU + BRAM +
 # peripherals, running C firmware that is loaded from SD like a ROM.
@@ -762,20 +763,27 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_probe.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_ctr.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_sync1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_clut_wr.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_vs_counter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_spec_bank.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_wave_meter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_audio_stats.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_mp3_poly.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_flac_lpc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cymo_resamp.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cymo_feed.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_pcm_ring.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_gain_stage.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_halcyon.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_main_ram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_ram_probe_a.sv
 set_global_assignment -name VERILOG_FILE core/tgt_cmd.v
 set_global_assignment -name VERILOG_FILE core/pcm_fifo.v
-set_global_assignment -name VERILOG_FILE core/eq_biquad.v
 set_global_assignment -name SEARCH_PATH core
 set_global_assignment -name SYSTEMVERILOG_FILE core/mp3_fb.sv
 set_global_assignment -name VERILOG_FILE core/font_rom.v
+set_global_assignment -name VERILOG_FILE core/font_ram.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/sdram_fb.sv
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_1wire
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spiclk

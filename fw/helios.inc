@@ -26,28 +26,8 @@
 
 #define HELIOS_MAX_REGIONS 16u
 
+#define HELIOS_RECT_FN COLD_FN3     /* every caller (helios_fill_excl, the clip wrappers, helios_present) is cold code */
 #include "helios_rect.h"
-
-/* ---- top-level view transitions (B-350) -----------------------------------------------------------
- * The four mutually-exclusive top-level screens -- player, Settings, the library browser, the
- * fullscreen visualiser -- used to each hand-write "closing/entering me changes what the chrome shows,
- * so force a full repaint" as a bare `pl_ui_restore = 1u;` at their own transition site. Six independent
- * writers accumulated that way over this project's history (fw/settingsui.inc, fw/library.inc,
- * fw/fullscreen.inc x3, fw/suite.inc x2) and one of them (Settings' own set_close()) simply omitted it
- * (B-349) -- nothing enforced that every transition site remembered to. helios_view_changed() is now
- * that one shared primitive: every top-level view transition calls it instead of touching the flag
- * directly, so a future overlay forgetting the line becomes a missing function call at its own
- * transition site (visible in the diff, greppable) rather than a silent, hard-to-spot leftover-pixel
- * bug found sessions later.
- *
- * This is deliberately NOT a partial/selective invalidation (a per-view "invalidate_mask" was scoped in
- * docs/features/HELIOS_SPEC.md section 11 and set aside for this pass): every one of these four views
- * is a full-screen affair today (Settings/Library/Fullscreen each fully repaint everything they draw,
- * and returning to the player always needs ui_draw_chrome()'s full pass too), so the one thing every
- * transition needs IS "force a full repaint on the next pass" -- pl_ui_restore's own existing behaviour,
- * just reached through one name instead of six. A real partial-invalidate scheme is only worth building
- * once a view exists that does NOT need a full repaint on every transition, which none currently does. */
-static void helios_view_changed(void) { pl_ui_restore = 1u; }
 
 /* ---- exclusion rects: let a fill skip a reserved area instead of drawing over it ------------------------------------
  * Built for the fullscreen CPU% label (fw/fullscreen.inc): its corner glitched because the visualiser drew across it
@@ -79,7 +59,7 @@ static void helios_exclude_clear(uint8_t id)
 /* Drop-in replacement for fb_rect(x, y, w, h, color): splits the fill around every active exclusion rect instead of
  * drawing over it. Sequential subtraction (each exclusion applied to every piece the previous one produced) -- fine
  * for HELIOS_MAX_EXCL this small; each piece is a plain fb_rect() call, same cost model as the direct call it replaces. */
-static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+COLD_FN3 static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 {
     helios_rect_t cur[8];
     uint8_t n = 1;
@@ -102,6 +82,182 @@ static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uin
     for (uint8_t i = 0; i < n; i++)
         fb_rect((uint32_t)cur[i].x, (uint32_t)cur[i].y, (uint32_t)cur[i].w, (uint32_t)cur[i].h, color);
 }
+
+/* Clipped figure draws (fig_rect/fig_bar, fw/player.c): while fig_clip_on is set they split around every helios_excl[] area; otherwise they are the plain
+ * primitives. The bar needs its own splitter because OP_BAR is "lit rows at the bottom of the rect", which survives a cut of the TOP rows exactly (fewer
+ * rows, lit capped to them) but not a cut anywhere else (that case falls back to two clipped rects). */
+COLD_FN3 static void helios_clip_bar_in(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
+{
+    for (uint8_t e = 0; e < helios_excl_n; e++) {
+        const int32_t ex = helios_excl[e].x, ey = helios_excl[e].y, ew = helios_excl[e].w, eh = helios_excl[e].h;
+        if (ew <= 0 || eh <= 0) continue;
+        const int32_t x1 = (int32_t)(x + w), y1 = (int32_t)(y + h);
+        if (ex >= x1 || ex + ew <= (int32_t)x || ey >= y1 || ey + eh <= (int32_t)y) continue;      /* no overlap */
+        const int32_t mx0 = ex > (int32_t)x ? ex : (int32_t)x, mx1 = (ex + ew) < x1 ? (ex + ew) : x1;
+        if (mx0 > (int32_t)x) helios_clip_bar_in(x, y, (uint32_t)(mx0 - (int32_t)x), h, lit, fg, bg);               /* left of the exclusion */
+        if (mx1 < x1)         helios_clip_bar_in((uint32_t)mx1, y, (uint32_t)(x1 - mx1), h, lit, fg, bg);           /* right of it */
+        if (ey <= (int32_t)y) {                                                                                     /* exclusion reaches the top: cut it off */
+            const int32_t ny = ey + eh;
+            if (ny < y1) { const uint32_t nh = (uint32_t)(y1 - ny); fb_bar((uint32_t)mx0, (uint32_t)ny, (uint32_t)(mx1 - mx0), nh, lit < nh ? lit : nh, fg, bg); }
+        } else {                                                                                                    /* anywhere else: two clipped rects */
+            const uint32_t unlit = h > lit ? h - lit : 0u, lt = h - unlit;
+            helios_fill_excl((uint32_t)mx0, y, (uint32_t)(mx1 - mx0), unlit, bg);
+            helios_fill_excl((uint32_t)mx0, y + unlit, (uint32_t)(mx1 - mx0), lt, fg);
+        }
+        return;
+    }
+    fb_bar(x, y, w, h, lit, fg, bg);
+}
+
+__attribute__((noinline)) COLD_FN3 static void fig_rect_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+{
+    if (fig_clip_on) helios_fill_excl(x, y, w, h, color); else fb_rect(x, y, w, h, color);
+}
+COLD_FN3 static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
+{
+    if (fig_clip_on) helios_clip_bar_in(x, y, w, h, lit, fg, bg); else fb_bar(x, y, w, h, lit, fg, bg);
+}
+
+/* ---- Off-screen compose + present ---------------------------------------------------------------------------------
+ * A meter that repaints its whole box (wipe, then every layer) shows the wipe whenever the beam crosses the box before the repaint finishes: measured
+ * 83 ms for Layered Wave against a 16.7 ms frame (B-519), so no beam gate can help. Instead the figure is drawn into the idle H2 back buffer, where
+ * nothing can see it, and then COPIED onto the displayed buffer with OP_BLIT, which takes about a millisecond -- much faster than the beam -- so the
+ * worst case is one seam for one frame, never a flash of background. When asked to (clip), the copy skips every helios_excl[] rect, so an overlay (the
+ * fullscreen CPU% label) is never overwritten and need not be repainted.
+ *
+ * This is driven from ONE place, helios_meter() (fw/player.c): every context that draws a meter -- the player screen, fullscreen, the Settings >
+ * Meter > Configure preview -- goes through it, so a meter behaves the same everywhere. Meters only draw: RECT-class commands follow R_DBUF_CPU, which
+ * helios_meter points at the back buffer for the compose; blit-mode commands (Chladni's SBLIT/BLIT) read `hs_base`, the word base of the buffer being
+ * drawn into, which helios_meter sets before every meter call (the displayed buffer for a direct draw, the back buffer for a composed one).
+ *
+ * The back buffer is shared with the Settings crossfade, which claims it with helios_back_busy for the ~100 ms of a page transition. */
+#define HELIOS_PRESENT_CHUNK 120u    /* OP_BLIT stages a row in a 128-entry buffer: at most 127 columns, 120 matches chl_replicate */
+
+static uint8_t  helios_back_busy;    /* the back buffer is claimed (Settings crossfade): compose into it is not allowed */
+static uint32_t hs_base;             /* word base of the buffer the current meter call draws into (blit-mode commands use it) */
+static uint32_t helios_n_draw, helios_n_comp, helios_n_fail, helios_t_last, helios_t_max, helios_t_pres;   /* Info > METER DRAW */
+
+COLD_FN3 static int helios_offscreen_ok(void)
+{
+    if (!DBUF_READY() || screen_blank || helios_back_busy) return 0;
+    return (REG(R_DBUF_DISP) & 2u) == 0u;                     /* a pending flip would swap the roles under us */
+}
+/* fb_fence() that keeps waiting (up to ~200 ms) until the engine has really drained; returns 0 if it never did. The compose must not switch R_DBUF_CPU
+ * back while commands are still queued, or they would execute against the displayed buffer. */
+COLD_FN3 static int helios_drain(void)
+{
+    for (uint32_t i = 0; i < 4u; i++) { fb_fence(); if (!fb_fence_timeout) return 1; }
+    return 0;
+}
+COLD_FN3 static uint32_t helios_front_idx(void) { return REG(R_DBUF_DISP) & 1u; }
+COLD_FN3 static uint32_t helios_buf_base(uint32_t idx) { return idx ? DBUF_BASE1_W : 0u; }
+
+/* Copy the box from the back buffer to the displayed one, minus every exclusion rect when `clip`. Everything composed must have executed (fb_fence) first. */
+COLD_FN3 static void helios_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t clip)
+{
+    const uint32_t front = helios_front_idx();
+    helios_rect_t cur[8];
+    uint8_t n = 1;
+    cur[0].x = (int32_t)x; cur[0].y = (int32_t)y; cur[0].w = (int32_t)w; cur[0].h = (int32_t)h;
+    for (uint8_t e = 0; clip && e < helios_excl_n; e++) {
+        if (helios_excl[e].w <= 0 || helios_excl[e].h <= 0) continue;
+        helios_rect_t next[8];
+        uint8_t nn = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            helios_rect_t piece[4];
+            const int pn = helios_rect_subtract(cur[i].x, cur[i].y, cur[i].w, cur[i].h,
+                                                helios_excl[e].x, helios_excl[e].y, helios_excl[e].w, helios_excl[e].h, piece);
+            for (int q = 0; q < pn && nn < 8u; q++) next[nn++] = piece[q];
+        }
+        for (uint8_t i = 0; i < nn; i++) cur[i] = next[i];
+        n = nn;
+    }
+    fb_set_bases(helios_buf_base(front ^ 1u), helios_buf_base(front));
+    for (uint8_t i = 0; i < n; i++)
+        for (int32_t cx = 0; cx < cur[i].w; cx += (int32_t)HELIOS_PRESENT_CHUNK) {
+            const uint32_t c = (uint32_t)(cur[i].w - cx) < HELIOS_PRESENT_CHUNK ? (uint32_t)(cur[i].w - cx) : HELIOS_PRESENT_CHUNK;
+            fb_blit((uint32_t)(cur[i].x + cx), (uint32_t)cur[i].y, (uint32_t)(cur[i].x + cx), (uint32_t)cur[i].y, c, (uint32_t)cur[i].h);
+        }
+    fb_fence();
+    fb_set_bases(0u, 0u);
+}
+
+/* ---- Wraparound list navigation ---------------------------------------------------------------------------------
+ * One step of a 0-based index over `count` positions, wrapping at both ends: UP from position 0 lands on the LAST
+ * position, DOWN from the last position lands back on 0. `fw/settingsui.inc`'s own choice lists and plain menu
+ * rows (`set_ch_cur[]`, `set_sel[]`) already each hand-wrote this exact pair of expressions independently; this is
+ * that one idea named once so a third caller (or a fourth) never needs to re-derive it. Works unchanged for a
+ * SCROLL OFFSET too (not just a single selected row) -- pass `maxtop + 1` as `count` and the read-only Info/Stress-
+ * Status pages wrap at the last visible window exactly the same way a selection wraps at the last row. */
+static uint32_t helios_wrap_index(uint32_t idx, uint32_t count, int up)
+{
+    if (count == 0u) return 0u;
+    return up ? (idx ? idx - 1u : count - 1u) : (idx + 1u) % count;
+}
+
+/* ---- View registry (item 4, docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5;
+ * design in docs/features/HELIOS_SPEC.md section 11) ----------------------------------------------
+ * B-350's helios_view_changed() unified six independent "repaint everything" call sites (formerly a
+ * bare `pl_ui_restore = 1u;` at each of fw/settingsui.inc, fw/library.inc, fw/fullscreen.inc x3 and
+ * fw/suite.inc x2) behind one name, but its BODY stayed a single flag driving a fixed, hand-maintained
+ * checklist in fw/player.c's main loop -- exactly the shape of gap that let Settings' own set_close()
+ * omit it for a while (B-349). This replaces that single flag with a bitmask (helios_pending_mask) and
+ * a real per-view declared contract (helios_view_t.invalidate_mask), so a future shared cache a view's
+ * pixels can touch is a new named bit checked at every call site that builds a view descriptor, not a
+ * silent gap in a growing if-chain.
+ *
+ * Every one of today's 4 top-level views (player, Settings, the library browser, the fullscreen
+ * visualiser) is a full-screen affair (HELIOS_SPEC.md section 11's own finding), so every view built
+ * below uses HELIOS_INV_ALL -- this slice is byte-identical in BEHAVIOUR to helios_view_changed()
+ * before it, just reached through a declared contract instead of an assumed one. A view that does NOT
+ * need every bit is the point where this starts saving real work (item 6, later).
+ *
+ * helios_view_switch() takes BOTH the outgoing and incoming view explicitly, deliberately not the
+ * single-argument form HELIOS_SPEC.md section 11 sketched against an implied tracked "current view":
+ * every real transition site already knows both ends (fullscreen's own toggle picks its direction from
+ * ui_fullscreen's new value; every close path is always "this overlay -> the player"), and requiring
+ * every future view's OPEN site to also start calling this just to keep a global tracker correct would
+ * add a new way to silently regress this exact mechanism -- the same failure class the mechanism itself
+ * exists to close. Revisit this choice if a future view genuinely needs one to be inferred.
+ *
+ * The actual invalidation ACTIONS (ui_chrome_paint(), ui_art_draw(), the wave/spec staleness arrays,
+ * ...) are NOT here: they are declared later in fw/player.c (after this file's #include point), the
+ * same reason B-350's pl_ui_restore flag was read and acted on there instead of in this file. This file
+ * only accumulates which bits are pending; fw/player.c's main loop applies them once per pass. */
+#define HELIOS_INV_CHROME   0x01u   /* ui_chrome_paint() / ui_draw_chrome() (itself picks fullscreen vs normal) */
+#define HELIOS_INV_ART      0x02u   /* ui_art_draw(), if art is ready and shown */
+#define HELIOS_INV_BG_STRIP 0x04u   /* the meters' background strip (columns 400..511), B-256 */
+#define HELIOS_INV_WAVE     0x08u   /* wave_drawn[]/wave_pk_drawn[]/ui_wave_force */
+#define HELIOS_INV_SPEC     0x10u   /* spec_drawn[] */
+#define HELIOS_INV_EXCL     0x20u   /* every exclusion rect (helios_excl[]) -- whoever set it just left */
+#define HELIOS_INV_ALL      0x3Fu
+
+typedef struct {
+    void (*enter)(void);      /* called once, becoming the active view; NULL if nothing extra to do */
+    void (*exit)(void);       /* called once, leaving; owns its OWN cleanup, nothing more; NULL if none */
+    uint8_t invalidate_mask;
+} helios_view_t;
+
+/* The generic "home" view every overlay/visualiser switches back to. No view-specific enter/exit of
+ * its own -- HELIOS_INV_ALL already covers everything returning to the player needs. */
+static const helios_view_t helios_player_view = { 0, 0, HELIOS_INV_ALL };
+
+static uint8_t helios_pending_mask;   /* bits accumulated here; fw/player.c's main loop drains it */
+
+/* THE one place a top-level view transition happens: leaves `from` (its exit(), if any), invalidates
+ * the union of both views' declared bits, enters `to` (its enter(), if any). Both must be real views --
+ * every call site always knows both ends (see the comment above), so this never guards against NULL. */
+static void helios_view_switch(const helios_view_t *from, const helios_view_t *to)
+{
+    if (from->exit) from->exit();
+    helios_pending_mask = (uint8_t)(helios_pending_mask | from->invalidate_mask | to->invalidate_mask);
+    if (to->enter) to->enter();
+}
+
+/* B-350's original meaning, kept for call sites that are NOT a view transition -- the current view's own
+ * content changed materially (a meter preset switch while already fullscreen, for example) and just
+ * needs a full repaint, not an exit()/enter() pair. */
+static void helios_view_changed(void) { helios_pending_mask = HELIOS_INV_ALL; }
 
 /* ---- beam-aware drawing (B-267) ------------------------------------------------------------------------------------
  * The scanout reads each row from SDRAM ONE LINE BEFORE it is shown, and moves down one row every ~41.7 us. Drawing a
@@ -147,6 +303,7 @@ static struct {
     helios_redraw_fn redraw;
     uint8_t dirty;
     uint16_t y0, y1;        /* rows the region redraws; y1 == 0xFFFF means "whole screen / draw immediately" */
+    uint8_t requires_cold;  /* B-391 follow-up: see helios_region_register_rows_cold() below */
 } helios_region[HELIOS_MAX_REGIONS];
 
 static uint8_t helios_region_n;
@@ -162,7 +319,26 @@ static uint8_t helios_region_register_rows(helios_redraw_fn fn, uint16_t y0, uin
     helios_region[id].redraw = fn;
     helios_region[id].dirty  = 0u;
     helios_region[id].y0 = y0; helios_region[id].y1 = y1;
+    helios_region[id].requires_cold = 0u;
     helios_region_n = (uint8_t)(id + 1u);
+    return id;
+}
+
+/* B-391 follow-up: helios_flush() calls every region's redraw() through a stored function pointer,
+ * which is invisible to tools/check_cold_calls.py (it disassembles the linked ELF for direct jal/tail
+ * targets; an indirect jalr through a register has no static target for objdump to resolve at all --
+ * not a fixable regex gap, a real limit of static disassembly). B-391 itself relied on an INFORMAL
+ * argument for why calling a COLD_FN redraw callback from this unguarded hot function is still safe
+ * (the region can only be marked dirty from a COLD_READY()-gated call site, and cold_code_ok is
+ * monotonic once set) -- true, but enforced nowhere, unlike RRECT_READY()/BLIT_READY()'s own explicit
+ * boundary checks. This variant makes the same fact a real, checked gate instead: a region registered
+ * cold-aware is simply left dirty (never called, no crash, exactly the existing beam-unsafe retry
+ * path) until COLD_READY() -- and once it is, cold_code_ok's own monotonicity means the check never
+ * flips back off, so this costs nothing after the first few frames of boot. */
+static uint8_t helios_region_register_rows_cold(helios_redraw_fn fn, uint16_t y0, uint16_t y1)
+{
+    uint8_t id = helios_region_register_rows(fn, y0, y1);
+    if (id != 0xFFu) helios_region[id].requires_cold = 1u;
     return id;
 }
 
@@ -183,6 +359,12 @@ static void helios_flush(void)
 {
     for (uint8_t i = 0; i < helios_region_n; i++) {
         if (helios_region[i].dirty) {
+            /* cold_code_ok, not the COLD_READY() macro: that macro is defined in fw/cold.inc, included
+             * well after this file (same ordering constraint fw/player.c's own comment above
+             * "#include \"cold.inc\"" notes for a different symbol); the raw variable is declared much
+             * earlier in fw/player.c and is visible here. */
+            if (helios_region[i].requires_cold && !cold_code_ok)
+                continue;                                   /* not loaded yet: stay dirty, retry next pass */
             if (helios_region[i].y1 != 0xFFFFu && !helios_rows_safe_counted(helios_region[i].y0, helios_region[i].y1))
                 continue;                                   /* the beam is in the way: stay dirty, retry next pass */
             helios_region[i].dirty = 0u;

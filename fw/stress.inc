@@ -21,7 +21,7 @@ static __attribute__((optimize("Os"))) const char *stress_viz_name(void)
 {
     static const char *const names[] = {
         "BARS", "WATER", "-", "SCOPE", "WAVE", "VU",
-        "SCROLL", "-", "DOTS", "-", "LED", "-", "WINAMP B", "WINAMP S", "CHLADNI"
+        "SCROLL", "-", "DOTS", "-", "LED", "-", "WINAMP B", "WINAMP S", "CHLADNI", "VU MSTR", "LAYERED"
     };
     return (viz_mode < VIZ_COUNT) ? names[viz_mode] : "?";
 }

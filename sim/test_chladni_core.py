@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native tests for fw/chladni_core.h (the Chladni meter's portable logic), through tools/host/chladni_harness.c.
+"""Native tests for fw2/cores/chladni_core.h (the Chladni meter's portable logic), through tools/host/chladni_harness.c.
 
 Checks: cosine table accuracy, Q14 field against a float reference (the overflow check), exact tile periodicity for
 same-parity mode mixes (the property the tiled meter depends on), zero placement of a pure mode, determinism,

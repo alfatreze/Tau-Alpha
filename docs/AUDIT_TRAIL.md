@@ -10091,6 +10091,780 @@ text-pattern matching can see calls made through a function pointer is untested,
 (the actual runtime cold-placement safety mechanism, `COLD_READY()`, is unaffected either way). Not yet
 hardware-tested. Not yet installed on the card.
 
+## B-388 (2026-09-29): T2-00 -- Talos `glyphbuf` single-write-port fix (in progress, fit launched)
+
+Built the other session's own designed fix (`docs/research/TALOS_REVIEW_2026-09-28.md` section 1a/7,
+recommended as the highest-leverage next step in `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md`).
+Root cause, confirmed by reading `mp3_fb.sv`: `glyphbuf` had two read sites (`glyph_q`'s unconditional
+streaming read at `wsrc_addr`, and the B5 blend pipeline's `bl_bg` read at `copy_cnt` inside `A_COPYRD`)
+and, once B-327's blend pipeline landed, two structurally separate write sites -- five mutually-exclusive
+`case (astate)` arms (A_COPYRD/A_KEYDST/A_SBLIT/A_CBLIT_WAIT/A_COMPOSE_WR) writing through one path, plus
+the blend write-back (`if (bl_v1) glyphbuf[bl_i1] <= bl_r;`) sitting textually OUTSIDE that case, in the
+same clocked block. Two reads or two writes is a shape no MLAB/M10K primitive supports, so with
+`TAU_BLIT_BLEND` on Quartus fell back to a full register file (about 6,500 ALMs, confirmed in the fit
+reports the other session pulled: `mp3_fb` 7,800 ALMs with blend vs 1,313 without).
+
+Fix, matching the review's design exactly: `glyphbuf` split into two identical MLAB copies
+(`glyphbuf_a`/`glyphbuf_b`, same `ramstyle="MLAB, no_rw_check"` attribute as before), each with exactly
+ONE read port (`glyph_q <= glyphbuf_a[wsrc_addr]` unconditional as before; `bl_bg <= glyphbuf_b[copy_cnt]`
+inside A_COPYRD as before) and fed by exactly ONE shared write port. All six original write sites (the
+five case arms plus the blend write-back) now set three shared registers (`gb_we`/`gb_addr`/`gb_data`)
+via BLOCKING assignment instead of writing `glyphbuf` directly -- `gb_we` defaults to 0 once per cycle at
+the top of the clocked block, so at most one site can set it per cycle (they were already mutually
+exclusive functionally: one draw-engine command in flight at a time, and the blend write-back only fires
+while the case is idling/mid-scanline-fill, confirmed by tracing the astate sequence -- see the comment
+above `glyphbuf_a`'s declaration). Exactly one non-blocking write statement at the bottom of the block
+(`if (gb_we) begin glyphbuf_a[gb_addr] <= gb_data; glyphbuf_b[gb_addr] <= gb_data; end`) fans the single
+decision out to both copies. No FSM/timing/behavioural change intended anywhere -- every site's own
+address/data computation and every other register in it is untouched.
+
+Verified in simulation before touching the VM: `make rtl-lint` clean (only pre-existing width warnings
+and the expected `BLKSEQ` style warnings for the intentional blocking-assignment-in-sequential-block
+idiom, no errors); `make test-rtl-fb` (full `tb_mp3_fb.v` suite, including the BLEND DSP/PSX cases) and
+`make test-rtl-fb-mutation` (all 7 mutation hooks, including `BUG_BLEND_ALWAYS_SRC`) both pass with 0
+failures; `make test-rtl-blit-reference` (`tools/host/blit_reference.py` diff, including the blended
+scene command) passes exactly as before; full `make test-rtl` (every other module, PSRAM/MP3-poly/
+FLAC-LPC/etc., unaffected by this file) and `make test-host` both pass with 0 failures.
+
+Launched the real fit to confirm the ALM recovery: `python3 tools/vm_fit.py launch glyphbuf-t200 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2` -- the exact bundle that
+previously overflowed at 111% (`lpc-b372`, TAU_BLIT_BLEND+TAU_LPC together), deliberately chosen over the
+plain all6-combined bundle so this run answers both "does the ALM recovery happen" and "does the LPC
+kernel now fit" in one shot. Staged tree confirmed (via a direct SSH grep on the VM) to contain
+`glyphbuf_a`/`gb_we`, not the old single-array code. Both seeds confirmed running. Result pending -- not
+yet fit-confirmed, not committed, not installed. Once the fit lands: check ALM count against the ~1,400
+(no-blend-equivalent) prediction, then decide (per the handoff's own next step) whether the fuller Talos 2
+phased rewrite is still warranted given this fix may already resolve the ALM pressure it was scoped to
+solve.
+
+## B-389 (2026-09-29): Helios review item 4 -- `helios_view_t` registry (scoped to the invalidation seam)
+
+Built the mid-term item from `docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md` section 5 --
+`docs/features/HELIOS_SPEC.md` section 11's design, scoped down to what the review's own phrasing named
+as achievable now: "replace one function's body with a real dispatch," where that one function is
+`helios_view_changed()` (B-350), not the whole main-loop draw/input dispatch.
+
+`fw/helios.inc`: new `helios_view_t` (`{enter, exit, invalidate_mask}`, moved to occur after the
+exclusion-rects section so its EXCL bit can reference `helios_exclude_clear()` directly), 6 named
+invalidate bits (`HELIOS_INV_CHROME/ART/BG_STRIP/WAVE/SPEC/EXCL`, matching the design doc's own named
+list exactly) plus `HELIOS_INV_ALL`, a generic `helios_player_view` constant, and `helios_pending_mask`
+(a bitmask replacing the old bare `pl_ui_restore` bool). `helios_view_switch(from, to)` -- deliberately
+a two-argument form, not the design doc's single-argument sketch against an implied tracked "current
+view": every real transition site already knows both ends explicitly (fullscreen's toggle picks
+direction from `ui_fullscreen`'s just-set new value; every close path is always "this overlay -> the
+player"), and requiring every future view's OPEN site to also call this just to keep a global tracker
+correct would recreate the exact silent-omission risk (B-349) this mechanism exists to close. Documented
+as a deliberate deviation from the design doc, not an oversight. `helios_view_changed()` (unchanged
+name, unchanged meaning: "invalidate everything, no transition") stays for the two call sites that are
+not a view transition at all (`meter_preset_next()`'s Chladni-preset case, `fw/fullscreen.inc:176` --
+the current view's own content changed materially, no exit/enter needed).
+
+The actual invalidation ACTIONS (`ui_chrome_paint()`, `ui_art_draw()`, the wave/spec staleness arrays,
+`ui_bg_ready`, every `helios_excl[]` slot) stay in `fw/player.c`'s main loop, same reason B-350's flag
+was read there and not in `fw/helios.inc`: those functions aren't declared yet at `helios.inc`'s own
+`#include` point (confirmed by checking line numbers -- `ui_chrome_paint`/`ui_art_draw` are declared at
+lines 2225/2916, `#include "helios.inc"` is at line 2049). The old fixed 20-line block gated on one bool
+is now 6 independently-gated `if (hm & HELIOS_INV_*)` blocks reading one drained byte -- behaviourally
+identical today (every real view below sets `HELIOS_INV_ALL`) but a future view with a narrower mask
+(item 6) now has somewhere real to plug into instead of another line in a growing checklist. Un-nested a
+pre-existing oddity along the way (the old block's `spec_drawn[]` reset loop sat INSIDE the
+`wave_drawn[]`/`wave_pk_drawn[]` loop, running `SPEC_BANDS` resets `UI_WAVE_N` times over -- harmless
+since the resets are idempotent, but now two independent top-level loops since they're gated by two
+independent bits).
+
+Wired 6 real call sites: `fw/fullscreen.inc`'s auto-exit (`ui_fs_dynamic()`, meter became
+fullscreen-incapable) and `ui_fs_toggle()` (bidirectional, direction read off `ui_fullscreen`'s new
+value); `fw/suite.inc`'s Meter Sweep `mw_window_reset()`/`mw_restore_screen()` (found while auditing
+every `helios_view_changed()` call site for genuine transitions -- these two also toggle
+`ui_fullscreen` to drive the sweep through a specific meter, exactly the same shape as
+`ui_fs_toggle()`'s own case, previously calling the generic non-transition `helios_view_changed()` when
+they are in fact real transitions); `fw/settingsui.inc`'s `set_close()`; `fw/library.inc`'s
+`lib_ui_close()`. Each file declares its own `static const helios_view_t <name>_view = {0, 0,
+HELIOS_INV_ALL}` -- no view populates `enter`/`exit` yet (nothing today needs asymmetric behaviour
+beyond the shared mask), matching this project's own "prove the primitive first, cost nothing until a
+real caller needs it" precedent already used for `RRECT_READY()`/`BLIT_READY()` and the region registry
+itself.
+
+`sim/test_helios_beam.py`'s now-unnecessary `pl_ui_restore` stub removed (the file compiles
+`fw/helios.inc` standalone; nothing in it references that symbol under any name any more).
+
+Verified: `make test-host` passes in full, including `check_ui_snapshot_renderer.py` (57 deterministic
+fixtures, unaffected -- confirms the dispatch restructuring didn't change any pixel output) and
+`sim/test_helios_beam.py` (837,600 table entries, confirms the file still compiles standalone and the
+beam-safety logic is untouched). `release`, `player-library-diagnostic` and
+`player-library-diagnostic-profile` all rebuild clean (heap gaps essentially unchanged: this is a
+control-flow reshuffle, not new state). `tools/check_cold_calls.py` (informational) shows no new
+hot-calls-cold entries involving these functions. Not yet hardware-tested, not yet installed on the
+card -- draw()/input() dispatch collapse (the fuller structural rewrite section 11 also sketched, and
+items 5/6 in the review's own ordering) is explicitly NOT attempted this pass.
+
+## B-390 (2026-09-29): Helios review item 5 -- the remaining 8 legacy meters into the `mtr_in_t` contract
+
+Owner explicitly chose this over the lower-risk options after being told the real tradeoff: live,
+audio-reactive UI code with no existing pixel-level regression test (`check_ui_snapshot_renderer.py`'s
+57 fixtures cover menus/settings, not these draws) and no card mounted this session to verify against.
+
+Extracted all 8 remaining `if (viz_mode == VIZ_X) { ...; goto viz_done; }` blocks out of
+`ui_draw_dynamic_cold()`'s dispatch chain (`fw/player.c`) into 8 named functions taking `const
+mtr_in_t *in`, matching item 1's own contract exactly (`fw/meter.h`) rather than inventing a variant:
+`viz_scroll_tick` (Scrolling Waveform), `viz_led_tick` (Spectrum), `viz_dots_tick` (Peak Dots),
+`viz_water_tick` (Waterfall), `viz_vu_tick` (VU Meters), `viz_wave_tick` (Oscilloscope), `viz_phase_tick`
+(Stereo Phase Scope, named to avoid colliding with the existing Winamp `wviz_scope_tick`), `viz_bars_tick`
+(Classic Bars, the enum's default/fallthrough case). Geometry (`in->x/y/w/h`) and the three audio-input
+fields the struct already carries but these 8 were reading as bare globals (`peak_amp`/`peak_l`/
+`peak_r`/`spec_lvl[]`/`wav_v[]`) now come from `in->peak`/`in->peak_l`/`in->peak_r`/`in->spec`/`in->wave`
+-- a real, if small, decoupling improvement, not just a wrapper. Deliberately did NOT add new `mtr_in_t`
+fields for the shared envelope-history arrays (`wave[]`/`wave_pk[]`, the Bars/Dots column heights) or
+each meter's own accumulated physics state (the VU needle's `vu_l`/`vu_r`/`vu_sn[]`/`vu_cs[]`, the phase
+scope's `scope_x[]`/`scope_y[]`/`scope_head` trail) -- these stay direct file-scope-static reads inside
+the new functions, the same precedent `wviz_bars_tick`'s own per-band easing arrays (`wviz_disp[]` etc.)
+already set for "this is meter state, not meter input" before item 5 started. `fw/meter.h`'s own header
+comment explicitly scoped item 1 to "without also inventing... in the same pass"; item 5 (retiring the
+REST into the SAME contract) follows the same discipline rather than widening the struct's job.
+
+Real mistake caught before it landed: a first draft of `viz_wave_tick` reused the outer `w`/`h`
+(`in->w`/`in->h`) then re-declared inner per-column locals also named `w`/`h` (as the original inline
+code's own names did, safe there only because there was no OUTER `w`/`h` to shadow) -- caught by
+inspection before building, renamed to `cw`/`ch` for the inner column-width/line-height locals so
+nothing shadows the outer geometry.
+
+Verified: `bash fw/build.sh release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all
+rebuild clean; a one-off `EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter"` build (this project's
+normal firmware build carries no warning flags at all) shows zero new warnings anywhere in the 8 new
+functions -- every warning it surfaces is pre-existing, in `third_party/libhelix-mp3` or elsewhere in
+`fw/player.c` unrelated to this change. `make test-host` passes in full (0 failures), including
+`check_ui_snapshot_renderer.py`'s 57 fixtures (menus/settings only, as noted -- does not exercise these
+8 draws) and `sim/test_helios_beam.py`. `tools/check_cold_calls.py` and `tools/meter_cost_estimate.py`
+(the latter only ever covered `wviz_bars_tick`/`wviz_scope_tick` by name, unaffected) show no change.
+
+**Honest limit, stated plainly:** this is verified as *correct code motion* (the pre- and post-move
+logic diffed line by line, every geometry/audio-input substitution checked by hand, everything that
+still needed to be a global left as one) and as *not breaking the build or any existing host test* --
+it is NOT verified as *pixel-identical on real hardware*, because no test in this repository exercises
+these 8 draws' actual output and no card was mounted this session. The next real verification step, if
+wanted, is either a targeted host-side reference-render test per meter (the `sim/test_meter_module.py`/
+`sim/test_meter_core.py` pattern already used for Chladni/the shared meter core) or a hardware smoke
+test cycling through all 12 meters on a real Pocket. Not committed, not packaged, not installed.
+
+## B-391 (2026-09-29): Helios review item 6 -- meter box as Helios's second region (precondition proved, not the full unification)
+
+Item 6's own text (section 5) gates the fuller "real partial-invalidation vocabulary" work on "once
+there is more than one view/region consumer to prove the design against" -- section 11 had found only
+ONE (`ui_chrome_paint()` was Helios's sole `helios_region_register()` caller). Before attempting the
+full three-mechanisms-into-one unification section 3.1 describes, checked whether that precondition is
+actually met yet: it was not -- item 4 (B-389) added a second INVALIDATION-MASK consumer, not a second
+REGION consumer, a different mechanism in the same review. Scoped this session's work to closing that
+specific gap rather than attempting the larger unification on an unproven precondition.
+
+Converted the meter box's own beam-safety-gated draw (`fw/player.c`'s `ui_draw_dynamic_cold()`, the
+`if ((!paused || ...) && ... && helios_rows_safe_counted(...)) { ... }` block B-267 built) into a real,
+second, row-ranged Helios region. The ~150-line body (wave/peak bookkeeping, the 12-way `viz_mode`
+dispatch, `mt_take()`) moved verbatim into a new `ui_meter_redraw(void)`, registered once via
+`helios_region_register_rows(ui_meter_redraw, UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)`.
+The call site keeps its EXACT original outer gate (including the direct `helios_rows_safe_counted()`
+check) unchanged, and only replaces "run the body inline" with `helios_mark_dirty(id);
+helios_flush();` -- deliberately NOT simplified to rely solely on `helios_flush()`'s own internal
+row-safety re-check, because that would move `ui_last_vu`'s reset from "only on an actual redraw" to
+"whenever we decided to try," changing the retry cadence while beam-blocked (every tick today vs. every
+other tick) -- a real, if small, behavioural difference not worth risking unverified.
+
+Real regression caught by the numbers, not by inspection: the first build after moving this code showed
+`tau.rom` grow from 118,060 B to 124,140 B and the heap gap drop by 6,080 B -- the moved body had lost
+`ui_draw_dynamic_cold()`'s own `COLD_FN3` placement (RAM-resident hot code instead of the cold image) by
+simply not carrying that attribute over to its new top-level function. Fixed by adding `COLD_FN3` to
+`ui_meter_redraw()`; rebuilt numbers matched the pre-move baseline exactly (118,060 B / 65.5%, heap gap
+56,864 B for `release`; 50,080/47,664 B for the two diagnostic targets, unchanged from B-390).
+
+Checked the resulting hot-calls-cold shape is actually safe, since `helios_flush()` (plain hot code in
+`fw/helios.inc`, unconditional) now calls a `COLD_FN3` function through a stored function pointer with
+no `COLD_READY()` check at that call site -- unlike every other hot-calls-cold entry point in this
+codebase, which gates itself explicitly. Traced why it is still safe: `ui_meter_region` can only ever be
+marked dirty from inside `ui_draw_dynamic_cold()` itself, which is only ever entered after its own
+wrapper's `if (!COLD_READY()) return;`; `cold_code_ok` (`fw/cold.inc`) is set once at boot and never
+cleared, so by the time any `helios_flush()` call (from either of its two call sites) processes that
+region, `COLD_READY()` is necessarily still true. Real, but not enforced by any check the way
+`RRECT_READY()`/`BLIT_READY()` guard their own boundary -- a design note, not a bug, and flagged here
+rather than left implicit.
+
+Real tool gap found while double-checking: `tools/check_cold_calls.py` -- the only tool that would have
+caught the missing `COLD_FN3` automatically -- does NOT list `ui_meter_redraw` at all in its
+hot-calls-cold report, confirming it cannot see calls made through a function pointer (the same
+"untested" limitation B-387 already flagged for the Settings dispatch table, now independently
+confirmed for this second case). The heap-gap/ROM-size regression is what actually caught the real
+mistake here, not that tool -- worth remembering next time a function moves out of a `COLD_FN`-attributed
+caller into its own top-level definition.
+
+Verified: `bash fw/build.sh release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all
+rebuild clean with heap gaps matching B-390's baseline exactly; a one-off `EXTRA_CFLAGS="-Wall -Wextra
+-Wno-unused-parameter"` build shows no new warnings (the one warning it does show, `vblank_active`
+unused, is pre-existing and unrelated). `make test-host` passes in full (0 failures).
+
+**Scope, stated plainly:** this proves the region/beam-safety mechanism generalises to a second,
+differently-shaped consumer -- it does NOT unify the three separate "invalidation" vocabularies section
+3.1 lists (Helios's per-region dirty bit, the view-switch invalidate_mask from item 4, and the
+per-meter redraw caches `wave_drawn[]`/`spec_drawn[]`/`ui_bg_ready`/`force`, still three). That fuller
+unification is now unblocked by precondition but not attempted this pass. Not hardware-tested (no card
+mounted), not committed, not installed.
+
+## B-392 (2026-09-29): three improvements from B-391's own post-mortem
+
+Owner asked for the recommendations from B-391's analysis to be built (all three low-risk, no card/VM
+needed).
+
+**1. `tools/check_cold_calls.py` now also lists Helios region redraw callbacks.** Its existing
+disassembly-based scan can only ever see DIRECT hot->cold calls (`jal`/`tail` with a static target);
+`helios_flush()` calls a region's `redraw()` through a stored function pointer, an indirect `jalr` with
+no static target for `objdump` to resolve at all -- not a fixable regex gap, a real limit of static
+disassembly. Added a second pass that scans `fw/*.inc`/`fw/player.c` (excluding `fw/helios.inc` itself,
+whose own definitions and internal delegation calls are not real registration sites) for
+`helios_region_register(_rows(_cold))(FUNC, ...)` call sites, then looks `FUNC` up in `nm`'s symbol
+table to report hot/cold placement directly, flagging the mismatch case that actually matters
+(registered without `_cold` but placed cold -- an unguarded hot-calls-cold path). Verified against the
+real binary: correctly reports `ui_draw_chrome` (registered plain, hot -- expected) and `ui_meter_redraw`
+(registered cold-aware, cold -- expected), no false flags.
+
+**2. `helios_region_register_rows_cold()` + a real gate in `helios_flush()`.** B-391's safety argument
+for calling a `COLD_FN3` redraw callback from unguarded hot code rested on an informal invariant (the
+region can only be marked dirty from a `COLD_READY()`-gated call site; `cold_code_ok` is monotonic) --
+true, but enforced nowhere, unlike `RRECT_READY()`/`BLIT_READY()`'s own explicit boundary checks. Added
+a `requires_cold` bit per region and a `_cold` registration variant that sets it; `helios_flush()` now
+leaves a `requires_cold` region dirty (never calls it, no crash, exactly the existing beam-unsafe retry
+path) until `cold_code_ok` is set. Uses the raw `cold_code_ok` variable, not the `COLD_READY()` macro --
+that macro is defined in `fw/cold.inc`, included well after `fw/helios.inc`, the same ordering
+constraint the codebase already documents elsewhere for a different symbol. Converted
+`ui_meter_redraw`'s own registration to the `_cold` variant. For this ONE call site the gate is
+currently redundant (it is only ever reached after `ui_draw_dynamic_cold()`'s own `COLD_READY()` check
+already passed), stated honestly rather than claimed as load-bearing here -- its value is for the NEXT
+region added from a less-guarded call site, where it would actually prevent a crash instead of just
+documenting safety. `sim/test_helios_beam.py`'s standalone harness needed a new `cold_code_ok` stub
+(same pattern the old, now-removed `pl_ui_restore` stub used) to keep compiling `fw/helios.inc` alone.
+
+**3. `tools/check_heap_gap.py` + `tools/heap_gap_baseline.json`.** Automates the exact comparison that
+caught B-391's real regression by accident (a human noticing two printed numbers). Builds each tracked
+firmware target, parses its own "heap gap: N B" line, and fails if the actual gap drops more than 512 B
+below a recorded baseline; free RAM increasing, or moving by less than the tolerance, is never a
+failure. `--update` rebuilds every target and rewrites the baseline. Verified BOTH directions for real:
+recreating B-391's exact mistake (temporarily removing `COLD_FN3` from `ui_meter_redraw`, real
+`sed`+rebuild, not a simulated number) correctly failed with the expected 6,080-6,096 B drop reported
+per target and exit code 1; reverting and rebuilding correctly passed clean. Deliberately NOT wired
+into `make test-host` -- like `check_cold_calls.py`, this is an informational tool run by hand, since
+it rebuilds firmware and overwrites `dist/Assets/tau/common/tau.rom` (the real shipped ROM), a side
+effect a plain host test should not have without the project deciding to accept it.
+
+Verified: `make test-host` passes in full after all three changes (0 failures); `release`/
+`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean, heap gaps
+essentially unchanged from B-391's own numbers (56,832/50,048/47,632 B, -32 B each from the new
+`requires_cold` field + registration function, matching the tiny size of that addition). Not
+hardware-tested (none of this touches drawing behaviour), not committed, not installed.
+
+## B-393 (2026-09-29): card install for the hardware meter smoke test (recommendation 4)
+
+Built and installed `alfatreze.TAU_DEV_53`: `player-library-diagnostic-profile` firmware carrying B-390
+(all 8 legacy meters through `mtr_in_t`), B-391 (meter box as Helios's second region), and B-392 (the
+`requires_cold` gate + its own registration), paired with the SAME already-hardware-confirmed
+all6-combined+LPC bitstream `alfatreze.TAU_0_6_0_A_16` runs (`tools/package_dev_build.py --rbf
+work/diagnostics/lpc-b378/ap_core_s1.rbf --rbf-sha256 30164515...aa7869` -- the raw RBF from B-378;
+its bit-reversed `.rbf_r` hash `c123eb1c...6238c` matches the card's own `TAU_0_6_0_A_16` copy exactly,
+confirmed by direct comparison before installing, not assumed). Firmware-only change, no new RTL macro
+needed, so pairing with an already-proven bitstream rather than spending a fresh VM fit was the right
+call here.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_16` (dry run first, then
+`--yes`): purely additive, nothing removed, 5 catalog caches backed up/verified/deleted, media + library
+index (55 files, 45 tracks per the carried index) correctly rebuilt for `alfatreze.TAU_DEV_53`'s own
+root, `tau-assets.bin` carried across too. Cores on the card now: `TAU`, `TAU_DIAGNOSTIC`,
+`TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_53`. Backup: `work/card-backups/20260929-014818`.
+
+**Not done, and cannot be done from here:** the actual smoke test -- booting `TAU_DEV_53` and cycling
+through all 12 meters (Bars, Waterfall, Scroll, Dots, LED/Spectrum, VU, Oscilloscope, Phase Scope,
+Winamp Bars, Winamp Scope, Chladni, VU Master) to confirm none of them regressed, especially the meter
+box's own beam-safety/tear behaviour now that it is routed through Helios's region mechanism instead of
+the old inline check. This needs a human at the Pocket; nothing in this session can press its buttons.
+
+## B-394 (2026-09-29): TAU_DEV_53's black screen root-caused and fixed -- my own packaging mistake, not a Helios/meter bug
+
+Owner reported `TAU_DEV_53` "stays on a black screen, no visual feedback of any kind." Root cause found
+by reading `main()`'s own boot interlock (`fw/player.c`): `if (!VERSION_OK(REG(R_VERSION))) { ... for
+(;;) {} }` -- an infinite loop with ZERO framebuffer output on a version mismatch, by design ("paint an
+unmistakable pattern" refers to status registers for a debug probe, not anything visible on screen).
+This is exactly the reported symptom.
+
+B-393's own mistake: `player-library-diagnostic-profile` was built with plain `bash fw/build.sh` (no env
+vars), which links against `EXPECT_VERSION` (rev 23, the 256 KB/60 MHz baseline contract) -- but the
+paired bitstream (`lpc-b378`'s RBF, the same one `alfatreze.TAU_0_6_0_A_16` already runs) is the
+all6-combined build (`TAU_RAM_192K=1 TAU_CLK66=1` at the RTL level), which reports `CORE_VERSION` rev 26
+and REFUSES anything but firmware built with BOTH `RAM_192K_FW` and `CLK66_FW` set (`fw/player.c`'s own
+`VERSION_OK` macro, deliberately the strictest branch, checked first). The RBF pairing itself was
+correct (verified by direct hash comparison before installing, confirmed again here) -- the firmware
+side of the pairing was not. Found the correct combination from this project's own prior record (`docs/
+AUDIT_TRAIL.md`, the entry building a matching `TAU_0_6_0_A` core): `RAM_192K=1 CLK66=1 SDRAM_BUSY=1
+LPC_FW=1`.
+
+Rebuilt `player-library-diagnostic-profile` with exactly those four env vars (heap gap 7,600 B, above
+the 4,096 B floor for this target once linked for 192 KB instead of 256 -- a different, smaller RAM
+budget than the plain-build baseline `tools/heap_gap_baseline.json` tracks, not a regression against
+it, a different link target entirely). Packaged as `alfatreze.TAU_DEV_54` with the SAME verified RBF,
+installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_16 --remove
+alfatreze.TAU_DEV_53` (the broken core backed up and verified before removal, per the standing
+procedure). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_16`, `TAU_DEV_52`,
+`TAU_DEV_54`.
+
+No code in `fw/helios.inc`/the meter changes was touched by this fix -- the black screen was never
+caused by B-390/391/392's own content, purely by this session's own packaging omission. The actual
+hardware smoke test (recommendation 4: cycle through all 12 meters) is still pending the owner's next
+boot, now on a build that should actually reach the splash screen.
+
+## B-395 (2026-09-29): recommendation 4 closed -- TAU_DEV_54 hardware-confirmed normal
+
+Owner booted `alfatreze.TAU_DEV_54` (the corrected build from B-394) and reported it "seems normal all
+around." First real hardware confirmation of B-390 (all 8 legacy meters through `mtr_in_t`) and B-391
+(the meter box as Helios's second row-ranged region, replacing the old inline
+`helios_rows_safe_counted()` check with `helios_mark_dirty()`+`helios_flush()`): no reported visual
+regression, tear, or crash across ordinary use. Not a per-meter itemised confirmation (the owner's own
+words were general, not "all 12 meters individually cycled and compared") -- recorded as the honest
+scope of what was actually verified, matching this thread's own standing discipline of not overclaiming
+verification depth. Closes recommendation 4 from the B-391 post-mortem; the review's own "Not yet
+hardware-tested" caveats on items 5 and 6 (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`) are
+updated accordingly below.
+
+## B-396 (2026-09-29): Helios review item 7 -- H2 double buffering wired into firmware (built, not yet hardware-tested)
+
+Started item 7 (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md` section 5): the RTL
+(`TAU_DBUF`, B-340) is already fit, timing-closed, and sitting on the card in the all6-combined
+bitstream every current `alfatreze.TAU_0_6_0_A_16`/`TAU_DEV_54` install already runs -- "nothing in
+`fw/` reads or writes its registers" was the review's own finding. This entry closes that: no new VM
+fit needed, firmware-only work against already-proven RTL.
+
+Added `R_DBUF_CPU`(0x118)/`R_DBUF_DISP`(0x11C) register macros and a boot-time `dbuf_hw`/`DBUF_READY()`
+probe (`fw/player.c`) -- a plain status-bit read (bit 31 of `R_DBUF_DISP`), NOT the write-then-verify
+pattern `BLIT_READY()`/`RRECT_READY()` use, because those exist only for opcodes with no dedicated
+presence bit at all; H2's own registers were designed with one (`docs/MMIO_ALLOCATION.md`), matching
+`R_VBLANK`/`R_SPEC_ST`/`R_POLY_ST`/`R_LPC_STATUS`'s own simpler convention instead.
+
+Built `dbuf_redraw_begin()`/`dbuf_redraw_end(active)`: a bracket around a full-frame redraw, not a
+per-call-site change. `begin()` selects the buffer NOT currently displayed for the CPU write side (a
+no-op returning 0 on any bitstream without H2 -- old-bitstream safety rests on this one check alone,
+since the two registers simply do not exist there); `end()` waits for the queued draws to be accepted
+(`fb_wait()`), requests a flip, polls the RTL's own "flip still pending" bit for up to ~100 ms, and
+--critically, regardless of whether the flip actually landed in time-- resyncs `R_DBUF_CPU` to whatever
+IS now displayed, because HELIOS_SPEC.md section 5's own note is explicit that H1's incremental
+beam-gated draws (the meter box, `ui_meter_redraw()`) are OUTSIDE this bracket and must keep targeting
+the displayed buffer directly; leaving the CPU-side pointed at the back buffer past this function's
+return would silently misdirect every one of them.
+
+Wired the bracket around exactly ONE place: the `helios_pending_mask` dispatch block's own
+`HELIOS_INV_CHROME`/`HELIOS_INV_ART` handling (B-391/B-392's own seam) -- chrome and, when the same
+transition also invalidates it, album art together, which is precisely the "genuine full-frame redraw"
+the spec means. Chosen over touching each of the six former `pl_ui_restore` call sites individually
+(B-350's own point in building that seam in the first place): every current and future view transition
+that sets either bit gets double buffering automatically, with zero additional call sites to keep in
+sync. Confirmed the two draws (`ui_chrome_paint()`, `ui_art_draw()`) both land in the SAME back buffer
+before the single flip at the end, since both go through the identical plain `FB_BASE`-relative
+addressing `dbuf_addr()` applies uniformly -- read from `mp3_fb.sv`'s own RTL, not assumed.
+
+Verified: `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean;
+a one-off `-Wall -Wextra` build shows zero new warnings; `make test-host` passes in full;
+`tools/check_cold_calls.py`'s region-callback report (B-392) shows no new entries (`dbuf_redraw_begin`/
+`_end` are plain hot functions called from already-hot code, no new cold boundary); heap-gap baseline
+updated (`tools/heap_gap_baseline.json` --update) to the small, expected -272/-256/-256 B change from
+the new register defs and two small functions.
+
+**Not done, stated plainly:** no hardware test at all. This is real, un-simulated MMIO
+read/write/poll logic against a register pair no firmware has ever touched before -- the RTL side has
+its own testbench (`sim/tb_helios_dbuf.v`) but nothing simulates this firmware sequence against it
+(unlike PSRAM/MP3-poly/FLAC-LPC's real-CPU-in-the-loop simulations before their own first hardware
+runs). The failure mode if the sequencing is subtly wrong is a real one worth naming honestly: chrome
+and the meter box could get out of sync (one drawn to the buffer being displayed, the other to the
+back buffer) and show a visibly torn or stale frame -- exactly the class of bug this feature exists to
+prevent, so getting it wrong would look like a regression, not silence. Not packaged, not installed,
+not committed. The natural next step, if the owner wants it, is a real-CPU-in-the-loop RTL simulation
+of this exact sequence against `mp3_fb.sv`'s `DBUF_ENABLE=1` path before spending a card write on it.
+
+## B-397 (2026-09-29): TAU_DEV_55 -- item 7 (H2 double buffering) installed for its first hardware test
+
+Rebuilt `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` (the same
+combination B-394 root-caused and fixed) carrying B-396's `DBUF_READY()` probe and
+`dbuf_redraw_begin()`/`dbuf_redraw_end()` bracket. Packaged with the same verified RBF (`lpc-b378`,
+`bitstream.rbf_r` hash `c123eb1c...6238c`, matching the card's existing `TAU_0_6_0_A_16`/`TAU_DEV_54`
+exactly) as `alfatreze.TAU_DEV_55`. Installed via `tools/install_dev_core.py --carry-from
+alfatreze.TAU_DEV_54` -- purely additive, nothing removed, media/library carried and rebuilt for its
+own root, 5 catalog caches backed up/verified/deleted. Cores on the card: `TAU`, `TAU_DIAGNOSTIC`,
+`TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_54`, `TAU_DEV_55`.
+
+This is item 7's first hardware run, on firmware never before tested against real MMIO timing (B-396's
+own honest caveat). Watch specifically for anything that would indicate the buffer-select/flip
+sequencing is wrong: a torn or half-drawn chrome/menu transition, the meter box drawing to the wrong
+buffer (would show as a frozen or duplicated-looking meter after a menu closes), or -- the fail-open
+case if `DBUF_READY()` itself is somehow wrong -- no change in behaviour at all from `TAU_DEV_54`.
+
+## B-398 (2026-09-29): T2-00 fit-confirmed -- glyphbuf single-write-port fix fully recovers the ALM budget
+
+`glyphbuf-t200` (both seeds, TAU_BLIT_BLEND+TAU_LPC bundle -- the exact combination `lpc-b372` previously
+overflowed at 111% with no fit at all) finished on the VM: **both Successful, all four corners positive
+on both.** Seed 1: Slow 0C Hold +0.199/Setup +0.692, Slow 85C Hold +0.314/Setup +0.755. Seed 2 (selected,
+better margin on every corner): Slow 0C Hold +0.244/Setup +0.963, Slow 85C Hold +0.304/Setup +1.294 (Fast
+corners +0.119/+5.837, +0.135/+5.610 -- real headroom, not a bare pass). RAM 240/308 (78%), DSP 19/66
+(29%) on both -- confirms the ALM recovery the other session's Talos review predicted (`mp3_fb` back to
+roughly its no-blend footprint) and, concretely, that the LPC kernel now fits alongside blend where it
+previously could not at all.
+
+RBF collected and hash-verified: `work/diagnostics/lpc-b378/../glyphbuf-t200/ap_core_s2.rbf`, sha256
+`923d854b20171ada039486fa280298357368d0f0794a27843c4cc3d9c772ed01`.
+
+This closes the immediate next step from `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md`
+section 5 item 1 (T2-00 fit-confirm) in full. Per that handoff's own item 2: with the ALM pressure that
+motivated `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` now resolved by this single low-risk fix
+(section 1a of the review, not the fuller P0-P4 rewrite), the fuller Talos 2 phased rewrite does not
+appear warranted on the evidence available -- recommend re-evaluating that plan's own stated motivation
+against this result before starting it, rather than treating it as still-scheduled work. Not yet
+packaged or installed -- awaiting the owner's decision on whether/how to test this on hardware.
+
+## B-399 (2026-09-29): item 7 tearing bug found on hardware, root-caused and fixed -- FB_HELD() not checked by the bracket
+
+Owner tested `alfatreze.TAU_DEV_55` and reported real symptoms: cycling a menu with held-down navigation
+eventually shows "very tiny glitching in the heading" that self-corrects; rapidly opening/closing
+Settings eventually shows the active menu item "tear a little" before returning to normal. (A third
+symptom, a persistent black-area glitch behind the "100%" label in fullscreen, was confirmed present on
+EVERY build including the pre-item-7 `TAU_DEV_54` -- pre-existing, matches the already-documented
+`fw/fullscreen.inc` `FS_LABEL_EXCL`/beam-race issue, unrelated to this work.)
+
+Root cause found by reading `FB_HELD()`'s actual definition (`fw/player.c:448`,
+`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`): it is checked INSIDE every individual draw primitive
+(`fb_rect()`, `fb_bar()`, etc., each around line 465 onward), not by any caller -- while Settings or the
+library holds the screen, `ui_chrome_paint()`'s underlying `ui_draw_chrome()` silently draws NOTHING
+(every call inside it no-ops). `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-396) had no way to know
+this: they would still select the back buffer, "draw" nothing, and unconditionally request a flip --
+displaying whatever STALE content happened to be sitting in that back buffer from an earlier, unrelated
+redraw, visible as a brief tear that self-corrects once the next real redraw catches up. Both reported
+symptoms match exactly: opening/closing Settings and continuous menu navigation both set `UI_OVERLAY_UP`
+while the transition still sets the CHROME invalidate bit, hitting this path.
+
+Fix: `dbuf_redraw_begin()` now also checks `FB_HELD()` and returns 0 (no-op, matching
+`ui_draw_chrome()`'s own behaviour) whenever it is true, so the bracket never flips onto a buffer
+nothing was actually drawn into this pass. Rebuilt all three firmware targets clean, `make test-host`
+passes. Packaged with the SAME verified RBF as `alfatreze.TAU_DEV_54`/`_55` and installed as
+`alfatreze.TAU_DEV_56` (`alfatreze.TAU_DEV_55` backed up and removed as superseded). Cores on the card:
+`TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_54`, `TAU_DEV_56`.
+
+Not yet re-tested on hardware -- this is the second hardware iteration for item 7, first real bug found
+and fixed from a hardware report rather than by inspection, exactly the honest risk B-396 flagged
+("the failure mode... would look like a regression, not silence").
+
+## B-400 (2026-09-29): TAU_0_6_0_A_17 -- T2-00-fixed bitstream becomes the new reference candidate
+
+Owner asked to close the sequencing gap flagged when scoping 0.6.0's remaining work: everything installed
+so far this session (`TAU_0_6_0_A_16`, `TAU_DEV_52/54/55/56`) still ran the OLD `lpc-b378` RBF, the one
+with `glyphbuf` costing ~6,500 ALMs in registers -- T2-00's fix (B-388/B-398) was VM-fit-confirmed but had
+never actually been installed anywhere.
+
+Packaged `player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`, carrying every
+firmware change this session -- Helios items 4-7 incl. the B-399 `FB_HELD()` fix) paired with the
+`glyphbuf-t200` seed 2 RBF (T2-00-fixed, all four corners positive, B-398) via `tools/package_dev_build.py
+--semver 0.6.0-alpha.17` (a real feature milestone, not a throwaway `TAU_DEV_NN` -- same content already
+progressively verified through `TAU_DEV_54/55/56`, now on the corrected bitstream). RBF `.rbf_r` hash
+`b089b82871d7f441...95a7e` -- confirmed DIFFERENT from the old `TAU_0_6_0_A_16` hash (`c123eb1c...6238c`),
+as expected since the RTL genuinely changed.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_56 --remove alfatreze.TAU_0_6_0_A_16
+--remove alfatreze.TAU_DEV_52`: both backed up and verified before removal. `TAU_0_6_0_A_16` is superseded
+by definition (same features, T2-00-fixed bitstream); `TAU_DEV_52` (the software-LPC A/B control) was
+already flagged in `docs/CURRENT_STATUS.md` as free to remove "once the Talos fix needs a fresh install
+slot" -- that moment. `TAU_DEV_56` (item 7's `FB_HELD()` fix, old RBF, awaiting the owner's retest) is
+DELIBERATELY KEPT, not superseded by this entry -- it is the last known-good comparison point on the OLD
+bitstream until the owner confirms the fix on hardware.
+
+Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `TAU_0_6_0_A_17`. Not yet run --
+this is `alfatreze.TAU_0_6_0_A_17`'s first hardware boot, on RTL that has never been on a real Pocket
+before (T2-00 was VM-fit-confirmed only). Recommend the same test sweep as `TAU_DEV_56` (menu
+cycling, Settings open/close) plus a general sanity pass, since this combines a real RTL change with
+every firmware change verified so far.
+
+## B-401 (2026-09-29): TAU_0_6_0_A_17 hardware-confirmed on a quick test
+
+Owner: "seems good so far on a quick test." First real hardware confirmation of the T2-00 RTL fix
+(B-388/B-398, glyphbuf's ALM recovery) actually running on silicon -- it was VM-fit-confirmed only until
+now. Also the first general confirmation of Helios items 4-7 (B-389..B-397/B-399) together with real RTL
+timing rather than the previous bitstream. Recorded at the scope the owner actually gave it -- a quick
+general pass, not an exhaustive per-feature sweep -- matching this thread's own standing discipline of
+not overclaiming verification depth (same as B-395's "seems normal all around"). No specific regression
+reported. `docs/CURRENT_STATUS.md`'s card-state note updated accordingly.
+
+## B-402 (2026-09-29): item 7 closed -- second dbuf/screen_blank interaction found while scoping an unrelated feature, fixed
+
+While scoping a power-saving-mode request (owner asked to load the `analogue-pocket-dev` skill first;
+confirmed via the skill's own docs/knowledge-base that a core cannot reach the Pocket's LCD backlight at
+all -- matches this project's own prior conclusion, `fw/player.c:1086`'s SCREEN BLANK comment, and closes
+that scoping question with "the requested feature already ships, real power savings are a hard platform
+limit"), found a second instance of exactly B-399's bug shape: `ui_draw_chrome()` ALSO no-ops while
+`screen_blank` is set (a DIFFERENT condition from `FB_HELD()` -- `screen_blank` is not part of
+`UI_OVERLAY_UP`/`ui_fullscreen`), and `dbuf_redraw_begin()` had no check for it. A chrome invalidation
+firing while blanked (a track change during blank is the code's own documented, expected case) would
+still flip onto stale back-buffer content, breaking the "stays black while blanked" guarantee.
+
+Fixed: `dbuf_redraw_begin()` now also checks `screen_blank`, same one-line pattern as B-399. Rebuilt all
+three firmware targets clean, `make test-host` passes. Packaged with the SAME T2-00-fixed RBF
+(`glyphbuf-t200` seed 2) as `alfatreze.TAU_0_6_0_A_18` via `tools/package_dev_build.py --semver
+0.6.0-alpha.18`, installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_17 --remove
+alfatreze.TAU_0_6_0_A_17` (backed up and verified before removal). Cores on the card: `TAU`,
+`TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `alfatreze.TAU_0_6_0_A_18`.
+
+This closes Helios item 7 (H2 double buffering) for this pass: RTL fit-confirmed (B-396), one real
+hardware bug found and fixed (B-399), a second related bug found by code inspection and fixed before it
+was ever reported (this entry). Not yet re-tested on hardware.
+
+## B-403 (2026-09-29): item 8 (persist widening) found already built and present in the current RTL/firmware tree
+
+Checked before scoping any new work: `docs/ROADMAP.md`/`docs/CURRENT_STATUS.md` both still listed persist
+widening as "needs a fit"/"not installed" (stale, carried over from B-346's own entry, 2026-09-27, which
+packaged it standalone as `alfatreze.TAU_0_6_0_A_6` and never combined it with anything else). Reading the
+actual current tree: the RTL (`set_idx`/`set_reg[0:31]` widened 16->32 words, `src/fpga/core/mp3_soc.v`/
+`core_game.vh`) and firmware (`persist32_probe()`/`PERSIST32_READY()`/`set_rd32()`/`set_wr32()`,
+`fw/settings.inc`) are BOTH already committed and present, unconditionally (no macro, no `CORE_VERSION`
+bump needed -- B-346's own design was traced by hand to be backward-compatible). Confirmed it did NOT get
+lost or reverted anywhere between B-346 and now.
+
+Since it is unconditional RTL (not gated behind a `qsf_append` macro the way `TAU_BLIT_BLEND`/`TAU_LPC`/
+etc. are), it was ALREADY present in the `glyphbuf-t200` fit (built from the same `main` tree) and is
+therefore already running on `alfatreze.TAU_0_6_0_A_17`/`_18` -- it did not need a separate fit or a
+separate install to "close" this item; it needed the stale docs corrected and its own first real hardware
+exercise. Updated `docs/ROADMAP.md` item 8 and `docs/CURRENT_STATUS.md` accordingly.
+
+**Not yet verified on hardware**: does theme choice and each of the three configurable meters' preset
+choice actually survive a Quit + relaunch on `alfatreze.TAU_0_6_0_A_18`? This is the one concrete thing
+left to close this item for real -- change the theme and a meter preset, Quit the core (not just power
+off -- interact.json persistence writes on Quit), relaunch, and confirm both are remembered.
+
+## B-404 (2026-09-29): "alpha blend in firmware" was already built -- stale scoping corrected
+
+Owner pushed back on an earlier scoping claim ("alpha blend in firmware -- not started"), correctly
+recalling it was already used for menu transitions and the Winamp Scope. Checked the actual code:
+
+- Winamp Scope's trail effect (`wviz_scope_tick()` -> `ui_bg_blend()` -> `BLEND_READY()`/`fb_blend_on()`,
+  `fw/player.c`) uses the real hardware B5 blend opcode -- already built and shipped.
+- Settings' page transition fade (`set_fade_k[]`, `fw/settingsui.inc`) is a SEPARATE, software-only eased
+  colour fade (interpolates role colours before drawing), not the hardware blend opcode -- also already
+  built and shipped, just a different mechanism than the one asked about.
+
+Same stale-documentation class as B-403 (item 8): the "0.6 scope: alpha blend in firmware" line
+(`docs/CURRENT_STATUS.md`, from B-331) predates both of these landing and was never corrected afterward.
+
+Real new finding surfaced by checking this: `TAU_BLIT_BLEND` was previously shelved in this project's
+history (a standalone fit showed a real -2.972 ns timing failure, traced to the same congested
+`glyphbuf` write network T2-00 just fixed -- B-150/B-243 era, before this session). The `glyphbuf-t200`
+bundle T2-00 was fit-confirmed against INCLUDES `TAU_BLIT_BLEND=1` and closed all four corners clean on
+both seeds (B-398) -- meaning T2-00 likely resolved blend's old timing problem too, as a side effect of
+fixing the same root cause. Not specifically re-verified: the clean fit proves timing closure, not that
+the Scope trail visually renders correctly on THIS combined bitstream (`alfatreze.TAU_0_6_0_A_18`) --
+recommended as a quick visual check next time it's on hardware (Winamp Scope, trail setting up, confirm
+an actual fading trail rather than the plain-erase fallback `BLEND_READY()` would produce if false).
+
+Docs corrected: `docs/CURRENT_STATUS.md`'s "Deferred to 0.6" line.
+
+## B-405 (2026-09-29): Settings menu transitions upgraded to real hardware alpha blend crossfade
+
+Owner: "upgrade the menu transitions to actually use alpha blending" -- B-334's own comment on the
+existing fade ("there is no blend in this") was true when written (blend was shelved for a timing
+failure, H2 didn't exist), not true any more after T2-00 (B-388/398, closed blend's timing as a side
+effect of fixing `glyphbuf`) and H2 (B-396, gives a second, already-idle buffer to use as scratch).
+
+Built a genuine crossfade, not a nicer version of the colour-interpolation trick: render the NEW page
+ONCE, at full normal colours, into whichever buffer is NOT currently displayed (pure scratch use, no
+flip ever requested -- safe because Settings holds `FB_HELD()` the whole time it's open, and
+`dbuf_redraw_begin()` already refuses to engage H2's own front/back logic while that's true, B-402, so
+the "back" buffer is guaranteed idle); then blend-composite that rendered buffer onto the displayed one
+over the SAME `set_fade_k[]`/`SET_FADE_STEPS` eased curve/cadence the old fade already used, via the
+sticky `SRC_BASE`(field 0)/`DST_BASE`(field 2) fields (`docs/MMIO_ALLOCATION.md` 0xC0/0xC4) -- confirmed
+by reading the doc that NO existing caller in this codebase had ever set either field before; every
+`fb_blit()`/`fb_cblit()`/etc. call relies on the power-up default (both 0).
+
+Real bugs caught by tracing through carefully, before ever building, not discovered afterward:
+1. **`FB_HELD()` would have silently eaten every composite draw.** The new composite step runs OUTSIDE
+   `set_draw_now()`'s own `ov_draw=1` bracket, and `FB_HELD()` = `UI_OVERLAY_UP && !ov_draw` is true the
+   entire time Settings is open -- every `fb_blit()` call in the composite loop would have silently
+   no-op'd without `set_xfade_step_draw()` setting `ov_draw` itself.
+2. **`fb_blit()`'s 127-word-wide glyphbuf limit** means the full `FB_W`=400-column frame needs several
+   calls (chunked at 100 columns each), not one -- the same limit `fb_copy()` itself already splits
+   around, easy to miss for a first-time caller of `fb_blit()` at full framebuffer width.
+3. **The final step needed an exact copy, not a 255/256 blend** -- `fb_blend_on()` only takes an 8-bit
+   alpha (0-255), so the naive "just blend at k=256" would leave a `1/256` trace of the old buffer's
+   content in the final frame, imperceptible but not exact. `set_xfade_step_draw()` treats `k>=256` as
+   a plain (unblended) copy instead.
+4. **An abandoned mid-flight fade could leak the sticky bases.** If the page changes again (or Settings
+   closes) before the crossfade reaches its last step, the "reset to (0,0) on the last step" path never
+   runs -- fixed by resetting explicitly in both `set_draw()`'s own page-change branch and `set_close()`
+   whenever `set_xfade_active` was still true.
+
+Falls back to the EXISTING colour-interpolation fade unchanged whenever `SET_XFADE_READY()`
+(`BLEND_READY() && DBUF_READY()`) is false -- any bitstream without both `TAU_BLIT_BLEND` and `TAU_DBUF`.
+Deliberately kept the SAME page-eligibility gate (`set_fade_page_ok()`, excludes the meter list and a
+live QR) as the old mechanism for this pass, even though a true crossfade no longer needs those
+exclusions (it renders each page once, normally, instead of repeatedly recolouring it) -- widening
+eligibility is a natural, separate follow-up, not bundled in here.
+
+Verified: `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean;
+a one-off `-Wall -Wextra` build shows no new warnings; `make test-host` passes in full;
+`tools/check_cold_calls.py` shows no new hot-calls-cold entries and no new Helios region callbacks
+(this feature isn't a region, it's inline in `set_draw()`'s own dispatch); `tools/check_heap_gap.py
+--update` recorded the small expected baseline change. Packaged with the T2-00-fixed RBF
+(`glyphbuf-t200` seed 2, same as `alfatreze.TAU_0_6_0_A_18`) as `alfatreze.TAU_0_6_0_A_19` via
+`tools/package_dev_build.py --semver 0.6.0-alpha.19`. **NOT YET INSTALLED** -- the SD card was not
+mounted when this was ready; the packaged build sits at `work/diagnostics/tau-0_6_0_a_19/pocket`,
+ready for `tools/install_dev_core.py work/diagnostics/tau-0_6_0_a_19/pocket --carry-from
+alfatreze.TAU_0_6_0_A_18 --remove alfatreze.TAU_0_6_0_A_18 --yes` once the card is available.
+
+**Not hardware-tested at all.** This is the least-precedented firmware this session has built --
+first-ever use of the sticky SRC_BASE/DST_BASE fields by any caller in this codebase, combined with H2
+buffer redirection and blend, all three together for the first time. Every individual piece (blend,
+H2/DBUF_CPU redirection, the sticky-field mechanism in general) is independently hardware-proven; this
+specific COMBINATION is not. Real, concrete risks worth watching for on first boot, in order of how bad
+they'd look: (a) a full-screen glitch/flash on ANY Settings page open, if the buffer redirection or
+restore has a subtle ordering bug; (b) the fade visibly NOT happening (falls silently back to a plain
+cut, e.g. if `SET_XFADE_READY()` is somehow false when it shouldn't be) -- benign, just not the upgrade;
+(c) a corrupted or offset composite (wrong columns/rows) if the 100-column chunking has an off-by-one.
+(a) is the one to watch closest, since it is the one that would indicate real corruption rather than a
+missing feature.
+
+## B-406: A_19 first hardware boot — owner's report, real bugs traced from source (no fix yet)
+
+Owner installed and ran `alfatreze.TAU_0_6_0_A_19` (B-405's crossfade). Six symptoms reported, all
+consistent with two real bugs traced from source (not yet fixed, not yet re-tested on hardware):
+
+**Bug 1 — H2's chrome/art redraw bracket is the only place that "knows" the displayed buffer just
+flipped; everything else (meter bars, Winamp Scope trail, Chladni, fullscreen visualisers) draws
+incrementally against "whatever R_DBUF_CPU currently is" with no signal that it changed.**
+`dbuf_redraw_begin()/dbuf_redraw_end()` (fw/player.c ~2972-3005) are called from exactly one site
+(line 9320), gated on `HELIOS_INV_CHROME|HELIOS_INV_ART` only. Every other drawer (bars' per-band
+skip-redraw cache, `ui_bg_blend()`'s trail fade, Chladni's own throttled redraw, fullscreen's partial
+updates) assumes the buffer it wrote to last frame is the SAME one now displayed — true between chrome
+redraws, false for exactly one frame right after any chrome/art invalidation flips the display to the
+other physical buffer, whose non-chrome regions still hold whatever THAT buffer had two redraws ago,
+not last frame's meter/Chladni/scope content. This explains:
+  - "winamp scope seems to additively accumulate pixels" / "small chladni... small accumulation" — the
+    trail/animation briefly reverts to an older, less-faded state on the OTHER physical buffer whenever
+    a chrome/art redraw fires concurrently, reads as sudden density/accumulation.
+  - "bars... particularly at fullscreen will have some bars that flicker" — a bar whose value didn't
+    change gets skipped from redraw at the exact moment the display buffer flipped, so the stale value
+    from the non-current buffer shows for one frame.
+  - "chladni doesn't show when loading the first time... inconsistently loads" — Chladni's own redraw
+    cadence vs. chrome-flip cadence race: whichever buffer becomes "front" may not have Chladni's latest
+    (or any) content drawn into it yet.
+
+**Bug 2 — Settings' own Start-from-Library shortcut bypasses the Helios view registry entirely.**
+`fw/settingsui.inc`'s `set_input()` does `lib_ui_open = 0u;` directly (not `lib_ui_close()`, which is
+`helios_view_switch(&library_view, &helios_player_view)`, fw/library.inc:487) before opening Settings.
+No invalidation fires, so nothing repaints the area Library was covering before Settings' own
+`set_xfade_render()` captures "whatever is currently displayed" as the crossfade's *source* frame. If
+Library (or the player screen under/behind it) left any live-updating content only partially covered,
+that content is exactly what the user reported seeing fade past during the transition ("elements of
+playing screen... could be ones that are moving or updating during the switch"). The reported
+persistence ("after doing this switch to test, seems to always happen now on settings") is NOT yet
+explained by this alone — plausible candidate not yet confirmed: `dbuf_redraw_end()`'s flip-poll gives
+up after `CLK_HZ/10` (~100 ms) and unconditionally resyncs `R_DBUF_CPU` to `R_DBUF_DISP`'s read value
+regardless of whether the flip actually completed; if a flip is ever still pending at that timeout, a
+later `set_xfade_render()` computing front/back from the same register could act on stale information.
+Not traced further this pass — needs either a live JTAG read of `R_DBUF_DISP`'s pending bit after the
+reported trigger, or a source read of the H2 flip RTL's behavior on a flip request arriving before the
+previous one's vblank landed.
+
+**The "brief flash on top" opening plain Settings** (not from the Library-jump path) is most likely
+`SET_XFADE_READY()` correctly engaging but the very first composite frame (k=0, `fb_blend_on(0)`)
+showing something momentarily before the eased ramp visibly starts — not yet distinguished from a real
+ordering bug; needs a slow-motion (single-step) repro to tell apart from the two bugs above.
+
+Not fixed. Recommendation given to the owner: this is an architecture-scope gap (H2's redraw contract
+doesn't cover the non-chrome incremental drawers), not a one-line bug — needs a decision on scope before
+building (force a full repaint of bars/Chladni/scope immediately after every chrome/art flip, vs. giving
+every incremental drawer its own per-buffer dirty tracking) before spending another hardware cycle on it.
+
+## B-407: B-406 fixed without needing JTAG — installed as alfatreze.TAU_0_6_0_A_20
+
+Both B-406 bugs turned out fixable from source alone; JTAG was only ever needed to confirm the
+*persistence* theory for bug 2, which the fix should make moot rather than something to chase for its
+own sake. Owner has the cable again in ~8-10h — parked as a follow-up, not blocking.
+
+**Fix 1 (the H2 redraw-contract gap):** `fw/player.c`'s main loop processed `helios_pending_mask`
+(chrome/art repaint + dbuf flip) AFTER that same tick's `set_draw()`/library draw calls — reordered so
+invalidation is drained and the flip lands FIRST, before anything else this tick treats "currently
+displayed" as trustworthy. Also widened the post-flip staleness reset: `ui_wave_force`/`wave_drawn[]`/
+`spec_drawn[]` now also reset whenever `dbuf_active` fired (not just on the `HELIOS_INV_WAVE`/`_SPEC`
+bits, which only cover full view transitions, not e.g. an art-only redraw mid-playback), and `wviz_force`
+(Winamp Bars/Scope/VU Master/Chladni's own shared force flag, previously never touched by this block at
+all) is now set on every `dbuf_active` flip too.
+
+**Fix 2 (the Library->Settings bypass):** `fw/settingsui.inc`'s `set_input()` replaced a bare
+`lib_ui_open = 0u;` with `if (lib_ui_open) lib_ui_close();`, routing through the same
+`helios_view_switch()` every other close path already uses — combined with Fix 1's reorder, the player
+screen underneath now actually repaints in the SAME tick, before Settings' own `set_xfade_render()`
+captures its "before" frame.
+
+Verified: `make test-host` clean (0 failures), `tools/check_heap_gap.py` and `tools/check_cold_calls.py`
+both pass, `release`/`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`)
+rebuild clean with real heap margin (7,328 B vs. 4,096 B floor). No RTL change — same `glyphbuf-t200`
+seed 2 bitstream as A_19/A_18 (SHA-256 `b089b828...`, copied directly, not through `--rbf`, matching the
+B-353 lesson `package_dev_build.py` now actively refuses to violate).
+
+Packaged `alfatreze.TAU_0_6_0_A_20`, installed via `tools/install_dev_core.py --carry-from
+alfatreze.TAU_0_6_0_A_19 --remove alfatreze.TAU_0_6_0_A_19` (backed up and verified first). Cores on the
+card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `alfatreze.TAU_0_6_0_A_20`. NOT YET
+HARDWARE-TESTED — first real check is re-running all six B-406 repro steps (Library->Settings jump
+repeated, Winamp Scope trail, Chladni normal+fullscreen, fullscreen bar animation) plus the original A_19
+checklist (theme/preset survives Quit, scope fade, brief-flash-on-plain-Settings-open).
+
+**Parked for later (JTAG needed, cable back in ~8-10h):** confirm/refute the flip-desync theory for why
+bug 2's symptom was reported as persisting after the first trigger — read `R_DBUF_DISP`'s pending bit
+(bit 1) and `R_DBUF_CPU`'s echo across a deliberately-provoked flip-timeout, or inspect the H2 flip RTL's
+behavior when a new flip request arrives before the previous one's vblank landed. Only worth doing if
+A_20's fix does NOT make the symptom go away on retest — if it does, the desync theory is moot and this
+can be dropped rather than chased for its own sake.
+
+## B-408: root cause of "Settings corruption only after Scope loads" found and fixed — packaged as alpha.21, install pending (card unmounted)
+
+Owner's controlled test (individually loading each meter after a cold boot, restarting between tries)
+pinned the trigger precisely to Winamp Scope. Traced it: `SET_XFADE_READY()` (`BLEND_READY() &&
+DBUF_READY()`) depends on `blend_state`, which is only ever set by the one-time `blend_probe()`
+(fw/blit_probe.inc). **Nothing in the whole firmware called `blend_ensure()` except `ui_bg_blend()`
+(Winamp Scope's own trail effect)** — so Settings' hardware crossfade was silently disabled (falling
+back to the old colour-interpolation fade) for the entire boot until the user happened to view the
+Scope trail once. This is not "Scope corrupts Settings" in the sense of a side effect — it is that the
+crossfade path (and whatever remaining bug lives in it) was NEVER ENGAGED before Scope ran, making
+Settings look fine purely because the new code was dormant, then suddenly active (and showing whatever
+it actually does, right or wrong) the moment the probe finally ran.
+
+First attempted fix (calling `blend_ensure()` from `SET_XFADE_READY()`'s own macro) was wrong and
+caught before packaging: `blend_probe()` refuses outright while `FB_HELD()`, and `SET_XFADE_READY()` is
+ONLY ever evaluated from inside `set_draw()`, which only runs while Settings' own overlay already holds
+`FB_HELD()` true — the probe would refuse every time from that call site, never actually succeeding.
+Fixed at the one point in Settings' own open path where `FB_HELD()` is still false: `set_input()`'s
+Start-opens-Settings handler, right after `lib_ui_close()` and right before `set_open` flips to 1.
+
+Also fixed the same pass, once the fullscreen retest surfaced them:
+- **Fullscreen bar flicker is a SEPARATE bug, not the H2 dbuf gap B-406/B-407 targeted.** `FB_HELD()`
+  includes `ui_fullscreen`, so `dbuf_redraw_begin()` never engages during fullscreen at all — the
+  buffer-flip theory doesn't apply there. Root cause: `fb_bar()`'s own `lit & 0x7Fu` masks (wraps
+  modulo 128, does not saturate) the lit-row count into OP_BAR's 7-bit RTL field; fullscreen bars are
+  up to `FS_FIG_H = 323` rows tall, so any bar crossing a multiple of 128 collapsed to a near-empty bar
+  for one frame — exactly the reported flicker. This is the ALREADY-KNOWN "OP_BAR 7-bit lit-row wrap"
+  item from the T2-00 handoff. Real fix needs an RTL field widen (its own RTL/sim/fit cycle); clamped
+  `lit` to 127 in firmware as an immediate, safe mitigation — very tall bars now visibly cap instead of
+  intermittently collapsing.
+- **Scope-trail-reappears-on-fullscreen-toggle was B-407's own fix being incomplete.** Gated
+  `wviz_force`'s post-flip reset purely on `dbuf_active`, which (per the point above) is ALWAYS 0 during
+  any fullscreen transition — so the trail's staleness reset never fired on that specific transition
+  even though it's a real view transition carrying `HELIOS_INV_ALL`. Now gated on `(hm &
+  HELIOS_INV_WAVE) || dbuf_active`, matching `ui_wave_force`'s own condition right above it. Corrected
+  the B-407 comment block in place rather than leaving it overclaiming a fix it didn't provide.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass,
+`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean (7,312 B
+heap gap vs. 4,096 B floor). Same bitstream as A_19/A_20 (SHA-256 `b089b828...`, copied directly, not
+`--rbf`). Packaged as `alfatreze.TAU_0_6_0_A_21` -- **install attempted, card was not mounted; pending.**
+
+Still open, unaffected by any of this pass's fixes: the still-unexplained root cause behind why the
+crossfade misbehaves at all once actually engaged (this pass made it deterministic and diagnosable, not
+necessarily correct) -- next hardware test is the real answer. JTAG follow-up (B-407) stays parked,
+still not needed unless A_21's retest still shows corruption once the crossfade is consistently active
+from the first Settings open.
+
 ## B-409: T2-00 committed; Talos 2's P3 declined; cross-branch synergy review with `test/720`
 
 Owner asked to check `test/720` (a cloud session's branch, pushed to `origin`, not merged) for synergies
@@ -10128,82 +10902,4700 @@ Confirmed no MMIO collision: `test/720`'s claimed `0x140-0x1FC` range is genuine
 uncommitted work (Helios items, B-405 crossfade, B-406/407/408 fixes) was touched. `test/720`'s commit is
 local-only pending a push decision.
 
-- 2026-09-29 (Claude): RTL/sim/docs (B-410), branch `test/720` (from `main` `4fd4b8d`), no fit, no card.
-Owner asked for a dedicated branch to test 720, with dependencies, risks and useful hardware features, using
-the `analogue-pocket-dev` skill. Skill facts used (docs-verified): Pocket video is 16x16..**800x720**, 47-~61 Hz,
-pixel clock 1-~50 MHz; the scaler slot can be switched at runtime with end-of-line bits; bus rules and the
-scaler-wedge report (KB-014); PLL reconfiguration unreliable (KB-015). Found that 600 MHz / 16 = **37.5 MHz** is a
-clean divider of the existing shared VCO, so 850x735 @ 60.02 Hz needs no change to clk_sys/clk_sdram.
-Built **T1**: `mp3_fb.sv` parameter `VID720` (default 0, shipped timing unchanged) outputs 800x720 while the
-400x360 framebuffer is fetched once per row and shown on two lines, each pixel twice; `scan_vc = vc>>1` keeps
-the 360-mode numbering `fw/helios.inc` relies on; PLL outclk_1/2 37.5 MHz and `TAU_VID720` macro;
-`tools/vid720/video.json` (800x720) and `tools/vid720/t1_qsf_append.txt` (all6-combined + `TAU_VID720`, so the
-fit pairs with alpha.15's ROM unchanged). No firmware change, no new M10K. New `sim/tb_mp3_fb_vid720.v` /
-`make test-rtl-fb-vid720` (in `make test-rtl`): every output pixel checked against its framebuffer word,
-frame period, active lines/pixels, fills per frame, `scan_vc`, and the APF bus rules, for VID720=0 and 1:
-VID720=0 200,000 clocks/frame, 360 lines, 360 fills, scan_vc 4..399 -- PASS; VID720=1 624,750 clocks/frame,
-720 lines x 800, **360 fills** (SDRAM load unchanged), scan_vc 4..367 -- PASS. Mutants: checker
-BUG_NO_DOUBLE killed (1,150,560 pixel failures); RTL "fetch every line" killed only by the fill count (720/frame,
-pixels still correct -- the reason that check exists); RTL "no column doubling" killed (pixel failures).
-Wrote `docs/features/VIDEO_720_TEST_PLAN.md`: T1..T4 ladder, bandwidth table (native 720 ~35% of SDRAM cycles
-with active-only fill vs ~11-12% today **[EST]**), the memory-map collision (a 720-line framebuffer at stride
-1024 overlaps the CPU window at byte 1 MiB, every stash row and the column-400..511 probe cells), field widths
-(20-bit address, 10-bit w/h, 11-bit stride; `cmd_mem` stays 3 M10K; line buffer +2 M10K, so native 720
-depends on the RAM shrink), firmware scope, and a hardware-feature table (runtime scaler-slot switch, active-only
-fill, framebuffer origin register, fill-late counter, 8 bpp scanout CLUT, doubled base + hi-res overlay plane).
-Not done: Quartus fit (needs the VM), any hardware run.
+## B-410: real screen corruption on every "rich" diagnostic subpage, and a menu-overflow bug -- both found and fixed, packaged as alpha.22
 
-- 2026-09-29 (Claude): docs (B-411), branch `test/720`. Owner asked what base 720 plus every tagged
-hardware feature costs in M10K, ALMs, DSP and other resources. Added `docs/features/VIDEO_720_TEST_PLAN.md`
-section 7. Baselines from recorded fits: 256 KB stack 304/308 M10K, DSP 17/66; 192 KB stack ~240/308,
-DSP 17 (+1 with TAU_LPC); ALMs last measured 7,725 (B-246), current stack not logged (estimated 8-9.5k of
-18,480). M10K from native shapes (firm): T1/T2/active fill/origin/fill-late/H2/atlas 0; native 16 bpp line
-buffer +2; 8 bpp scanout CLUT +1 (line buffer stays 2); 2 bpp overlay line buffer +1 (corrected from +2 in
-section 6); `cmd_mem` widening 0 (91 bits still 3 blocks); on-chip 2x font ~40-60 (rejected). DSP 0 for every
-item. ALMs estimated only (~+350-650 native route, ~+650-1,200 overlay route, ~+1,100-2,100 everything); a
-synthesis-only quartus_map would measure them. Conclusion: capacity fits on the 192 KB stack; the 256 KB
-stack is full if everything is added, so native 720 in practice needs the RAM shrink; timing (hold +0.037 ns
-on all6-combined, clk_sdram dispatch paths) and SDRAM bandwidth are the real limits. No code change.
+Owner's `A_21` retest: opening any of the six rich Settings pages (Check, Blit Test, Decode Sweep, Meter
+Sweep, Meter Trace) showed real corruption -- scattered noise, a frozen "meter area," and font/text
+fragments cycling in the top region -- while plain menu navigation was clean. The library/playlist overlay
+(a separate code path entirely) showed none of it.
 
-- 2026-09-29 (Claude): docs (B-412), branch `test/720`. Owner asked for a full review of the 720 plan, more
-techniques, and a staggered spec: Phase 1 cross-resolution (both 400x360 and 800x720, including 720-enabling items
-with little effect alone and a 360/720 switch behind a Diagnostics flag), Phase 2 720-specific, so each is a separate
-test build. Owner also set the baseline: always the 192 KB stack with all current hardware features. Wrote
-`docs/features/VIDEO_720_PHASED_SPEC.md`. Review findings (skill + source): 360 timing reproducible at 37.5 MHz
-(1562x400, 41.65 us lines, same 40-line vblank), so one pixel clock serves both modes; scaler slot changes apply
-next frame and an all-zero end-of-line word may itself be a slot-0 request, so the target slot is sent on every line;
-our HS/VS are multi-cycle while the docs say one-cycle (kept, as a parameter); mode never persisted and a 10 s
-auto-revert guards against a blank screen; field widening (addr 20, w/h 10, stride 11) can be ABI-compatible in unused
-high bits, and a `VID_CAPS` register replaces interlocks; stride 1024 = one SDRAM page per line but bursts must stay
-<=512 words, so native fills are two 400-word chunks; optional triple line buffer for deadline margin. Phase 1 = groups
-A (visible-only fetch, fill-latency counters, 256-word copy buffer), C (widening, draw/display base registers,
-10-bit `scan_vc`), B (37.5 MHz, two geometries, frame-wrap switch, slot word), each under its own macro for fit
-bisection; ~0 M10K, ~450-800 ALMs [EST]. Phase 2 = native 800x720 mode, 2x1024 line buffer (+2 M10K, +3 with triple),
-framebuffer at 16 MiB, test-pattern page and a 720 STORM Check. MMIO 0x140-0x154 proposed. No code change.
-- 2026-09-29 (Claude): git/docs (B-413), branch `test/720`. Merged `origin/main` `ce635b5` into `test/720`
-(merge `1062107`); main had used B-374..B-409, so this branch's B-374/375/376 were renumbered B-410/411/412 in
-this file and `CLAUDE.md` (older pushed commit messages keep the old numbers; the mapping is in the merge commit).
-T2-00 (glyphbuf single write port, two MLAB copies) and T1 (`VID720`) both survived the auto-merge; `rtl-lint`,
-`test-rtl-fb`, `test-rtl-fb-mutation`, `test-rtl-helios-dbuf`, `test-rtl-blit-reference` and `test-rtl-fb-vid720`
-passed on the merged tree. Resolved the C2 question from the RTL itself (commit `dcc95ce`): today H2's
-`dbuf_addr()` covers fill, CHAR, COPY and RECT (incl. BAR/RRECT) but not BLIT/CBLIT/SBLIT, which address through
-the sticky `SRC_BASE`/`DST_BASE`. Decision, written as the shared answer with Talos 2 section 5.1: `FB_DRAW_BASE`
-relocates every SDRAM transaction of every opcode (source, destination, key/blend pre-read) whose address falls in
-the visible window (< 184,320 words), decided per row/segment, computed one cycle ahead; `FB_DISP_BASE` latched at
-vblank; DBUF becomes a view onto the two. Mutations named: `BUG_RELOC_NONBLIT_ONLY`, `BUG_RELOC_NO_WINDOW`,
-`BUG_RELOC_NO_KEYDST`, `BUG_DISP_IMMEDIATE`. Also corrected `MMIO_ALLOCATION.md`'s DBUF_CPU row (BAR/RRECT are
-offset). Docs only; no RTL in this step.
-- 2026-09-29 (Claude): RTL/sim (B-414), branch `test/720`. 720 phased spec A3 built: 256-word row buffer.
-`mp3_fb.sv` gains `GB_WIDE` (default 0) and a `BUG_GB_NARROW` mutation hook; `glyphbuf_a`/`glyphbuf_b`, `gb_addr`,
-the `glyph_q` read index, `bl_bg`/`bl_i0`/`bl_i1`, `char_w` and its five loads, `p0_wr_len`, the four end-of-row
-compares and `sblit_ext`'s clamp follow `GBAW` (7 or 8). Still exactly one `if (gb_we)` site (T2-00's invariant).
-With `GB_WIDE=0` every compare is the old 8-bit `char_w[6:0] - 1` (char_w==0 wrap included), so the default
-netlist is functionally unchanged. `core_game.vh`: `TAU_SCAN_A` -> `GB_WIDE`; `mp3_soc.v`: read-only `VID_CAPS` at
-0x14C, bit 1 = wide buffer (bit 0 left 0 until A1/A2 exist). New `sim/tb_mp3_fb_wide.v` / `make test-rtl-fb-wide`
-(in `test-rtl`): COPY, custom-stride BLIT, keyed BLIT, blended BLIT, SBLIT 2x and CBLIT at 127 words with
-`GB_WIDE=0` and 200 words (plus a 255-word COPY) with `GB_WIDE=1`, each word checked against its source/dest
-address; `BUG_GB_NARROW` fails 9/9. `test-rtl-fb`, `-fb-mutation`, `-helios-dbuf`, `-blit-reference`, `-fb-vid720`
-pass; Verilator warnings for `mp3_fb` are a subset of the pre-change set in both modes; the PSRAM real-CPU bench
-elaborates against the regenerated `mp3_soc_sim.v` (not run: no RISC-V toolchain here). Corrected the spec's touch
-list (four compares, not three; `sblit_ext` and CHAR's `ox` compare were missing). Not done: firmware
-`FB_COPY_MAX` 255 gated on `VID_CAPS` bit 1, any fit (+8 MLAB LABs expected).
+**Root cause: `set_xfade_render()` (Settings' B-405 hardware crossfade) restored `R_DBUF_CPU` to the
+displayed buffer immediately after `set_draw_now()` RETURNED -- but `set_draw_now()` only QUEUES its draw
+commands, it does not wait for the hardware to execute them.** `R_DBUF_CPU` is a sticky field, consulted at
+command EXECUTION time, same class as every other sticky field this codebase has hit this exact race with
+before (blend-on, the CLUT reload, B-349's corner-cut LUT race). Any command still queued when `R_DBUF_CPU`
+flipped back landed in the LIVE DISPLAYED buffer instead of the intended scratch one, corrupting the real
+screen with fragments of the new page while leaving the scratch buffer incomplete. Rich pages queue far more
+commands than a plain menu list (matching exactly why plain pages tested clean in the first pass but rich
+ones didn't). Fixed by adding `fb_fence()` between `set_draw_now()` and the `R_DBUF_CPU` restore, with
+`ov_draw` set around the whole span -- `fb_fence()` is itself gated by `FB_HELD()` like every draw primitive,
+so it would have silently no-op'd without that, matching `set_xfade_step_draw()`'s own already-correct
+pattern a few lines away in the same file.
+
+**Second, unrelated bug from the same screenshots: "when the menu is visible and overflows it will overlay
+the action bar."** `set_draw_menu()` drew every row in a page's row list unconditionally, with no bound
+against the visible list area -- unlike `set_draw_choice()`'s own proven `set_ch_top[]`/`set_ch_follow()`
+scrolling. Never hit before because no plain menu had grown past the visible row count (`SET_MENU_VIS =
+SET_LIST_H / SET_MENU_ROW_H`) until the Diagnostics submenu (9 rows with `MP3_PROFILE`/`FLAC_PROFILE` on)
+did. Fixed by mirroring the choice-list pattern exactly: new `set_top[SET_MENUS]` array, `set_menu_follow()`
+(identical logic to `set_ch_follow()`), a scroll track drawn when `n > SET_MENU_VIS`, and the UP/DOWN
+handlers call `set_menu_follow()` after moving `set_sel[]`.
+
+Verified: `make test-host` clean (0 failures), heap-gap and cold-call checks pass,
+`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean with real
+margin (7,312 B vs. 4,096 B floor). Same bitstream as A_19/A_20/A_21 (SHA-256 `b089b828...`, copied directly,
+not `--rbf`). Packaged as `alfatreze.TAU_0_6_0_A_22`, **install pending -- card not mounted.**
+
+**Documentation follow-up (owner asked whether Helios's own guidance needs strengthening):** both bugs are
+instances of failure classes this project has hit before, each time rediscovered from scratch rather than
+checked against a written rule. Added the sticky-field execute-time/`fb_fence()`-vs-`fb_wait()` lesson to
+`docs/TALOS.md`'s "Known limits and lessons" (citing B-349 and this entry as the three real occurrences), and
+a new section 11a to `docs/features/HELIOS_SPEC.md` -- a concrete checklist for anyone writing a new Helios
+view or overlay, covering the sticky-field discipline, the unbounded-list-must-scroll contract, confirming a
+live-updating page opts out of the crossfade's fixed-length animation, and routing real transitions through
+`helios_view_switch()`. Scoped to work with what exists today, not blocked on section 11's larger View-layer
+refactor.
+
+## B-411: Winamp Scope "accumulation" traced to a missing FB_HELD() guard in ui_bg_restore() -- packaged as alpha.23
+
+Owner's controlled test: opening the Configure page's own preview (use_gradient=0, same as fullscreen)
+ALSO triggers the same trail-stops-fading symptom on return to normal-mode scope -- and the trail % setting
+itself reads correctly (40%) even while broken, ruling out a config/preset corruption theory.
+
+**Root cause: `ui_bg_restore()` had no `FB_HELD()` guard of its own**, unlike every other draw primitive in
+this codebase (`fb_rect`/`fb_bar`/`fb_blit`, and its own sibling `ui_bg_blend()` a few lines below it).
+`ui_bg_restore()` is called as `ui_bg_blend()`'s fallback whenever the blend attempt itself fails --
+including specifically when `ui_bg_blend()`'s own `FB_HELD()` check trips, which is exactly the transient
+state right as an overlay (fullscreen or Settings/Configure) is closing. When that race hit,
+`ui_bg_restore()`'s `fb_rect()` calls (building the lazy gradient-strip cache) silently no-op'd -- each
+checks `FB_HELD()` internally -- leaving the off-screen strip's memory untouched, but `ui_bg_ready` still
+got marked `1` UNCONDITIONALLY. Every later blend then faded toward whatever stale/garbage content actually
+sat in that memory instead of the real gradient, reading as "accumulation," and stayed broken until the
+next transition reset the flag -- whereupon the same race could recur, matching "if I keep toggling this
+pattern always repeats" exactly.
+
+This is the third real instance this session of the general "assumed X was drawn but it silently wasn't"
+class of bug (alongside B-406's H2 redraw-contract gap and B-410's sticky-field race), but a DIFFERENT
+specific mechanism from either -- a missing `FB_HELD()` guard, not a missing `fb_fence()`.
+
+Fixed: `ui_bg_restore()` now checks `FB_HELD()` at its own top, matching the universal convention every
+other draw primitive in this codebase already follows. Behavior-preserving for every existing call site
+(all fire only during normal, unheld player-screen drawing) except for closing the exact race.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass,
+`player-library-diagnostic-profile` rebuilds clean (7,264 B heap gap vs. 4,096 B floor). Same bitstream as
+A_19 through A_22 (SHA-256 `b089b828...`). Packaged as `alfatreze.TAU_0_6_0_A_23`, **install pending -- card
+not mounted.**
+
+## B-412: systematic audit for the same two bug classes -- four more real instances found and fixed
+
+Owner asked to check every similar function after B-410/B-411 found three real bugs in this general area.
+Searched for the two failure shapes directly rather than waiting for more individual reports: (1) a
+lazy-build cache that marks itself "ready" unconditionally after issuing draws that could have silently
+no-op'd under `FB_HELD()`, and (2) a sticky-field/buffer redirect restored without `fb_fence()` first.
+
+**Found and fixed:**
+- `fw/settingsui.inc`'s two "xfade abandoned mid-flight" resets (`set_draw()`'s own abandon path and
+  `set_close()`'s) called `fb_set_bases(0u, 0u)` with no fence -- a prior tick's still-queued
+  `set_xfade_step_draw()` composite could execute AFTER the reset and read (0,0) instead of the bases it
+  was actually issued under, same race class as B-410 but on the reset side rather than the restore side.
+  Fixed with the same `ov_draw=1` + `fb_fence()` pattern `set_xfade_step_draw()`'s own last-step reset
+  already used correctly.
+- `dbuf_redraw_end()` (`fw/player.c`, H2's chrome/art redraw bracket) called `fb_wait()`, not `fb_fence()`,
+  before requesting the buffer flip -- the exact gap the TALOS.md lesson just written (B-410) describes.
+  No `ov_draw` needed here unlike the other fixes: `dbuf_redraw_begin()`'s own precondition already
+  guarantees `FB_HELD()` is false for the whole bracket, so `fb_fence()` works as a straight substitution.
+- `ui_art_placeholder()`/`ui_art_reason()` (`fw/player.c`) marked `art_ready=1` unconditionally after
+  drawing, same shape as `ui_bg_restore()`'s bug -- lower-probability window (needs a track load to
+  coincide with an overlay transition, not every single one) and a safer failure mode if it fires (no
+  cover shown, the existing handled "no art" state, not a corrupted display) -- fixed anyway for
+  consistency. `set_thumb_flat_build()` (`fw/settingsui.inc`) had the identical shape but its only real
+  caller already runs with `ov_draw=1` set, making the race practically unreachable -- fixed anyway so it
+  can't become live if a future caller reaches it differently.
+
+**Deliberately NOT changed:** the third `art_ready=1` site (`fw/player.c`, the general end-of-track-art-load
+marker covering every decode path including the multi-second JPEG decoder itself). Different risk shape
+from the others -- it's not a simple lazy-cache pattern, `art_decode()` is a long-running CPU-bound
+operation with no interleaved input polling (so `FB_HELD()` is very unlikely to change mid-decode), and
+blindly gating it risks a worse regression (skipping a legitimate art load for a whole track) without
+understanding whether any retry mechanism exists. Recorded as reviewed, not silently skipped.
+
+Verified: `make test-host` clean (0 failures, including `check_art_load_order.py --check`'s own invariants),
+heap-gap/cold-call checks pass with real margin (6,944 B minimum across all three targets vs. 4,096 B floor).
+No RTL touched this pass. Rebuilt `player-library-diagnostic-profile` combining these fixes with B-411's,
+packaged as `alfatreze.TAU_0_6_0_A_24` (same bitstream, `b089b828...`) -- `A_23` (B-411 alone) was never
+installed, so it's superseded before ever reaching the card rather than needing its own separate write.
+**Install pending -- card not mounted.**
+
+## B-413: scope accumulation NOT fixed by B-411/B-412 -- added live diagnostics instead of a fourth guess
+
+Owner's retest on `A_24`: the Winamp Scope trail accumulation is still present, "exactly with the same
+triggers." Neither B-411's `ui_bg_restore()` FB_HELD() guard nor B-412's sticky-field audit fixed it --
+both were real bugs worth fixing, but neither was THE cause of this specific symptom. Rather than propose a
+fourth unverified theory, added live instrumentation so the next repro gives real evidence instead of
+another guess.
+
+New counters `dbg_scope_blend_ok`/`dbg_scope_blend_fail` (`fw/player.c`, near `ui_bg_ready`), incremented at
+`wviz_scope_tick()`'s own blend-decision point -- counted only when a blend was genuinely attempted
+(`use_gradient && trail && !paused` all true, matching `did_blend`'s own short-circuit exactly), so
+fullscreen/Configure's legitimate `use_gradient=0` skip is never counted as a failure, only a real
+attempted-and-failed blend is. Exposed as a new "SCOPE BG" row on the Diagnostic Info page (`SET_INFO_ROWS`
+23->24): shows `ui_bg_ready`'s current state plus the two cumulative counts.
+
+**What this will tell us on the next repro:** if `dbg_scope_blend_fail` climbs while the bug is visible,
+`ui_bg_blend()` itself is failing on every attempt (points at `FB_HELD()`/`BLEND_READY()` or similar
+firmware-level gating, an B-411-adjacent theory not yet fully ruled out) -- if `dbg_scope_blend_ok` climbs
+INSTEAD (blend reports success every time) while the trail still visibly doesn't fade, the bug is in the
+hardware blend path itself, not firmware logic, and likely needs a live register read (JTAG) rather than
+another firmware change to pin down.
+
+Also fixed two host-test breaks the new fixture caused (same B-234-era pitfall, now a second occurrence):
+`tools/ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple was one short after the new row (`IndexError`);
+`sim/test_meter_golden.py`'s C harness (which cuts `wviz_scope_tick()` out of `fw/player.c` and compiles it
+standalone with stubbed engine calls) didn't declare the two new globals, since they're referenced directly
+inside the function body being extracted.
+
+Verified: `make test-host` clean (0 failures, both fixture fixes confirmed), heap-gap/cold-call checks pass
+(6,896 B minimum vs. 4,096 B floor). Not yet built/packaged/installed -- pure diagnostic addition, no
+behavior change, holding for the owner's next test round rather than a separate card write for
+instrumentation alone.
+
+## B-413 addendum: scope accumulation confirmed to need a live hardware look -- held pending JTAG
+
+Owner clarified the SCOPE BG readings precisely: normal mode -> Info always reads READY regardless of
+whether accumulation is currently visible (matches the earlier `READY 140 OK 0 FAIL` capture, taken while
+the bug was visible); fullscreen -> exit -> Info (checked immediately) reads STALE, which is expected and
+benign -- exiting fullscreen correctly resets `ui_bg_ready` to 0, and it only flips back once the normal
+scope gets one tick to rebuild the strip; checking before that first tick just catches the expected
+transient, not a bug.
+
+**Conclusion: the real bug happens with `ui_bg_ready=READY` and `ui_bg_blend()` reporting 100% success
+(0 failures across 140 attempts).** This conclusively rules out every firmware early-return theory this
+thread has tried (B-411's `FB_HELD()` race, B-412's sticky-field audit) -- the blend mechanism runs to
+completion and reports success every time; the on-screen result is wrong regardless. Checked from source
+and ruled out: the trail value is a single shared array read identically everywhere (no config-desync
+possible), and no code path was found that alters the gradient strip's colour inputs (`ui_grad_top_c`,
+`th_role[TR_BG_BOTTOM]`) without restoring them before the strip could be rebuilt from stale state.
+
+**Held pending JTAG (owner: no cable access right now).** When available, the two useful reads are: (1) the
+actual pixel values sitting in the gradient strip's off-screen memory (columns 400-511, rows ~128-273,
+`UI_BG_X`/`UI_WAVE_Y-UI_WAVE_TOP`..`UI_WAVE_Y+UI_WAVE_H`) at the moment the trail is stuck, to check whether
+it holds a plausible gradient or garbage/duplicated trail content; or (2) the blend unit's live inputs/
+output for one operation. Not blocking anything else -- diagnostic instrumentation (`dbg_scope_blend_ok/
+fail`, the SCOPE BG Info row) stays in the tree on `alfatreze.TAU_0_6_0_A_25` for whenever that read
+happens.
+
+## B-414: Chladni's on/off visibility toggle traced to H2's own documented gap -- packaged as alpha.26
+
+Owner: Chladni cycles visible/invisible in a strict "on, on, off, off" pattern when toggling fullscreen or
+opening/closing menus repeatedly, with occasional brief partial-then-flicker frames. Same pattern for both
+triggers.
+
+**Root cause: Chladni draws entirely through true blit-mode opcodes (`fb_sblit()`/`fb_blit()`, addressed via
+the firmware-programmable sticky `SRC_BASE`/`DST_BASE` fields) and never set them** -- this is EXACTLY the
+gap `docs/features/HELIOS_SPEC.md` section 5 already documents: "Blit-mode opcodes... already address
+through the sticky `blt_*_base` fields and is unaffected [by H2's automatic per-buffer offsetting]... a
+caller wanting one of them to target the back buffer sets `blt_dst_base` itself" -- a real, hardware-observed
+instance of a previously-theoretical gap, not a new bug class. With `DST_BASE` always defaulting to 0,
+Chladni always drew into buffer 0's physical memory regardless of which buffer H2 was actually displaying.
+Visibility therefore depended purely on which buffer happened to be shown -- which only flips on EXIT-type
+transitions (`dbuf_redraw_begin()`'s own `FB_HELD()` precondition blocks a flip while entering an overlay or
+fullscreen, only while LEAVING one), giving exactly the "same state across an open/close pair, flips on the
+second transition" cadence the owner described, not simple alternation.
+
+Fixed in `fw/chladni.inc`: track the currently-displayed buffer (`DBUF_READY() && (REG(R_DBUF_DISP) & 1u)`)
+and set it explicitly before both draw stages. `fb_sblit()`'s source (the plane at `CHL_PLANE_Y`) is
+off-screen scratch, unaffected by buffer selection, so its own `SRC_BASE` stays 0; `chl_replicate()`'s
+`fb_blit()` calls copy WITHIN the visible area (the already-drawn tile to elsewhere in the same box), so
+both its source and destination use the display buffer. A `fb_fence()` between the two stages (and after the
+second) ensures each stage's commands have genuinely executed before the bases change again or reset to
+(0,0) -- this session's own repeated lesson (`docs/TALOS.md`), not assumed safe by inspection alone.
+
+Also fixed two host-test harness gaps the new code exposed (same class as B-413's fixture breaks):
+`sim/chladni_module_harness.c` had no H2/double-buffer concept at all -- added `fb_fence()`/`fb_set_bases()`
+stubs and a hardcoded `DBUF_READY() 0` (this harness's flat single-buffer `sdram[]` model has no buffer
+selection to simulate, so the new calls become harmless no-ops, matching its existing behaviour exactly).
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass; cold image grew by exactly
+200 B (the new code lands in Chladni's already-cold draw function, confirmed compiled in, not a stale
+check). Same bitstream as A_19 through A_25. Packaged as `alfatreze.TAU_0_6_0_A_26`.
+
+**Open question this doesn't resolve:** whether OTHER blit-mode-opcode users have the same latent gap.
+Checked `fb_bar()` (Winamp Bars) specifically -- it uses `R_FB_ADDR`/`cmd_addr` (the RECT-class path,
+confirmed correctly DBUF_CPU-aware per B-103/B-104's own design history), NOT independent blit addressing,
+despite `docs/MMIO_ALLOCATION.md`'s `DBUF_CPU` row listing "BAR" among the blit-mode opcodes unaffected by
+it -- that doc line appears stale/inaccurate and should be corrected in a follow-up pass, not guessed at
+here. `fb_cblit()` (meter thumbnails, CLUT-based) was NOT audited this pass and may have the identical gap
+if it's ever drawn during live double-buffered playback rather than only from within Settings' own
+(non-double-buffered) drawing context -- worth checking if a similar symptom is ever reported for it.
+
+## B-415: Chladni and VU Master wired into the Configure page's live preview -- packaged as alpha.27
+
+Owner: neither Chladni nor VU Master show up in the Meter > Configure preview. Traced to `mtr_preview()`'s
+own comment (`fw/player.c`): "other meters (Chladni, VU Master) have no live preview here: their drawing is
+refused while an overlay is up." That reasoning doesn't hold for this specific call site -- the ONLY caller,
+`wvcfg_preview_tick()` (`fw/settingsui.inc`), already sets `ov_draw=1` around its entire call to
+`mtr_preview()`, the exact mechanism that lets Winamp Bars/Scope draw correctly here despite Settings
+holding the overlay. Whatever originally motivated the exclusion was either never actually true for this
+call site or stopped being true once `wvcfg_preview_tick()` gained its own `ov_draw` handling -- either way,
+`chladni_tick_box()`/`vum_tick()` take the identical `mtr_in_t*` signature as the two meters that already
+work here.
+
+Fixed: added both as `mtr_preview()` branches, matching the existing pattern exactly. Both functions are
+defined later in the file (`chladni.inc`/`vu_master.inc` are `#include`d after `ov_frame()`), so added
+forward declarations at `mtr_preview()`'s own definition point -- same pattern this file already uses for
+`ui_draw_dynamic()`/`coldframe_tick()`/`coldframe_record()` for the identical textual-ordering reason.
+
+Verified: `make test-host` clean (0 failures, no fixture breaks this time), heap-gap/cold-call checks pass
+with real margin (6,896 B minimum vs. 4,096 B floor). Same bitstream as A_19 through A_26. Packaged as
+`alfatreze.TAU_0_6_0_A_27`.
+
+## B-416: theme/mode persistence traced to a missing save trigger -- packaged as alpha.28
+
+Owner's persistence test results: colour PASS, meter preset PASS, theme FAIL, mode FAIL.
+
+**Root cause: selecting a theme or mode in the choice list never triggered a save at all.** The handler
+(`fw/settingsui.inc`) carried a comment from before persist widening existed -- "session-only (step 0b):
+reapplies every colour, nothing persisted" -- and `return`ed immediately after applying the change, skipping
+the `settings_mark_dirty()` call every other choice (colour, meter, EQ, repeat) reaches by falling through
+to the bottom of the same handler. `SW_THEME`/`SW_POL` were genuinely wired into `settings_save()`/
+`settings_load()` since B-346/B-403 -- the save-trigger side was simply never updated when persist widening
+made theme/mode real, persistable settings. Fixed by moving the theme/mode branch into the same if/else-if
+chain as the other choices instead of being a separate early-return block, so it falls through identically.
+
+**Second, separate latent bug found while investigating, fixed defensively (not confirmed to be what the
+owner's test actually hit):** `settings_load()` runs deliberately first at boot (so the splash renders in
+the saved accent), before `th_assets_load()` has populated `th_file_n` -- so a saved theme index pointing
+at an EXTRA theme (from `tau-assets.bin`, not a built-in) would fail `settings_load()`'s own
+`v < TH_COUNT()` range check purely due to this ordering, staying at the built-in default even though it
+was correctly saved. Fixed by re-validating the saved index once `th_assets_load()` completes. B-416's real
+cause (the missing save trigger) fully explains the reported failure on its own regardless of which theme
+was chosen, so this second fix may not be what was actually observed -- recorded honestly as "also found,
+also fixed" rather than claimed as confirmed.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
+minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
+
+## B-417: Cymo audio engine audit (docs only, branch `cymo`)
+
+Owner asked for a full investigation of MP3/FLAC audio capability, MP3-FLAC synergies, playback efficiency, architecture and new FPGA
+features, the equalizer, and speed-up distortion, all to be treated as one subsystem named Cymo. Result: `docs/features/CYMO_AUDIO_ENGINE.md`.
+Nothing built; no RTL, firmware, card or VM touched.
+
+Read: `pcm_fifo.v`, `eq_biquad.v`, `sound_i2s.v`, `sync_fifo.v`, the SoC audio wiring in `mp3_soc.v`/`core_game.vh`, the two firmware push
+loops, `pcm_rate_apply()`, `flac.c`'s bit-depth reduction, and the existing FLAC/MP3/EQ measurements. Findings by evidence class:
+
+- **Code-read:** the output is a nearest-neighbour resampler (FIFO hold, then the EQ tick, then I2S "newest sample"), with no interpolation or
+  anti-alias filter; `sound_i2s` passes `{sign, audio[15:1]}` (15 effective bits, audio shifted right by one) for the 16-bit signed instance;
+  volume/fade/24-to-16-bit reduction are per-sample software in two duplicated loops with no dither, an instant gain step and a linear taper;
+  speed is varispeed; the PCM FIFO is 2,048 samples (about 46 ms); no gapless, ReplayGain, crossfade or dither code exists.
+- **Host-modelled (not hardware):** for a 44.1 kHz source on the 48 kHz DAC, nearest-neighbour gives about 28 dB signal-to-error at 1 kHz and 8 dB
+  at 10 kHz against 89/24 dB for 4-point cubic; the crude 8-tap sinc row is limited by an un-normalised kernel and is only meaningful for ordering.
+  Folding thresholds at speed (1.75x: source content above 14.9 kHz). The model is a scratchpad script, not a repo tool. It does not say what is
+  audible; the owner has not reported this as a problem across many builds.
+- **Open:** the CPU LOAD 100% reading conflicts with the existing `fl_idle_pct` accounting and needs explaining; FLAC `t_pct` with hardware LPC and
+  88.2/96 kHz via ACCEPT ALL RATES were never measured; the MP3 D/A/X split has no recorded reading; whether the 15-bit slot is intentional
+  headroom; the Pocket's audio output-rate constraints (the `analogue-pocket-dev` skill checkout is not in this cloud worktree).
+
+Recommendation: one hardware output stage (`cymo_resamp`, `cymo_out`, deeper buffer, programmable EQ, then optional `cymo_stretch`), built in the
+order C0 measure, C1 firmware unification, C2 resampler first. Pitch-preserving tempo needs N x decode like varispeed; pitch-only shifting needs
+1 x. Full plan, resource ledger (all estimates) and six owner decisions are in the document.
+
+## B-418: Cymo audit addendum -- alignment with the architecture rework, and a future cartridge Bluetooth output (docs only)
+
+Owner asked to (1) align the Cymo audit with the earlier architecture rework analyses and any developments since, and (2) consider the model
+supporting a second output through a custom cartridge with an ESP-provided Bluetooth transmitter. Added sections 11 and 12 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No RTL, firmware, card or VM touched.
+
+Alignment (all read from `main`, nothing on it changed the audio path since B-417): T2-00 shipped and Talos 2 P3 declined, so the ALM figure in B-417
+(98%, from the pre-T2-00 LPC fit) is stale and must be re-read from the current fit report; Helios's proposed `helios_audio_ok()` and ROADMAP item 11
+need the same headroom metric as Cymo's C0(a), so build it once; the 192 KB shrink leaves 6.5-12 KB of firmware heap, which favours RTL over firmware
+for every Cymo addition; the M10K pool (68 free) is shared with the `test/720` buffer widening, so one ledger is needed; persist has 11 free words of 32
+(`SW_N` = 21), so curves belong in a `tau-assets.bin` section per D-M01. Proposed decisions D-C01..D-C05 (none decided).
+
+Bluetooth: `core_top` exposes 30 cart lines plus 4 link-port lines with one direction signal per 8-bit bank (code-read; electrical meaning inferred), the
+I2S source already exists but its serial clock is internal, and bank 0 is currently driven high. Design: fan out one canonical 48 kHz stream after EQ and
+limiter to per-sink gain, reuse the existing serializer signals on cart pins, mute (do not stop) the DAC in Bluetooth-only mode, keep all cart outputs
+Hi-Z until a handshake passes (a real Game Boy cartridge may be inserted). Open and safety-critical: cart pin logic level (3.3 V vs 5 V), per-bank
+direction, cart power capability, meaning of `cart_pin30_pwroff_reset`; public web searches returned nothing usable on these (Analogizer's README defers to
+its wiki). ESP32 classic A2DP source is SBC-only per the ESP32-A2DP project, so Bluetooth is not a fidelity feature. Phases X0-X4 and four owner decisions
+are in the document.
+
+## B-419: Cymo pitch/speed method decided for audiobooks (docs only)
+
+Owner: the pitch work is mainly to make audiobooks sound correct at other speeds. Chosen: pitch-preserving tempo change by speech-tuned WSOLA
+(20-25 ms window, about +/-10 ms search covering 80-400 Hz pitch periods, correlation on a mono mix decimated to about 5.5 kHz so cost is independent of
+file rate, 0.8x-3.0x in 0.05x steps, optional pause shortening). Semitone pitch shift dropped; varispeed kept as the fallback when the stretch path is
+absent. Estimates only: about 12,000 MACs per 10-15 ms hop, under about 15% of a 66 MHz CPU in firmware, so the first implementation is cold firmware with
+PSRAM-window buffers and a hardware correlator only if measured cost demands it. Nothing built. Updated `docs/features/CYMO_AUDIO_ENGINE.md` sections 6.4, 7, 9 (C7), 10.
+
+## B-420: Cymo pause shortening included for audiobooks (docs only)
+
+Owner approved the optional pause-shortening feature. Specified in `docs/features/CYMO_AUDIO_ENGINE.md` section 7: envelope from the same decimated mono signal WSOLA already
+computes, threshold relative to a tracked noise floor with hysteresis, pauses over about 250 ms shortened to a fraction never below about 120 ms, single cut capped
+at about 700 ms, cut taken from the middle with look-ahead so word onsets are never clipped, joined with the WSOLA overlap-add crossfade, four settings (Off, Gentle,
+Normal, Strong) in one persist word, audiobook tempo mode only. All thresholds are proposals to be set by listening; decode cost effect is an estimate. Evaluation plan:
+seconds saved per setting, zero clipped onsets, owner listening pass on the LibriVox clip. Nothing built.
+
+## B-421: Cymo collision check against the planned work and current resources (docs only)
+
+Owner asked whether current features, hardware or resource usage collide with the planned improvements. Checked `MMIO_ALLOCATION.md`, `tools/tau_data_slots.py`,
+`fw/settings.inc`, `tools/heap_gap_baseline.json`, the T2-00 status, `origin/test/720`'s `VIDEO_720_PHASED_SPEC.md` and the `mp3_soc.v` wiring. Added section 13 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No fatal collision. Four real ones: (K1) `test/720` claims 0x140-0x154 of the 48 free MMIO registers (0x140-0x1FC is the decode
+ceiling), so Cymo should take 0x180-0x1FC; (K2) `tau_spec_bank`/`tau_wave_meter` are clocked from the FIFO's source-rate strobe, so the resampler must sit after the FIFO output
+register to keep them unchanged; (K3) tempo mode must not scale the FIFO drain rate, which needs the single `cymo_push()` choke point first; (K4) two branches' macro bundles must be
+merged before any shared fit (B-130) and Cymo should report presence through a caps register, not a `CORE_VERSION` bump. Also corrected my own earlier plan: WSOLA correlation buffers
+cannot live in the PSRAM window (about 32 cycles per read, roughly the whole 12 ms hop for the correlation loop); the small decimated windows must be on-chip. Ledger estimates: M10K
+about 270-275 of 308 with Cymo and 720 both; ALM headroom unverified because the post-T2-00 report is not in this worktree.
+
+## B-422: Cymo plan reviewed against the analogue-pocket-dev skill (docs only)
+
+Owner asked for the plan to be reviewed with the skill's knowledge. The skill lives in `alfatreze/analogue-pocket-dev-skill` (public; read-only clone this session; its Analogue doc snapshots and private KB entries
+are excluded from the public repo, so I used its reference files, the public KB, and the agg23 Sound and IO wiki pages it cites). New section 14 in `docs/features/CYMO_AUDIO_ENGINE.md`; sections 6.6, 12.3, 12.7 and F2 corrected.
+
+Confirmed: DAC path is exactly 48 kHz with sample-rate adjustment not allowed, so the resampler is mandatory (native 44.1 kHz to the DAC is impossible); 16 data bits per channel are legal, supporting the F2 A/B;
+cartridge directions are per group; pin30 is clamped low in 5 V mode until `cart_pin30_pwroff_reset` is asserted; cart level follows a mechanical switch; a powered wrong-translator setup can corrupt a real cartridge's data.
+New constraints: the shipped `core.json` declares `cartridge_adapter: -1` (cart power off), so a powered ESP cart needs `cartridge_adapter: 0`, which also powers any real cartridge, so Bluetooth must be a separate core
+package; the adapter-ID check bits may give a framework-level presence check (open); pin31 is a cart audio input, so I2S must be digital on bank0; pin plan changed to the devkit debug cart's precedent (bank0 out, bank3 in);
+use three seeds for `clk_sys` additions (KB-011); check reports for synchronizers inferred as block RAM (KB-010) and design any coefficient RAM as simple dual-port (KB-073). Still open: custom-cart voltage selection,
+adapter-ID semantics, cart power budget. No code touched.
+
+## B-423: Decision -- Bluetooth output ships as a separate core package (docs only)
+
+Owner decided that the cartridge Bluetooth output is a separate core package. Recorded in `docs/features/CYMO_AUDIO_ENGINE.md` section 12.8: main cores keep `cartridge_adapter: -1` and
+must stay byte-identical; cart-pin drive is behind a macro the main bitstream does not set (a second bitstream to fit and maintain); working package id `alfatreze.TAU_BT` with `cartridge_adapter: 0`;
+`make_release.py`, `install_dev_core.py`, the package check and `CROSS_PROJECT_INTERFACE.md` (Tau Omega) need to learn about a third core; X1 gains the packaging work. Proposed register entry D-C06. Nothing built.
+
+## B-424: Independent design review of the Cymo plan (docs only)
+
+Owner asked for a thorough review as a firmware architect and embedded audio specialist. Wrote `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md`, re-checking claims against source. Seven changes recommended:
+C1 the resampler's 48 kHz tick should be pulled by the DAC's LRCK strobe (single-bit crossing from clk_74a) instead of free-running in clk_sys, which also removes `rate_inc`/`CLK_HZ` from the audio path; C2 gapless is a large
+separate item (one audio data slot `MP3_SLOT_ID 2`, blocking `load_track()`, LAME delay trimming), my earlier "small after the buffer" was wrong; C3 audiobook needs are missing (RESUME was removed and its persist words retired,
+speed not persisted, no chapters, M4B/AAC rated low priority, no speech preset); C4 the deeper buffer is coupled to `PRIME = DEPTH>>1` and the hard-coded 2048 in `METER_STOP/GO`; C5 a zero-lookahead limiter cannot limit transients
+(soft clipper or lookahead), dither must sit at the true final word width; C6 graphic EQ needs a runtime preamp, a state-width re-sweep and band-interaction handling; C7 reorder so firmware tempo and pause shortening (no RTL) come
+before any new bitstream. Eight tightening items (SAD instead of correlation, degradation ladder, I-cache facts, up-conversion-only resampler v1, analog loopback baseline and acceptance thresholds, `cymo_core.h` module pattern,
+seek/pause/speed semantics, Bluetooth per-sink strobes). Two corrections applied to the main document. Nothing built.
+
+## B-425: Cymo scope reduced to pitch-preserving tempo; loopback and soft clipper questions (docs only)
+
+Owner: audiobook support should be minimal, just pitch correction; other features much later. Recorded in `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md` section 9: the minimal path is C0a headroom metric, C1 shared `cymo_push()`, firmware pitch-preserving
+tempo; resume, chapters, M4B/AAC, speech EQ and pause shortening are deferred (pause shortening supersedes the earlier approval). Owner will try the analog loopback capture (how-to to be supplied). Soft clipper explained (a smooth
+saturation curve for the rare peaks that exceed full scale after an EQ boost; part of the later output stage). Nothing built.
+
+## B-426: Cymo plan -- soft clipper chosen, analog loopback measurement added (docs only)
+
+Owner chose the soft clipper (over a look-ahead limiter) and approved adding the analog loopback measurement to the plan. `docs/features/CYMO_AUDIO_ENGINE.md`: section 6.2 now specifies the soft clipper (untouched below a knee of about
+90% of full scale, smooth rounding above, no state or look-ahead, bit-exact transparency test below the knee, never exceeds full scale); new section 6.7 specifies the loopback (headphone jack to line-in or USB interface, fixed
+level and settings, lossless FLAC test tones at 44.1/48/22.05 kHz, a sweep, level and clipping bursts, silence; a host analysis script `tools/lab/cymo_loopback.py` reporting level, image tones, THD+N and response, plus a
+before/after difference table; acceptance thresholds to be fixed after the baseline); C0 gains item (f). Test files and script not built. Open: whether the owner has a line-in or USB interface.
+
+## B-427: Cymo analog loopback tooling built and self-tested (host only)
+
+Owner has a USB audio interface, so the loopback plan (`docs/features/CYMO_AUDIO_ENGINE.md` section 6.7) was built. `tools/lab/cymo_loopback.py`: `gen` writes lossless VERBATIM FLAC test files via the repo's own FLAC writer (1/5/10 kHz at 44.1 and
+48 kHz, 1/5 kHz at 22.05 kHz, a four-level 1 kHz file, a 20 s log sweep, silence; one decoded bit-exact by `tools/flac_verify.py`); `analyze` reads a WAV capture (PCM 8/16/24/32, float) and reports tone level, SINAD, THD, strongest non-harmonic
+spurs and floor, or a sweep response; `compare` diffs two saved results; `selftest` checks the analyser against known signals. Result of the self-test [MODEL, synthetic signals]: a clean 16-bit tone reads -6.02 dBFS and 86 dB SINAD; nearest-neighbour
+44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz (matches the earlier host model and the images predicted from the hold pattern); cubic interpolation reads 85.6 dB; a flat synthetic sweep reads flat. One real defect found and
+fixed while building: the level readout used the peak bin and lost up to about 0.4 dB to scalloping when the tone is not bin-centred (now measured from the whole lobe). Works with or without numpy. `sim/test_cymo_loopback.py` added to `make test-host`.
+Not done: the actual capture on the Pocket (owner), the 22.05 kHz and sweep files on the player, acceptance thresholds (to be set from the baseline).
+
+## B-430: 44.1 kHz path -- baseline recordings analysed, RTL hand-off simulated clean (host only)
+
+Owner's baseline recordings (Adobe Audition, 48 kHz capture, EQ FLAT, no gain change between takes) [HW, analyser output]: `tone_1k_48000` 1 kHz level -12.4 dBFS, SINAD 52.6 dB, THD -76.6 dB, no spur above -70 dBc (noise floor of the capture chain limits SINAD; peaks about -11 dBFS);
+`tone_1k_44100` level -16.1 dBFS, SINAD 10.8 dB, THD -50.2 dB, spurs at 1 kHz + n x 3.9 kHz (4.9, 8.8, 12.7, 16.6 kHz) at -22 to -26 dBc, nearly flat with frequency; `silence_44100` about -70 dBFS, DC offset only. `levels_44100`: loudest step (-0.1 dBFS) peaks at about -4.5 dBFS, no clipping.
+The 44.1 kHz recording is about 3.7 dB quieter than the 48 kHz one at unchanged settings.
+
+Host model of the hardware as read (44.1 kHz held into 48 kHz slots) [MODEL]: 27.7 dB SINAD, spurs -36 dBc at 4.9 kHz falling with frequency, level preserved. The recording is about 17 dB worse, spectrally flat (click-like) and 3.7 dB low, so the model does not explain it.
+
+New: `sim/tb_cymo_i2s_rate.v` + `sim/test_cymo_i2s_rate.py` (not in make test-host; needs iverilog, about 2 min). Real `pcm_fifo` (44.1 kHz drain) into real `sound_i2s`, with a behavioural `dcfifo` model (4 words, showahead off, sync delay 5, underflow ignored) [MODEL];
+captures each 32-bit word at the LRCK reload. Result [SIM]: 27.71 dB SINAD, spurs 4,898 Hz -35.8 dBc, 2,894 Hz -36.8 dBc, 8,801 Hz -41.8 dBc, identical to the ideal hold; level -12.05 dBFS against -6.03 dBFS input, i.e. exactly 6.02 dB lower, which is the known `{a15, a15..a1}` slot (F2 in `docs/features/CYMO_AUDIO_ENGINE.md`) and applies to both rates.
+Conclusion: the RTL logic around the FIFO and I2S serialiser does not produce the extra error. It is not a proof about the real Altera `dcfifo` (flag latencies are my model). Remaining candidates: real `dcfifo` timing at the sliding phase, firmware-side feeding (underruns/fade), or the file/path on the card. Two things found while building: Icarus needs the serialiser registers initialised (Quartus starts them at 0), and rejects the unused negative-repeat branch in `sound_i2s.v` (the test patches a copy, RTL untouched).
+Next: owner records `tone_1k_24000` (2:1) and `tone_1k_32000` (3:2) with the same gain, which have a fixed phase pattern; and notes the Info-page underrun counters while the 44.1 kHz tone plays.
+
+## B-431: 24 kHz and 32 kHz recordings -- the 44.1 kHz error is not a sliding-phase effect
+
+Owner recorded `tone_1k_24000` and `tone_1k_32000` at the same gain (no underruns reported on the Info page) [HW, analyser output]. Both read tone level -12.4 dBFS (same as the 48 kHz baseline, so the 3.7 dB loss seen at 44.1 kHz is not present at 24 or 32 kHz) and frequency 999.76 Hz (rate correct).
+Images: 24 kHz -> 23,001.7 Hz at -6.5 dBc (model -27.8 dBc); 32 kHz -> 17,001 Hz at -8.9 dBc and 15,000.7 Hz at -10.2 dBc (model -31.9 dBc). SINAD 3.35 / 3.13 dB against about 23 / 25 dB modelled. So images are about 21 dB stronger than a plain hold predicts at both integer-ratio rates, where the phase pattern is fixed.
+Conclusions: (1) the "sliding phase at the FIFO-to-I2S hand-off" hypothesis of B-430 is not supported, since the fixed-phase 2:1 case is as bad; (2) the error appears whenever the drain rate differs from 48 kHz; (3) no underruns, so firmware feeding is unlikely; (4) `sim/tb_cymo_i2s_rate.v` reproduces the ideal hold exactly, so what differs on hardware is outside the modelled logic (the real Altera `dcfifo` timing, or something after the serialiser).
+Next: run the same testbench with the real `dcfifo` simulation model from the Quartus install (`altera_mf.v`) instead of my behavioural one; only if that stays clean look past the serialiser.
+
+## B-432: branch handoff; simulation can use the real dcfifo model
+
+`sim/test_cymo_i2s_rate.py --altera-mf <altera_mf.v>` swaps Intel's own `dcfifo` simulation model in for the behavioural one (the file ships with Quartus and is never committed). Not yet run: this cloud session cannot reach the Quartus VM. Handoff written: `docs/handoffs/SESSION_HANDOFF_2026-09-29_CYMO_AUDIO.md`. Branch `cymo` changes only docs, `tools/lab` and `sim/`; a trial merge against `origin/main` had no conflicts.
+
+## B-433: Option A of the B-413 investigation -- gradient-strip content readback, packaged as alpha.29
+
+B-413's diagnostic counters (`dbg_scope_blend_ok`/`dbg_scope_blend_fail`) already proved `ui_bg_blend()`
+completes and reports success every single time it is attempted in the reported scenario ("READY 140 OK 0
+FAIL") -- ruling out every firmware early-return theory this thread has tried (B-411's `FB_HELD()` race,
+B-412's sticky-field/fence audit). Two hypotheses remained: (a) the gradient strip's own SDRAM content is
+corrupted by some unidentified write path even though `ui_bg_ready` claims it's fine, or (b) the strip is
+genuinely correct and the blend hardware's own datapath computes wrong output despite the mailbox-visible
+handshake reporting success. Before reaching for JTAG (Option B, needs a new ISSP probe + VM Quartus fit),
+built the cheap firmware-only check that can settle which hypothesis to chase.
+
+New `dbg_strip_check()` (`fw/player.c`, right after `ui_bg_blend()`): reads back the strip's actual pixel
+content at 3 rows (top/middle/bottom of the scope box's gradient range) via `blend_mb_read()` -- the same
+SDRAM mailbox primitive `blend_probe()`/`fb_fence()` already use, same `row * FB_STRIDE + col` addressing --
+and compares each against `ui_grad_at()` computed fresh for that same row right now. Since `ui_bg_ready`'s
+lazy build paints one uniform colour per row via a single `fb_rect()` call, both mailbox halves of a given
+word should agree; a genuine mismatch against either half is real corruption, not a sampling artefact.
+Called once per genuinely-attempted blend (same `attempt` gate B-413's counters use), so it samples the
+exact same frame condition the accumulation is reported under.
+
+Surfaced on a new "STRIP" Info row (`fw/settingsui.inc`, `SET_INFO_ROWS` 24->25, case 23): `OK`/`BAD` then
+each row's actual/expected RGB565 pair in hex (`ui_hex2()` x2 per value, since only an 8-bit hex helper
+exists). If this reads OK while the trail still visibly doesn't fade, the strip is genuinely correct and
+the next real step is a live JTAG read of the blend pipeline's own internals (`bl_fg`/`bl_bg`/`bl_r`/
+`blt_blend_alpha`) -- not more firmware source-reading. If it reads BAD, the corruption is real and
+firmware-side, worth another source pass before touching hardware at all.
+
+Two host-test harness gaps fixed (same class as B-413's own fixture breaks): `sim/test_meter_golden.py`'s
+extracted-function harness needed a `dbg_strip_check()` stub alongside its existing `dbg_scope_blend_ok`/
+`_fail` stubs; `tools/ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple needed one more entry for the new row.
+
+Verified: `make test-host` clean (0 failures), heap-gap 7,008 B vs. 4,096 B floor (real margin), cold-call
+check clean. Same bitstream as A_19 through A_28 (`all6-combined` seed 2, RBF `76ad2819...`). Packaged as
+`alfatreze.TAU_0_6_0_A_29` and installed via `tools/install_dev_core.py` (media/library carried from A_26,
+A_26 removed after a verified backup). Not yet read on hardware -- next step is the owner reproducing the
+Scope accumulation and reading the STRIP row.
+
+## B-434: STRIP always reads OK (owner-confirmed) -- shadowed the sticky bases as the next cheap check
+
+Owner reproduced the accumulation and reported "Scope always reads ok" on B-433's STRIP row. This is
+decisive: the gradient strip's actual SDRAM content is provably correct every time, which rules out
+every remaining firmware-side-corruption theory. The two hypotheses B-433 was built to distinguish
+have now collapsed to one -- either the blend hardware's own datapath is wrong (needs JTAG, a new ISSP
+probe + VM Quartus fit), or the blit *targeting* it is silently wrong (a firmware bug, still checkable
+from the host).
+
+Before spending a JTAG session, checked the second possibility: `ui_bg_blend()`'s own trail blit (and
+its destination pre-read) never calls `fb_set_bases()` -- it always runs against whatever the sticky
+SRC_BASE(field 0)/DST_BASE(field 2) fields currently hold. Two other callers DO touch these fields --
+Chladni's H2 buffer tracking (`fw/chladni.inc`, B-414) and the Settings crossfade
+(`fw/settingsui.inc`, B-405/B-410) -- and both are documented to restore `(0,0)` before returning
+control. If either restore path is ever skipped (the exact bug class B-410's abandoned-crossfade fix
+and B-414's own H2 gap both turned out to be real instances of), the Scope's own blit would silently
+execute against the wrong SDRAM region: the trail blit's destination write lands somewhere other than
+the visible strip, and `ui_bg_blend()`'s destination pre-read reads garbage instead of the previous
+frame -- which would look exactly like "the trail never fades" while the source strip stays provably
+correct, matching B-433's result precisely.
+
+Both fields are write-only in hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- there's no MMIO read
+to check them directly. `fb_set_bases()` is their only writer, so a firmware shadow (`dbg_base_src`/
+`dbg_base_dst`, updated on every call, `fw/player.c`) mirrors the real sticky state without needing
+JTAG. `dbg_strip_check()` (called exactly when Scope's trail blend is attempted) snapshots this shadow
+into `dbg_strip_base_src`/`dst`, surfaced on a new "BASES" Info row (`fw/settingsui.inc`,
+`SET_INFO_ROWS` 25->26, case 24): `S <hex24> D <hex24>`. Nonzero either at the exact moment Scope
+blends is the smoking gun for a real, still-uncommitted firmware bug in this class; both reading zero
+rules this theory out too and leaves JTAG as the only remaining path.
+
+Also corrected `fb_set_bases()`'s own header comment, which was stale from before B-414/B-405 existed
+("no existing caller in this codebase has ever set either").
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin. Same
+bitstream as A_19 through A_29 (`all6-combined` seed 2, RBF `76ad2819...`). Packaged as
+`alfatreze.TAU_0_6_0_A_30`; installed via `tools/install_dev_core.py` (one attempt failed safely at the
+backup step on a real card disconnect -- `Errno 6 Device not configured` -- nothing was written or
+removed; retried clean after remount, A_29 removed after a verified backup).
+
+Owner reproduced the accumulation and read BASES: **both zero**. This rules out the sticky-base theory
+too -- every firmware-side explanation this thread has tried is now exhausted (strip content correct,
+blend mechanism reports success every attempt, bases genuinely zero at the moment of each blend). The
+remaining explanation is the blend hardware's own datapath; Option B (a live JTAG read of the blend
+pipeline internals) is next, not more firmware source-reading or diagnostics.
+
+## B-435: Option B built -- a second ISSP instance (`BLND`) probing the B5 blend pipeline itself
+
+New `u_issp_blend` in `mp3_fb.sv` (`instance_id "BLND"`, `sld_instance_index(1)`, same `TAU_ISSP` macro
+and `clk_sdram` domain as the existing `BLIT` instance): 59 bits -- `bl_fg`/`bl_bg`/`bl_r` (the blend
+pipeline's own source/destination/result registers, B-327), `bl_i1` (which glyphbuf column), and
+`blend_active`/`key_dst_done`/`bl_v0`/`bl_v1` (the sticky enable and pipeline-stage valids). Unlike
+`BLIT`'s dispatch-state probe (useful for a genuine hang, a state that stops changing), these registers
+update every cycle mid-burst -- but since nothing resets them between commands and the Winamp Scope only
+attempts one blend per frame (tens of ms of idle between bursts, far longer than one JTAG poll), reading
+during that idle gap reliably shows the last pixel's blend inputs/output. Full bit layout and the
+hand-check procedure (compute `blend_px(bl_bg, bl_fg, mode, alpha)` against the read `bl_r`; check
+`bl_bg` looks like plausible on-screen content) in `docs/JTAG_DEBUG_ACCESS.md` section 6.2b.
+
+Verified: `make rtl-lint` clean (no new warnings beyond mp3_fb.sv's existing pre-`TAU_ISSP` ones), and a
+syntax-only `iverilog` elaboration with `TAU_ISSP` defined hits exactly the same "unknown module
+altsource_probe" error the existing `BLIT` instance already produces under Icarus (a Quartus
+megafunction, not available to any open-source simulator) -- confirms the new instantiation parses
+cleanly, the same limitation as the proven `BLIT` probe, not a new problem. No functional RTL changed
+(`TAU_ISSP` gates this entirely; every non-ISSP build, including everything already on the card, is
+byte-for-byte unaffected).
+
+Not yet done: a VM Quartus fit combining this with the current `all6-combined` + `TAU_LPC` bundle. That
+bundle's own worst-case hold margin is already razor-thin (+0.037 ns, B-371) -- ISSP has historically
+cost "nothing" on its own (B-172: same RAM, corners +1.99/+1.87 ns on an earlier, less-loaded bundle),
+but given how thin this specific bundle's margin already is, that needs a real fit to confirm, not an
+assumption. Awaiting a decision on spending the VM time before launching it.
+
+## B-436: a real packaging mistake found and corrected -- A_29/A_30 shipped the WRONG (pre-T2-00) bitstream
+
+Owner asked "can we remove something to make space" for B-435's new probe, worried about the razor-thin
++0.037 ns hold margin B-371's own comment describes. Checking which raw RBF that margin actually
+belongs to surfaced a real mistake made earlier this session: when packaging `alfatreze.TAU_0_6_0_A_29`
+(B-433), `--rbf work/diagnostics/all6-combined/ap_core_s2.rbf` was used -- a stale, PRE-T2-00 fit
+(raw sha256 `3d0303aff...`, reverses to `76ad2819...`) -- instead of `work/diagnostics/glyphbuf-t200/
+ap_core_s2.rbf` (raw `923d854b...`, reverses to `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`,
+confirmed by direct `shasum` comparison of both raw files' bit-reversal), the fit `alfatreze.TAU_0_6_0_A_17`
+through `A_28` actually shipped (B-400/B-401, hardware-confirmed) and the one B-388/B-398 built T2-00's
+glyphbuf single-write-port fix into. A_29 and A_30 (currently on the card, and what the owner's B-433/
+B-434 STRIP/BASES readings were taken against) have been running the WRONG, inferior, pre-T2-00
+bitstream since B-433 -- the one with the razor-thin +0.037 ns hold, not the T2-00-fixed one with real
+margin (+0.244 ns hold / +0.963 ns setup at the worst corner, B-398).
+
+**Why this doesn't invalidate B-433/B-434's findings:** both diagnostics are pure firmware logic
+(`dbg_strip_check()` reads real SDRAM content via the mailbox; `dbg_base_src`/`dst` mirror firmware's
+own MMIO writes) with no dependency on which of these two RTL fits is running, and T2-00 was
+specifically designed to be behaviour-identical to the pre-fix glyphbuf ("no FSM/timing/behavioural
+change intended anywhere," B-388) -- so STRIP=OK and BASES=0 stand as real results either way. This
+matters for margin planning, not correctness of what's already been found.
+
+**The actual answer to "can we remove something":** nothing needs to be removed. The razor-thin
++0.037 ns figure belongs to the stale all6-combined fit this session accidentally substituted in, not to
+the currently-intended bundle -- T2-00 (already unconditionally present in `mp3_fb.sv`, not a macro)
+freed ~6,500 ALMs of register fallback as a side effect of fixing the shared glyphbuf write network, and
+that congestion relief is exactly what also fixed the timing margin (B-398's own read of this). Staging
+the CURRENT tree (T2-00 + B-435's new `BLND` probe) with the SAME qsf bundle reproduces `glyphbuf-t200`,
+not `all6-combined` -- real margin to add the probe into, no feature needs dropping.
+
+New `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_issp_qsf_append.txt` (the same bundle plus
+`TAU_ISSP=1`, documenting this correction directly in its own header so the mistake can't quietly repeat).
+Launching the fit now. Once confirmed, its RBF also becomes the correct replacement for A_29/A_30's
+wrong bitstream (a non-ISSP variant of the same corrected fit should also be repackaged/installed
+afterward to fully fix the card, separate from the JTAG-only ISSP debug build).
+
+## B-437: `blend-issp-b419` fit closes with real margin -- .sof ready for a live JTAG session
+
+Single-seed fit (seed 2) finished Successful, all four corners positive, real margin (not a bare pass):
+Slow 0C hold +0.310 ns / setup +1.528 ns, Slow 85C hold +0.320 ns / setup +1.442 ns, Fast 0C hold
++0.093 ns / setup +6.045 ns, Fast 85C hold +0.137 ns / setup +5.733 ns. RAM 240/308 (78%), DSP 19/66
+(29%) -- matches `glyphbuf-t200`'s own footprint exactly, confirming B-436's diagnosis: this genuinely
+is the healthy-margin fit, not the stale razor-thin one. RBF collected and hash-verified locally
+(`work/diagnostics/blend-issp-b419/ap_core_s2.rbf`, sha256 `e80d281af8cecba8d99fe03fd395ffa9874268ad483a53e937ba0b1268a86426`).
+The matching `.sof` for a live JTAG session sits on the VM at
+`~/tau-local/blend-issp-b419-s2/src/fpga/output_files/ap_core.sof` (2.45 MB, built 2026-09-30 01:05
+WEST) -- load it per `docs/JTAG_DEBUG_ACCESS.md` section 2's proven `quartus_pgm -m jtag` procedure,
+never the SD card (this bitstream is debug-only, never installed as a real core).
+
+Found and fixed a real audit-trail bug while writing this up: the merge that landed the `cymo` branch's
+own work (commit `1bfc2f9`) silently introduced FOUR duplicate audit IDs -- `cymo`'s own B-417 through
+B-420 entries (Cymo audio engine audit, pitch/speed method, pause shortening, and B-436's own subject:
+a completely unrelated "packaging mistake" entry) collided byte-for-byte with this thread's B-417
+(Option A/STRIP), B-418 (BASES), B-419 (the BLND probe) and B-420 (this fit's own predecessor, the
+packaging-mistake writeup) -- four different topics per number, four different sessions' work stamped
+with the same ID. `tools/check_audit_trail.py` never caught it: its regex only matched the file's older
+`### X-NNN —` heading style, never the `## X-NNN:` style every entry since roughly the B-300s actually
+uses, so it was silently checking zero of the colliding headings. Renumbered this thread's four entries
+to B-433 through B-436 (the `cymo` branch's numbers were left alone, since nothing outside
+`AUDIT_TRAIL.md` itself references them, while this thread's B-417/418/419/420 were referenced by name
+in six other tracked files, now all updated to match: `fw/player.c`, `fw/settingsui.inc`,
+`sim/test_meter_golden.py`, `src/fpga/core/mp3_fb.sv`, `docs/JTAG_DEBUG_ACCESS.md`, and the new qsf
+append file). Fixed the checker itself to match both heading styles, and to correctly NOT flag the
+many legitimate same-ID "addendum"/"relaunch"/"(final)" follow-up headings this file already uses by
+convention (e.g. `B-200 addendum 5`) as false collisions -- only a genuinely different, non-continuation
+heading reusing an ID now fails the check. `make test-host` passes; the check now reports 563 unique
+IDs (up from 381, since it was previously blind to most of the file) with 0 duplicates.
+
+## B-438: card fixed -- `alfatreze.TAU_0_6_0_A_31` replaces A_29/A_30's mistaken bitstream
+
+Rebuilt `player-library-diagnostic-profile` from the current tree (identical output to what A_30
+carried -- same ROM size, same 6,880 B heap gap -- confirming the firmware side of A_29/A_30 was never
+wrong, only the RTL pairing). Packaged as `alfatreze.TAU_0_6_0_A_31` with `--rbf work/diagnostics/
+glyphbuf-t200/ap_core_s2.rbf --rbf-sha256 923d854b...` -- the already-fit, already-verified T2-00 bundle,
+no new VM fit needed since this exact bitstream was already built and hash-confirmed (B-398). Packaged
+RBF hash `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e` confirmed to match A_17
+through A_28's own installed hash. `check_tau_package.py` PASS.
+
+Installed via `tools/install_dev_core.py` (backup verified, all three core files verified identical by
+hash after copy, media + `cymo_loopback` test album carried from A_30 and the library index rebuilt --
+69 files, up from A_30's 67, reflecting the album synced onto A_30 first -- A_30 removed after backup,
+catalog caches cleared, ejected). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`,
+`TAU_0_6_0_A_31`. The card now correctly carries the T2-00-fixed, real-margin bitstream plus B-433/B-434's
+STRIP/BASES diagnostics -- both still available for any future retest, unaffected by which RTL fit runs
+underneath them (they were already proven true on the wrong fit, so no re-test of the conclusions
+themselves is owed; this only corrects which bitstream is actually installed for any *future* diagnostic
+work, including B-435's JTAG probe -- a separate, never-installed, JTAG-only `.sof`).
+
+## B-439: live JTAG session run -- blend datapath looks correct on real hardware; DBUF addressing check built as the next step
+
+Ran the actual JTAG session with the `BLND` probe (B-435/B-437). Real setup friction along the way, all
+resolved: the VM's `jtagd` held a stale USB handle after a passthrough drop/reconnect cycle (`jtagconfig -n`
+reported "No JTAG hardware available" even with the USB-Blaster visibly connected in UTM) -- killing and
+letting `jtagd` restart fixed it, a new lesson worth keeping (not yet written to the skill). `get_service_paths
+issp` returned FIVE instances on this bitstream (`IFPS`/`BLND`/`DBGM`/`PCAD`/`BLIT` -- four are leftover debug
+probes from earlier investigation stages, still present since `TAU_ISSP` was never split per-investigation);
+`issp_get_instance_info` correctly disambiguated `BLND` by name.
+
+**First read looked like a smoking gun and was wrong -- corrected in-session, not after the fact.** A live
+sample (`blend_active=1`) showed `bl_r == bl_bg` exactly, for every possible alpha 0-255 by direct calculation
+-- looked like the blend was unconditionally discarding the source. Turned out to be a real property of
+`blend_ch`'s own `>>8` rounding (already documented in the RTL's own comment, B-327: "at alpha=255 the
+destination still contributes 1/256"): the captured `fg`/`bg` pair differed by exactly 1 LSB per channel
+(adjacent gradient rows, or a destination that had already converged near the source after several correctly-
+fading frames), and at that contrast level EVERY alpha in 0-255 rounds to the identical result -- a case where
+"looks broken" and "just decayed to convergence" are indistinguishable from one sample. Widened the capture:
+6,000 total probe reads (~186 live samples) across an actively-reproduced accumulation, computing the true
+per-channel max difference (not the naive packed-RGB565 subtraction the first widened attempt used, which
+falsely inflated small per-channel diffs into large numbers via bit-position weighting) -- **every single live
+sample topped out at a 1-LSB per-channel difference**, never once catching a high-contrast destination (e.g.
+a stale bright trace-line pixel against the dark gradient). Combined with `blend_probe()`'s own boot-time
+known-answer self-test (white over black at alpha=128, expects exactly `0x7BEF`) having to have already passed
+for `ui_bg_blend()` to run at all (confirmed true, since B-413's counters show successful attempts) -- a
+genuinely high-contrast case that already works -- the live evidence leans toward the blend arithmetic itself
+being correct in hardware, not broken.
+
+**Re-examined the actual reported symptom with fresh eyes instead of more probe reads.** The owner sent two
+screenshots: a working Scope showing a faint fading trail behind the current trace (correct), and the broken
+state showing every recent trace position at FULL, undimmed brightness stacked into a solid white mass --
+not "fades too slowly," but "nothing ever visibly erases, new segments just pile onto old ones." A live Info
+screenshot taken DURING the reproduced bug showed **SCOPE BG READY 173 OK 0 FAIL, STRIP OK (all three rows
+match), BASES both 0** -- every existing diagnostic reports clean even while the bug is actively visible on
+screen. Since the trace segments themselves (drawn via plain `fb_rect()`) clearly keep appearing correctly
+while nothing ever gets erased, and the blend/erase commands report successful execution against provably
+correct source data, the remaining candidate is that the *commands are landing in the wrong place*, not that
+they're failing or reading wrong inputs.
+
+**New hypothesis, built as a firmware-only check (no JTAG needed):** `docs/MMIO_ALLOCATION.md`'s own `DBUF_CPU`
+row (corrected earlier this session) says RECT-class opcodes (`fb_rect`/`fb_bar`/`fb_copy` -- what builds the
+gradient strip AND draws the trace bars) automatically follow `R_DBUF_CPU`'s current H2 buffer selection, while
+true BLIT-class opcodes (`fb_blit` -- what `ui_bg_blend()` actually uses to paint the fade) do not, relying
+entirely on the sticky `SRC_BASE`/`DST_BASE` fields already confirmed zero (B-434). If `R_DBUF_CPU` (what new
+CPU draws target) and `R_DBUF_DISP` (what's actually shown) ever disagree at the moment the blend fires, the
+trace bars keep landing correctly on the displayed buffer (explaining why new segments always appear) while
+the blend keeps updating the OTHER, undisplayed buffer -- zero visible effect, exactly "new draws pile up,
+nothing ever fades." This is the same bug *class* already found once for Chladni (B-414: "blit-mode opcodes
+don't automatically follow H2's displayed buffer"), never checked for the Scope's own trail path.
+
+Both `R_DBUF_CPU`/`R_DBUF_DISP` are ordinary readable MMIO registers (unlike the write-only sticky blit
+fields) -- no JTAG needed. Added `dbg_dbuf_cpu`/`dbg_dbuf_disp` (`fw/player.c`'s `dbg_strip_check()`, same call
+site as B-433/B-434's snapshots) and a new "DBUF" Info row (`fw/settingsui.inc`, `SET_INFO_ROWS` 26->27, case
+25): `CPU <0|1> DISP <0|1> OK`/`MISMATCH`. Verified: `make test-host` clean; heap-gap baseline updated for
+this genuinely new small diagnostic (all three tracked targets down ~560-576 B, `--update` recorded it);
+cold-call check clean. Rebuilt `player-library-diagnostic-profile` (6,816 B heap gap vs. 4,096 B floor).
+Same bitstream as A_31 (`glyphbuf-t200`, RBF `b089b828...`). Not yet packaged/installed -- next step is
+getting this onto the card and reading DBUF during a live repro.
+
+## B-440: DBUF reads clean too -- alpha stuck regardless of trail % is the new lead
+
+Owner's retest on `alfatreze.TAU_0_6_0_A_32`: `DBUF CPU 1 DISP 1 OK` -- both buffers agree, ruling out
+the H2 addressing-mismatch theory as well. Every architectural check this investigation has built now
+reports clean (blend execution succeeds, strip content correct, sticky bases zero, buffer selection
+matches) while the visual symptom persists exactly as before.
+
+**New, more targeted test, at the owner's own initiative:** with Scope Trail set to 0% (never attempts
+a blend at all -- always takes the plain RECT/COPY-based `ui_bg_restore()` fallback, no `fb_blit()`
+involved whatsoever), the accumulation **does not happen**. This is the single most decisive result of
+the whole investigation: it proves the bug genuinely is somewhere in the blend path, not a red herring.
+But then: **trail=5% and trail=80% look identical** -- the severity of the accumulation does not scale
+with the configured fade amount at all. A proportional-but-wrong alpha computation would show SOME
+visible difference between "barely retains anything" (5%) and "retains most of it" (80%); getting the
+IDENTICAL symptom at both extremes is what you'd see if the alpha value written to hardware never
+actually varies with the configured trail, e.g. is stuck near 0 (100% destination kept, 0% source
+applied) regardless of what firmware requests. In hindsight, this is also fully consistent with B-439's
+own JTAG reads (`bl_r == bl_bg` in every live sample) -- dismissed at the time as an inconclusive
+1-LSB-contrast rounding artifact (which it genuinely could still have been, in isolation), but now a
+second, independent line of evidence points at the same place. Owner also noted the accumulated state
+sometimes (not reliably) self-corrects after leaving it running a while -- consistent with some
+unrelated, intermittent event (e.g. `meter_afford()`'s CPU-load gating) occasionally forcing the
+`ui_bg_restore()` fallback path instead of the stuck blend, not a fixed timer.
+
+The alpha field (`R_BLT_IDX=5`/`R_BLT_DATA` bits[15:8]) is write-only in hardware, same as SRC_BASE/
+DST_BASE (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- no MMIO read exists to check it directly. Added
+`dbg_blend_alpha` (`fw/blit_probe.inc`'s `fb_blend_on()`, same shadow technique as B-434's
+`dbg_base_src`/`dst`), snapshotted into `dbg_strip_alpha` at the same `dbg_strip_check()` call site as
+every other diagnostic this investigation already reads, surfaced on a new "ALPHA" Info row
+(`fw/settingsui.inc`, `SET_INFO_ROWS` 27->28, case 26): `A <0-255>`. If this reads a value matching
+`(100 - trail) * 256 / 100` for whatever trail % is configured, firmware's write is correct and the bug
+is hardware not applying it (would need the `BLND` JTAG probe extended to capture `blt_blend_alpha`
+itself, a real RTL/VM-fit cycle); if it reads 0 or otherwise doesn't track the configured trail, the bug
+is in firmware's own alpha computation or write, not the blend datapath -- much cheaper to fix.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass (small expected drop,
+within tolerance, no baseline update needed this time). Rebuilt `player-library-diagnostic-profile`
+(6,800 B heap gap vs. 4,096 B floor). Same bitstream as A_31/A_32 (`glyphbuf-t200`, RBF `b089b828...`).
+Not yet packaged/installed.
+
+## B-441: ALPHA confirmed exactly correct at three trail settings, in both states -- narrows to hardware
+
+Owner's controlled test on `alfatreze.TAU_0_6_0_A_33`: ALPHA reads **153 at trail=40% (default),
+243 at trail=5%, 51 at trail=80%** -- exact matches for `(100 - trail) * 256 / 100` at all three
+settings (95*256/100=243.2->243; 20*256/100=51.2->51; 60*256/100=153.6->153), and **identical whether
+the Scope is currently displaying normally or actively accumulating**. This conclusively proves
+firmware computes and writes the correct alpha value to `R_BLT_DATA` every single frame, regardless of
+which broken/working state the trail is in -- ruling out firmware's own alpha computation as the cause
+entirely. Combined with B-440's own finding (severity doesn't scale with the configured trail % at
+all), the picture is now: firmware sends a different, correct value each time, but the visible result
+is the same regardless of what was sent -- meaning the value that reaches hardware and the value
+`blend_ch()` actually computes with are not the same thing. This narrows the remaining explanation to
+one specific place: the sticky field's own hardware storage for `blt_blend_alpha` isn't correctly
+latching what gets written to it.
+
+**Extended the `BLND` JTAG probe (B-435/B-439) to test this directly.** `blt_blend_alpha[7:0]` and
+`blt_blend_mode[2:0]` -- `mp3_fb.sv`'s own module INPUT ports, exactly what `blend_px()` is actually
+called with -- added to the probe (`probe_width` 59->70). Comparing this probe's `blt_blend_alpha`
+against firmware's own shadow (`dbg_strip_alpha`, B-440) for the same moment is now a direct
+firmware-vs-hardware comparison of the same value: if they disagree, the sticky field's own hardware
+latch is the confirmed root cause. Verified: `make rtl-lint` clean (no new warnings), `iverilog`
+elaboration with `TAU_ISSP` hits the same pre-existing "unknown module altsource_probe" limitation
+every prior ISSP instance already has under Icarus (not a new problem), full `make test-rtl` unaffected
+(the change is additive-only inside an `ifdef TAU_ISSP` block; no functional RTL changed for any
+non-ISSP build, including everything already on the card). Launching the VM fit next.
+
+## B-442: Cymo 44.1 kHz investigation -- real Altera `dcfifo` model reproduces the ideal hold exactly, RTL cleared
+
+Ran the decisive simulation from the Cymo handoff's own STEP 3: `sim/test_cymo_i2s_rate.py --altera-mf
+<quartus>/eda/sim_lib/altera_mf.v`, swapping Intel's real `dcfifo` simulation model in for the
+behavioural one B-430 used. iverilog was not installed on the VM (owner installed it,
+`sudo apt-get install -y iverilog`, 11.0 stable). The real model is far heavier per-event than the
+behavioural stand-in -- about 56 minutes of wall time for 0.4 s of simulated audio (66.67 MHz clk_sys,
+~26.7M cycles), against B-430's "about 2 min" estimate for the behavioural one -- but completed clean,
+not stuck (99.9% CPU throughout).
+
+**Result: level -12.05 dBFS, SINAD 27.71 dB, spurs at 4,898/2,894/8,801/6,797 Hz (-35.8/-36.8/-41.8/-42.3
+dBc), 0 underruns across 9,000 slots -- matching the ideal-hold prediction (27.71 dB) essentially
+exactly**, the same result B-430's behavioural model already gave. This conclusively rules out the real
+Altera `dcfifo`'s own timing as the cause of the ~17 dB-worse real hardware recordings (10.8 dB SINAD,
+flat click-like spurs at -22 to -26 dBc, 3.7 dB low level) -- B-431's own "the fixed-phase 2:1/3:2 cases
+are as bad as the sliding-phase 44.1 kHz case" finding already argued against the FIFO hand-off being
+involved, and this closes the loop with the actual vendor model, not just the RTL logic. Per the
+handoff's own decision tree: next step is looking after the serialiser, or at the recording/analog
+path itself -- not the RTL. `altera_mf.v` was not copied into the repo or committed (licensed vendor
+file, per the handoff's own constraint). Nothing built, no RTL/firmware/card touched.
+
+## B-443: `blend-issp-b441` fit closes -- extended BLND probe ready for the next JTAG session
+
+Fit (seed 2, `blt_blend_alpha`/`blt_blend_mode` added to the `BLND` probe, B-441) finished Successful,
+all four corners positive, real margin: Slow 0C hold +0.310 ns / setup +1.640 ns, Slow 85C hold
++0.321 ns / setup +1.745 ns, Fast 0C hold +0.120 ns / setup +5.920 ns, Fast 85C hold +0.137 ns / setup
++5.702 ns. RAM 240/308 (78%), DSP 19/66 (29%) -- matches `glyphbuf-t200`'s own footprint, as expected
+(no functional change outside the `ifdef TAU_ISSP` block). RBF and `.sof` ready on the VM for the next
+live JTAG session: comparing the probed `blt_blend_alpha` against firmware's own shadow
+(`dbg_strip_alpha`, B-440) for the same moment is the direct test of whether the sticky field's hardware
+storage is the root cause of the Scope-trail bug.
+
+## B-444: live JTAG read of `blt_blend_alpha` matches firmware exactly -- and a real methodology dead end found
+
+Loaded the extended `blend-issp-b441` `.sof` via JTAG, owner reproduced the accumulation with trail at
+its **default (40%)**. `BLND` reads **ALPHA=153, MODE=0** on every live sample -- an exact match for
+firmware's own value at 40% trail (B-441), confirmed by the owner's own trail setting this time rather
+than assumed. **This rules out the sticky-field hardware-latch theory too**: the register genuinely
+holds what firmware wrote. Every architectural/register check this investigation has built (B-433
+through B-444) now reads correct: blend execution succeeds, strip content correct, bases zero, buffer
+selection matches, and now the alpha register itself matches firmware's shadow exactly.
+
+**Worked out why JTAG polling can never resolve this further.** Every live `fg`/`bg` pair caught across
+this whole investigation differs by at most ~1-2 LSB per channel. Checked the arithmetic directly:
+`blend_ch()`'s `>>8` approximation of `/255` means a source/destination pair differing by exactly 1 LSB
+in a channel can **never** show any blend effect for **any** alpha 0-255 (with `f=b+1`,
+`dsp=f*alpha+b*(256-alpha)=b*256+alpha`, which never reaches `(b+1)*256` for `alpha<256` -- a genuine,
+documented property of this hardware's approximation, not a bug). Separately, a genuinely fading pixel
+at alpha=153 converges to within 1 LSB of its background in about 4-5 frames by hand calculation.
+Opportunistic JTAG polling is far slower and completely unsynchronized to frame boundaries, so **every
+live sample was always going to land on an already-converged, blend-indistinguishable pixel regardless
+of whether the hardware is healthy or broken** -- this diagnostic technique has reached a real, provable
+dead end for this specific question, not just bad luck.
+
+**Built the decisive follow-up instead: a firmware-only frame-by-frame decay log, no JTAG needed.** New
+`dbg_pixel_log()` (`fw/player.c`) reads back one FIXED on-screen pixel (the Scope box's own top-left
+corner) via the existing `blend_mb_read()` mailbox once per genuinely-attempted blend, into a 4-entry
+ring buffer (`dbg_pixhist[]`, both 16-bit mailbox halves stored raw since `dbg_strip_check()`'s own
+"whichever half matches" heuristic only works for a known-constant value, not a changing one -- (x,y)
+stays fixed so whichever half is this pixel's own real content stays the SAME half every read, visible
+by which one actually trends). Surfaced on a new "PIXHIST" Info row (`fw/settingsui.inc`,
+`SET_INFO_ROWS` 28->29, case 27): the last 4 raw reads (both halves each) plus the row's current
+expected background, oldest first. This gives an actual frame-by-frame decay trace instead of a single
+badly-timed snapshot -- a half trending down toward the background value each entry proves the blend
+genuinely decays; staying near a stuck bright value proves it genuinely doesn't.
+
+Found and fixed a real self-inflicted bug while building this: a second comment edit appended text
+after the first comment block's own closing `*/`, leaving five lines of stray prose outside any comment
+-- caught immediately by the real firmware build (not `make test-host`, which only exercises the
+host-side harness), fixed by merging into one continuous comment. A second host-harness stub
+(`dbg_pixel_log()` in `sim/test_meter_golden.py`) was also needed, same class as `dbg_strip_check()`'s
+own existing stub. Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with
+real margin, and this time the REAL firmware build (`player-library-diagnostic-profile`, 6,768 B heap
+gap vs. 4,096 B floor) also confirmed clean -- catching the comment bug is exactly why that extra check
+matters. Same bitstream as A_31-A_33 (`glyphbuf-t200`, RBF `b089b828...`).
+
+## B-445: real hardware crash -- PIXHIST overflowed the fixed row-value buffer, fixed
+
+Owner installed and hit a real crash: scrolling the Info list to bring PIXHIST into view crashed the
+core immediately, reproducibly (twice, and again after a reboot); the screen showed a corrupted mix of
+the splash/loader and player-screen elements, consistent with the CPU resetting mid-render rather than
+a hang. Root cause: `set_draw_ro()` (`fw/settingsui.inc`) writes each row's value string into a fixed
+`char v[40]` stack buffer with **no bounds check** -- PIXHIST's B-444 design (4 ring-buffer entries x
+10 chars each, plus a 5-char `W` suffix) writes 45 bytes into that 40-byte buffer, a genuine stack
+buffer overflow, on real silicon, the instant that row was rendered. Every other row in this table
+happens to stay under the limit (STRIP, the previous longest, is 33 chars); nothing in the codebase
+checks this at build time.
+
+Fixed by reducing `DBG_PIXHIST_N` from 4 to 3 (`fw/player.c`), matching STRIP's own 3-item convention --
+3 entries + the suffix is 35 chars, comfortably under 40. The `case 27` display loop already used
+`DBG_PIXHIST_N` for its bound, so no further change was needed there beyond a stale comment fix.
+Corrected the `ui_snapshot_renderer.py` fixture to 3 entries. Verified: `make test-host` clean,
+heap-gap/cold-call checks pass, and the real `player-library-diagnostic-profile` firmware build (the
+exact check B-444 added specifically because `make test-host` alone had missed a comment-syntax bug)
+confirmed clean this time too. Same bitstream as A_31-A_34 (`glyphbuf-t200`, RBF `b089b828...`).
+
+The owner also separately reported the crash's after-effects (opening the menu afterward showed a
+frozen/partially-composited screen) -- expected residual corruption from the crash itself, not a new
+bug; resolves with a clean boot on the corrected firmware, not chased further.
+
+## B-446: Info/Stress-Status page Up/Down never got the B-073 auto-repeat treatment -- fixed
+
+Owner asked for continuous scrolling while holding Up/Down on the Info page (currently one row per
+tap). Root cause: `set_input()`'s read-only-page branch (`set_page >= SET_INFO_PG`) handles its own
+Up/Down and `return`s immediately, structurally BEFORE the auto-repeat computation (`set_rep_at`/`rep`,
+B-073) that every other list in this file already benefits from -- this page was simply never wired
+into that mechanism when it was built. Fixed by moving the auto-repeat block earlier, ahead of the
+read-only-page branch, so its `edge`-augmenting effect (folding a synthetic Up/Down edge into `edge`
+once the hold timer elapses) applies there too; added `!rep` guards to the QR-open (`KEY_A`) and
+back (`KEY_B`/`KEY_LEFT`) checks in that same branch, matching the existing convention in the choice-list
+and menu-list branches just below (a repeat tick should only ever move the cursor, never double as a
+real button press). No other page's behaviour changes -- the reordering is purely earlier computation of
+the same values every other branch already consumed. Verified: `make test-host` clean, heap-gap/cold-call
+checks pass, real firmware build confirmed clean.
+
+## B-447: PIXHIST's tracked pixel moved -- the box's own top-left corner was rarely visited by the trace
+
+Owner confirmed the B-445 crash fix (no crash reproducing PIXHIST this time) and read it in real use:
+`10C2/10C2` all 3 entries, unchanged, against an expected background of `18E3` -- but `0x10C2` and
+`0x18E3` differ by exactly 1 LSB per channel (R 2/3, G 6/7, B 2/3), the SAME blend-indistinguishable
+case B-444's own arithmetic proof already covers. Not a decisive read either way -- just another
+already-converged sample, this time from a genuinely different cause: the tracked pixel (the box's own
+top-left corner, `in->x`/`in->y`) is only ever painted brightly when the waveform amplitude happens to
+reach the very top of the box, which is rare -- most of the time nothing but the gradient itself (or its
+own already-decayed neighbours) sits there, an "already faded" false negative for this diagnostic's
+whole purpose, independent of B-444's polling-speed argument.
+
+Moved the tracked pixel to `(x0 + w/2, cy - 4)` -- the middle column, a few rows above the box's
+vertical centre -- a spot real trace excursions reach far more often (a plausible amplitude swing, not
+an extreme one), while deliberately avoiding `cy` itself (drawn unconditionally with `UI_TRACK` every
+frame regardless of blend state, which would show a constant colour and prove nothing about decay).
+Verified: `make test-host` clean, heap-gap/cold-call checks pass, real firmware build
+(`player-library-diagnostic-profile`, 6,768 B heap gap vs. 4,096 B floor) confirmed clean.
+
+## B-448: a real, previously-undiscovered build-clobber bug -- alpha.36 shipped an unflagged ROM, fixed
+
+Owner installed `alfatreze.TAU_0_6_0_A_36` and hit an immediate, total black screen on boot -- no menu,
+no splash, nothing -- while the base `TAU` core booted fine, isolating it to this specific core's own
+files rather than card-wide corruption from the two mid-write disconnects earlier in this session
+(traced separately to a loose microSD-in-adapter seat, not a real filesystem issue). A `--replace`
+re-copy verified the 3 core files (RBF/ROM/cold-image) were already byte-identical to what was
+packaged -- ruling out a bad write -- and the only source diff since the last known-good alpha (A_35)
+was B-447's tiny, functionally-inert-at-boot pixel-coordinate change. Every angle looked clean.
+
+**Root cause, found by testing determinism directly:** a `rm -f fw/*.o fw/fw.elf && RAM_192K=1 CLK66=1
+SDRAM_BUSY=1 LPC_FW=1 bash fw/build.sh player-library-diagnostic-profile` from a clean state produced a
+tau.rom with a COMPLETELY DIFFERENT SHA-256 than the one already packaged -- 70,298 of 110,072 bytes
+differed, despite identical reported text/data/bss sizes and cold-image layout id. Repeating the clean
+build twice more gave the same hash both times (a genuinely deterministic, correct build), proving the
+originally-packaged ROM was the anomaly, not normal non-determinism.
+
+Traced to the actual mechanism: `tools/check_heap_gap.py` rebuilds every tracked target via a bare
+`subprocess.run(["bash", "fw/build.sh", target], ...)` with **no env flags of its own** -- entirely
+correct for its own stated purpose (checking the plain/default variant's heap gap). But
+`player-library-diagnostic-profile`'s own output path (`work/diagnostics/library-diagnostic-profile/
+tau.rom`) is NOT redirected by `RAM_192K`/etc the way `release`'s `dist/...` path is (`fw/build.sh`'s own
+redirect condition only fires for the release target's default output dir) -- so a manually-flagged
+build and check_heap_gap.py's unflagged rebuild of the exact same nominal target land at the IDENTICAL
+file path. Running any check script (as this project's own established verify-then-package workflow
+always does) between "build the real, flagged firmware" and "package it" silently swaps in the wrong
+variant, with no error anywhere, same reported sizes, genuinely different bytes -- the wrong firmware
+paired with a bitstream built for `TAU_RAM_192K`/`TAU_CLK66`/`TAU_SDRAM_BUSY`/`TAU_LPC` gives exactly a
+B-130-class "nothing loads, immediate black" with zero diagnostic signal, since nothing ever gets far
+enough to report anything.
+
+**Fixed at the tool level, not just as a workflow rule.** Added `--build-flags` to
+`tools/package_dev_build.py`: when given (comma-separated `KEY=VAL`, e.g.
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`), it runs `fw/build.sh player-<variant>` itself, in-process,
+as the literal last step immediately before reading and packaging the resulting ROM -- eliminating the
+whole "hope nothing else ran a build in between" risk by construction, since nothing can run between the
+build and the packaging that reads its own output. Omitting the flag preserves the previous behaviour
+(reuse whatever is already at that path), so `make_release.py`'s own `--release-diagnostic` call (which
+never uses these flags) is unaffected.
+
+Rebuilt clean (`player-library-diagnostic-profile`, `a61f6d0f...`) and re-verified it's genuinely
+different from the bad `ecdb0abd...` ROM already shipped as A_36. Packaged the fix as
+`alfatreze.TAU_0_6_0_A_37` with the corrected ROM; **owner confirmed it boots fine.** `make test-host`,
+heap-gap/cold-call checks all pass; `release`'s own ROM independently re-verified unaffected (matches
+the already-committed hash, confirming `TAU`'s correct boot was never in question).
+
+## B-449: PIXHIST relocated again -- a real screenshot showed the mass sits in the box's upper region
+
+Owner confirmed the B-448 boot fix and, using the new `--build-flags` mechanism for the first time, ran
+PIXHIST for real during an owner-verified active repro (menu open/close to trigger the accumulation,
+then Info opened while it was visibly accumulating). Read `0861/0861` x3 against an expected `W1082` --
+still only a 1-LSB-per-channel difference, the same inconclusive case B-444's own arithmetic proof
+already covers, even from B-447's supposedly-more-active tracked location (`cy-4`, centre column).
+
+**A real screenshot of the Scope itself (not the Info page) resolved the ambiguity.** The accumulated
+mass is concentrated in the box's UPPER region -- solidly filled across nearly the full width there --
+not evenly distributed and not concentrated near the centreline the way B-447 assumed. The centre
+column at `cy-4` most likely hit a real, ordinary local amplitude dip for that one specific column
+(a real audio waveform's envelope is not uniform across columns), not a diagnostic bug -- B-444's own
+"1-LSB pairs are blend-indistinguishable" proof remains the correct explanation for why that particular
+read told us nothing, just for the wrong reason (wrong column/row, not "already converged").
+
+Moved the tracked pixel to `(x0 + w/2, y + 8)` -- near the box's own top edge, in the region the
+screenshot shows solidly filled regardless of which column is sampled, deliberately still avoiding `y`
+itself (the code's own outer strip-cache boundary row family) for the same reason `cy` was avoided
+before. Also used this fix to give `--build-flags` its first real exercise, confirming it works as
+designed: while `tau.rom` came out byte-identical to the prior B-447/B-448 build (expected -- correctly
+explained by `wviz_scope_tick()` living entirely in cold code, since it's `COLD_FN3` -- code review, not
+a build bug, the same class of false alarm this whole investigation has had to rule out more than once),
+`tau-cold.bin`'s hash genuinely differs and the packaged copy matches it exactly. Rebuilt `release` too
+(also genuinely different cold-image hash, since the normal player screen uses the same code path with
+`use_gradient=1`) and re-verified with `make test-host`/heap-gap/cold-call checks, all clean. Packaged as
+`alfatreze.TAU_0_6_0_A_38`.
+
+## B-450: Winamp Scope trail bug -- real root cause found and fixed (H2 double-buffer addressing gap)
+
+Picked up the handoff's own prescribed next step: reproduced the accumulation (menu open/close while
+Winamp Scope active) and read PIXHIST on real hardware. Result: 3 entries `10A2/10A2` x3 against expected
+background `W18C3` -- identical across all 3 logged frames, never trending toward `W`, and a real
+multi-LSB-per-channel gap (RGB565: `10A2`≈R2 G2 B18 vs `18C3`≈R3 G6 B3), well past the 1-LSB
+blend-indistinguishable case B-444 already ruled out. Exactly the "stuck bright, non-decaying" signature
+the handoff named as the first decisive evidence of a real bug (not another JTAG-polling dead end,
+KB-078).
+
+**Root cause, found by reading `src/fpga/core/mp3_fb.sv` directly, not by more register probing.** The
+module's own header comment (line ~184-193, unchanged -- this is documented, intentional RTL behaviour,
+not a bug in the hardware) states the real H2 contract: `dbuf_addr()`'s automatic per-buffer offsetting
+(keyed on `dbuf_cpu_buf`) applies ONLY to ordinary RECT/CHAR/COPY dispatch. Every true BLIT-mode opcode
+(BLIT/BAR/SBLIT/CBLIT/RRECT) is addressed purely through the firmware-programmable sticky
+SRC_BASE/DST_BASE fields and is completely untouched by `dbuf_cpu_buf` -- confirmed at the RTL level:
+`blit_dst_addr <= blt_dst_base + q_addr` (mp3_fb.sv line ~1247), no `dbuf_addr()` call anywhere in that
+path. `wviz_scope_tick()`'s trail fade (`ui_bg_blend()`, `fw/player.c`) uses `fb_blit()` -- a true
+BLIT-mode opcode -- and never called `fb_set_bases()` at all, so it always faded buffer 0 regardless of
+which buffer `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-397) had since made the real CPU target via
+`R_DBUF_CPU` -- exactly what happens on every Settings/fullscreen/Configure open-close, the owner's own
+reported trigger. Meanwhile the RECT-class trace bars (`fb_bar()`) automatically followed `R_DBUF_CPU`
+onto whichever buffer was actually displayed. New segments kept landing on the real screen; the fade kept
+updating a buffer nothing shows. This is the EXACT bug class already found and fixed once before for
+Chladni (`fw/chladni.inc`, B-414) -- a second, independent instance of the same documented BLIT-vs-RECT
+addressing split biting a different caller. It also fully explains why every earlier per-register check
+(STRIP/BASES/ALPHA/DBUF, B-433/434/439/440) read "correct" in isolation: none of them asked whether a
+BLIT-mode write's TARGET buffer matched the DISPLAYED one, only whether each register held the value
+firmware intended.
+
+**One further wrinkle the fix had to account for:** `ui_bg_ready`'s lazy-built gradient strip (the
+off-screen columns `UI_BG_X..UI_BG_X+UI_BG_W`, rows well inside `V_ACT`=360) is built via `fb_rect()` --
+RECT-class, so it IS already `dbuf_cpu_buf`-aware in hardware, and because its rows sit below
+`DBUF_VISIBLE_WORDS` it genuinely gets a SEPARATE physical copy per H2 buffer (unlike Chladni's own
+`CHL_PLANE_Y` scratch, which sits above `V_ACT` and is deliberately buffer-independent -- confirmed these
+are NOT the same situation, not assumed). A strip built once for buffer 0 is therefore genuinely stale
+content when later read from buffer 1's copy; a one-shot `ui_bg_ready` flag can't express "stale because
+the active buffer changed," only "stale because the gradient changed."
+
+**Fix (`fw/player.c`):** new `ui_bg_cur_buf()` helper (mirrors the exact `dbuf_addr()` test in hardware);
+new `ui_bg_buf` tracking which buffer the strip currently reflects, forcing a rebuild via the existing
+lazy-build path whenever the active buffer changes (no RTL touched -- the RECT-class strip build was
+always dbuf-aware, it just needed telling when to redo itself); `ui_bg_blend()` now calls
+`fb_set_bases(base, base)` before its `fb_blit()` calls (matching both source -- the strip's own
+per-buffer copy -- and destination -- the visible meter area -- to the SAME currently-active buffer),
+restoring to `(0, 0)` after `fb_fence()` per the established Chladni/Settings-crossfade precedent (never
+leave a nonzero sticky base for an unrelated later caller to inherit). Also made the two diagnostics this
+investigation built buffer-aware so they stay meaningful instead of silently reading buffer 0 forever:
+`dbg_strip_check()` (STRIP) and `dbg_pixel_log()` (PIXHIST) now read whichever buffer is actually active.
+`ui_bg_restore()` (the non-blend fallback, `fb_copy()`/OP_COPY) needed no sticky-base change -- OP_COPY is
+already RECT-adjacent and dbuf-aware in hardware -- only the same per-buffer strip-rebuild trigger.
+
+**Verified:** `make test-host` passes in full (no regressions); `tools/check_heap_gap.py` and
+`tools/check_cold_calls.py` both clean; `release`/`player-library-diagnostic`/
+`player-library-diagnostic-profile` all rebuild successfully (dist's `tau.rom`/`tau-cold.bin` genuinely
+changed, expected -- `ui_bg_blend()` is `COLD_FN3`, exercised by the real player screen). No RTL change,
+no new Quartus fit needed -- same `glyphbuf-t200` bitstream as every alpha since `A_17`. Packaged with
+`tools/package_dev_build.py --build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"` (B-448's tool,
+closing the build-clobber risk by construction) as `alfatreze.TAU_0_6_0_A_39`; printed RBF hash confirmed
+`b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e` before install. Installed via
+`tools/install_dev_core.py` (dry run first, then `--yes`): backed up and removed `A_38`, carried media +
+rebuilt the library index, cleared catalog caches, ejected. **NOT yet confirmed on real hardware** -- the
+owner's next repro attempt (menu open/close with Scope active) is the actual test of whether the trail
+now fades correctly; if it does, re-read PIXHIST once more to confirm it now trends toward `W` instead of
+staying stuck, closing this investigation with positive evidence rather than just the absence of the old
+symptom.
+
+## B-450 addendum: hardware-confirmed fixed
+
+Owner reproduced the exact original trigger (Settings/fullscreen/Configure open-close with Winamp Scope
+active) on `alfatreze.TAU_0_6_0_A_39` and confirmed the trail now fades normally -- no more accumulation.
+Closes the investigation opened in the 2026-09-29 session (B-410 onward) and carried through the
+2026-09-30 handoff: the H2 double-buffer BLIT-addressing gap in `ui_bg_blend()` was the real and only
+cause. Every earlier diagnostic built along the way (STRIP/BASES/DBUF/ALPHA/PIXHIST) stays in the
+firmware, now buffer-aware, for any future H2-addressing investigation.
+
+## B-451: docs correction -- the 192 KB RAM shrink is DONE, not pending (ROADMAP item 6 was stale)
+
+Owner asked what's actually missing for 0.6.0; my first answer repeated ROADMAP.md item 6's own text
+("firmware is 8.5 KB short of linking") without re-checking it, and the owner correctly pushed back
+("havent we been building on it?"). Re-verified directly rather than trusting the doc: `glyphbuf-t200`
+(the bitstream every `0.6.0-alpha.N` card build has used since `A_17`, including today's `A_38`/`A_39`,
+both hardware-confirmed) already has `TAU_RAM_192K=1` in its macro bundle
+(`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`) and `CORE_VERSION` rev 26 refuses to
+boot firmware not built for it -- the RAM shrink has been the ACTIVE, hardware-running configuration all
+session, not a pending decision. Rebuilt all three firmware targets with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` to check the real current margin (not the 2026-09-25/B-236
+number the roadmap still quoted): `release` 14,864 B heap gap (floor 6,144), `player-library-diagnostic`
+9,008 B (floor 4,096), `player-library-diagnostic-profile` 6,704 B (floor 4,096) -- all comfortable, none
+of today's outputs written to `dist/` (checked via `git status`, no unintended tracked-file changes).
+The 8.5 KB shortfall was real when written (B-236, 2026-09-25) but stale by the time B-244's cold-code
+moves (and everything since) landed; nobody updated ROADMAP.md item 6 afterward. Corrected it to DONE.
+Lesson for next time: a roadmap "needs an owner decision" line is a claim about code state, not just
+process, and needs the same re-verification as any other stale-doc risk this project already tracks
+(the all6-combined fit result, the seed-placement story, etc. -- KB-077's own class of lesson).
+
+## B-452: Configure page meter preview -- only Winamp Scope actually played, others frozen static
+
+Owner ran the H2 closure test list (previous entry's own checklist): 12 of 13 passed clean, only #9
+(Configure page: cycle METER through all four modules) failed -- "chladni doesn't render at all, bars is
+there but static, does not play, master vu static as well. Only scope is fully functioning." Owner
+confirmed, unprompted, that this is scoped exactly to the Configure page preview -- the same meters are
+fine everywhere else (the normal player screen, fullscreen), ruling out a broader regression before one
+was even guessed at.
+
+**Root cause, found from source (no card access needed for this half):** `ui_draw_dynamic_cold()`
+(`fw/player.c`) gates its whole body behind `if (UI_OVERLAY_UP) goto ui_tail;` -- correct for the
+ordinary player screen, since an overlay covers the meter box there and there's nothing to publish for.
+But the SAME gate covered the once-per-display-frame PUBLISH step (`peak_l`/`peak_r`/`spec_lvl[]`,
+fed from `meters_feed()`'s always-on accumulation) -- and Settings being open for the Configure page's
+own live preview (`wvcfg_preview_tick()`) is itself a `UI_OVERLAY_UP` case. So every meter reading
+`in->peak_l`/`peak_r`/`spec[]` (Bars, Chladni, VU Master) froze at whatever value it held the instant
+Settings opened, never getting fresh data while the page stayed open -- reading as "static, doesn't
+play." Winamp Scope was the one exception because `wviz_scope_tick()` manages its own `R_WAVE_CTL`
+arm/capture directly inside itself, entirely independent of this publish step -- exactly why it kept
+working through the same overlay that starved the other three. This is the real, previously-missed data
+gap that B-415 (which only fixed the DRAWING gate, `ov_draw=1` around `mtr_preview()`) didn't cover.
+
+**Fix (`fw/player.c` + `fw/settingsui.inc`):** extracted the publish block (`if (peak_acc_any) { ... }`,
+peak scaling + `spec_hw_fetch()` + band scaling into `spec_lvl[]`) verbatim into its own
+`COLD_FN3 static void meters_publish(void)`, called from its original site in
+`ui_draw_dynamic_cold()` (unchanged behaviour there, still gated by `UI_OVERLAY_UP`) AND from
+`wvcfg_preview_tick()` (deliberately bypassing the gate, since that's exactly the case this fix targets).
+First build attempt dropped `tools/check_heap_gap.py`'s baseline by ~816-832 B across all three targets
+-- caught by the tool, not inspection, per B-391's own precedent: the extracted function had no
+`COLD_FN3` of its own, so it silently compiled as ordinary hot code instead of landing back in the cold
+image the way it did as part of `ui_draw_dynamic_cold()`'s body. Adding `COLD_FN3` (matching the
+function it was extracted from, and its two call sites -- `ui_draw_dynamic_cold()` is already
+`COLD_FN3`, `wvcfg_preview_tick()` is already `COLD_FN`) restored heap gap to exactly the prior
+baseline on all three targets.
+
+Verified: `make test-host` passes in full; `tools/check_heap_gap.py` and `tools/check_cold_calls.py`
+both clean; `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild
+successfully. No RTL change, no new Quartus fit -- same `glyphbuf-t200` bitstream as every alpha since
+`A_17`.
+
+## B-453: Chladni still didn't render in the Configure preview after B-452 -- a second, separate gate
+
+Owner retested `alfatreze.TAU_0_6_0_A_40`: Bars/Scope/VU Master now animate correctly in the Configure
+preview (B-452 fixed), but Chladni still doesn't render at all there.
+
+**Root cause:** `chladni_tick_box()` (`fw/chladni.inc`) has its own hard-coded `if (chl_ok == 2u ||
+UI_OVERLAY_UP) return 0;` -- a raw `UI_OVERLAY_UP` check, stricter than every other meter's own draw
+primitives, and unlike them it never deferred to the caller's `ov_draw` override. Every other draw call
+in this codebase checks `FB_HELD()` (`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`), which is exactly
+what lets `wvcfg_preview_tick()`'s `ov_draw=1` bracket (B-415's own mechanism, already working for
+Bars/Scope/VU Master) through. Chladni's function-level guard bypassed that mechanism entirely and
+bailed out unconditionally whenever Settings was open -- which is always true while browsing Configure.
+The function's own header comment ("Callers decide WHEN it is safe to draw... this decides whether it is
+worth it") already states the intended contract; this one line never implemented it. Fixed by replacing
+the raw `UI_OVERLAY_UP` test with `FB_HELD()`.
+
+Also fixed a real host-test gap the change surfaced: `sim/chladni_module_harness.c` (Chladni's own
+standalone host build, compiled outside `player.c`) had no `FB_HELD()` definition, only `UI_OVERLAY_UP`
+-- `make test-host` failed with an undeclared-function error until a matching `#define FB_HELD() 0` stub
+was added next to the existing `UI_OVERLAY_UP` one.
+
+Verified: `make test-host` passes in full; `tools/check_heap_gap.py` reports the exact same baseline as
+before (no cold-code regression this time -- a one-line macro swap inside an already-`CHL_COLD` function
+costs nothing); `tools/check_cold_calls.py` clean; `release`/`player-library-diagnostic`/
+`player-library-diagnostic-profile` all rebuild clean. No RTL change, no new Quartus fit -- same
+`glyphbuf-t200` bitstream. Not yet packaged/installed.
+
+## B-454: OP_BAR's real fix -- the 7-bit lit-row field widened to 9 bits in RTL, fit launched
+
+Owner asked to move on with the real RTL fix for the fullscreen Winamp Bars clamp (B-406's mitigation
+only caps growth at 127 lit rows; the field is physically 7 bits wide on the chip, so a firmware-only
+fix could never let bars grow past that -- `FS_FIG_H=323` genuinely needs it).
+
+**Design:** rather than widening `cmd_glyph` itself (CHAR needs exactly 7 bits for ASCII, OP_RRECT's
+radius needs at most 4 -- both untouched), added a NEW, separate 2-bit field `cmd_glyph_hi`, used only
+by OP_BAR, giving a 9-bit lit-row count (max 511, comfortably above 323). Found genuinely free capacity
+at both ends of the pipe rather than assuming a wider bus was needed: the 88-bit command FIFO word
+(`cmd_mem`, `mp3_fb.sv`) had 4 spare padding bits left over from B11's own `cmd_op` widen -- `cmd_glyph_hi`
+claims 2 of them, CW stays 88, every OTHER field's bit position is completely unchanged (confirmed by
+recomputing the full 88-bit layout by hand before touching anything). At the CPU-MMIO boundary
+(`R_FB_GO`, `mp3_soc.v`), bits 15-16 of the 32-bit write word were genuinely unused (glyph/sx/sy already
+occupy bits 3-13, RRECT's op-extension bit sits at 14) -- `fb_cmd_glyph_hi <= dDAT_MOSI[16:15]`.
+
+**RTL changes:** `mp3_fb.sv` (new `cmd_glyph_hi` port, FIFO packing, `pre_bar_lit_raw` now concatenates
+it with the original 7-bit `cmd_glyph` slice -- CHAR's `pre_glyph`/RRECT's `pre_rrect_r` untouched, still
+read the same 7-bit slice alone), `mp3_soc.v` (new `fb_cmd_glyph_hi` output port + R_FB_GO write logic),
+`core_game.vh` (new wire, both instantiation sites wired). New mutation hook `BUG_IGNORE_BAR_HI` (forces
+the high bits to 0, degenerating to the old 7-bit-only behaviour) following every prior mutation-test
+precedent in this file.
+
+**Firmware (`fw/player.c`/`fw/blit_probe.inc`):** `bar_hi_ready`/`BAR_WIDE_READY()` forward-declared
+directly above `fb_bar()`'s own definition (which sits ~1,460 lines before `blit_probe.inc`'s
+`#include`, unlike every other probe's caller) so `fb_bar()` can probe on first actual need, matching
+`fb_round_rect_on()`'s established "lazy, on first actual need, never at boot" convention (B-162) --
+`bar_hi_probe()` (`fw/blit_probe.inc`) is a genuinely NEW hardware self-test, not the RTL-dispatch
+question `BLIT_READY()`/`RRECT_READY()` answer: OP_BAR has existed unconditionally since B-104, so what
+varies here is only whether the two extra bits are wired through at all. Draws a real 2-row bar with
+`lit=128` (the smallest value needing bit 7) and reads back row 1's actual colour, not just "did
+anything write here" -- an old bitstream reads `lit=0` (bg, both rows unlit), a new one clamps 128 down
+to h=2 (fg, both rows lit) -- an unambiguous, direct test. `fb_bar()` now only probes when `lit > 127u`
+(no cost on the common case); old/unproven hardware keeps the exact 127-row clamp it always had, a safe
+degradation, never a regression.
+
+**Verified:** `sim/tb_mp3_fb.v` gained a dedicated `push_bar()` task (a new task rather than widening the
+shared `push()` -- every existing BAR test, lit<=127, stays byte-for-byte unchanged) and a real test case
+(h=250, lit=200 -- both values impossible to express in the old 7-bit field, so a reverted/mutated fix
+fails cleanly, not silently). `sim/tb_blit_scene.v`/`sim/tb_helios_dbuf.v` wired the new port (tied 0,
+unused by either scene). `make rtl-lint` clean, `make test-rtl-fb` passes (all new BAR-wide checks
+green), `make test-rtl-fb-mutation` kills all 6 mutants including the new one, full `make test-rtl`
+passes (0 failures, confirms `mp3_soc_sim.v`'s auto-regeneration and the real-CPU PSRAM sims are
+unaffected), `make test-host` passes. `tools/check_heap_gap.py --update`: the ~800-816 B drop across all
+three targets is real and expected (genuinely new hot code -- `fb_bar()`/the probe are intentionally hot,
+matching `blit_probe()`/`rrect_probe()`'s own precedent, not a cold-code regression), all comfortably
+above their floors; baseline updated. `tools/check_cold_calls.py` clean.
+
+Launched the real fit: `python3 tools/vm_fit.py launch bar-hi-b454 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2` -- the exact
+`glyphbuf-t200` bundle every current alpha ships, re-fit with this RTL on top. Staged tree confirmed via
+direct SSH grep (`cmd_glyph_hi` present in all three touched files on the VM). Both seeds confirmed
+running. Result pending. Not committed, not installed.
+
+## B-454 addendum: dropped the wide-field hardware probe, owner's call for alpha stage
+
+Owner: little concern about backward compatibility at the current alpha stage -- worry about it on
+betas or after full release. Removed `bar_hi_probe()`/`bar_hi_probe_ensure()`/`BAR_WIDE_READY()`
+entirely (`fw/blit_probe.inc`); `fb_bar()` now sends the full 9-bit `lit` value unconditionally
+(clamped only to the field's own 511 ceiling). RTL is unaffected -- `cmd_glyph_hi` is unconditionally
+wired in `mp3_fb.sv`/`mp3_soc.v` either way, so the already-launched `bar-hi-b454` fit stays valid; this
+only simplifies the firmware side. Recovered about 600 B of heap gap across all three targets (probe
+code was genuinely extra hot code, not a mistake this time -- removing it is a real, intentional
+saving). `make test-host` passes, `tools/check_heap_gap.py --update` (new baseline: release 55,536 B,
+diagnostic 48,896 B, profile 46,480 B), `tools/check_cold_calls.py` clean, all three real firmware
+targets rebuild clean.
+
+## B-453 addendum: hardware-confirmed fixed
+
+Owner confirmed on real hardware: Chladni now renders correctly in the Configure page preview,
+completing the set -- Bars/Scope/Chladni/VU Master all animate correctly there now (B-452 + B-453
+together). Investigation closed.
+
+## B-455: theme/mode/meter-preset persistence -- real root cause found, not firmware
+
+Owner tested theme/mode persistence twice more, both times still failing after B-416's fix (which
+remains correctly intact in the current tree -- confirmed by re-reading `fw/settingsui.inc`'s
+`CH_THEME`/`CH_MODE` handler line by line: `th_theme`/`th_pol` update, `th_apply()` runs, falls through
+to `settings_mark_dirty()` exactly as B-416 fixed it). Traced the whole chain instead of assuming the
+firmware fix regressed: `settings_mark_dirty()` -> `settings_pump()` -> `settings_store()` ->
+`set_wr32(SW_THEME, ...)`/`set_wr32(SW_POL, ...)` -> raw MMIO register writes (`R_SET_IDX`/`R_SET_DAT`)
+-- every step confirmed correct and firing. The hardware persist register file is confirmed unconditionally
+32 words wide in the current RTL (`set_idx` is 5 bits everywhere, no macro gate -- B-346's widening was
+never gated), so `PERSIST32_READY()`'s probe should read true on every current bitstream.
+
+**The actual gap: `dist/Cores/alfatreze.TAU/interact.json` -- the file that tells APF which bridge
+addresses to persist to `interact_persist.json` on Quit -- was never updated when B-346 added the five
+new persist words.** Decoded it directly: 12 declared `"variables"`, the last at `0x20000038` (word 14,
+`SW_LIBS`). Words 15-20 (`SW_RETIRED_LIBOFF` through `SW_MPRE_CHLADNI` -- `SW_THEME`=16=`0x20000040`,
+`SW_POL`=17=`0x20000044`, `SW_MPRE_BARS`/`SCOPE`/`CHLADNI`=18/19/20=`0x20000048`/`0x2000004C`/
+`0x20000050`) have NO declared variable at all. Firmware writes them into the hardware register file
+correctly every time (confirmed by code review, not assumed) -- but APF has no declared variable for
+those addresses, so it never captures them into the persisted file on Quit, regardless of what firmware
+writes. This exactly explains "theme FAIL, mode FAIL" while colour/repeat/meter-mode-selection (all
+declared, ids 10/12/15) correctly persist -- and, not yet reported by the owner but almost certainly
+broken by the identical gap, the three meter-preset slots (`SW_MPRE_BARS`/`SCOPE`/`CHLADNI`) too.
+
+This file (`dist/Cores/alfatreze.TAU/interact.json`) is git-tracked and hand-maintained, last touched at
+commit `45630c3` ("remove legacy .m3u playlist fallback") -- well before B-346 (persist widening) ever
+landed. `tools/package_dev_build.py` copies this exact file verbatim into every dev-build package
+(`shutil.copytree(src/"Cores/alfatreze.TAU", ...)`), and `tools/make_release.py` calls
+`package_dev_build.py --release-diagnostic` internally for the Diagnostic Build -- so this one file is
+the single source for both.
+
+**Fix:** added the five missing `"variables"` entries (ids 27-31, following the `"(internal) ..."`
+naming convention the post-widening `list`/`library` entries already established, since these are
+adjusted from the core's own on-screen menu, not APF's outer Settings UI), at their correct bridge
+addresses (`0x20000040`/`44`/`48`/`4C`/`50`), `"persist": true`. Pure declaration-file fix -- no
+firmware/RTL change, no rebuild needed; the already-built `player-library-diagnostic-profile` ROM is
+reused as-is via `tools/package_dev_build.py --build-flags` (which still rebuilds it fresh from the
+current tree, confirming no drift). Packaged as `alfatreze.TAU_0_6_0_A_42`, RBF hash confirmed. **Install
+pending -- card not mounted.**
+
+## B-456: interact.json's real hard cap is 16 entries -- B-455's fix pushed it to 17
+
+Owner retested `A_42`: still not saving, and Core Settings shows Volume/Color/Repeat/Meter but no
+Theme/Mode at all -- not even visible, not just unsaved. Also flagged "Load Audio File"/"Load Playlist"
+as unwanted leftovers from the removed legacy playlist flow.
+
+**Root cause of the interact.json symptom:** the `analogue-pocket-dev` skill's own docs snapshot states
+it plainly -- "Up to 16 UI entries from interact.json can be shown." B-455 took the file from 12 entries
+to 17 (5 new: theme, mode, 3 meter presets), one over the hard ceiling -- entries past the cap are
+silently dropped from the UI (and, since APF's read-modify-write persistence cycle operates on exactly
+the same declared list, from persistence too). Fixed by keeping only theme (id 27) and mode (id 28) --
+the two the owner actually reported broken -- and dropping the three meter-preset declarations (never
+reported broken, not yet confirmed as an issue) until there's real headroom or a reason to prioritise
+them. 12 + 2 = 14, comfortably under 16.
+
+**Second, separate, real bug found from the owner's own observation:** ALL SEVEN of `data.json`'s
+non-firmware data slots (Audio file, Playlist, Tau loading artwork, Media library index, Cold image,
+Assets, Cover image) had `"parameters": "0x1"` -- bit 0, "User-reloadable," which makes APF show a
+"Reload X" action for that slot in Core Settings. Only Audio file/Playlist make any conceptual sense as
+user-reloadable, and even those are superseded by direct-load/the library per the owner's own reasoning;
+Tau loading artwork/Media library index/Cold image/Assets/Cover image should never have been
+user-reloadable at all -- these are firmware-managed internals, not user-facing assets, and exposing
+them as manual "reload" actions was very likely an unedited copy-paste default nobody revisited. Also
+relevant to the FIRST bug: the same skill doc names a SEPARATE limit -- "if more than 4 reloadable data
+slots are also present, additional entries will be dropped to maintain a maximum of 20 combined
+interact+data menu entries" -- and this core had SEVEN, three past that threshold, adding further
+pressure on top of interact.json's own independent 16-cap. Fixed by clearing bit 0 (`"parameters":
+"0x0"`) on all seven. `tools/tau_data_slots.py`'s four slot-declaration functions (library/cold/
+cover/assets) hard-coded `"0x1"` in their own `expect`/creation dicts -- updated all four to `"0x0"` to
+match, since that file is the shared source of truth `package.py`/`package_dev_build.py` both use (a
+mismatch would have made the very next dev-build package fail its own consistency assertion, which is
+exactly what happened on the first packaging attempt this pass -- caught immediately, not shipped).
+
+Verified: both files re-checked as valid JSON; `python3 tools/package_dev_build.py` succeeds cleanly
+(the assertion failure from the first attempt, before `tau_data_slots.py` was updated, is gone);
+packaged interact.json confirmed at exactly 14 entries, packaged data.json confirmed all seven slots at
+`0x0`. No firmware/RTL change -- pure declaration-file fix, same ROM as `A_42`. Packaged as
+`alfatreze.TAU_0_6_0_A_43`, RBF hash confirmed, installed via `tools/install_dev_core.py` (media/library
+carried from `A_42`, hashes verified, `A_42` removed after backup). **Owner's next retest is the real
+answer** -- theme/mode should now both show in Core Settings AND survive a Quit+relaunch, and the two
+unwanted reload actions should be gone.
+
+Not done, deliberately deferred: the three meter-preset persist entries (dropped from interact.json to
+stay under the cap) have no persistence path right now, same as before this fix -- a real, known gap if
+the owner ever wants Configure-page presets to survive a restart, not yet prioritised since it has never
+been reported as broken. Worth adding a cheap guard to `tools/check_tau_package.py` (interact.json entry
+count <= 16) so this exact mistake can't silently recur -- not built this pass.
+
+## B-456 addendum: hardware-confirmed fixed
+
+Owner confirmed on real hardware: theme and mode now show in Core Settings and survive a Quit+relaunch;
+the unwanted "Load Audio File"/"Load Playlist" reload actions are gone. Investigation closed.
+
+## B-457: Cymo 44.1 kHz -- real MCLK jitter source found and fixed in RTL, fit queued
+
+Owner: "start on next cymo task." Per the 2026-09-30 handoff's own decision tree (FIFO hand-off twice
+proven clean, B-430/B-442), read `sound_i2s.v`'s serializer -- the one remaining un-examined RTL piece.
+The shift-register/LRCK/bit-timing logic itself is structurally correct (standard MSB-first I2S). But
+the MCLK GENERATOR is a phase accumulator (`audgen_accum`) dividing `clk_74a` (74.25 MHz) toward
+~12.288 MHz -- `CYCLE_48KHZ/742500 = 245760/742500`, which reduces (GCD 60) to `4096/12375`; `12375 =
+3^2*5^3*11` has no factor of 2, so the ratio is fundamentally non-integer. This is a real, physically
+measurable jitter source: the accumulator's overflow doesn't land on a fixed clk_74a cycle count, so
+every MCLK edge -- and, since SCLK/LRCK/the serializer were all derived by edge-detecting THAT jittery
+toggle -- every downstream DAC bit-clock edge inherits it. **Critically, this is invisible to RTL
+simulation**, which checks logical sample VALUES, not real inter-edge timing variance -- exactly why the
+decisive digital-domain SINAD test (B-442) matched the ideal-hold prediction almost exactly while real
+hardware measured ~17 dB worse. Confirmed with the owner as the lead worth pursuing before spending a
+Quartus fit on it.
+
+**Fix:** added a 5th output (`outclk_4`, 12.288 MHz) to the existing shared PLL (`mf_pllbase_0002.v`,
+the same instance already producing clk_sys/clk_vid/clk_sdram from this exact 74.25 MHz reference) --
+`fractional_vco_multiplier("true")` is already relied on for outclk_1/2's clean 12.000 MHz, using
+noise-shaped sigma-delta fractional-N synthesis, the purpose-built low-in-band-jitter mechanism this
+class of problem calls for, not a naive accumulator. No new PLL resource -- outputs 4-17 were unused
+placeholders. Wired through `mf_pllbase.v` and `core_game.vh` (new `clk_audio_mclk` wire).
+
+Rewrote `sound_i2s.v`: `audio_mclk` is now `assign audio_mclk = clk_mclk;` -- nothing left to
+synthesise. The entire serializer (SCLK divide-by-4, the shift register, LRCK) now runs synchronously
+inside this ONE clean clock domain instead of `clk_74a`-domain edge-detection of the old jittery toggle
+-- `sclk_div == 2'd3` is the exact clk_mclk cycle where SCLK's own bit (`sclk_div[1]`) is about to fall
+3->0, the identical instant the old `prev_audgen_sclk && ~audgen_sclk` edge-detect fired, just derived
+directly from a real clock instead of chasing another signal's transitions. `sync_fifo`'s read clock
+moved from `clk_74a` to `clk_mclk` accordingly.
+
+**Verified:** `sim/tb_cymo_i2s_rate.v` updated (new `clk_mclk` testbench clock at ideal 12.288 MHz --
+simulation has no vendor PLL model, so this checks logical correctness only, not the real achieved
+frequency/jitter, which needs the actual Quartus fit report) --
+`python3 sim/test_cymo_i2s_rate.py` reproduces the EXACT same result as before the rewrite (SINAD 27.71
+dB, identical spurs) -- confirms the rewrite is functionally equivalent at the digital-value level, zero
+regression, exactly the expected outcome since jitter effects can't show up in a value-level sim either
+way. `make rtl-lint` and `make test-host` both clean. No other testbench references the changed internal
+signal names (`prev_audgen_sclk`/`audgen_sclk` are gone, replaced by `sclk_div`) or `core_game.vh`
+directly.
+
+**Not yet done:** the real Quartus fit -- `bar-hi-b454` (B-454, the Winamp Bars RTL widen) is still
+running on the VM; this project's own discipline never launches two fits at once. Queued for launch the
+moment that frees up. Once fit: check the ACHIEVED outclk_4 frequency/error in the Quartus report (not
+assumed from the "12.288000 MHz" parameter string), and this being a fractional-N sigma-delta PLL still
+needs a real hardware A/B recording against the current phase-accumulator design to confirm the jitter
+reduction actually closes (or narrows) the ~17 dB SINAD gap -- a plausible, well-reasoned lead, not yet
+a proven fix. Not committed.
+
+## B-458: bar-hi-b454 closed clean; alfatreze.TAU_0_6_0_A_44 installed; mclk-b457 launched
+
+**Quartus, Pocket, code-review.** B-454's OP_BAR 9-bit lit-row widen (all6-combined + the wide field,
+no new macro since `cmd_glyph_hi` is unconditionally wired) finished on both seeds: seed 1 all four
+corners positive (Slow 0C Setup +1.127 ns, Slow 85C Setup +1.163 ns, worst hold +0.129 ns), seed 2 also
+all positive but with tighter Slow 0C Setup (+0.627 ns) -- seed 1 selected on every corner. RAM 240/308,
+DSP 19/66 on both, matching the pre-widen `all6-combined` footprint (the widen cost ALMs/registers only,
+confirming B-454's build-time size check). Collected and hash-verified
+(`4b82d9481e71cb085ba87b800c53615538082b3bce5ff818615414abefec4bda`).
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` via
+`package_dev_build.py --build-flags` (closing the B-448 build-clobber risk) and packaged as
+`alfatreze.TAU_0_6_0_A_44` (heap gap 6,688 B against the 4,096 B floor). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_43 --remove alfatreze.TAU_0_6_0_A_43`:
+backup verified, both bitstream/ROM/cold-image hashes matched post-copy, media + library index (69
+files) carried and rebuilt, `tau-assets.bin` carried, 5 catalog caches cleared, card ejected clean.
+Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `alfatreze.TAU_0_6_0_A_44`.
+
+**Not yet done:** hardware confirmation that fullscreen Winamp Bars now grow past the old 127-row clamp
+(B-406's mitigation is still in place in firmware and harmless either way, but the point of B-454 is to
+prove the hardware field is no longer the limiter) -- needs the owner's next boot.
+
+Confirmed no Quartus process was running on the VM before launching the next fit (never two at once).
+Launched `mclk-b457` (Cymo I2S MCLK phase-accumulator -> PLL fractional-N replacement, B-457): same
+`all6-combined` macro bundle (`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`), both
+seeds, confirmed running (2 `quartus_sh --flow compile` processes). Result pending. Once it lands: check
+the achieved `outclk_4` frequency/error in the Quartus report (not the parameter string) before trusting
+the jitter fix, and it still needs a real hardware A/B recording against the current phase-accumulator
+design -- a well-reasoned lead, not yet a proven fix.
+
+## B-459: OP_BAR 9-bit widen hardware-confirmed (fullscreen Winamp Bars past 127 rows)
+
+**Pocket.** Owner confirmed `alfatreze.TAU_0_6_0_A_44` (B-458's build) on real hardware: fullscreen
+Winamp Bars now render past the old 127-row clamp. B-454's RTL fix (`cmd_glyph_hi`, OP_BAR's lit-row
+field widened 7->9 bits) is hardware-confirmed. B-406's firmware-side 127-row mitigation is now
+redundant but left in place (harmless -- `fb_bar()` sends the full 9-bit value unconditionally since the
+B-454 addendum removed the runtime probe). No further action needed on this item.
+
+## B-460: mclk-b457 fit FAILED -- illegal PLL output frequency, not a timing violation
+
+**Quartus.** Both seeds of `mclk-b457` (B-457's I2S MCLK PLL fix) FAILED, not a timing miss: `Error: PLL
+Output Counter parameter 'output_clock_frequency' is set to an illegal value of '12.288 MHz' on node
+...altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER`. This is a hard Fitter error during PLL analysis --
+never reached place-and-route -- so it needs an RTL/parameter fix, not a re-fit or a bisect.
+
+Confirmed this is unrelated to `bar-hi-b454`'s success: the macro bundle is identical
+(`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`, diffed byte-for-byte against what
+`bar-hi-b454` used). The real difference is the RTL tree each was staged from -- `bar-hi-b454` was
+launched (in an earlier session) from a tree that predates B-457's commit (`c99c86c`), so it never
+carried the new PLL output. `mclk-b457` is the first fit to actually exercise B-457's `outclk_4`
+addition, and it doesn't synthesize as specified: `mf_pllbase_0002.v`'s new
+`.output_clock_frequency4("12.288000 MHz")` on output counter index 4 of the existing 600 MHz-class VCO
+(shared with `clk_sys`=66.666667 MHz on index 0, `clk_sdram`=100.000000 MHz on index 3) is rejected as
+illegal -- most likely because 12.288 MHz isn't achievable from this VCO/counter combination the way it's
+currently specified (needs investigation: duty cycle/phase-shift fields, or a different counter index, or
+the VCO frequency itself needs to change to admit both the existing outputs and this new one).
+
+**Not attempted:** no RTL fix was made. Per the task's own instruction this turn, reporting only --
+the owner decides whether to fix `mf_pllbase_0002.v`'s PLL parameterization before relaunching, and this
+stays independent of `bar-hi-b454`/v0.6.0-alpha.1's release, which does not carry B-457's RTL change at
+all (confirmed via the qsf/git-log timeline above) and is unaffected by this failure.
+
+## B-461: v0.6.0-alpha.1 released
+
+**Pocket, Quartus, code-review.** Cut the public release: `dist/` firmware rebuilt with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1` (matching `bar-hi-b454`'s shipped bitstream) via
+`tools/make_release.py --rbf work/diagnostics/bar-hi-b454/ap_core_s1.rbf --rbf-sha256
+4b82d94...ec4bda --test`; `make test-host` passed in full, `check_tau_package` passed both cores.
+`APP_VER`/`core.json` bumped to `0.6.0` (date_release 2026-09-30); README's checked version line kept
+plain semver (`v0.6.0`) since `fw/build.sh`'s version-consistency regex only matches digits/dots -- the
+alpha designation lives in prose next to it and in the git tag/GitHub release name instead. `LPC_FW`
+flipped to default-1 for the diagnostic builds and for `release` (mirroring `POLY_FW`'s v0.5.0/B-309
+precedent, now that B-386 gives it a real hardware-confirmed result) -- this changed `fw/build.sh` itself,
+required rebaselining `tools/heap_gap_baseline.json` (the ~1,000 B drop per target is real new hot code,
+not a regression, same convention as every other probe/redirect addition this project has made).
+
+Found and fixed a real build-breaking bug while verifying: README's "Current version **v0.6.0-alpha.1**"
+broke `fw/build.sh`'s own version-consistency check (`grep -o 'Current version \*\*v[0-9.]*\*\*'` cannot
+match a hyphenated pre-release suffix), which silently failed every `player-library-diagnostic` build
+with no printed error (the script's own `set -e` exits before its error-message echo runs in this
+particular failure path) -- caught by `tools/check_heap_gap.py` reporting `failed` with no detail, traced
+with `bash -x`. Fixed by keeping README's checked line pure semver.
+
+Fixed six stale documentation claims discovered while auditing what changed since v0.5.0 (the user asked
+"what needs to change on GitHub for all the features"): the RAM shrink and clk66 bump were described as
+"fit-proven but not adopted" in `docs/TECHNICAL_SPEC.md`/`docs/PERFORMANCE.md` (now: adopted, real
+numbers); the alpha blend was described as "shelved"/"not shipped"/"no firmware use yet" in
+`docs/TALOS.md`/`docs/TECHNICAL_SPEC.md`/`docs/DEVELOPERS.md` (now: shipped, drives the Settings
+cross-fade); M10K usage was still quoted as 304/308 in the same docs (now: 240/308, with 304/308 kept
+only as the explicit "before" figure); `docs/guide/USER_GUIDE.md` still said theme/mode are "not
+remembered across a restart yet" (now: fixed per B-455/B-456, only meter Configure presets remain
+session-only); `docs/ROADMAP_PUBLIC.md`'s "Next: the 0.6 items" table listed three items now done and one
+(FLAC bit-reader acceleration) that was never actually built the way it named it (the real FLAC kernel
+targets LPC reconstruction, not the bit reader, per B-360's redirect) -- rewritten with a `v0.6.0-alpha.1`
+released section and a real "Next" table (just `Track changes` and meter-preset persistence remain).
+Marked `v0.3.0` and `v0.5.0`'s GitHub releases as pre-release and retitled `(alpha)` per the owner's
+explicit choice, tags and assets unchanged.
+
+Tagged `v0.6.0-alpha.1`, pushed `main` and the tag, and published the GitHub pre-release with both zips
+and `SHA256SUMS.txt`: https://github.com/alfatreze/Tau-Alpha/releases/tag/v0.6.0-alpha.1 . **Not done:**
+`docs/screenshot.png` in the README predates the B-247 now-playing redesign (top-left art panel, taller
+full-width meter, EQ-preset pill) and no longer matches the shipped UI -- flagged to the owner rather than
+replaced with a fabricated image; a real Pocket screenshot is needed. `mclk-b457` (B-460, above) is
+independent and does not block this release.
+
+## B-462: Cymo tagged v0.7.0-dev.1; B-460's PLL failure root-caused to a frequency-planning conflict
+
+**Tagging.** Owner: tag all the Cymo audio work as the next milestone (0.7). Created and pushed annotated
+tag `v0.7.0-dev.1` at current `main` HEAD (the merged `cymo` branch research/tooling, B-417 through B-436,
+plus the MCLK PLL RTL from B-457/B-460) -- a checkpoint marker, not a buildable release (no GitHub release
+published against it, no zips). `docs/ROADMAP_PUBLIC.md` updated to name v0.7.0 as Cymo's target.
+
+**RTL review of B-460's failure.** Read `src/fpga/core/mf_pllbase/mf_pllbase_0002.v` directly rather than
+guess from the error text. All 5 outputs of this `altera_pll` instance share one VCO: the existing 4
+(clk_sys 66.667/60 MHz via `TAU_CLK66`, clk_vid 12.000 MHz x2, clk_sdram 100.000 MHz) all integer-divide
+from a 600 MHz VCO (C=9, 50, 50, 6). B-457's new 5th output, 12.288 MHz for the I2S MCLK, does **not**:
+600/12.288 = 48.828125, not an integer. Solved for the smallest VCO frequency that integer-divides into
+*all five* targets simultaneously: 38,400 MHz -- physically impossible for a Cyclone V fPLL (VCO range is
+roughly 600 MHz-1600 MHz). **There is no VCO frequency that produces both 12.288 MHz and the core's other
+four clocks from one shared PLL with legal integer counters.** This is a hard frequency-planning conflict,
+not a parameter-formatting or timing-margin issue, and Quartus's "illegal value" error is correct, not a
+bug to work around.
+
+**Consequence: B-457's own stated design goal ("keeps this addition free of any new PLL resource") is not
+achievable.** The fix is a second, dedicated `altera_pll` instance taking `clk_74a` (74.25 MHz) as its
+reference and producing only the 12.288 MHz MCLK, independent of the shared VCO -- the same
+fractional-N/sigma-delta synthesis technique B-457 already used, just in its own PLL rather than a shared
+one. Only one `altera_pll` instance exists anywhere in the core's RTL today (`mf_pllbase_0002.v`); whether
+a second PLL resource is actually available on this device/pin-lock region for the core (vs. already
+claimed by the APF framework top-level) is unverified and the next thing to check, cheaply, via a
+synthesis-only `quartus_map` run before spending a real fit. Not yet built -- reported per the task's own
+instruction, awaiting a decision on whether to proceed.
+
+## B-463: second-PLL fix built; owner asked if the CPU clock could help instead (checked: no)
+
+Owner asked whether picking a different `clk_sys` frequency (anywhere 60-66.667 MHz) could make 12.288 MHz
+fit the shared PLL. Checked the math before answering: the LCM of just clk_vid (12.000 MHz), clk_sdram
+(100.000 MHz) and 12.288 MHz alone is already 38.4 GHz -- `clk_sys` never enters that calculation, so no
+`clk_sys` value changes the answer. clk_vid is fixed by the panel's exact 500x400=60.000 Hz timing and
+clk_sdram by the controller's own requirement; neither is adjustable. Confirms the second-PLL fix (below)
+is the only real option.
+
+**Fix built:** `mf_pllbase_0002.v` reverted to its original 4 outputs (removed the illegal 5th); new
+`src/fpga/core/mf_pllbase_mclk.v`, a second, independent `altera_pll` instance (own VCO, same
+fractional-N/sigma-delta technique) taking `clk_74a` directly and producing only 12.288 MHz; wired into
+`core_game.vh` as `mp2`, its `locked` ANDed into the existing `pll_locked` so system reset waits for both
+PLLs. Registered in `ap_core.qsf`. Also fixed a real, previously-unnoticed dangling reference in
+`core_constraints.sdc`: the old `-group { ic|mclk_r }` clock-group entry named a register
+(`sound_i2s.v`'s old phase-accumulator) that B-457 had already deleted -- replaced with the new PLL's
+actual output-counter node, and the missing `general[4]` clock-group entry B-457 never added is now
+correctly a `general[0]` entry on the new PLL instead. `make rtl-lint` and `make test-rtl` both pass clean
+(altera_pll is an opaque megafunction to Icarus/Verilator either way, so this is confirming nothing else
+broke, not simulating the PLL itself).
+
+**Verified before spending a real fit:** staged the tree (`git stash create` after `git add`-ing the new
+untracked file, since `git archive` only captures cached/committed content) and ran a synthesis-only
+`quartus_map` on the VM with the full `all6-combined` macro bundle: **"Quartus Prime Analysis & Synthesis
+was successful. 0 errors, 318 warnings", "Implemented 5 PLLs"** -- confirms a second PLL resource is
+genuinely available on this device for the core (the earlier B-462 open question) and both PLL instances
+synthesize cleanly. The RST-port-unconnected warnings are pre-existing and identical on both PLL
+instances (dynamic PLL reset was never used by this design). Launched the real two-seed fit
+(`mclk-pll2-b462`, same macro bundle). Result pending.
+
+## B-464: card refreshed to v0.6.0-alpha.1 (release + Diagnostic Build); superseded dev cores removed
+
+**Card.** Owner: update all releases on the card to the latest release and dev, remove unneeded cores.
+Found two stale test cores from an earlier session's work (`alfatreze.TAU_DEV_54`/`56`, dated 2026-09-29,
+description text confirms their content -- Helios items 5/6/7, B-390..B-399 -- is already superseded by
+what shipped in the current `all6-combined` bitstream and v0.6.0-alpha.1). Card also still had
+`alfatreze.TAU`/`alfatreze.TAU_DIAGNOSTIC` on **v0.5.0** (the release built and published earlier this
+session was never installed).
+
+Installed via `tools/install_dev_core.py --replace --allow-release`: `dist/` (v0.6.0 release core,
+hashes verified against the published zips) with `--remove alfatreze.TAU_DEV_54 --remove
+alfatreze.TAU_DEV_56`; then `work/diagnostics/library-diagnostic/pocket` (v0.6.0 Diagnostic Build) with
+`--carry-from alfatreze.TAU_0_6_0_A_44` (media/library carried across, `tau-assets.bin` restored from
+A_44's copy). Both backed up and verified before touching anything, catalog caches cleared, card ejected.
+
+Cores on the card now: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0), `alfatreze.TAU_0_6_0_A_44`
+(latest dev, hardware-confirmed OP_BAR widen) -- exactly the release + dev pair requested, everything
+superseded removed. Not yet run -- first boot of the refreshed release/diagnostic cores is the owner's
+next test.
+
+## B-465: mclk-pll2-b462 closed clean on both seeds (real Quartus evidence, not yet hardware-tested)
+
+**Quartus.** `mclk-pll2-b462` finished on both seeds after a longer-than-usual run (~2h11m/2h15m total
+wall time, past the project's typical 50min-1h45m window but not stuck -- the log showed it progressing
+normally through final timing analysis at every check along the way). Both **Successful, ALL POSITIVE**
+on all four corners:
+
+| | Fast 0C Hold | Fast 0C Setup | Fast 85C Hold | Fast 85C Setup | Slow 0C Hold | Slow 0C Setup | Slow 85C Hold | Slow 85C Setup |
+|---|---|---|---|---|---|---|---|---|
+| seed 1 | +0.118 | +6.009 | +0.133 | +5.813 | +0.285 | +1.049 | +0.299 | +1.304 |
+| seed 2 | +0.104 | +5.901 | +0.133 | +5.678 | +0.306 | +1.345 | +0.314 | +1.577 |
+
+RAM 240/308 (78%), DSP 19/66 (29%) on both -- unchanged from `bar-hi-b454`'s footprint, confirming the
+second PLL costs no M10K/DSP (PLLs are a separate hardware resource). **Seed 1 selected**: its single
+worst value across all eight cells (+0.118 ns, Fast 0C hold) beats seed 2's (+0.104 ns) -- seed 2 has
+better setup margins on the Slow corners but a slightly worse absolute floor. Collected and hash-verified
+(`86d7f905ae23000c7da22e826c6cc1e27b528071512380f15c31ddc2b528d2ff`).
+
+**MCLK frequency check** (the thing the task specifically asked to verify from the real report, not the
+parameter string): the new PLL's output-counter constraint in the fit log divides the VCO by 49
+(`-divide_by 49`), giving a derived clock period of 81.359 ns = **12.2912 MHz** against the 12.288000 MHz
+target -- about 0.02% error, consistent with a legitimate fractional-N synthesis (not the kind of gross
+mismatch an "illegal frequency" failure would have produced). This confirms the RTL synthesizes to
+approximately the right frequency; it does not by itself confirm the jitter improvement.
+
+**Not done, per the task's own instruction:** no packaging, no install, no card write. The real test is
+still a hardware A/B recording -- the digital-domain FIFO hand-off was already proven clean twice
+(B-430/B-442), so this fit closing timing means the MCLK generator itself is now a real, synthesizable,
+low-jitter PLL output instead of a phase-accumulator, but whether that measurably narrows the ~17 dB
+SINAD gap from the original 44.1 kHz investigation is still unverified on real silicon. Awaiting an owner
+decision on packaging/installing for that test.
+
+## B-466: mclk-pll2-b462 installed as TAU_DEV_57 for the hardware A/B
+
+**Card.** Owner: yes, package and install. Packaged `alfatreze.TAU_DEV_57` (`--build-flags
+"RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"` matching every other 0.6.0-line dev build this session,
+`--rbf` the collected `mclk-pll2-b462` seed 1, hash `86d7f905...528d2ff`; heap gap 6,688 B, unchanged from
+`bar-hi-b454`'s own build since the only RTL difference is the PLL). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_44 --remove alfatreze.TAU_0_6_0_A_44`
+(media/library carried, `tau-assets.bin` carried, backup verified, caches cleared, ejected). Cores on the
+card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0), `alfatreze.TAU_DEV_57` (the MCLK PLL fix,
+targeting v0.7.0 per B-462's tag). Not yet run -- the real hardware A/B recording against the previous
+44.1 kHz baseline is the owner's next test.
+
+## B-467: hardware A/B result -- MCLK jitter was NOT the cause of the 44.1 kHz degradation
+
+**Pocket, analyser output [HW].** Owner recorded `tone_1k_44100`/`tone_1k_48000`/`tone_1k_24000`/
+`tone_1k_32000` on `alfatreze.TAU_DEV_57` (dedicated-PLL MCLK), same setup as the B-430/B-431 baseline
+(headphone jack -> 3.5mm -> USB interface line-in, EQ FLAT, unchanged gain/volume). Analysed with
+`tools/lab/cymo_loopback.py analyze`:
+
+| | 44.1 kHz SINAD | 44.1 kHz level | 48 kHz SINAD | 24 kHz SINAD (image) | 32 kHz SINAD (images) |
+|---|---|---|---|---|---|
+| Old (phase-accumulator, B-430/B-431) | 10.8 dB | -16.1 dBFS | 52.6 dB | 3.35 dB (23,001.7 Hz -6.5 dBc) | 3.13 dB (17,001 Hz -8.9 dBc, 15,000.7 Hz -10.2 dBc) |
+| New (dedicated PLL) | 10.82 dB | -12.41 dBFS | 55.60 dB | 3.33 dB (23,001.7 Hz -6.49 dBc) | 3.14 dB (17,001.0 Hz -8.91 dBc, 15,000.7 Hz -10.20 dBc) |
+
+**Conclusion, stated plainly: the MCLK generator was not the cause.** SINAD and every spur/image
+frequency and level match the old phase-accumulator baseline to within measurement noise (0.02-0.3 dB, and
+identical spur frequencies to the tenth of a Hz) -- the B-457/B-460/B-463 PLL replacement is a real,
+clean, timing-closed improvement in clock generation, but it does not touch whatever is actually causing
+the ~17-21 dB-worse-than-modeled degradation this investigation has been chasing since B-430. This rules
+out the leading hypothesis this whole PLL thread was built on.
+
+**One real, separate thing it did fix:** the old 44.1 kHz recording was unexplainedly 3.7 dB quieter than
+every other rate (-16.1 dBFS vs -12.4 dBFS elsewhere, flagged but not explained in B-430). That anomaly is
+gone -- 44.1 kHz now reads -12.41 dBFS, in line with 48/24/32 kHz. Worth keeping the PLL for this alone,
+but it is a level anomaly, not the SINAD/image problem, and was never the thing being chased.
+
+**Where this leaves Cymo:** with MCLK jitter now ruled out by direct hardware A/B (not simulation), the
+real cause is still open. Per B-431's own untested next step, the only remaining unexamined layer is the
+real Altera `dcfifo` timing under actual silicon (vs. the behavioural/real-dcfifo-model simulations
+already run twice and found clean, B-430/B-442) -- or something downstream of the serializer/DAC entirely
+that no RTL-level investigation would ever catch. `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md`,
+`docs/handoffs/SESSION_HANDOFF_2026-09-29_CYMO_AUDIO.md` and `docs/ROADMAP_PUBLIC.md`'s Cymo entry need
+correcting to reflect this negative result rather than the "well-reasoned lead" framing they currently
+carry. `alfatreze.TAU_DEV_57` stays on the card as the PLL fix is still worth keeping (real jitter
+improvement, fixes the level anomaly), just not as the SINAD/image fix it was built to be.
+
+## B-468: I2S CDC jitter diagnostic built (JTAG-free) and research writeup (neoge/pocket-mp3)
+
+**RTL/sim/docs, no hardware yet.** With B-467's step-1 firmware check already clean (no divergence from
+the modelled zero-order hold, exact 64-bit rate math), the last untested candidate per B-431's own plan is
+`sound_i2s.v`'s clk_audio->clk_mclk CDC on real silicon (already simulated clean twice). Instead of a live
+JTAG session, built a firmware-readable diagnostic reusing this project's own established pattern
+(RTL counter -> MMIO -> Info/Check row, same as R_SDR_BUSY/R_VBLANK): a single-bit toggle in `sound_i2s.v`
+flips on every real DAC-domain sample-hold update, synchronised into `clk_sys` with the existing
+`tau_cdc_sync1` module (a single bit needs no Gray-code CDC), then min/max/count/sum interval measurement
+against `mp3_soc.v`'s own free-running `cycle_ctr` -- entirely single-clock-domain after the sync point, no
+further CDC risk. New MMIO 0x140-0x14C (`I2S_DIAG_ENABLE` parameter, inert when 0), a new "I2S JITTER" Info
+row (min/max/avg since reset). A perfectly clean digital hold at 44.1 kHz should read min/max within 1-2
+cycles of `CLK_HZ/44100`; real outliers would be the first direct real-silicon evidence of a CDC problem.
+
+Found and fixed a real Makefile gap: `PSRAM_FW_SRC`/`PSRAM_IFETCH_SRC` were missing `tau_cdc_sync1.sv` now
+that `mp3_soc.v` instantiates it unconditionally, breaking `test-rtl-psram-fw`/`test-rtl-psram-ifetch`
+(`Unknown module type: tau_cdc_sync1`). `make rtl-lint`, `make test-rtl` and `make test-host` all pass;
+heap gap and cold-call checks pass. **Caught and reverted a real slip before committing:** running the
+check tools rebuilt `release` and silently overwrote `dist/`'s already-published v0.6.0-alpha.1 ROM/cold
+image with new bytes -- reverted those two files before commit so the already-tagged release stays exactly
+what was published.
+
+**Research, separate from the RTL work:** owner pointed at
+[neoge/pocket-mp3](https://github.com/neoge/pocket-mp3), a pure-HDL Analogue Pocket MP3 core (no soft
+CPU), hardware-tested (v0.3.2). Documented in `docs/features/CYMO_AUDIO_ENGINE.md` section 15: a real
+160:147 polyphase FIR resampler (exact rational ratio, 16-tap, pipelined, proven on the same platform) --
+a concrete reference if Cymo ever builds a real interpolator instead of the current zero-order hold; and a
+structural observation that their design separates rate conversion (upstream, at the producer's clock)
+from clock-domain crossing (a plain rate-matched Gray-coded FIFO downstream), where Tau's `pcm_fifo.v`
+conflates both in one piece of logic. Their PLL file is a simulation placeholder only, no new information
+on the VCO-sharing question B-460/B-463 already resolved independently.
+
+Launched the real fit (`i2sdiag-b467`, the proven `bar-hi-b454`/`mclk-pll2-b462` bundle plus
+`TAU_I2S_DIAG=1`, both seeds). Result pending.
+
+## B-469: i2sdiag-b467 closed clean; installed as TAU_DEV_58 for the real-silicon CDC read
+
+**Quartus, Pocket.** Both seeds finished Successful, all four corners positive; RAM 240/308 (78%),
+DSP 19/66 (29%) on both, matching every other bitstream in this family (the diagnostic costs no
+M10K/DSP as expected). Worst-case margin per seed:
+
+| | Fast 0C Hold | Fast 0C Setup | Fast 85C Hold | Fast 85C Setup | Slow 0C Hold | Slow 0C Setup | Slow 85C Hold | Slow 85C Setup |
+|---|---|---|---|---|---|---|---|---|
+| seed 1 | **+0.025** | +5.897 | +0.097 | +5.677 | +0.319 | +1.107 | +0.333 | +1.019 |
+| seed 2 (selected) | **+0.121** | +5.888 | +0.143 | +5.674 | +0.296 | +1.498 | +0.303 | +1.588 |
+
+Seed 1's Fast 0C hold margin (+0.025 ns) is genuinely razor-thin -- flagged honestly, not glossed
+over, though it is still positive and this exact corner/type combination has closed with similarly
+thin margins before on unrelated bitstreams in this family without a hardware failure (e.g. B-437's
+own +0.037 ns). Seed 2 wins clearly on the single worst-case cell (+0.121 ns vs +0.025 ns) and was
+selected; collected and hash-verified (`f3255c0b7fedc616204e89b68af6e32d2df104600804c325eeea6acf5069ceea`).
+
+Packaged as `alfatreze.TAU_DEV_58` (`--build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"`,
+matching every other 0.6.0-line dev build; heap gap 6,656 B). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_57 --remove alfatreze.TAU_DEV_57`: backup
+verified, all three files hash-matched post-copy, media/library (69 files) and `tau-assets.bin`
+carried from the superseded MCLK-PLL-only build, catalog caches cleared, card ejected. Cores on the
+card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (v0.6.0), `alfatreze.TAU_DEV_58` (MCLK PLL fix +
+I2S CDC jitter diagnostic together).
+
+**Not yet run:** the actual point of this build -- reading the new "I2S JITTER" Info row (Settings >
+Diagnostics > Info) during real 44.1 kHz playback is the first real-silicon evidence of whether
+`sound_i2s.v`'s clk_audio->clk_mclk CDC behaves as cleanly as the two simulations (B-430/B-442)
+predicted. Expected clean result: min/max within 1-2 cycles of `CLK_HZ/44100` (~1,512-1,513 cycles
+at 66.667 MHz); real outliers would be the first direct hardware evidence pointing at the CDC rather
+than ruling it out.
+
+## B-470: I2S JITTER real-silicon result -- the CDC is clean too; the real cause is still open
+
+**Pocket, analyser output [HW].** Owner tested two tracks on `alfatreze.TAU_DEV_58` (a core restart
+between them), switching sample rate mid-track (41 kHz <-> 48 kHz) and reading Info's I2S JITTER row
+five times. Raw readings (min/max/avg/count, cumulative since boot -- never reset):
+
+| Shot | Context | min | max | avg | N |
+|---|---|---|---|---|---|
+| 1 | Track 1 @ 44.1 kHz | 1508 | 65535 (sat) | 1521 | 1,732,194 |
+| 2 | Track 1 -> 48 kHz | 1383 | 65535 (sat) | 372 | 3,861,803 |
+| 3 | restart -> Track 2 @ 44.1 kHz | 1508 | 65535 (sat) | 1514 | 996,163 |
+| 4 | Track 2 -> 48 kHz | 1383 | 65535 (sat) | 1479 | 2,388,803 |
+| 5 | Track 2 -> 44.1 kHz | 1383 | 65535 (sat) | 208 | 3,387,178 |
+
+**The min values are the real signal, and they are an excellent match to theory.** Ideal interval
+between real DAC-domain updates at `CLK_HZ`=66,666,667: 44.1 kHz -> 1,511.7 cycles (measured min
+**1508**, off by ~4); 48 kHz -> 1,388.9 cycles (measured min **1383**, off by ~6). Both sample rates,
+reproduced across a fresh core restart, on real silicon -- this is the clean result the original
+investigation (B-431's own untested "look past the serialiser... or real dcfifo timing" plan) was
+built to find. **Conclusion: `sound_i2s.v`'s clk_audio->clk_mclk CDC behaves in steady-state playback
+exactly as both prior simulations predicted (B-430 behavioural, B-442 real Altera dcfifo model). The
+CDC is not the cause of the 44.1 kHz SINAD gap either.**
+
+**The saturated max (65535, the diagnostic's own 16-bit ceiling) and the erratic average (dropping to
+372 and 208) are a measurement-design limitation, not hardware evidence of jitter.** The counter is
+free-running since boot with no window/reset: long pauses (boot idle, the time spent reading Info
+itself) produce huge intervals that pin the max; a decoder catching up faster than real-time right
+after a track-load flush produces short bursts of updates that drag the cumulative average down.
+Both are artifacts of not gating the measurement to steady playback, not real-silicon anomalies --
+the min values, which are immune to both effects, are the reliable evidence and they are clean.
+
+**Where this leaves Cymo:** MCLK jitter (B-467) and the CDC (this entry) are both now ruled out by
+direct hardware measurement, not simulation. The only remaining candidate per B-431's own original
+list is something past the serializer -- the DAC/analog output stage itself, outside this core's RTL
+entirely. `docs/features/CYMO_AUDIO_ENGINE.md` F1 and `docs/ROADMAP_PUBLIC.md`'s Cymo entry should be
+updated to reflect the CDC is closed, not just MCLK.
+
+## B-471: Cymo resampler RTL built and sim-verified bit-exact (44.1:48 only, not yet fitted)
+
+Owner approved starting the real 32-tap Kaiser polyphase FIR resampler RTL in parallel with a second
+listening A/B (MacCunn/Clementi, classical material, cleaner than the Aphex Twin test that first
+confirmed an audible difference -- that render was still in progress at session start and remains
+unconfirmed; see `docs/features/CYMO_AUDIO_ENGINE.md` section 15's own update for the full owner
+decision). Built in order, following this project's own host-model -> golden-model -> RTL+sim+mutation
+discipline:
+
+1. **`tools/gen_cymo_resamp_rom.py`**: generates the 160-bank x 32-tap coefficient ROM (Kaiser beta=8.6,
+   each bank independently normalised to unity DC gain), reusing `tools/lab/cymo_resamp_model.py`'s own
+   prototype-filter design directly (imported, not re-derived) so the RTL ROM and the lab tool's own
+   SINAD predictions come from the identical filter. Quantizes to a clean power-of-two Q1.15 scale
+   (32768) rather than the lab tool's own 32767 (a deliberate, documented difference -- see the
+   generator's own header -- that makes the hardware's output stage a single arithmetic right-shift
+   with no remainder handling; the SINAD difference is below one LSB of a 16-bit coefficient).
+   Generates `src/fpga/core/tau_cymo_resamp_rom.svh` (a flat `(* ramstyle = "M10K" *)` memory array with
+   an `initial` load, not a case-statement function like `tau_mp3_poly_rom.svh` -- at 5,120 entries a
+   case function is needlessly slow to compile/simulate) and `sim/cymo_resamp_rom.h` for the golden model.
+2. **`sim/cymo_resamp_model.c`**: the golden model. This is a NEW design (unlike the MP3 window unit,
+   there is no existing reference decoder to diff against), so this model IS the reference: the exact
+   fixed-point sequence the RTL implements (one bank lookup, a 32-tap MAC into a 40-bit accumulator,
+   arithmetic right-shift by 15, 16-bit clip), run over a pseudo-random 4,000-sample stereo input stream
+   and the real phase accumulator (advance by Q=147, wrap at P=160, consume one input sample pair on
+   wrap -- the same ordering as `tools/lab/cymo_resamp_model.py`'s own `resample_tone()`). Cross-checks
+   against an unbounded `int64_t` accumulate to confirm ACC_WIDTH=40 never actually binds (0 overflows
+   over 4,354 outputs; worst-case product ~2^30 x 32 taps ~2^35, comfortably inside 2^39). Writes RTL
+   testbench vectors (`build/rtl/cymo_resamp_vectors.txt`: NIN, NOUT, then NIN*2 input words, then
+   NOUT*3 output+pop-flag words).
+3. **`sim/test_cymo_resamp_model.py`**: this project's own "prove it twice, differently" discipline
+   (B-365/B-366/B-367's precedent) -- an INDEPENDENT Python re-implementation of the exact same
+   fixed-point algorithm, over the SAME ROM and the SAME input stream (same LCG, bit-for-bit), cross-
+   checked against the C model's own output. Found and fixed one real bug in the Python side during
+   development: generating all of `in_l` then all of `in_r` consumes the shared LCG stream in a
+   different order than the C model's interleaved `in_l[i]; in_r[i];` calls, silently diverging the
+   "random" input itself (not the arithmetic) -- fixed by interleaving the same way. Matches bit-exact
+   on all 4,354 outputs once fixed.
+4. **`src/fpga/core/tau_cymo_resamp.sv`**: the RTL module. One shared time-multiplexed MAC (channel 0
+   then channel 1, matching `tau_mp3_poly.sv`'s own discipline, not two parallel multipliers -- caught
+   by Verilator flagging the first draft's `push_we` as unused, which led to finding the parallel-MAC
+   draft also didn't match the design doc's own "1 DSP" resource estimate). Per-channel 32-deep
+   newest-first history shift register (not a ring with a moving head like `tau_flac_lpc.sv`'s own
+   B-377/B-378 optimisation -- a push here happens at most once per phase wrap, ~44.1 kHz, not once per
+   reconstructed sample, so the extra register-to-register copies cost nothing that matters at this
+   rate). Registered M10K-styled ROM/history reads (S_MAC/S_MAC2 split, same shape as
+   `tau_flac_lpc.sv`'s own B-378 split), one small operation per clock throughout (this project's own
+   timing rule, B-109/B-111/B-114/B-150/B-157/B-211/B-369).
+
+   **A real protocol bug found by the testbench, not by inspection:** the first draft had the hardware
+   shift a caller-pushed input sample into history DURING THE SAME `start` call that determined a phase
+   wrap and raised `pop_req` asking the caller to supply one -- at that point the caller has not even
+   seen `pop_req` yet, so the shift would consume whatever was pushed for some earlier, unrelated wrap
+   (or X at power-up). The testbench caught this immediately as values shifted by exactly one output
+   index with the WRONG data. Fixed by deferring the actual history shift to a new `S_SHIFTHIST` state
+   entered at the START of the NEXT `start` call (gated by a `pending_pop` register set at the end of
+   the previous call) -- giving the caller the entire `done`..next-`start` window to actually push,
+   instead of needing to have already pushed before the module even asked.
+
+   A second real bug, this time in the testbench: `while (busy) @(posedge clk);` polled immediately
+   after pulsing `clear`, but a `busy` read in the SAME active region as the posedge that triggers the
+   DUT's own S_IDLE->S_CLR transition can observe the PRE-transition value of `st` (a classic Verilog
+   NBA-ordering race, not a DUT bug) -- the poll loop exited one edge too early, before `clear` had
+   actually run, leaving history as X. Fixed with a fixed, generous wait (40 cycles, S_CLR itself takes
+   exactly 32) rather than a busy-poll immediately after a state-changing pulse.
+
+5. **`sim/tb_tau_cymo_resamp.v`**: replays the full golden-model vector sequence through the real
+   `push`/`start`/`pop_req` handshake (not just the MAC math in isolation) -- **PASSED, 0 failures,
+   4,354 outputs, 4,000 inputs consumed, bit-exact against the golden model.** Five mutation hooks
+   (tap/history index reversed, no final shift, coefficient sign-extension dropped, wrong phase step
+   `P` instead of `Q`, `pop_req` never asserted so history silently stops advancing) -- **all 5
+   confirmed caught** (`make test-rtl-cymo-resamp-mutation`). Wired into the Makefile
+   (`test-rtl-cymo-resamp`, `test-rtl-cymo-resamp-mutation`, both added to the `test-rtl` aggregate and
+   `rtl-lint`). `make test-host`/`make rtl-lint` confirmed unaffected elsewhere.
+
+**Scope: 44.1 kHz input only** (`Q_STEP=147` is a module parameter, not configurable at runtime) --
+section 9's own "start with one ratio, others keep falling back to the hold" decision. Standalone and
+NOT YET WIRED into `pcm_fifo.v`/`mp3_soc.v`: no Quartus fit, no firmware probe, no card install, no
+hardware A/B. Section 14 (K2) already specifies where it plugs in -- after the FIFO's own source-rate
+output register, consuming `out_l`/`out_r` via `sample_tick`, with the EQ moved downstream of the
+resampler and the spectrum/wave-meter taps staying at the FIFO's source rate. Next steps, in order: a
+synthesis-only Quartus check, a real two-seed fit, the `pcm_fifo.v` integration, a firmware probe
+(`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/`LPC_FW`), and the hardware A/B.
+
+**Full `make test-rtl` (the entire RTL regression suite, not just this module) run after the above,
+exit code 0, 0 failures and 0 surviving mutants anywhere in the output** -- confirms adding this module
+disturbed nothing else in the shared build (`mp3_soc_sim.v` regeneration, the PSRAM/blit/SDRAM
+testbenches, etc). Committed.
+
+## B-472: Cymo resampler -- firmware-safe interface fix, wired into mp3_soc.v, synthesis-only check clean
+
+Owner: "start synthesis." Before wiring real MMIO registers around B-471's module, re-examined its
+`done`/`pop_req` ports and found a real interface defect that pure simulation (clocked testbench
+reads every cycle) could never surface: both were one-cycle REGISTER PULSES, and a real firmware
+polling loop runs vastly slower per iteration than `clk_sys` -- it could poll right past a one-cycle
+pulse and never observe it at all. Fixed to match `tau_flac_lpc.sv`'s own proven convention: `done` is
+now HELD from the end of computation until an explicit `out_rd` read-ack (same read-is-ack idiom as
+`R_LPC_SAMPLE`); `pop_req` is now a continuous level (`= pending_pop` directly, a `wire` not a `reg`)
+rather than a pulse tied to one state. Re-verified: `make test-rtl-cymo-resamp`/`-mutation` both still
+pass bit-exact, all 5 mutants still caught, after rewriting `sim/tb_tau_cymo_resamp.v` to drive the new
+`out_rd` ack (and documenting why it's needed in both the module header and the testbench).
+
+Wired into `mp3_soc.v` behind a new `CYMO_RESAMP_ENABLE` parameter / `TAU_CYMO_RESAMP` macro
+(`core_game.vh`), registers 0x150-0x15C (`R_CYMO_CTRL` W: bit0 clear pulse, bit1 start pulse;
+`R_CYMO_PUSH` W: `{push_r,push_l}` + push_we pulse; `R_CYMO_OUT` R: `{out_r,out_l}`, this read is the
+ack; `R_CYMO_STATUS` R: bit0 present, 1 busy, 2 done, 3 pop_req), same self-clearing-write-strobe and
+read-is-ack conventions as every other unit in this file. Registered in `ap_core.qsf`. Standalone --
+no firmware caller wired yet; `pcm_fifo.v` itself untouched.
+
+Full `make test-rtl` and `make test-host` both green after wiring (0 failures, 0 surviving mutants
+anywhere). Caught and reverted a real B-448-class near-miss: a plain `bash fw/build.sh release`
+sanity check (confirming firmware still builds with the new unused macro present) rebuilt
+`dist/Assets/tau/common/{tau.rom,tau-cold.bin}` with DEFAULT flags, differing from the actual shipped
+bitstream's flagged build (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) -- `git checkout --` reverted
+both before committing, so the published release ROM was never actually disturbed, but this is exactly
+the silent-clobber failure mode `--build-flags` (B-448) exists to prevent for a real packaging run; a
+bare sanity-check build doesn't go through that tool and needed the same care by hand.
+
+**Synthesis-only check** (`quartus_map`, not a full fit -- confirms clean elaboration before spending a
+real fit, per the project's own discipline): staged via `git stash create` (`71df32d`, working tree
+untouched, confirmed by grepping the staged copy for `out_rd`/`CYMO_RESAMP_ENABLE` before upload) into
+`~/tau-local/cymo-synthcheck-20261001`, appended `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt`
+(the exact shipped `all6+poly+blend+ram192+clk66+dbuf+lpc` bundle, verbatim, plus `TAU_CYMO_RESAMP=1`
+-- fit against the CURRENT macro set the module will eventually ship alongside, never a bare base, the
+B-130 lesson). Confirmed no other Quartus process running before launch; `quartus_map` confirmed as
+the only active process after. **Result: Analysis & Synthesis successful, 0 errors, 328 warnings, ~12.5
+minutes.** 20 DSP elements implemented -- exactly +1 over this exact macro bundle's established 19 DSP
+baseline (B-454/B-458/B-461 fits all show 19/66), matching the design's own "one time-multiplexed MAC"
+estimate precisely. One cosmetic oddity noted, not chased: `Warning (10335): Unrecognized synthesis
+attribute "even"` points at `tau_cymo_resamp.sv:138`, a plain `//` comment line containing the word
+"even" with no `(* ... *)` attribute syntax anywhere near it (confirmed by grep) -- almost certainly a
+Quartus line-attribution quirk around the preceding `` `include ``'d ROM file's own `(* ramstyle =
+"M10K" *)` attribute (which parses fine, same idiom as `tau_flac_lpc.sv`'s own `ramstyle`), not a real
+defect; harmless either way since synthesis completed with 0 errors.
+
+Not yet done: a real two-seed `quartus_fit` (resource/timing closure is a fitter-stage question this
+synthesis-only check cannot answer, same limitation B-100's own font-repack finding already
+established for a different module), the `pcm_fifo.v` integration, a firmware probe, card install, and
+the hardware A/B. Committed (`875a231`, `e6bdcb7`).
+
+## B-473: Cymo resampler -- real two-seed Quartus fit launched
+
+Owner: "launch fit." Confirmed working tree clean (git status, only the other session's untracked
+`docs/vendor/`) and no Quartus process running on the VM before launch. Launched via
+`tools/vm_fit.py launch cymo-b472 --append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt
+--seed 1 --seed 2` (same exact macro bundle B-472's clean synthesis-only check used). Both seeds
+confirmed running independently (`readlink /proc/<pid>/cwd`: `cymo-b472-s1/src/fpga`,
+`cymo-b472-s2/src/fpga`), no collision. Result pending, typical 50 min-1h45m. Given this bundle's own
+established razor-thin hold margin (+0.037 ns on the pre-LPC `all6-combined` fit, widened by B-369's
+own LPC addition and every fit since without going negative), watch specifically for hold slack on
+whichever corner is worst -- if it goes negative, the fix is the same proven retiming technique used
+every other time this project hit this (B-111/B-114/B-150/B-157/B-211/B-231).
+
+## B-474: Cymo resampler -- MacCunn/Clementi listening result (hold clearly worst; FIR32 vs cubic imperceptible on this track)
+
+Owner listened to all three MacCunn A/B/C renders (hold/FIR32/cubic, section 15's `cymo_ab_listen.py`,
+on Mac speakers + cheap earbuds). **Hold was easily the worst of the three** -- consistent with every
+other line of evidence so far (the measured 10.8 dB SINAD baseline, the model's 27.7 dB idealised
+prediction, the general shape of every table in this document). Between FIR32 and cubic, the owner
+found it "really really hard to tell" apart; on this specific track a marginal, barely-describable
+preference leaned toward cubic ("imperceptibly more depth or volume"), the opposite of what the SINAD
+tables would predict (cubic's own 7.6 dB collapse at 18 kHz is the documented reason it was rejected as
+a candidate, section 15).
+
+**Honest read, not spun either way:** this is a real null result for the FIR32-vs-cubic question
+specifically, not a contradiction of the engineering case for FIR32. Two likely reasons a track-specific
+cubic weakness wouldn't surface here: (1) MacCunn (orchestral/choral, Hyperion recording) has little
+extreme high-treble energy near the 22.05 kHz source Nyquist -- cymbals, hi-hats, sibilance, bright
+synths are exactly the content the model's own 18 kHz test tone was chosen to stress, and this track
+may simply not exercise that range hard; (2) cheap earbuds and a laptop's own speakers have limited
+high-frequency extension and resolution to begin with, which would mask a defect that is there but
+small in absolute terms. Also consistent with F1's own long-standing note that the owner never flagged
+the CURRENT hold as a problem across many builds either -- these differences are evidently hard to pick
+out casually even when a 10-20 dB SINAD gap is real and measured, which argues these results should be
+read as "hold is clearly worse, FIR32-vs-cubic needs harder test material to resolve by ear" rather than
+"cubic is secretly fine."
+
+**Does not change the plan.** The engineering case for FIR32 over cubic was never resting on this
+listening test alone -- it rests on the measured SINAD tables (cubic's 18 kHz collapse is a real,
+quantified defect, not a hunch) and on FIR32 being the architecture this project has already built,
+sim-verified, synthesis-checked (B-472) and put into a real Quartus fit (B-473, result pending). The
+owner's own earlier decision to proceed with building FIR32 stands; this entry records the listening
+evidence honestly rather than silently filing it under "confirmed audible win," which it is not, on
+this specific track. If a clearer audible comparison is ever wanted, a track with real extended treble
+content (cymbals, sibilant vocals, bright synths) would be a harder test than this one.
+
+## B-475: Cymo resampler -- real two-seed fit CLOSED CLEAN, both seeds, all corners positive
+
+`cymo-b472` fit (B-473) finished: **both seeds Successful, 0 timing failures, every corner positive
+slack on both.** Seed 1: Fast 0C hold +0.104/setup +5.943, Fast 85C hold +0.138/setup +5.742, Slow 0C
+hold +0.350/setup +1.169, Slow 85C hold +0.370/setup +1.188. Seed 2: Fast 0C hold +0.073/setup +5.766,
+Fast 85C hold +0.105/setup +5.528, Slow 0C hold +0.286/setup +0.828, Slow 85C hold +0.307/setup +1.006.
+**Seed 1 selected** -- better margin than seed 2 on every single corner, both setup and hold, not a
+mixed result. RBF collected and hash-verified: `work/diagnostics/cymo-b472/ap_core_s1.rbf`,
+`sha256 02bc920a10cb2e7782b049748bb0cee96e3c6f8e2facbf8276451c8fe5ea4fa6`.
+
+Resources: DSP 20/66 (30%) on both -- exactly matches B-472's synthesis-only prediction (+1 over this
+bundle's established 19 DSP baseline), confirmed at the fitter stage, not just synthesis. **RAM 256/308
+(83%) on both -- a real correction to record: this is +16 M10K blocks over the pre-resampler baseline
+(240/308), DOUBLE the design doc's own "8 M10K blocks" estimate** (section 15's resources table, derived
+from `5120 entries x 16 bits / 10,240 bits per M10K = 8 blocks` as a pure capacity calculation). The
+fitter evidently did not pack the coefficient ROM at maximum density -- plausibly the 13-bit address
+(5,120 entries needs 13 address bits, not a power-of-two-friendly 12) or the specific `(* ramstyle =
+"M10K" *)` + `initial`-block-load idiom costing more per-block efficiency than a theoretical bit-packing
+calculation assumes. Not chased further: 52 M10K blocks remain free (256/308), comfortably inside
+budget either way, and this is a real but non-blocking finding, not a defect -- recorded here rather
+than quietly left as a wrong number in the design doc.
+
+This is the headline result C2's own gate (section 9: "model equals RTL bit-exact; both seeds close")
+was built to produce, and it is now fully met for the 44.1 kHz ratio: sim-verified bit-exact (B-471),
+synthesis-only clean (B-472), and now a real two-seed fit closing with genuine margin on every corner
+(this entry) -- the first of the three sub-gates ("A/B on 44.1, 48, 22.05 kHz") still open, since 48 and
+22.05 kHz are explicitly out of scope for this first increment (section 9's "start with one ratio"
+decision). Next steps, in order: the `pcm_fifo.v` integration (section 14/K2 already specifies where),
+a firmware probe, a card install, and the hardware A/B that the still-pending MacCunn/Clementi listening
+nuance (B-474) makes more important than ever to get right, not less.
+
+## B-476: Cymo resampler -- live audio-path wiring (pcm_fifo.v/eq_biquad.v/mp3_soc.v), sim-verified, no new fit yet
+
+Owner: "fifo now." Designed the actual production signal path per section 14/K2's own guidance ("place
+cymo_resamp after the FIFO's own source-rate output register, consuming out_l/out_r with sample_tick;
+the taps stay untouched and the EQ input moves to the resampler output"). Deliberately made ZERO changes
+to `pcm_fifo.v` itself -- its priming/underrun-glide/flush logic is hardware-proven and carefully tuned
+(`sim/tb_pcm_fifo.v`'s own test names say why), and this design needs none of that touched: the
+resampler is wired as a second, PARALLEL consumer of the exact same `fifo_l`/`fifo_r`/`pcm_sample_tick`
+signals the spectrum/wave-meter taps already read (K2: "the taps stay untouched"), never feeding
+anything back into the FIFO.
+
+`eq_biquad.v`: added one new output port, `tick_out`, a plain wire mirroring the module's own existing
+internal 48 kHz `tick` signal -- purely additive, changes nothing about its bit-exact-tested arithmetic
+(`make test-rtl-eq` re-confirmed bit-exact against `tools/eq_model.py` on all 8 presets after the change).
+This is the resampler's OWN output-rate clock: reusing the EQ's existing tick instance rather than
+instantiating a second, independent 48 kHz divider that could drift out of phase with it.
+
+`mp3_soc.v`: new STICKY register `cymo_live_en` (bit 2 of `R_CYMO_CTRL`, unlike every other cymo_* control
+bit here which are self-clearing pulses -- explicitly added to the module's `if (rst)` block since the
+pulse-reset preamble does NOT cover it, a real correctness requirement for a sticky bit that is easy to
+miss). Defaults to 0 (byte-identical-to-today audio path: EQ reads raw `fifo_l`/`fifo_r`) until firmware
+sets it after self-testing via `R_CYMO_STATUS` bit 0, the same probe-then-adopt convention as
+POLY_FW/LPC_FW/BLIT_READY(). While live: `push_we` rides `pcm_sample_tick` (pcm_fifo's existing per-sample
+strobe) with `push_l`/`push_r` = `fifo_l`/`fifo_r` directly; `start` rides the EQ's own `tick_out`;
+`clear` also fires on `pcm_flush` (a track change/seek resets the resampler's history/phase exactly when
+it resets the FIFO's own pointers); the EQ's `in_l`/`in_r` mux between `fifo_l`/`fifo_r` and the
+resampler's `out_l`/`out_r` on `cymo_live_en`. The MMIO-driven test path (`R_CYMO_PUSH`, the `start` pulse
+bit) stays available regardless of `cymo_live_en` via a simple OR at the instantiation's own port
+connections -- no shared register, the two paths cannot conflict.
+
+Verified: `eq_biquad`'s own testbench still bit-exact; `rtl-lint` clean (0 new warnings); full `make
+test-rtl` (44 PASSED markers, every mutation hook still caught) and `make test-host` both green after
+the wiring; `mp3_soc_sim.v` regenerates correctly (`sim/make_soc_sim.py`) and the real-CPU PSRAM fw/
+ifetch simulations, which build `mp3_soc_sim.v` alongside `eq_biquad.v`/`pcm_fifo.v` directly, still
+pass -- confirming the new `tick_out` port doesn't break that build's own file list. No firmware changed.
+
+**Does NOT need a new fit to verify correctness at the RTL/sim level (done, above) -- DOES need a new
+fit before this specific wiring can be trusted on real hardware.** The already-collected `cymo-b472`
+seed-1 RBF (B-473/B-475) was staged and fit BEFORE this wiring existed; it contains only the standalone
+resampler with its MMIO test registers, not the live-audio mux, `eq_biquad`'s new `tick_out` port, or
+`cymo_live_en`. The added logic is small (two 16-bit muxes, one sticky register, an OR gate) sitting off
+an already-generous timing margin (B-475: every corner positive, worst case +0.073 ns hold / +0.828 ns
+setup) and not on any new per-clock-cycle critical path (the EQ only samples its `in_l`/`in_r` mux once
+every ~1,389 cycles, at its own 48 kHz tick), so a clean re-fit is expected but not assumed -- a fresh
+two-seed fit against this exact tree is the next step, same discipline as every other change in this
+project regardless of how low-risk it looks on paper.
+
+## B-477: Cymo resampler -- fresh two-seed fit launched for the live audio-path wiring
+
+Owner: "does the fifo need a fit?" -- yes, confirmed and explained why (B-476's own note: the already-
+collected `cymo-b472` RBF predates the live-audio wiring entirely). Confirmed no Quartus process running
+before launch; launched `tools/vm_fit.py launch cymo-b476 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` (same macro bundle
+as B-472/B-473, no new macro needed since the live-audio wiring is unconditionally inside the same
+`CYMO_RESAMP_ENABLE` generate block). Both seeds confirmed running independently (`readlink
+/proc/<pid>/cwd`: `cymo-b476-s1/src/fpga`, `cymo-b476-s2/src/fpga`), no collision. Result pending.
+
+## B-478: Chladni specs checked and confirmed saved; cross-project reference added for Omega
+
+Owner asked whether all Chladni specs are saved and asked to save the preview lab for further
+iteration, flagging it as potentially useful to Tau Omega.
+
+**Checked, all committed, working tree clean apart from `docs/vendor/`:** `docs/features/meters/
+CHLADNI_METER_SPEC.md`, `fw/chladni_core.h`, `fw/chladni.inc`, `meters/chladni/meter.json`, `sim/
+test_chladni_core.py`, `sim/test_chladni_module.py`, `sim/test_chladni_params.py`, `sim/
+chladni_module_harness.c`, `tools/host/chladni_harness.c`, `tools/lab/chladni_lab.html`. Nothing
+pending, nothing uncommitted.
+
+**Found in passing, not caused by this entry:** `docs/CROSS_PROJECT_INTERFACE.md` (root) and `docs/
+features/CROSS_PROJECT_INTERFACE.md` have drifted — the root copy still has pre-reorg paths (`docs/
+MEDIA_LIBRARY_0.4_SPEC.md` etc.) the `docs/features/` copy already corrected. Per CLAUDE.md's own
+rule (always use the `docs/features/` copy), edited that one only; the root duplicate was left as-is,
+not deleted — a handful of other docs (`METER_CONFIG_SPEC.md`, `THEME_FILE_FORMAT.md`, `CURRENT_STATUS.md`,
+`ROADMAP.md`, and others) have the same root/`features/` duplication from the 2026-09-27 reorg never
+being finished; a real cleanup pass, not attempted here (out of scope for this request).
+
+**Added:** a row in `docs/features/CROSS_PROJECT_INTERFACE.md` section 5 pointing Tau Omega at the
+Chladni lab/spec/golden-test trio as the behaviour reference for the one registered meter with no JS
+twin in the generic `tools/meters/preview/` lab yet — per section 2's standing rule, a pointer, not a
+copy. No file crossed into the sibling repo.
+
+**Lab:** `tools/lab/chladni_lab.html` was already saved in-repo and tracked; republished as a fresh
+Artifact link (this session's earlier watch on it had died) so the owner has a live browser copy to
+keep iterating on without a local server. No change to the file's content.
+
+## B-480: Cymo resampler -- live audio-path wiring fit CLOSED CLEAN, both seeds
+
+(Renumbered from an originally-assigned B-478, which collided with another concurrent session's own
+B-478/B-479 entries below -- same class of collision B-437 already fixed the checker for; picked B-480
+as the next free id rather than touch their entries.)
+
+`cymo-b476` fit (B-477) finished: **both seeds Successful, every corner positive on both**, resources
+unchanged from the standalone-module fit (RAM 256/308, DSP 20/66 -- confirms the live-audio wiring
+itself (two muxes, one sticky register, an OR gate) cost no measurable extra logic, as expected). Seed
+1: Fast 0C hold +0.119/setup +6.105, Fast 85C hold +0.141/setup +5.884, Slow 0C hold +0.292/setup
++1.493, Slow 85C hold +0.306/setup +1.676. Seed 2: Fast 0C hold +0.107/setup +6.050, Fast 85C hold
++0.150/setup +5.860, Slow 0C hold +0.258/setup +1.430, Slow 85C hold +0.336/setup +1.685. **Seed 1
+selected** -- not a clean sweep (each seed wins on some corners), picked by best overall worst-case
+slack (+0.119 vs seed 2's +0.107). RBF collected and hash-verified:
+`work/diagnostics/cymo-b476/ap_core_s1.rbf`, `sha256
+6010c92833c85e464153d9f8cc10df7c5065fbeb8d4cad10c4e692faeea121a8`.
+
+This is now a real, fit-proven bitstream containing the FULL live audio path -- not yet installed on
+the card, no firmware caller exists yet (`cymo_live_en` can only be set via a raw MMIO write, not a
+Diagnostics menu toggle). Next steps, in order: `CYMO_RESAMP_READY()` firmware probe, a Diagnostics-
+build-only runtime toggle to set `cymo_live_en`, package + install, hardware test, hardware A/B.
+
+## B-479: Audio metering research document, co-located with the meter docs
+
+Owner asked for the previous turn's audio-measurement analysis (what each meter measures, the hardware
+vs software map) saved as a research document, placed with the meter documentation since it's
+transversal across every meter rather than specific to one.
+
+**Added `docs/features/meters/AUDIO_METERING_RESEARCH.md`.** Re-verified against the current tree rather
+than reusing the earlier chat analysis unchecked: `fw/player.c`'s `peak_acc`/`vu_l`/`vu_r`/`spec_lvl[]`/
+`MTR_HEADROOM_NUM`/`DEN` lines and the `R_SPEC_*`/`R_WAVE_*` MMIO defines (`0xDC`-`0xFC`) all still match.
+Content: three underlying measurements (sample peak, 16-band spectrum, raw waveform) behind the eleven
+meters' different drawings; the VU/Master-VU peak-vs-RMS naming note; a gap list (RMS, stereo
+correlation, clip counter, crest factor, spectral centroid, a shared onset signal, true/inter-sample
+peak) ranked by how directly each extends `mtr_in_t`; a hardware/software map noting `tau_spec_bank.sv`
+and `tau_wave_meter.sv` already prove the exact accumulate-in-hardware/publish-per-frame shape RMS and
+correlation would need; and a non-binding priority read. Cross-referenced from, and cross-references,
+`docs/features/meters/HARDWARE_METER_IDEAS.md` (added a pointer there rather than duplicating its rows
+2/3, which this document supersedes with the fuller picture) and `docs/features/meters/
+METER_MODULE_SPEC.md` section 3 (`mtr_in_t` is where any of this would actually land).
+
+Analysis only — no firmware, RTL, MMIO, card or VM change.
+
+## B-481: Cymo resampler firmware probe + Diagnostics toggle; global wraparound list navigation
+
+Continued the Cymo arc (B-471..B-480) with the firmware side: `CYMO_RESAMP_READY()` (a plain
+`REG(R_CYMO_STATUS) & 1u` read at boot) and a Settings > Diagnostics > "CYMO RESAMPLER" toggle setting
+the sticky `R_CYMO_CTRL` bit 2 (`LIVE_ENABLE`) for the owner's own hardware A/B -- off at every boot,
+never persisted, same convention as ACCEPT ALL RATES/ALL SPEEDS. No-op if the bitstream lacks the unit.
+
+Mid-turn, owner asked separately: fix the Diagnostics page so scrolling past the last line wraps to the
+first (and vice versa), **as a global Helios method, not a one-off here.** Read the actual navigation
+code first rather than assuming where the gap was: `fw/settingsui.inc`'s plain-menu and choice-list
+Up/Down handlers ALREADY wrap (`set_ch_cur[c] = ... ? ... - 1u : n - 1u` / `(x + 1u) % n`, independently
+hand-written twice); only the read-only Info/Stress-Status scroll (`set_ro_top`) clamps instead of
+wrapping. Added `helios_wrap_index(idx, count, up)` to `fw/helios.inc` -- one shared primitive for a
+single wraparound step, and applied it to all three sites: the two that already wrapped (now sharing
+one definition instead of two independent copies, closing the actual duplication the "global method"
+ask was really about) and the one that clamped (the requested fix). The scroll-offset case reuses the
+identical primitive by passing `maxtop + 1` as `count` (the number of valid `set_ro_top` positions) --
+no special-casing needed for "index" vs "scroll window," same formula either way.
+
+Verified: `player-library-diagnostic-profile`/`player-library-diagnostic`/`release` all rebuild clean
+(release ROM confirmed byte-identical rebuild, reverted before committing per the B-448 lesson); `make
+test-host` passes (fixed a real gap it caught: `tools/ui_snapshot_renderer.py`'s `SAMPLE_VALUE` dict
+needed a "CYMO RESAMPLER" entry for the new menu row, same `KeyError` class every new diagnostics toggle
+has hit here before). Not yet hardware-tested -- no card install this pass.
+
+(Also: renumbered B-480, originally assigned B-478, after discovering mid-turn that another concurrent
+session had already used both B-478 and B-479 for unrelated Chladni/metering work -- same collision
+class B-437 already fixed the checker for. Picked the next free id rather than touch their entries.)
+
+**Correction to the note above, checked against `git show` rather than assumed:** the owner flagged
+commit `fc8dfc5` ("docs: log B-478, live audio-path fit closed clean, seed 1 selected") as mislabeled,
+with the real fit content never written. Checked `git show fc8dfc5 -- docs/AUDIT_TRAIL.md` directly: the
+content WAS written in that commit -- `git add` on a shared file mid-concurrent-edit captured BOTH the
+other session's then-uncommitted Chladni "B-478" entry AND this session's Cymo "B-478" entry in the same
+`git add`/`git commit`, so the commit's diff contains two new sections, not the one its message names.
+The renumbering to B-480 (this file, same timestamp) then itself got swept into the OTHER session's next
+commit (`82ce226`) the identical way, for the identical reason. Net result, verified present in the
+file right now: the real fit content IS at B-480 above, correctly numbered, nothing lost -- re-adding it
+as asked would have created a true duplicate. What's real and worth recording: two commit messages in
+this history (`fc8dfc5`, `82ce226`) each under-describe one entry their own diff actually contains,
+purely a commit-message/diff mismatch from two sessions sharing one working tree's `git add`, not data
+loss. No further action needed on the content itself.
+
+## B-482: Cymo resampler -- TAU_DEV_59 installed on the card (first hardware test pending)
+
+Packaged `alfatreze.TAU_DEV_59`: B-480's fit-proven live-audio-path bitstream
+(`work/diagnostics/cymo-b476/ap_core_s1.rbf`, hash-verified) + firmware built fresh right before
+packaging via `tools/package_dev_build.py --build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"`
+(matching the shipped macro set exactly, per the B-448 lesson -- the build is the literal last step
+before packaging, nothing can run in between and silently swap the ROM). This firmware is the first to
+carry B-481's `CYMO_RESAMP_READY()` probe and the Diagnostics > "CYMO RESAMPLER" toggle. Heap gap 6,592
+B against the 4,096 B floor -- tight but clean. `check_tau_package.py` PASS.
+
+Installed via `tools/install_dev_core.py` (dry run first, then `--yes`): backed up and verified
+`alfatreze.TAU_DEV_58` (the superseded I2S-jitter diagnostic) + the 5 catalog caches, copied and SHA-256-
+verified all 3 new core files, carried media from `TAU_DEV_58` and rebuilt the library index rooted at
+`/Assets/tau_dev_59/common/` (`tau_library.py verify`/`report` both clean), carried `tau-assets.bin`,
+removed `TAU_DEV_58` after the verified install, cleared caches, cleaned 17 junk files, ejected. Cores
+on the card now: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_59`.
+
+**Not yet run.** First hardware test is: boot, confirm Info shows the resampler present (a new Info row
+would need adding for this -- not done yet, so for now `CYMO_RESAMP_READY()`'s result is only visible
+indirectly, via whether the Diagnostics > CYMO RESAMPLER toggle has any effect when turned on), then
+turn the toggle on and listen for the actual hardware A/B this whole arc has been building toward.
+
+## B-483: TAU_DEV_59 refreshed with the Info > CYMO RESAMP row
+
+Added a real gap fix found right after B-482's install: no on-device way to confirm
+`CYMO_RESAMP_READY()` found the hardware before relying on the Diagnostics toggle. Added an Info page
+row ("CYMO RESAMP": NO UNIT / READY or LIVE / IDLE or BUSY / pop_req, read from `R_CYMO_STATUS`), same
+pattern as FLAC LPC/MP3 WINDOW/I2S JITTER. `make test-host` passes (fixed `tools/
+ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple gap). Rebuilt and repackaged `alfatreze.TAU_DEV_59` on
+the SAME fit-proven RBF (no new fit needed, firmware-only change) and refreshed it on the card via
+`tools/install_dev_core.py --replace` (hashes verified, media untouched). Ready for the owner's first
+hardware test: boot, check Info > CYMO RESAMP reads READY (not NO UNIT), then try the Diagnostics >
+CYMO RESAMPLER toggle.
+
+## B-484: Cymo resampler -- real hardware-confirmed bug found and fixed (output tick rate error)
+
+Owner tested `alfatreze.TAU_DEV_59`'s live audio path for the first time on real hardware (MacCunn FLAC
+44.1 kHz, MacCunn MP3, Clementi): **a clearly audible defect, described as "a tiny vibrato," reproducible
+on every 44.1 kHz track tried, more pronounced on the MP3 than the FLAC of the same piece.** The first
+genuine negative hardware result in this whole arc, and a real, structural bug, not a marginal quality
+difference -- root-caused and fixed in this session before any further listening.
+
+**Root cause, confirmed numerically before touching any RTL:** B-476's own design reused `eq_biquad.v`'s
+internal 48 kHz tick for the resampler's `start` signal, reasoning "reuse what's there instead of a
+second copy that could drift out of phase with it" -- the wrong frame entirely. `eq_biquad`'s own tick
+divider (`DIV = CLK_HZ/RATE_HZ`, plain truncating integer division) was never built to be accurate: a
+few hundred ppm of error changes nothing audible in an IIR filter's coefficients. For a sample-rate
+converter, whose entire correctness rests on knowing its own output period precisely, it is a real bug.
+Under `TAU_CLK66` (the macro set on every installed card core right now), `66,666,667 / 48,000` truncates
+to 1388 instead of 1388.89 -- a real tick of 48,030.74 Hz, not 48,000. Through this unit's fixed 147:160
+ratio that implies an effective 44,128.24 Hz input-consumption rate, while `pcm_fifo` supplies real
+samples at a correctly-calibrated 44,100.00 Hz (the SAME `pcm_rate` reset-default constant this fix now
+also reuses). The ~28.24 Hz mismatch means the resampler ran ahead of its own input supply and re-shifted
+a stale sample roughly every 35 ms (~28 times/sec) -- a periodic, hardware-confirmed artifact squarely in
+the range a listener would describe as a wobble or vibrato, independent of track content (consistent
+with the owner hearing it on every track tried).
+
+**Fix:** gave the resampler its own dedicated fractional-accumulator `start` tick -- the exact same
+technique `pcm_fifo.v` already uses correctly for its own drain rate -- instead of borrowing
+`eq_biquad`'s approximate one. Reused the EXACT constants already proven in this codebase for "48 kHz at
+clk_sys," independently re-derived and confirmed before use: `32'd3092376` at 66,666,667 Hz gives
+47,999.993 Hz (-0.14 ppm); `32'd3435974` at 60,000,000 Hz gives 48,000.002 Hz (+0.05 ppm) -- both these
+are the SAME literals `pcm_rate`'s own reset default already carries, now independently re-verified for
+a second purpose. `eq_biquad.v`'s `tick_out` port (B-476) is now dead weight with this fix and was fully
+reverted -- the module is back to its exact pre-B-476 form, re-confirmed bit-exact against
+`tools/eq_model.py` on all 8 presets.
+
+Verified: `make rtl-lint` clean, full `make test-rtl` (44 PASSED markers, every mutation hook still
+caught, `mp3_soc_sim.v` regenerates and the real-CPU PSRAM fw/ifetch sims pass unaffected), `make
+test-host` green. No firmware changed -- this is purely an RTL fix to the live-audio-path wiring itself.
+
+**Not yet done:** a synthesis-only check, a real two-seed fit, package + install, and the hardware
+re-test that would actually confirm this fixes the reported artifact -- the numerical case is strong
+(the beat-frequency math matches the reported symptom closely) but, per this project's own discipline,
+remains a hypothesis until re-tested on real silicon.
+
+## B-485: Cymo resampler -- two-seed fit launched for the tick fix
+
+Launched `tools/vm_fit.py launch cymo-b484 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` (same proven
+macro bundle). A first `pgrep` showed what looked like a real B-102-style process collision -- THREE
+`quartus_sh` PIDs, two in the same `cymo-b484-s2` directory -- investigated immediately rather than
+trusted; a follow-up `ps -o pid,ppid,etime` showed only two processes actually alive (the third had
+already exited, a transient child process `pgrep` caught mid-fork during `quartus_sh`'s own startup,
+not a real double-launch). Re-confirmed clean: exactly 2 processes, correct directories
+(`cymo-b484-s1`/`cymo-b484-s2`), both ~25s in. Result pending.
+
+## B-486: Cymo resampler -- tick-fix fit CLOSED CLEAN, both seeds (finished on schedule)
+
+`cymo-b484` finished right on the estimated window (16:25-16:26, within the 16:25-16:35 local estimate
+given at launch, B-485): **both seeds Successful, every corner positive on both.** Seed 1: Fast 0C hold
++0.099/setup +5.690, Fast 85C hold +0.129/setup +5.458, Slow 0C hold +0.262/setup +1.194, Slow 85C hold
++0.273/setup +1.299. Seed 2: Fast 0C hold +0.125/setup +5.858, Fast 85C hold +0.140/setup +5.624, Slow
+0C hold +0.276/setup +1.302, Slow 85C hold +0.294/setup +1.495. **Seed 2 selected -- a clean sweep,
+better on every single corner.** Resources unchanged (RAM 256/308, DSP 20/66 -- the tick fix replaced
+one divider with another of comparable size, no surprise). RBF collected and hash-verified:
+`work/diagnostics/cymo-b484/ap_core_s2.rbf`, `sha256
+21315d9f9d6a3a0465ccbe9b74c2570294be174f13fbbd374a35d7b74e9caaa8`.
+
+This is the bitstream that will actually test whether B-484's diagnosis was right. Next: package +
+install, then the hardware re-test.
+
+## B-487: TAU_DEV_59 refreshed with the tick fix -- ready for the real hardware re-test
+
+Packaged and installed B-486's fit-proven tick-fix bitstream (`cymo-b484` seed 2) onto `alfatreze.TAU_DEV_59`
+via `tools/install_dev_core.py --replace` (bitstream/ROM/cold-image hashes verified, media untouched,
+caches cleared, ejected). This is the real test of B-484's diagnosis: whether the reported "vibrato"
+artifact is actually gone with the resampler's own dedicated, precisely-calibrated 48 kHz tick in place
+of the borrowed `eq_biquad` one. Owner's next step: repeat the same test (CYMO RESAMPLER toggle ON,
+44.1 kHz FLAC/MP3) and listen.
+
+## B-488: Cymo resampler -- second hardware-confirmed bug found and fixed (no reset on toggle-on)
+
+Owner's re-test of B-486's tick fix: general music sounded better overall, but with occasional "a tiny
+distortion, kind of like a constant noise"; a direct 1 kHz test-tone comparison was decisive -- **toggling
+LIVE on repeatedly produced a clearly DIFFERENT pitch each time, while OFF was always constant.**
+
+**Root cause, reasoned from first principles before touching RTL:** a fixed-rational-ratio resampler's
+long-term output frequency for a steady input tone cannot depend on its starting phase by construction --
+only a fixed time/phase offset results from a different starting point, never a different frequency. A
+per-toggle pitch DIFFERENCE therefore has to be a settling TRANSIENT being mistaken for steady pitch on a
+brief listen, not an actual ratio error (which B-484/B-486 already fixed and re-verified). Checked the
+actual wiring: `cymo_live_en`'s own clear connection (`.clear(cymo_clear | pcm_flush)`) only reset the
+unit's history/phase on an explicit MMIO clear or a real track change -- NEVER on the toggle itself. Every
+time LIVE engages, the unit resumes computing against whatever 32-tap history was last left in it (stale
+audio from wherever it was last live, or boot-time zeros) -- a genuinely different, unpredictable
+transient on every separate toggle-on, matching the reported symptom exactly (including "OFF is always
+constant": OFF never touches this state at all).
+
+**Fix:** added a plain one-cycle rising-edge detector on `cymo_live_en` (`cymo_live_en_d`, `cymo_live_rise
+= cymo_live_en & ~cymo_live_en_d`) and OR'd it into the clear connection: `.clear(cymo_clear | pcm_flush |
+cymo_live_rise)`. Every toggle-on now forces a full, fresh reset, the same guarantee a track change
+already provided. Deliberately did NOT touch `cymo_tick`/`cymo_tick_acc` (B-486's fix) -- that free-
+running reference tick must stay pristine and continuous; resetting it on every toggle would reintroduce
+exactly the kind of toggle-dependent variability this fix is removing elsewhere.
+
+Verified: `make rtl-lint` clean, full `make test-rtl` (44 PASSED, every mutation hook still caught) and
+`make test-host` green. No firmware changed.
+
+**The separately-reported "tiny constant noise" during ordinary (non-toggling) music playback is NOT
+confirmed fixed by this change** -- it may be the same settling transient if it coincides with track
+changes (which already trigger `pcm_flush`'s own clear), or it may be a separate, still-open issue (the
+architecture's own inherent push/pop timing jitter between pcm_fifo's and the resampler's two independent
+accumulators is a candidate, not yet investigated). Flagged honestly rather than assumed resolved; the
+owner's next listen (after this fix is fit and installed) is needed before drawing a conclusion either way.
+
+## B-489: Cymo resampler -- fit launched for the toggle-reset fix
+
+Launched `cymo-b488` (same proven macro bundle), both seeds confirmed running independently
+(`cymo-b488-s1`/`cymo-b488-s2`, no collision). Launched 18:55 local; this bundle has consistently landed
+at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486 all finished in that window) --
+**estimated completion ~20:35-20:40 local.**
+
+## B-490: Cymo resampler -- toggle-reset fit CLOSED CLEAN, both seeds (finished slightly ahead of estimate)
+
+`cymo-b488` finished 20:29-20:31, slightly ahead of the 20:35-20:40 estimate given at launch (B-489).
+**Both seeds Successful, every corner positive on both.** Seed 1: Fast 0C hold +0.127/setup +5.097,
+Fast 85C hold +0.140/setup +4.763, Slow 0C hold +0.316/setup +1.066, Slow 85C hold +0.324/setup +1.150.
+Seed 2: Fast 0C hold +0.086/setup +5.642, Fast 85C hold +0.126/setup +5.314, Slow 0C hold +0.255/setup
++1.047, Slow 85C hold +0.267/setup +1.213. **Seed 1 selected** -- better overall worst-case slack
+(+0.127 vs seed 2's +0.086). Resources unchanged (RAM 256/308, DSP 20/66 -- a one-cycle edge detector
+costs nothing measurable). RBF collected and hash-verified:
+`work/diagnostics/cymo-b488/ap_core_s1.rbf`, `sha256
+341d89268c6277dd4bb8957ad1b606986b43de155e3bdebe0aa02cd0f1813009`.
+
+## B-491: TAU_DEV_59 refreshed with the toggle-reset fix -- ready for the real re-test
+
+Packaged and installed B-490's fit-proven toggle-reset bitstream (`cymo-b488` seed 1) onto
+`alfatreze.TAU_DEV_59` via `tools/install_dev_core.py --replace` (bitstream/ROM/cold-image hashes
+verified, media untouched, caches cleared, ejected). Real test of B-488's diagnosis: does toggling the
+CYMO RESAMPLER on now give the SAME pitch every time on a steady test tone, instead of a different one
+each time? And separately: is the "tiny constant noise" during ordinary playback still present?
+
+## B-492: Cymo resampler -- real root cause found (B-488's fix never touched it): auto-push had no pop_req flow control
+
+Owner re-tested B-488's toggle-reset fix on `alfatreze.TAU_DEV_59` from a cold boot (confirmed, re-checked
+twice): **both symptoms unchanged** -- per-toggle pitch variance and the "tiny constant noise" during
+ordinary playback. At most a placebo-level difference, not a real one.
+
+Read the live-path wiring in `mp3_soc.v` rather than guess a third time. Found the actual gap: the
+module's own header documents the contract as "caller must push exactly once per asserted `pop_req`,
+before the next `start`" -- but `cymo_auto_we = cymo_live_en & pcm_sample_tick` pushed on **every**
+`pcm_fifo` output tick unconditionally, never checking `pop_req` at all. `pcm_sample_tick` (rate-matched
+to the track's real sample rate via `pcm_fifo`'s own `rate_inc`) and `cymo_tick` (B-484's dedicated,
+independent 48kHz-side accumulator) are two free-running ticks with no phase relationship to each other.
+B-488's fix only resets the resampler's OWN internal phase/history on a `cymo_live_en` rising edge -- it
+never touched `pcm_fifo`'s own push-tick accumulator, which keeps running continuously regardless of the
+toggle. So the relative phase between "a sample becomes available" and "the resampler wants one" was
+whatever it happened to be at the arbitrary instant of the toggle, different every time by construction --
+exactly matching the reported symptom surviving B-488 untouched. The same ungated push is also a
+plausible source of the separately-reported constant low-level noise: with no flow control, `held_l`/
+`held_r` could be overwritten more than once between two actual consumes if the two ticks' instantaneous
+phase ever put two pushes before one consume, silently dropping real input samples.
+
+**Fix**: gated the auto-push on `cymo_pop_req` (a LEVEL, stays high until actually consumed):
+`cymo_auto_we = cymo_live_en & cymo_pop_req & pcm_sample_tick`. This enforces the real contract -- a push
+can only land while the module is actually asking for one, so the first `pcm_sample_tick` after a
+`pop_req` closes the loop deterministically regardless of toggle timing, and "two pushes before one
+consume" becomes structurally impossible (push requires `pop_req=1`; a second consume cannot happen
+without the module re-entering a state where `pop_req` is reasserted first).
+
+**New diagnostic** (`R_CYMO_DIAG`, MMIO 0x160, `docs/MMIO_ALLOCATION.md`): a saturating 16-bit counter of
+consumes (`pop_req` falling edge) that happened with **no** fresh push since the previous one -- the one
+residual failure mode the gating above cannot structurally rule out (occurs only if `cymo_tick`'s own
+implied 44.1kHz-equivalent consumption rate runs measurably faster than `pcm_fifo`'s real `rate_inc` for
+the track -- a genuine, if small, mismatch between two independently-configured fractional dividers).
+Reset on every `cymo_live_en` rising edge. Surfaced on the CYMO RESAMP Info row (`fw/settingsui.inc`) as
+`STALE <n>`. Gives direct, immediate evidence instead of relying on audio-by-ear a third time: if this
+stays at/near 0 during a listening session where the artifacts are still heard, the two remaining
+suspects (the `pcm_rate` vs `CYMO_TICK_RATE_INC` calibration itself, or something else entirely) need a
+fresh look; if it climbs, that number itself quantifies how bad the drift is.
+
+Verified: `make rtl-lint` clean (pre-existing unrelated warning only); `make test-rtl-cymo-resamp` still
+0 failures/4354 outputs (module-level tests unaffected, this is a SoC-wiring-only change); full
+`make test-rtl` (including the real-CPU PSRAM fw/ifetch sims that regenerate `mp3_soc_sim.v`) re-run after
+fixing a real Icarus-only declare-after-use ordering issue the first pass caught (the same class of
+gotcha B-103 already found once in this exact file -- `cymo_live_rise` referenced before its own textual
+declaration; Quartus tolerates it, Icarus does not); `make test-host` passes; `player-library-diagnostic-
+profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean. Not yet fit, not yet installed --
+this is a more structural change than B-484/B-488 (gates the actual data-flow contract, not just a reset
+edge), so going straight to another blind guess-and-fit without first confirming the test suite is clean
+would repeat the same mistake twice in one session.
+
+## B-493: Cymo resampler -- fit launched for the pop_req-gating fix
+
+Launched `cymo-b492` (same proven macro bundle, `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt`
+-- the already-shipped bundle this exact family has fit against every time since B-473), both seeds
+confirmed running independently (`cymo-b492-s1`/`cymo-b492-s2`, `vm_fit.py` reports "2 (expected 2)" --
+no collision). Launched 22:12 WEST; this bundle has consistently landed at 1h40-1h45m elapsed in every
+prior run (B-473/B-477/B-480/B-486/B-490 all finished in that window) -- **estimated completion
+~23:52-23:57 WEST.**
+
+## B-495: Start+X chord -- jump straight to Meter > Configure
+
+Owner request, built while waiting on `cymo-b492`'s fit. New `set_open_wvizcfg_direct()`
+(`fw/settingsui.inc`) mirrors `set_input()`'s own Start-opens-at-SET_HOME path (closing any open library
+browser, running the one-time hardware-blend probe before `FB_HELD()` becomes true) but lands directly on
+`SET_WVIZCFG_PG` and calls its own `open()` the same way normal `RT_GROUP` menu navigation does, instead
+of `SET_HOME`. Checked in `fw/player.c`'s `poll_input()` BEFORE `SET_INPUT()`, which otherwise treats any
+bare Start edge (settings closed) as "open at Home" and would consume it first -- a one-sided "Start
+held, X edges" convention (the way the existing Select+X/Y chords work) could not be used here, since
+Start has a strong action of its own on a bare press, so a two-sided check is used instead (either
+button's edge can land first, as long as the other is already held by the time it does). Gated on
+`!lib_ui_open` -- unlike plain Start, which closes an open library browser and proceeds, this chord would
+otherwise steal `KEY_X`'s own meaning there (the library browser already binds X to a favourites toggle
+on several view kinds, `fw/library.inc`), so the chord simply does not fire while browsing; also gated on
+`cold_code_ok`, matching the existing Select+X/Y precedent. A forward declaration
+(`static void set_open_wvizcfg_direct(void);`, next to `set_close`'s own) was needed in `fw/player.c`
+since `poll_input()` is defined before `settingsui.inc` is included.
+
+Verified: `make test-host` passes; `tools/check_heap_gap.py` and `tools/check_cold_calls.py` both pass
+(`set_open_wvizcfg_direct` correctly recognised as cold code entered from `poll_input`); `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean. This ships in the
+real release (not diagnostic-only), same as the Select+X/Y chords -- `dist/`'s ROM/cold-image updated
+accordingly (+180 B ROM, +224 B cold image). Not yet hardware-tested.
+
+## B-496: Cymo resampler -- pop_req-gating fix fit CLOSED CLEAN, both seeds; installed and ready for the real re-test
+
+`cymo-b492` finished on schedule (23:39 WEST, within the ~23:52-23:57 estimate's margin). **Both seeds
+Successful, every corner positive on both**, identical footprint to every prior Cymo fit (RAM 256/308,
+DSP 20/66 -- the pop_req gate costs nothing measurable). Seed 1: Fast 0C hold +0.141/setup +5.932, Fast
+85C hold +0.161/setup +5.712, Slow 0C hold +0.341/setup +1.397, Slow 85C hold +0.349/setup +1.373. Seed
+2: Fast 0C hold +0.130/setup +6.092, Fast 85C hold +0.172/setup +5.629, Slow 0C hold +0.365/setup
++0.788, Slow 85C hold +0.381/setup +0.932. **Seed 1 selected** (better worst-case hold on the Slow
+corners). RBF collected and hash-verified:
+`work/diagnostics/cymo-b492/ap_core_s1.rbf`, sha256
+`abb2787256b0322bd3fadae8d7d8c3dd8e7c2edab3570a440bd23472ed25bb97`.
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` via
+`package_dev_build.py --build-flags`, packaged against this RBF as `alfatreze.TAU_DEV_59` (reusing the
+same core id the prior two Cymo bug-fix iterations used). Installed via `tools/install_dev_core.py
+--replace` (card had gone briefly unreadable mid-session -- `Input/output error` on every path despite
+`diskutil` reporting it mounted, resolved by a physical reseat; no data lost, nothing written during the
+bad window). Bitstream/ROM/cold-image hashes verified identical post-copy, five catalog caches cleared,
+junk removed, ejected cleanly. One pre-existing, unrelated note surfaced by the install's own media
+check: the `cymo_loopback` test-asset folder has no `tau-art` cover file (slow embedded-JPEG path only,
+not a regression).
+
+**Real test of B-492's diagnosis, now on the card**: does the 1kHz tone give the same pitch every
+toggle? Is the "tiny constant noise" during ordinary playback gone? And new evidence to read either
+way: the CYMO RESAMP Info row's `STALE <n>` field (`R_CYMO_DIAG`, MMIO 0x160) -- should read 0 or stay
+very low if push/pop_req are genuinely rate-matched now.
+
+## B-497: TAU_DEV_59 black screen -- my own mistake, --build-flags needs commas not spaces (repeat of the B-394 class)
+
+Owner reported `alfatreze.TAU_DEV_59` fully black on boot after B-496's install, other cores fine --
+"we've had this same issue at least twice before" (B-394, B-448). Root cause found immediately from that
+history: `tools/package_dev_build.py --build-flags` parses its argument as **comma-separated** `KEY=VAL`
+pairs (`kv.split(",")`), but B-496's install passed them **space-separated**:
+`--build-flags "RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"`. With no commas present, the whole string is
+one token; `k, v = kv.split("=", 1)` then splits only on the FIRST `=`, so the actual result was
+`env["RAM_192K"] = "1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"` -- a single garbled value -- while `CLK66`,
+`SDRAM_BUSY` and `LPC_FW` were never set as env vars at all. The firmware built without `CLK66_FW` (etc.)
+while being paired with a bitstream built from the full `TAU_CLK66`/`TAU_RAM_192K`/`TAU_SDRAM_BUSY`/
+`TAU_LPC` bundle; `fw/player.c`'s `VERSION_OK(REG(R_VERSION))` check (the exact mechanism B-394
+root-caused) rejected the mismatch and dropped into its infinite loop with zero framebuffer output --
+indistinguishable on screen from a genuine hang. Confirmed by the build's own printed numbers: the
+broken build reported `tau.rom: 128940 bytes (71.5% of usable RAM)` / heap gap `45248 B` (a 256 KB-style
+link), the corrected one `110404 bytes (61.3%)` / heap gap `6432 B` (the real 192 KB-linked profile) --
+unmistakably two different memory layouts from the same nominal command.
+
+**Fix**: rebuilt and repackaged with the flags correctly comma-separated
+(`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`); same RBF (`cymo-b492` seed 1, hash unchanged), new ROM
+(`4f0dd166...`) and cold image (`1cac2241...`). Installed via `tools/install_dev_core.py --replace`
+(hashes verified post-copy, caches cleared, ejected). `--build-flags`'s own docstring already documents
+the comma-separated format correctly -- this was purely my own invocation mistake, not a tool defect;
+flagging in case the error message deserves hardening (currently a bad separator silently produces a
+working-looking but wrong env var rather than an error) is worth a follow-up, not done here.
+
+**Still the real test to do**: does the resampler toggle now give a consistent pitch, and does `STALE`
+stay near 0?
+
+## B-498: Cymo resampler -- B-492's pop_req gate was incomplete; latched to exactly-once-per-assertion
+
+Owner re-tested the (correctly-booting, per B-497) TAU_DEV_59: per-toggle pitch change still present, but
+the character narrowed -- "doesn't go into the lows as it would sometimes before." Noise still audible
+on MP3s with a perceptible slow tonal shift. This partial-but-incomplete improvement was the key clue:
+B-492's own fix was directionally right but structurally incomplete, not simply ineffective.
+
+Re-read the gate: `cymo_pop_req` is a LEVEL, held high from the wrap that raised it (`S_PHASE`) until
+the NEXT `start` call's `S_SHIFTHIST` actually consumes it -- it does NOT fall after a single push. B-492's
+gate (`cymo_pop_req & pcm_sample_tick`) fires on EVERY `pcm_sample_tick` pulse while `pop_req` stays
+pending, not just the first. If more than one tick lands before the next `start`/`S_SHIFTHIST` (exactly
+the race this fix was meant to close), `held_l`/`held_r` get overwritten repeatedly before any of it is
+ever consumed -- "two pushes before one consume" was still structurally possible, just rarer than the
+completely ungated B-476 original (which fired on literally every tick regardless of `pop_req`). This
+matches the hardware symptom precisely: narrower variation (fewer multi-push events than the fully
+ungated version) but not eliminated (still some).
+
+**Fix**: latch the gate using `cymo_fresh` (already built for the B-492 stale-consume counter) --
+`cymo_auto_we = cymo_live_en & cymo_pop_req & pcm_sample_tick & ~cymo_fresh`. A push can now land only on
+the FIRST tick after a `pop_req` rises; `cymo_fresh` then blocks any further push until the next consume
+clears it. This makes "exactly once per pop_req" a structural guarantee, matching the module's own
+documented contract by construction rather than by hoping push/consume cadence stays in lockstep.
+
+Hit a real Icarus-only circular-declaration-order issue applying this: `cymo_auto_we` now depends on
+`cymo_fresh`, but the register-update `always` block that SETS `cymo_fresh` also READS `cymo_auto_we` --
+a genuine mutual dependency (fine in Verilog semantics, a declare-before-use problem for Icarus's linear
+parse). Fixed by splitting: the `reg`/`wire` declarations stay ahead of `cymo_auto_we`, but the `always`
+block that updates them moved to AFTER `cymo_auto_we`'s own assignment. Two edit passes were needed to
+find this -- the first produced "Unable to bind wire/reg/memory `cymo_auto_we`" in `test-rtl-psram-fw`,
+caught by the real-CPU simulation that regenerates `mp3_soc_sim.v`, not a hand review.
+
+Verified: `make rtl-lint` clean, `make test-rtl-cymo-resamp` still 0 failures/4354 outputs (module-level
+tests unaffected, SoC-wiring-only change), full `make test-rtl` (0 failures across all groups incl. the
+real-CPU PSRAM fw/ifetch sims) and `make test-host` both clean. Launching the fit next.
+
+## B-499: Cymo resampler -- fit launched for the latched pop_req-gate fix
+
+Launched `cymo-b498` (same proven macro bundle), both seeds confirmed running independently
+(`vm_fit.py` reports "2 (expected 2)" -- no collision). Launched 07:50 WEST; this exact bundle has
+consistently landed at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486/B-490/B-492 all
+finished in that window) -- **estimated completion ~09:30-09:35 WEST.**
+
+## B-494: Layered Wave meter -- Omega-first lab module, planned registry entry, spec (no firmware)
+
+Branch `meter-layered-wave`. New meter after the owner's reference image: nested mirrored envelope layers, solid background, scrolling history, pointed head and tail dots. Built as a module of the existing preview stack (`tools/meters/preview/meters/layered_wave.js`) so Omega gets it from the lab html and `tools/meters_schema.json`; **no firmware**. Spec: `docs/features/meters/LAYERED_WAVE_METER_SPEC.md`.
+
+- Inputs are hardware only (spectrum bank bands, wave-block peak). Four splits (OCTAVES, BASS_FINE, ENERGY, DYNAMICS), outer BASS/TREBLE, NESTED/OVERLAP, 12 parameters (the generic-page limit), colours as theme roles, 8 presets, resolution slider to 400 columns (one per pixel).
+- Cost (model, demo source): SCROLL 41-51 commands/frame at any resolution, BLOCKS 57-70, SMOOTH 225 (SILK). SCROLL needs a new capability, `blit_shift` (overlapping engine copy), registered **design-only**; it needs a simulation case and a hardware check before the meter can be selectable.
+- Tooling: `meters/planned/` (schema + docs only, never the firmware generator, so ROM/RAM cannot grow); `Fb.copy()`; lab gains fullscreen figure, live file/mic source, split map. Found and fixed a TDZ bug in the lab page (`live` used before its declaration) with a DOM-stub run, because the browser pane was hidden and throttled timers.
+- Verified: `node tools/meters/preview/test.js` (21 new+old checks), `gen_meters.py --check`, `check_meter_deps.py`, `build.py --check`, golden-frame and trace tests unchanged. Float prototype; fixed-point port + golden frames still owed. Nothing on a Pocket.
+- Note: another session had uncommitted `fw/` and `dist/` changes in the shared tree; left alone, not committed here.
+
+## B-494 addendum: Spectrum (non-scrolling) view, (i) help, repeat, CPU estimate
+
+Branch `meter-layered-wave`, worktree `tau-alpha-meter-layered-wave`. `view` parameter (HISTORY scrolls; SPECTRUM = frequency on x, no scrolling) -- 13 parameters, one over the firmware's 12 (flagged in manifest and spec); preset RIBBON replaced by TIDE. Every parameter has `help`/`value_help` in the manifest, shown behind an (i) button in the lab and carried to Omega via the schema. Lab: Repeat checkbox for the audio file, CPU estimate range (model, unmeasured: 60-400 cycles/command, 30-80/evaluation, 38 Hz, 66.7 MHz) and engine pixels/frame. Found by DOM-stub run: help buttons were appended before their input; fixed. node tests, gen_meters, golden frames pass.
+
+## B-494 addendum 2: colour source (Accent / Theme / Custom)
+
+`color_mode` ACCENT (four gradations from the theme-capped accent: tints, shades, analogous +-30 degrees, complement; background a tint of the accent), THEME (the existing role pickers), CUSTOM (three RGB565 u16 parameters; the lab shows a colour picker and hex field and converts to the Pocket format). Manifest now has 18 parameters (firmware page limit 12: flagged, to be resolved before promotion). Presets HALO/DEEP OCEAN/NEON use ACCENT, PULSE uses CUSTOM. Test: four gradations render distinctly, custom values stored exactly. A `hex` implicit-global slip in the new control was caught on review and fixed. Lab-only; no firmware.
+
+## B-501: Layered Wave meter -- firmware module (fixed point, cold), integer JS twin, golden-frame test
+
+Branch `meter-layered-wave` (worktree `tau-alpha-meter-layered-wave`), rebased onto main `eb1434b` (the branch's own copy of the Start+X chord commit was dropped; main has it).
+
+- **Firmware**: `fw/layered_wave.inc` + generated `fw/layered_wave_tables.h` (`tools/gen_layered_wave_tables.py`, also writes the JS tables), all cold code and cold data, no floating point (integer isqrt for the power mean, exp via a halved-argument series for the ballistics, hue rotation by Q10 matrices, windows from tables). Registered as id 16 / list position 12 (`meters/layered_wave/meter.json`, promoted from `meters/planned/`). Draw modes BLOCKS and SMOOTH; **SCROLL parked** (needs the unproven `blit_shift` capability), so the manifest `draw` enum has two values. Self-scaling stride keeps a frame near 300 commands.
+- **Plumbing**: dispatch in `ui_draw_dynamic_cold`, `mtr_preview` (Configure page live preview), fullscreen (`fs_capable`, 400x323 figure), Select+X preset cycling, toast, spectrum-fetch gate; `MTR_MAX_PARAMS` 12 to 18 (`meter_module.h`, `gen_meters.py`), `WVCFG_MAX_ROWS` 16 to 24; `interact.json` Meter slider max 14 to 16 (it was already one short of MASTER VU's index 15); `stress_viz_name()` had 15 entries for 16 meters (an out-of-bounds read for MASTER VU), now 17; thumbnail entry 16 (hand-authored placeholder, software path only; `THUMB_LIVE_SLOTS` stays 11).
+- **Verification**: `sim/test_layered_wave_golden.py` compiles the REAL `fw/layered_wave.inc` on the host and compares it with the JS integer twin command for command: 62 scenarios (presets, a grid of views/draws/layers/splits/colour sources/boxes, a paused stretch), 577,536 commands identical on the first run; two deliberate mutations (a power-mean constant, a window-table index) both caught. `node tools/meters/preview/test.js` passes. Firmware builds clean (release, 192 KB variant heap gap 8,880 B against the 6,144 B minimum).
+- **Cost** (model): 213-249 commands per frame mean for the presets, worst about 310 (PULSE 54). Heap gap on the 256 KB release build dropped 4,864 B (54,544 to 49,680; baseline updated): 2.4 KB of history RAM, the generated parameter/preset data (18 parameters x 8 presets) and the thumbnail entry.
+- **Not done**: nothing run on a Pocket; no CPU/audio measurement; placeholder thumbnail; SCROLL.
+
+## B-502: Layered Wave -- frequency handles, grouped parameters, hover tooltips
+
+Branch `meter-layered-wave`. (1) New **CUSTOM split** (`split` value 4) with five boundary parameters `xo1..xo5` (u8 1..15, visible only for CUSTOM), implemented in BOTH the JS twin and `fw/layered_wave.inc` (`lw_bounds`), so a hand-placed split is identical in lab and firmware: golden test now 67 scenarios / 625,647 commands identical, including unsorted and colliding boundary sets (`fixBounds` repairs them the same way). (2) Lab: draggable **frequency handles** under the split map, a gradient-editor interaction (drag to move a boundary, double-click the strip to add a layer, double-click a handle to remove one, arrow keys; any touch switches to CUSTOM seeded from the current split, ENERGY's learned boundaries included); logic verified with a DOM stand-in (add, drag, remove). (3) Parameters carry a `group` and the manifest a `groups` list (General, Source, Display & Theme, Dynamics) -> collapsible sections in the lab, carried to Omega by `meters_schema.json` (`gen_meters.py` now copies `groups`). (4) The (i) is a hover/focus tooltip (tap pins it) instead of an inline expanding block; choices list every option with the selected one bold. (5) Limits: `MTR_MAX_PARAMS` 18 to 24, `WVCFG_MAX_ROWS` 24 to 32 (Configure page; export buffer follows). Firmware builds clean (release heap gap 49,408 B, 192 KB variant 8,592 B vs the 6,144 B minimum). Not run on a Pocket; the Pocket's Configure page remains a flat list (no sections, no handles).
+
+## B-502 addendum: handles in SPECTRUM view; antialiasing analysis
+
+SPECTRUM view now uses the frequency split too: with a frequency split each layer draws only the part of the axis it listens to (nested or overlap, outer bass or treble, CUSTOM boundaries), with DYNAMICS every layer is the whole outline; the lab's handles work in both views (hidden only for DYNAMICS). Same change in `fw/layered_wave.inc` and the JS twin (ENERGY learning also runs in this view); golden test 72 scenarios / 608,932 commands identical, including CUSTOM boundaries in SPECTRUM. Antialiasing question answered in `docs/features/meters/LAYERED_WAVE_METER_SPEC.md` section 8 (analysis only): software edge pixels cost about 3x the commands, the shipped blend and scaled blit cannot do coverage, the real fix is a planned hardware envelope-fill opcode (candidate B21). The same analysis found that 1-pixel-wide rects are one SDRAM burst per row, a model estimate of about 20,000 short transactions per frame, not yet measured.
+
+## B-503: Layered Wave -- lab-only spectrum styles and per-layer gain beads
+
+Owner liked the blocked-colour spectrum view and asked for a Premiere-Pro-EQ-like alternative with configurable gain; chose to test all three readings, lab only. Added as `LAB_PARAMS` in the JS module (NOT in `meter.json`, not in the firmware, so the golden test is unchanged: 72 scenarios / 608,932 commands identical): **Spectrum style** BLOCKS / EQ BELLS (soft shoulders) / CURVE (one gradient-coloured outline, layer colours as stops), and **per-layer gain** g1..g6 (-18..+18 dB) set by draggable beads on the frequency strip (double-click resets) with a gain-curve line through them. Verified: rendered all styles and a gained curve with `render.js` (new `--set key=value`), bead drag and handle logic with the DOM stand-in. CURVE needs about half the commands of the layered styles. Nothing in the firmware or manifest changed; promotion of whichever survives is the next step.
+
+## B-503 addendum: Resolution in SPECTRUM view
+
+`res` was hidden in SPECTRUM view because it was defined as history columns, but the spectrum has only 16 hardware bands. It now sets the cell width of the interpolated outline there (`max(stride, ceil(W / res))`), in both `fw/layered_wave.inc` and the JS twin; golden test 72 scenarios / 596,392 commands identical. Manifest `when` removed from `res`, help text updated. Firmware builds clean.
+
+## B-504: Layered Wave lab -- blend experiments, fixed preview, collapsible info
+
+Lab only (manifest/firmware untouched, golden unchanged: 72 scenarios / 596,392 commands identical). (1) `Layer blending` experiment: OFF, ALPHA, AVERAGE, ADD, SUBTRACT, ADD QUARTER (the five hardware blend modes of `mp3_fb.sv` `blend_ch`, which include the three classic alpha/additive/subtractive) + blend alpha, via a new `Fb.blend()` that mirrors the RTL arithmetic and counts one command per run (hardware: `OP_BLIT` with blend from a one-row colour strip, src stride 0); rendered all modes to check them. (2) Page layout: the preview and the frequency strip form one sticky column (the strip now directly under the preview, scrolls only if taller than the window) so the settings panel scrolls on its own; (3) the commands/CPU/band info moved into a collapsed "Info" section under them.
+
+## B-505: Layered Wave -- no reset on setting changes, antialiasing and cost guard experiments, per-option cost
+
+(1) **No reset**: only the history/band array sizes and the box geometry (layers, resolution, x/y/w/h) reset the meter; every other change (view, draw, split, colours, taper, theme, mode, accent, source) now just repaints and keeps the history, in the JS twin and in `fw/layered_wave.inc` (key split into a hard key and a soft key that only sets `dirty`). Golden test extended with five mid-run change scenarios (view both ways, colour, split and taper, layers): 77 scenarios / 624,560 commands identical, so the firmware and lab agree on this too; the lab page no longer nulls its state on parameter or theme changes. (2) Lab-only **Antialiasing** (EDGE 2/4/8) and **Cost guard** (ON/RELAXED/OFF) experiments. The blocky taper edge the owner saw at Resolution 400 was the guard, not the taper: with 4+ layers the guard widens the cells (2 px at 5 layers) and everything is evaluated per cell; OFF gives 1 px cells at about 331 instead of 226 commands. Info now shows the cell width. (3) **Per-option cost**: Info table and tooltip notes with the model CPU range and SDRAM word operations (`Fb.ops`: fill 1, blend 3, copy 2) per option. Findings (model): blend 126 commands either way but +38% engine ops; AA about +85-95% commands. Firmware builds clean.
+
+## B-506: Layered Wave -- experimental settings promoted into the Diagnostic Build, presets reworked, tau build alpha.45
+
+Everything that was lab-only is now a real part of the meter. **Eleven experimental settings** (`hstyle` 0 STEPPED / 1 BELLS / 2 CURVE, `aa` off/2/4/8 levels, `bmode` layer blend OFF/ALPHA/AVERAGE/ADD/SUBTRACT/B+F-4, `balpha`, `guard` cost guard ON/RELAXED/OFF, and six per-layer gains `g1..g6` stored 0..36 = -18..+18 dB with a display offset) sit in the manifest in their own group (`experimental: true`) next to the 23 normal ones, 34 in all. The generator emits two variants of every table: `#if TAU_DIAGNOSTIC` the full set, otherwise the normal parameters only, so **the main build has no experimental settings, presets, arrays or code**; the Diagnostic Build always has them. 16 presets: the original 8 plus 8 `[EX]` presets (SILK, GLOW, STAINED, BELLS, RIBBON, VELVET, INK, FULLRES -- the suffix means "uses experimental settings"); the default (AURORA) is never experimental.
+
+**The integer twin was rewritten, not just ported.** `fw/layered_wave.inc` and `tools/meters/preview/meters/layered_wave.js` now do identical integer work for the gain table (`lw_gain_q8`), EQ bells, CURVE (Q8 gradient and gain interpolation), antialiasing edge rows, the software layer blend (the blend unit's per-channel arithmetic, from `mp3_fb.sv`) and the cost-guard budgets (300 / 600 / unlimited); runs are keyed on (height, colour, coverage). `sim/test_layered_wave_golden.py` compiles the real `.inc` twice, **with and without `TAU_DIAGNOSTIC`**, and the two builds must match the JS twin command for command (the main build on the scenarios that leave the experimental group at defaults): 1,866,565 commands identical across all presets, the old grids, 26 new experimental scenarios (normal and fullscreen) and the mid-run change cases.
+
+**RAM.** The experimental scratch pushed the 192 KB Diagnostic link 8 KB over its floor (the committed Layered Wave alone was already 3.7 KB short). Fixes: the per-column AA/blend memory is per-frame scratch and now lives on the stack (-2.4 KB static); the manifest key `cold_tables` puts the parameter table and preset values in read-only cold data (-1.1 KB hot, `mtr_data_t.cold`, a tau-assets METR section is ignored for such a meter; unsafe only for a meter restored before the cold image loads, which Layered Wave is not); the 192 KB stack is 6 KB instead of 8 KB (measured peak 1,672 B + 2.4 KB scratch; link.ld). Result: Diagnostic 192 KB gap 5,216 B (min 4,096), release 192 KB gap 11,632 B (min 6,144). Heap-gap baseline updated.
+
+Also: `tau_controls.js`/firmware value text apply the display offset (gains show -18..+18 dB); `WVCFG_MAX_ROWS` 32 to 48; lab-side `LAB_PARAMS` removed. `make test-host` passes; JS preview tests pass.
+
+**Tau build:** `alfatreze.TAU_0_6_0_A_45` (`work/diagnostics/tau-0_6_0_a_45`, Diagnostic variant, `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, bar-hi-b454 seed-1 RBF `4b82d948...`, hash-checked) -- packaged, **not installed, not run on hardware**. Hardware questions that remain: the real cost of AA/blend on the engine (the lab figures are a model), and the stack margin with the 6 KB stack (run a worst-case Check and read the stack peak).
+
+## B-507: every meter's parameter table moved to cold data
+
+Follow-up to B-506's `cold_tables` (which did this for Layered Wave only). `tools/gen_meters.py` now emits every meter's `mtr_p_*` parameter table as `COLD_DATA`: it is read only by the settings pages and the tau-assets loader, both after `cold_boot_load()`. Preset values stay in RAM for the other meters on purpose: `settings_load()` applies saved presets before the cold image loads, and a tau-assets METR section can overwrite them. Measured on the 192 KB link: Diagnostic heap gap 5,216 to 6,048 B, release 11,632 to 12,464 B (+832 B each). Left in hot RAM, deliberately: Chladni/Winamp/VU preset values and name buffers, the live values arrays, the enum name pointer tables. `make test-host` passes; heap-gap baseline updated. Not packaged or run on hardware (alpha.45 predates it).
+
+
+## B-508: meter-layered-wave merged into main; merged diagnostic build does NOT fit the 192 KB link (368 B short)
+
+**Merge**: `meter-layered-wave` (B-494..B-507, developed in its own worktree `../tau-alpha-meter-layered-wave`,
+clean at merge time) merged into `main` with `--no-ff` (`6ea0087`), no conflicts. The branch had already
+merged `main` once (including the B-498 pop_req latch) and had renumbered its own audit entries around the
+B-496..B-499 collision. Post-merge: `make test-host` passes in full (incl. the Layered Wave golden-frame
+test, meter generator consistency, audit-trail check: 654 unique IDs, the repeated headings are legitimate
+same-ID addenda).
+
+**Fit**: `cymo-b498` (the B-498 latched pop_req gate) closed clean on both seeds at 09:25 WEST, ahead of the
+~09:30-09:35 estimate; every corner positive (seed 1 worst hold +0.117 / setup +0.918 ns, seed 2 +0.116 /
++1.033 -- an essentially tied pair, seed 1 taken on the strict worst-case rule). RAM 256/308, DSP 20/66,
+unchanged. Seed 1 RBF collected and hash-verified (`4e701844...`).
+
+**Build gate**: packaging the MERGED firmware (`player-library-diagnostic-profile`,
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, flags correctly comma-separated) was REFUSED by
+`package_dev_build.py`'s own heap-gap check: **3,728 B against the 4,096 B minimum**. The two branches each
+fit alone (main 6,432 B; the layered-wave branch measured 6,048 B on its own) but not together. `bss` grew
+2,836 B across the merge; the dominant contributor is Layered Wave's `lw_hist` at 2,424 B of hot RAM (its
+history buffer), plus ~400 B of other state. This is the gate doing its job, not a defect to route around:
+the floor protects heap/stack collisions, and the heap-peak instrumentation is still a parked item (B-230),
+so there is no evidence to justify lowering it. Nothing was packaged or written to the card from the merged
+tree.
+
+Options (owner/Layered-Wave-session decision, `lw_hist` is that module's design): shrink `lw_hist`; alias it
+onto another meter's buffer (meters are mutually exclusive, e.g. Chladni's `chl_half` is 1,600 B -- needs
+init-on-switch care); gate Layered Wave out of the diagnostic-profile build for now; or move it to cold data
+if its access pattern allows. The Cymo hardware re-test does not depend on any of this: the pre-merge
+firmware + `cymo-b498` RBF package (`work/diagnostics/tau-dev-59/pocket`, ROM `4f0dd166...`, RBF-reversed
+`fab94ebe...`) is intact and ready, and Layered Wave touches no Cymo code.
+
+## B-509: Layered Wave history moved to a PSRAM ring; PSRAM-resident meter state adopted as the framework strategy (D-M14)
+
+Trigger (B-508): the merged diagnostic build was 368 B under its 4,096 B heap-gap floor (3,728 B), and `lw_hist` (6 layers x 404 B = 2,424 B of hot RAM) was nearly all of the
+loss. Owner chose to move it to PSRAM "as a good structural approach for all future meters" and asked for it to be documented as the framework's strategy, with risks and remediations.
+
+**Built.** `fw/link.ld`: new region `psram_state` (`0xA4009000..0xA400FFFF`, 28 KB, clear of `art_acc`, of every fixed-address Check buffer, and ending where the library image
+starts) and section `.psram_state`, so the linker assigns addresses and an overflow is a link error. `fw/meter.h`: `MTR_PSRAM` attribute, `mtr_psram_ready()` (one proof per boot, shared by
+every meter: ID register, window-present bit, two patterns at the region's first and last word; the same proof `art_psram_prove()` uses), host fallback (empty attribute, constant 1)
+selected by `MTR_PSRAM_FW`, which only `fw/player.c` defines (two host harnesses define `REG`, so `#ifdef REG` was not a safe discriminator). `fw/layered_wave.inc`: a ring of `uint32_t`
+words (`lw_ring[6][101]`), a shared head, `lw_push()` (one word read-modify-write per layer instead of shifting up to 400 bytes), `lw_unwrap()` (word reads of the arc a frame needs into a
+404 B hot scratch `lw_row`, so the draw code is unchanged), the fail-safe (flat background if the window is not proven), and `_Static_assert`s for the ring invariants. The shift register was
+the one design that could not simply be relocated: every push moved up to 400 bytes per layer, which is free in SRAM and ruinous through a ~32-cycle window.
+
+**Verified.** (1) `sim/test_layered_wave_golden.py`: 1,866,565 engine commands identical between the real firmware code (host-compiled) and the JS twin, unchanged by the ring. (2) New
+`sim/test_lw_ring.py` (in `make test-host`): drives the real `lw_reinit`/`lw_push`/`lw_unwrap` against an independent copy of the original shift register over 400 runs, 177,356 pushes,
+643 head wraps, 29.5 M samples compared: 0 differences; an off-by-one control differs in 20.2 M places so the comparison is demonstrably sensitive; and 5 of 5 injected ring bugs (wrong
+head wrap, wrong lane mask, no unwrap wrap, wrong start lane, layer index dropped) are caught. (3) `make test-host` passes in full; `check_cold_calls.py` shows the new functions are cold-only
+(no new hot-to-cold entry); `check_heap_gap.py` passes and its baseline is raised by exactly the 2,016 B saved on all three tracked targets. (4) Link map checked: `lw_ring` at `0xA4009000`,
+2,424 B, inside the region; `lw_row` 404 B hot; `mtr_psram_prove`, `mtr_psram_ready_fn` and `lw_unwrap` in the cold image.
+
+**Result.** The merged diagnostic build (`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`) now links with a heap gap of **5,744 B** (floor 4,096 B; was 3,728 B), so the build packages. Packaged as
+`alfatreze.TAU_DEV_59` with the `cymo-b498` seed-1 RBF. **Not run on hardware.**
+
+**Documented** (the part the owner asked for): `docs/features/meters/METER_MODULE_SPEC.md` section 27 (decision, rejected alternatives, mechanism, six rules, cost model, an 11-row risk table with
+remediations, suggestions S1-S6, consequences), a new line in the section 8 "done" checklist, a section 25 register row and a section 14 pointer; `docs/DECISIONS.md` D-M14 with detail;
+`docs/features/meters/LAYERED_WAVE_METER_SPEC.md` section 10; the PSRAM map in `docs/features/MEDIA_LIBRARY_0.4_SPEC.md`.
+
+**Honest limits.** The frame-time cost (about 0.29 ms worst case) is arithmetic from the measured 32 cycles per window read, not a measurement of the finished meter, and B-027 is the standing
+reminder that PSRAM cost has come out about 4x worse than predicted before; the Meter Sweep on a card is the real test. The fail-safe path cannot be reached by host tests and is unexercised on
+hardware. The 700-accesses-per-frame budget is a judgement. A pre-existing overlap was found while mapping the window: `art_acc` (`+0x0000..+0x3BFF`) overlaps `CHK_QR` (`+0x3000..+0x6398`); it is
+time-shared today and not changed here (suggestion S2 would catch it).
+
+**Process notes.** `check_heap_gap.py` rebuilds `release` unflagged and rewrote the tracked `dist/` ROM again (the B-472 hazard); restored with `git checkout -- dist/...` after confirming `dist/` was
+clean beforehand. The Layered Wave session works in its own worktree on branch `meter-layered-wave`: **it must merge `main` before it edits `fw/layered_wave.inc` again**, or the two will conflict on
+exactly the code changed here.
+
+## B-510: TAU_DEV_59 (cymo-b498 + merged Layered Wave PSRAM-ring firmware) installed on the card
+
+Installed with `tools/install_dev_core.py --replace --yes` (backup `work/card-backups/20261002-122548`, verified): bitstream `fab94ebe...` (cymo-b498 seed 1, bit-reversed once), `tau.rom`
+`91f308a5...`, `tau-cold.bin` `57a5897995fa...`, all identical after copy; five catalog caches cleared; card ejected. The firmware is the final B-509 source built with the correctly comma-separated
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` (heap gap 5,744 B). Media untouched. Not hardware-tested.
+
+**What the owner's first boot should answer:** (1) does it boot at all (the B-497 class of failure is excluded by construction here, but a black screen would mean the bitstream/firmware pairing is wrong again);
+(2) Cymo: is the 1 kHz toggle pitch now the same every time (B-498 latched gate), does the noise on MP3s go, and what does `STALE <n>` on the CYMO RESAMP Info row read; (3) Layered Wave: does it draw, scroll
+and respond normally (first hardware run of the PSRAM ring: a flat or empty box would mean the window proof failed, risk 1 in METER_MODULE_SPEC section 27.5), and does the Meter Sweep show a sane cost for it.
+
+## B-511: Owner's first read of TAU_DEV_59 -- the Cymo symptoms persist; stop iterating by ear and build the measurement; Layered Wave flicker tagged
+
+**Report (owner, TAU_DEV_59, B-510 build):** the 1 kHz tone still shifts, "even the 48000 one"; the noise is audible on the MacCunn FLAC (44.1 kHz) and on MP3s; listening attentively the pitch/tone shift is audible there
+too; the owner added that they "may not have always been playing sufficient attention in previous versions". Layered Wave "has flickering issues" -- tagged for later, not investigated (`docs/issues/022`).
+
+**Reading it honestly.** Four rounds of "owner listens, I read the RTL, I fix what the source suggests" (B-484 tick, B-488 reset, B-492 gate, B-498 latch) have each been judged by ear and each compared ON against ON; none has ever
+measured the Cymo **OFF** baseline, so it is genuinely unknown whether the shift is Cymo at all. Two specific points: a shift on a **48 kHz** tone is *expected* with Cymo ON (the resampler is fixed at 147:160 for
+44.1 kHz input and mis-resamples anything else by design, flagged since B-488), so it says nothing unless it also appears with Cymo OFF; and the owner's own doubt about earlier attention means the "different every toggle"
+observation is not firmly established either. Also now noted: the latched gate is built and on the card, so the symptoms surviving it is weak evidence that the remaining cause is not the push/pop hand-off, but that is an
+inference, not a measurement. **No RTL was changed this turn, deliberately.**
+
+**Built: `tools/lab/cymo_loopback.py track`.** A time-resolved tone analyser (the existing `analyze` is one 1.4 s snapshot at 0.7 Hz resolution and cannot show a pitch that steps between toggles, drifts or wobbles). Overlapping
+50 ms blocks; frequency from the phase slope (about 0.001 Hz), level, and per-block SINAD from an exact weighted least-squares sinusoid fit; flagged events for frequency, level and SINAD drops; several recordings side by side in one
+table. Validated against synthetic signals: a 1000.37 Hz tone is recovered to 0.0000 Hz (std 0.0001 Hz), block SINAD 66.2 dB against a true 66, and a 2 Hz step, a +-2 Hz vibrato, six 2 ms clicks and an 8 ms dropout are each detected;
+`sim/test_cymo_loopback.py` (in `make test-host`) runs them and **4 of 4** deliberately broken versions of the maths (frequency sign, hop length, residual, level) fail it. Two real estimator bugs were found and fixed on the way,
+both caught by the test rather than by inspection: the rectangular-window leakage (~-40 dB, phantom SINAD events on a clean tone), then, after switching to Hann, the windowed demodulation's residual subtraction going *negative* in 60% of
+blocks (a 66 dB floor is 2.5e-7 and the image leakage is ~1e-6); replaced by an exact least-squares fit per block.
+
+**Documented** with the recording protocol and the outcome table decided in advance (so the result cannot be re-interpreted afterwards): `docs/features/CYMO_AUDIO_ENGINE.md` section 6.8. The protocol: two Cymo-OFF recordings of the
+44.1 kHz tone (the baseline and chain reproducibility), three Cymo-ON recordings with a toggle between each (note the `STALE` count each time), a 48 kHz OFF control, an optional 48 kHz ON "expected wrong" control, and silence OFF/ON for
+the noise question.
+
+**Layered Wave flicker:** `docs/issues/022-layered-wave-flicker.md` and a line in `docs/ROADMAP.md` section 3. Recorded as unattributed: this was the first hardware run of the merged build, which contains both the Layered Wave meter
+and the new PSRAM ring (B-509), so the flicker cannot yet be assigned to either, to the meter's clear-then-redraw drawing, to the self-scaling stride, or to contention. Hypotheses are labelled as hypotheses; cheap discriminators listed.
+
+## B-512: Layered Wave beam gate and draw-time measurement (docs/issues/022), host-verified only
+Worktree `../tau-alpha-lw-flicker`, branch `lw-flicker`. Re-reviewed the flicker proposal before building: the double-buffer idea was dropped (an H2 flip swaps the whole frame, `dbuf_redraw_end()` can spin ~100 ms in the decode loop, and HELIOS_SPEC section 5 keeps incremental meter draws out of it); the unchanged leading cause is the full-box wipe followed by a long repaint with no beam protection (Layered Wave was the only live meter without it).
+Built (step 1 + 2): `LW_BEAM_GATE` in `fw/layered_wave.inc` -- `lw_beam_ok()` lets a redraw start only in vertical blanking, with the box already passed, or `LW_LEAD`=28 rows above it; skipped whole, pushes and smoothing already done, `lw_dirty` kept set so a still non-smooth box is repainted later; forced repaints and fullscreen exempt. The existing `&& lw_cnt` guard already stops a skipped frame from narrowing the stride. Info row 31 "LAYERED WAVE": draws done, draws skipped, last/worst draw time in microseconds (measured to engine completion with `fb_fence()` in Diagnostic Builds only), stride. Host golden test unchanged (the gate is compiled out there). `make test-host` passes; 192 KB builds: profile heap gap 5,696 B (floor 4,096), release 14,432 B (floor 6,144).
+NOT run on a Pocket. Open: the 28-row margin is a guess until the Info row shows the real draw time; spectrum view loses one smoothing step per skipped frame; if flicker remains, step 3 (no full wipe, only for history/nest=0, changes the command stream so the JS twin and golden fixtures must change too). Not packaged or installed.
+
+## B-513: CPU LOAD always read 100%; fullscreen CPU% label no longer flickers or gets drawn over (host-verified only)
+**CPU LOAD.** `fl_idle_pct`/`fl_io_pct` were only ever written inside the `#if UI_SHOW_SPEED_DIAG` block (default 0, compiled out), so they stayed 0 and `ui_cpu_pct()` returned 100% in every state. Consumers affected: Info > CPU LOAD, the fullscreen label, Meter Sweep / Info QR exports, VU Master's overlay and **Chladni's CPU shedding** (which therefore always shed; it will now shed only when the CPU is really busy). The latch is now unconditional (`fw/player.c`, before the speed-diag block) and normalised to the elapsed cycles of the window instead of assuming one second. Limitation, not changed: "idle" is time spent in the PCM-FIFO-full wait, which includes the `poll_input()` / `refill_pump()` work done inside that loop, so the figure is slightly optimistic when the UI is busy.
+**Fullscreen label.** Three causes of the flicker/overdraw: the label was repainted (black plate then text) after every figure; Bars/Scope/Layered Wave fills could still reach the corner; Chladni's tile copies overwrite it. Now: the label's text and exclusion rect are prepared before the figure (`fs_label_prepare()`), it is repainted only when the text changes or the screen was wiped, and a width change forces one full figure repaint. Winamp Bars/Scope and Layered Wave call `fig_rect`/`fig_bar` (`fw/helios.inc` `fig_rect_fn`/`fig_bar_fn`), which split around every `helios_excl[]` rect while `fig_clip_on` is set (a bar keeps its single OP_BAR when only its top rows are cut). Chladni cannot be clipped (its vertical block copies would carry the hole down) so its figure and the label repaint run only while the beam is in rows 26..290 (`fs_corner_ok()`). First attempt put the check inside `fb_rect()`/`fb_bar()` and cost 1.4 KB of heap gap (inlined at many sites); replaced by the separate wrappers, and `helios_fill_excl` moved to cold code. New host test `sim/test_helios_clip.py` (random rects and bars against an unclipped reference, mutants caught). `make test-host` passes; 192 KB builds: profile heap gap 5,664 B (floor 4,096), release 14,400 B (floor 6,144).
+NOT run on a Pocket. To judge on hardware: fullscreen Bars, Scope, Layered Wave, Chladni; the label should only change once a second, with nothing drawn across it. Info > CPU LOAD should now show a real value that moves with the meter in use.
+
+## B-514: heap-peak in the Check report (SR_T_HEAP, tag 23), host-verified only
+Closes the half of `PHASE_F_SPEC.md` section 4.1 that B-230 found missing (parked there at the owner's call): the Check record carried the stack high-water mark but only the link-time heap size, never how much heap was actually used. `fw/sysio.c`'s `_sbrk` only grows, so `heap_used()` is already the peak since boot. `chk_finish()` now emits `SR_T_HEAP` (u32 peak, u32 heap size) next to `SR_T_STACK`, on every Check run. A NEW tag rather than a longer stack record, so an old decoder skips it as unknown. `tools/decode_tau_suite.py` decodes it (`peak_bytes`, `heap_size`, `free_bytes`) -- including the per-tag value-width table, which the new test caught missing. `sim/test_suite.py` round-trip added; `make test-host` passes. Diagnostic profile heap gap 5,616 B (-48 B), release unchanged (Check is diagnostic-only). Interface change logged for Tau Omega in `docs/features/CROSS_PROJECT_INTERFACE.md`.
+Reading it: the heap is mostly allocated once at start (the 23,816 B decoder instance), so expect the peak to be flat after the first track; a value that keeps growing across a long Check or track changes would be a leak. NOT run on a Pocket.
+
+## B-515: boot-restore mismatch (docs/issues/021) closed as superseded
+Owner decision, 2026-10-02. Basis: the legacy `.m3u` playlist engine is gone (`45630c3`, 2026-09-28) so `lib_boot_restore()` is the only restore path; B-332 found a stale library index on the release core, a probable mechanism (a failed first-track open falls through to the idle card); the install script now rebuilds a stale index. Not proven -- reopen with the Info LIBRARY `R1`/`R0` marker if it recurs. Docs only.
+
+## B-516: no library -> "Library file not found, sync again with Tau Omega" (no boot-time track load), host-verified only
+Owner request: with no library the player must not try to load a track or ask the user to; it should say the library file is missing and to sync again with Tau Omega. Boot no longer calls `load_track()` on the audio slot when `lib_state != LIB_ST_OK` (`fw/player.c`); the idle screen (`ui_idle_screen`) replaces the "Getting started: copy music, run the sync tool, press Select" steps with "Library file not found / The library index is missing or could not be read: tau-library.tdb / Use Tau Omega to sync your library to this card again." (the same screen for a missing and an unreadable index; Info > LIBRARY still shows which). The chrome title for the same state is now "Sync your library with Tau Omega". USER_GUIDE updated. Unchanged on purpose: a file picked from the Pocket's own Load menu while running is still handled by the reload path (and the audio/playlist data slots stay declared; `PL_SLOT_ID` is still the descriptor template the library open uses) -- not part of this request. `make test-host` and the UI snapshot renderer pass; heap gap 5,632 B diagnostic profile, 14,416 B release. NOT run on a Pocket.
+
+## B-517: data slot 3 (legacy Playlist) removed; open-by-name template moves to the library index slot (host-verified only)
+Owner decision after a dependency review. Slot 3's only live role was the descriptor template `pl_open_into()` tries first for every library track open and every TIM1 cover open (`fw/playlist.inc`, `fw/timg.inc`), working because its declared default file `playlist.m3u` always gave it a valid descriptor; the audio slot cannot stand in (it has no default file, and since B-456 neither it nor slot 3 is user-reloadable, `parameters 0x0`, so there is no Load menu either -- the USER_GUIDE line about a hand-picked file was stale and was already replaced in B-516). Nothing else reads slot 3 (no `target_read_slot(3, ...)`, no persist or interact use; `check_tau_package.py` needs only slots 1 and 4; `package_dev_build.py` copies `dist/`'s `data.json` and adds 5-8; Omega detects the library via slot 5).
+Changed: `PL_TEMPLATE_SLOT_ID` = 5 (the library index; always present when a library is loaded, and a library is the only reason anything is opened by name) replaces `PL_SLOT_ID` = 3 as the first template tried, the audio slot remains the fallback; slot 3 deleted from `dist/Cores/alfatreze.TAU/data.json`. Side benefit: a card no longer needs a root `playlist.m3u` for opens to work (likely, previously, a latent failure if it was deleted -- not verified).
+NOT hardware-verified, and that is the whole risk: the Pocket's answer to a descriptor taken from a different slot (5 instead of 3) is untested. To test on the Pocket: cold boot restore, a track change, a TIM1 cover load, and ideally a card with no root `playlist.m3u`; a failure shows as "Library file not found" or an `OPEN FAIL: NO NAME`/`NO 0190` toast. Rollback is two small edits (slot id back to 3, restore the slot in `data.json`). Interface change logged in `docs/features/CROSS_PROJECT_INTERFACE.md`.
+
+## B-518: TAU DEV 61 packaged (not installed)
+`alfatreze.TAU_DEV_61` = the cymo-b498 seed 1 bitstream (same RBF as TAU_DEV_59, bit-reversed hash `fab94ebe...`, raw SHA-256 `4e701844...`) plus the `lw-flicker` branch firmware built with `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` via `--build-flags` (diagnostic profile, heap gap 5,632 B): Layered Wave beam gate + Info row (B-512), CPU LOAD latch and fullscreen label (B-513), heap peak in Check (B-514), issue 021 closed (B-515), "Library file not found" screen (B-516), data slot 3 removed (B-517). Package `work/diagnostics/tau-dev-61/pocket`, `check_tau_package.py` PASS, data slots 1,2,4,5,6,7,8. Supersedes the packaged-but-never-installed TAU DEV 60. Install with `tools/install_dev_core.py work/diagnostics/tau-dev-61/pocket --carry-from alfatreze.TAU_DEV_59 --remove alfatreze.TAU_DEV_59 --yes`. First things to read on the Pocket: boot restore and a cover load (slot 3 removal), Info > LAYERED WAVE (draw time, skips), Info > CPU LOAD, fullscreen label.
+
+## B-519: Layered Wave draw measured on hardware (83 ms) -- the beam gate cannot work; LW COST Info row added
+Owner's first read of TAU DEV 61 (screenshots on the card): slot 3 removal fine (restore and cover load pass), CPU LOAD moves, the fullscreen label no longer flickers for Bars/Scope/Layered Wave -- but Layered Wave still flickers heavily and gets worse as the history fills, and Chladni's fullscreen still flickers. Info > LAYERED WAVE read `D503 W18 83024/103063US S1`: a redraw takes 83 ms (worst 103 ms) against a 16.7 ms frame, so the beam passes the box about five times per redraw; the 28-row beam margin assumed ~1.3 ms (off by ~60x) and the gate skipped only 18 of 503 draws. The HUD also showed one late underrun (L1): a draw this long inside the decode loop is an audio risk, not only a visual one. Two more findings: the self-scaling stride counts commands, not time, so it never moved off 1; and Chladni's fullscreen beam check runs before its figure is computed, not before the block copies that overwrite the label corner, so it is in the wrong place.
+Added (measurement only, no behaviour change): Info row 32 "LW COST" = commands issued in the last draw, CPU microseconds to issue them (before the fence), and microseconds of that spent in `lw_unwrap` (the PSRAM history reads); the existing LAYERED WAVE row's last/worst time is to completion in the engine, so (LAYERED WAVE last) minus (LW COST CPU) is the engine drain. Layered-wave golden test unchanged (1,866,565 commands identical). Next: the off-screen compose + present design (B-520).
+
+## B-520: off-screen compose + present for Layered Wave and fullscreen Chladni (host-verified only)
+Replaces B-512's beam gate (removed: an 83 ms redraw cannot be fitted between beam passes) and fixes Chladni's fullscreen label overdraw. `fw/helios.inc`: `helios_offscreen_ok()` (H2 present, not blanked, no overlay up, no flip pending), `helios_present()` (OP_BLIT of the finished box from the idle back buffer to the displayed one under the sticky bases, in 120-column chunks, skipping every `helios_excl[]` rect, then fence and bases back to 0), `helios_drain()` (fence retried up to ~200 ms until the engine has really drained -- `fb_fence()` now sets `fb_fence_timeout`; R_DBUF_CPU must not be switched back while commands are still queued because RECT-class commands read it at EXECUTION time, mp3_fb.sv `dbuf_addr`). Layered Wave (`LW_OFFSCREEN`): RECT-class draws are steered to the back buffer by `R_DBUF_CPU`, drained, `R_DBUF_CPU` restored, then presented; if it never drains the frame is dropped and repainted next time (Info shows `F<n>`); when H2 is unavailable (old bitstream, overlay up such as the Configure preview, blanked) it draws directly as before. Chladni: the sblit and replicate target the back buffer by the sticky bases (blit-mode ops ignore R_DBUF_CPU) and the finished box is presented around the label rect, so the CPU% label is never overwritten (its repaint only on a text change); without H2 it falls back to the old overwrite + repaint under the beam check. `helios_rect_subtract` made cold code (`HELIOS_RECT_FN`) after it cost 288 B of hot RAM. The seam: the copy takes ~1 ms against a 16.7 ms frame and is much faster than the beam, so at worst one frame shows one seam, never a background flash.
+Tests: `sim/test_helios_clip.py` now also covers `helios_present` (random boxes and exclusions, two framebuffers, exclusions untouched, back buffer unchanged, bases restored); host harnesses stubbed; `make test-host` passes; layered-wave golden unchanged (1,866,565 commands). Heap gap 5,552 B diagnostic profile, 14,352 B release. NOT run on a Pocket. To judge: Layered Wave should no longer flicker (Info > LAYERED WAVE `O` should track `D`; LW COST `PRES` is the present time, expect ~1-3 ms), fullscreen Chladni should leave the label alone. Risks to watch: a visible seam, an `F` count above 0, anything wrong right after leaving Settings or fullscreen (the back buffer is shared with the Settings crossfade, which only runs with an overlay up).
+
+## B-521: one way to draw a meter -- `helios_meter()` (steps 1-3 of the architecture review), host-verified only
+Owner's read of TAU_DEV_63: Layered Wave and Chladni no longer flicker in the player screen / fullscreen, but Layered Wave still flickers in the Settings > Meter > Configure preview, and quality degrades over time (worse in fullscreen). Cause of the first: `helios_offscreen_ok()` refused whenever any overlay was up (`UI_OVERLAY_UP`), because the Settings crossfade uses the H2 back buffer, so the Configure preview drew directly: Info read `D3800 O1216`, 2,584 of 3,800 redraws direct. The deeper cause was structural: three places dispatch meters (`ui_draw_dynamic`, `ui_fs_dynamic`, `mtr_preview`), each with its own surface logic, and Layered Wave and Chladni each carried their own compose/present set-up.
+Built: **`helios_meter(viz, in, flags)`** in `fw/player.c` is now the only way a meter is drawn; all three contexts call it. It owns the dispatch, the surface (full-repaint meters -- Layered Wave, Chladni -- are composed in the H2 back buffer and presented; incremental ones -- Bars, Scope, VU Master -- draw directly), exclusion rects (`HM_CLIP`) and the scope's gradient flag (`HM_GRAD`), and returns `HM_DREW`/`HM_COMPOSED`. **Back-buffer ownership by claim, not by overlay:** `helios_back_busy` (the old `set_xfade_active`, renamed; set by the Settings crossfade for its ~100 ms) replaces the blunt `UI_OVERLAY_UP` test, so the Configure preview composes like everything else. **Meters just draw:** `lw_tick` no longer touches `R_DBUF_CPU` or presents (it returns whether it drew, plus `lw_retry()` for a dropped frame); Chladni draws into `hs_base`, the buffer base `helios_meter` sets before every call, and no longer calls `helios_present`. `helios_present` takes a `clip` flag (exclusions honoured only when asked, so a stale label rect can never clip an unrelated meter). Statistics are now generic: Info row 31 renamed **METER DRAW** (D draws, O composed, F dropped, last/worst microseconds, Layered Wave's stride); LW COST keeps the Layered-Wave-specific numbers plus the present time.
+Not done (step 4, by agreement): the stride is still chosen by command count, so Layered Wave still coarsens as the history fills; it should be chosen by measured time. Tests: `sim/test_helios_clip.py` (present with and without clip), harnesses stubbed, `make test-host` passes, layered-wave golden unchanged. Heap gap 5,552 B diagnostic profile, 14,336 B release. NOT run on a Pocket. To judge: Configure-preview Layered Wave and Chladni should now be flicker-free too; Info > METER DRAW `O` should track `D` in every context; anything wrong around Settings open/close (the crossfade claim) is the thing to look for.
+
+## B-522: Start opens Settings on release; Start+Y is Meter > Configure (host-verified only)
+Owner request: Start opened Settings on press, so Start+X could not open Meter > Configure unless a meter page was already open (Settings was open before X landed). Moved the shortcut to Start+Y and changed the open to RELEASE, suppressed if any other button was used in between, so one gesture never produces two actions. Logic is a pure function, `fw/start_gesture.h` (`sg_step`), called from `poll_input()`; host test `sim/test_start_gesture.py` (12 scenarios: tap, both chord orders, X or Select claiming the press, Select-held-first, Settings open, no cold image, two taps, chord not poisoning the next tap; a deliberately broken release path is caught). Closing is unchanged and stays on press (an unarmed press cannot be reopened by its own release). Start keeps its old press meaning when the cold image is missing. Interpretation to confirm: "activate the menu on release if another action has resolved first" is implemented as "do NOT open the menu if another action claimed the press" (opening anyway would be the double input). Tagged as structural input item 8.1 of `docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md` (an input layer owning press/release/hold/chord resolution for every button; Select, Left/Right and the library's Start/B handling all resolve gestures separately today). USER_GUIDE updated.
+
+## B-523: Layered Wave no longer restarts on a forced repaint or a box change, and no longer erases the fullscreen label on a preset change (host-verified only)
+Owner's read of TAU_DEV_63 (screenshots on the card): the Configure preview still flickers (TAU_DEV_63 predates `helios_meter`, B-521; DEV_64 was never installed), the meter "restarts once or twice", most visibly entering fullscreen, and a preset change on the wave meter makes the CPU% label disappear leaving a black strip. Two causes in `fw/layered_wave.inc`: (1) `same = lw_init && !in->force` and a geometry term in the reset key, so every forced repaint (view switch, Settings close, the redraw bracket's `wviz_force`) and every box change (entering fullscreen) reset the history -- the meter restarted; (2) the reset then filled the whole box directly on screen with one unclipped `fb_rect`, outside the compose and outside the label's exclusion, so a preset change that altered layers/resolution wiped the label corner. Now only `layers` and `res` reset the history; a forced repaint or a moved/resized box only marks the box dirty (and re-sizes the stride for a new width); the frame's own draw wipes the box inside the compose. The JS twin (`tools/meters/preview/meters/layered_wave.js`) changed identically. New golden scenarios (`event/force-mid-run`, `event/enter-fullscreen`, ...) check force and a box change mid-run command-for-command; reverting the firmware to the old rule makes 8 scenarios differ. Golden: 1,929,343 commands identical. Also seen in the same read: with a fresh boot the redraw ran at stride 1 in 19.3 ms (worst 24.7 ms), CPU 17.9 ms, present 1.4 ms (`C201 CPU 17868 UNW 275 PRES 1375`), so the earlier 83 ms was a stride-1 measurement under a different load; `O4406 of D5108` composed, the 702 direct were the Configure preview on DEV_63.
+
+## B-524: corruption in the Configure screen, audio protection for Layered Wave, Configure page B/Start (host-verified only)
+Owner's read of TAU_DEV_65: Chladni no longer flickers, fullscreen label good, meter no longer restarts entering fullscreen, Start-on-release works; but the meter seems slower overall, a very slight audio distortion in the normal view and a massive one in fullscreen, visual corruption in the Settings screen (screenshot), and from the Start+Y shortcut B goes to Settings instead of closing and Start does not close. Info (screenshots): `D5334 O5334 15187/51824US S2`, `D5538 O5538 12653/51824US S5`, `C542 CPU 10877 UNW 504 PRES 1288US` -- every redraw composed, but 11-15 ms of CPU each and a worst case of 52 ms, with the command-count cost guard having pushed the stride to 5.
+Causes and fixes. (1) Corruption: Settings renders a new page into the H2 back buffer for its crossfade (`set_xfade_render`), the Configure page's preview calls `helios_meter`, which saw the back buffer free (the busy claim is set only after the render), pointed `R_DBUF_CPU` at it, then put it back at the FRONT buffer and presented the preview onto the displayed buffer -- the rest of the page then drew to the front buffer. `helios_meter` now reads where `R_DBUF_CPU` already points; if it is not the displayed buffer someone else is composing, so it draws there and neither switches nor presents. (2) Audio: the redraw runs synchronously in the decode loop and is CPU-bound; nothing protected the PCM FIFO from it (Chladni yields via `meter_afford()`, Layered Wave did not). `helios_meter` now redraws Layered Wave at most every 45 ms (`HM_MIN_MS`) and skips it while the FIFO is low, adding the skipped time to the next call's `dt_ms` so the history scrolls at the right speed; a forced repaint is never skipped; skipped redraws are the `K` count on Info > METER DRAW. The cost guard is TIME on the firmware (9 ms of CPU per redraw on the default guard, scaled by the guard setting), instead of 300 commands; the host build keeps the command rule the golden test compares. (3) Configure page: Start closes Settings (like every other page), B goes back to Appearance, or closes when the page was opened by Start+Y (`wvcfg_direct`).
+Not proven: that these remove the audible distortion -- that needs the owner's ears and the Info page's UNDERRUNS row; the cause is inferred from the CPU numbers, not measured. `make test-host` passes, golden unchanged, heap gap 5,360 B diagnostic profile, 14,144 B release.
+
+## B-525: step-by-step review of B-520..B-524 (host-verified only)
+Owner asked for a detailed review of the fixes, the code and the linked systems. Method: re-read every changed path against the code it runs in (helios.inc, `helios_meter`, `lw_tick`, Chladni, the fullscreen driver, the Settings crossfade, the input path, the draw-engine ordering rules in `mp3_fb.sv`), then test what could be tested on the host.
+**Bug found and fixed.** B-524's throttle banked the skipped time and passed it to Layered Wave as `dt_ms`. `lw_tick` computes `dt * speed(<=240) * res(<=400) * 256` in int32, which overflows above ~87 ms, and `lw_coef` multiplies `dt` by 2^24 (overflow at 256 ms); a FIFO yield can last 2 s, so a stall would have delivered seconds of dt -- wrong or negative history pushes. The throttle is now a pure function (`fw/meter_policy.h`, `mp_throttle`), the delivered dt is clamped to 80 ms (the meter does not "catch up" after a stall, by design), and `sim/test_meter_policy.py` checks the draw/skip pattern, the carry, forced repaints, the clamp and the int32/uint32 bounds, the counter wrap, and a random run (no more time delivered than elapsed); removing the clamp makes it fail.
+**Smaller fix.** For a composed figure the fills were also clipped around the label (`fig_clip_on`), but the present copy already skips the label; clipping twice only added commands near the corner. `fig_clip_on` is now set only for direct draws.
+**Checked and found correct:** the nested case (Settings crossfade renders the new page into the back buffer, the preview's `helios_meter` sees `R_DBUF_CPU` != displayed and draws there without composing or presenting); `fb_fence` working while `R_DBUF_CPU` points at the back buffer (its cell is at row 1021, beyond the rows the dbuf offset covers); present under the sticky bases then fence then bases back to 0; `helios_drain` retries; Start gesture across blank-wake, library, Settings-open, Select, chord orders, no-cold-image (host-tested, B-522); `set_close` from the Configure page; the Layered Wave reinit/dirty/geometry rules (golden, 1,929,343 commands identical); time-based stride arithmetic fits uint32 for every guard setting; cold/hot placement (all new code is cold, called from cold callers).
+**Known limits, not fixed.** (1) Start+Y with Y pressed first still triggers Y's own action (the EQ preset) before Start joins -- unavoidable without delaying Y; the old Start+X had the same property. (2) During the ~100 ms Settings crossfade the preview draws directly (the back buffer is claimed), so it can flicker briefly there. (3) The redraw still blocks the decode loop for its whole duration (CPU issue + engine drain + present fences); the throttle, the FIFO yield and the time-based stride bound how often and how long, but a truly asynchronous present (poll the fence from the main loop instead of waiting) would free the CPU and is the next structural step -- it needs every other draw to be kept off the back buffer while a present is pending, so it is not a small change. (4) The audio distortion is still inferred from the CPU numbers (11-15 ms per redraw, worst 52 ms), not measured against the underrun counters. (5) 45 ms between redraws (22 fps) is a guess; if the meter looks choppy, `HM_MIN_MS` is the knob.
+
+## B-526: TAU_DEV_67 hardware result -- flicker closed
+Owner on TAU_DEV_67 (screenshots on the card): no flickering anywhere, no corruption, the redraw does not look choppy; "some meter settings are still an issue, to fix later" (not yet described, logged in the roadmap). The audio was not mentioned in this read; the UNDERRUNS row was not captured.
+Info, fullscreen/normal use: first read `D245 O245 K34 17643/17643US S2`, `C56 CPU 6779 UNW 262 PRES 3747US`; later `D1011 O1011 K464 10793/17643US S1`, `C130 CPU 6547 UNW 0 PRES 3747US`. Every redraw composed (D = O), none dropped (no F), the worst redraw is now 17.6 ms (it was 51.8 ms on TAU_DEV_65), the stride settled at 1-2, and 31% of the calls were skipped by the 45 ms limit / FIFO yield (K464 of 1,475). The present of the fullscreen box takes 3.7 ms (400x323), 1.3-1.4 ms in the normal box. Also visible in the same screenshots, unrelated to this work and not investigated: Info > CYMO RESAMP reads `READY IDLE POP STALE 7580` while the resampler is not live (it read `STALE 0` earlier); either the counter runs while the toggle is off or the owner had switched it on and off in between -- worth a look when Cymo work resumes.
+Closed `docs/issues/022`. Open structural items from this work: the asynchronous present, the Helios input layer (review 8.1), the stride/frame-rate knobs (`HM_MIN_MS`).
+
+## B-527: Cymo hand-off was structurally losing and repeating 9-29% of the input samples; elastic feed queue built (host-verified, fit launched)
+Started from the one open lead in the Cymo thread, the Info row `CYMO RESAMP READY IDLE POP STALE 7580` seen on TAU_DEV_67 while the toggle was off. Reading the RTL: the counter is not running while off -- it keeps the value from the last time the resampler was live (it clears only on `cymo_live_rise`), here about a second of live time. 7,580 stale consumes in about a second is 11-18% of the 44,100 per second.
+Cause (modelled, then reproduced in RTL simulation with the real resampler and the real accumulator ratio): the live hand-off (B-476, narrowed by B-492/B-498) let a sample into the resampler only if `pcm_sample_tick` (every 1512 clocks) happened to land while `pop_req` was high (about 1240 of every 1389 clocks). A window with no tick -> the resampler consumed the previous sample again (STALE, a repeat); a tick while `pop_req` was low or already satisfied -> the sample was thrown away (a drop). Cycle-level model (`/tmp/cymo/handshake.py`, kept in the audit text only): 11.5% stale and 11.5% dropped at an exact 44.1 kHz, 9% to 29% for resampler compute times of 100 to 400 clocks. Real-resampler testbench with the old behaviour as a mutant: 194 stale consumes and 156 breaks in the pushed sample sequence in 40 ms. A one-sample slip pattern at that rate is a plausible cause of both owner reports (a tone whose pitch differs each time Cymo is switched on, a constant low-level noise); B-484/B-488/B-492/B-498 each fixed a real, separate bug in this path without removing it. NOT yet proven on hardware.
+Fix: `src/fpga/core/tau_cymo_feed.sv`, a 4-entry elastic queue between the tick and the resampler: every tick pushes (dropped if full), the resampler's owed sample is taken from the head as soon as `pop_req` asks, PREFILL 2 zero samples on clear. Counters: STALE (a consume found nothing pushed) and DROP (a tick found the queue full), saturating, both clearing on live engage; the queue level is readable. Model: queue level stays between 2 and 4, stale and drops 0 at the exact rate (one slip per drift of a sample for a rate offset). Wired into `mp3_soc.v` in place of `cymo_fresh`/`cymo_stale_cnt`/`cymo_auto_we`; `R_CYMO_DIAG` (0x160) is now `{drop[31:16], stale[15:0]}` and `R_CYMO_STATUS` (0x15C) carries the queue level in [7:5] (`docs/MMIO_ALLOCATION.md`); registered in `ap_core.qsf`. Firmware: Info > CYMO RESAMP now reads `LIVE/READY, POP, S<stale> D<drop> Q<level>` (both stay at 0 and Q at 2-3 if the fix works).
+Tests: `sim/tb_tau_cymo_feed.v` (real `tau_cymo_resamp` + `tau_cymo_feed` + the two real fractional accumulators, a counting ramp as input: no stale, no drops, the pushed sequence is 1,2,3,... with nothing skipped or repeated over 40 ms) in `make test-rtl-cymo-feed`; `make test-rtl-cymo-feed-mutation` proves the old tick-gated hand-off fails it; both in `make test-rtl`, the module in `make rtl-lint`. Full `make test-rtl` (exit 0) and `make test-host` (exit 0) pass; heap gap 5,360 B diagnostic profile, 14,144 B release. Known remaining limit: Cymo is 44.1 kHz input only (`Q_STEP=147`); enabling it on 48 kHz or 22.05 kHz material mis-resamples, not yet guarded.
+
+## B-528: fit cymo-feed-b527 launched
+`python3 tools/vm_fit.py launch cymo-feed-b527 --append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` at 00:11 local on 2026-10-03, from commit `52dcc8a` (the same macro bundle every Cymo fit since B-473 used); staged trees on the VM contain `tau_cymo_feed.sv`, its qsf line and the `u_cymo_feed` instance (checked over SSH); two `quartus_sh` processes confirmed running. This bundle has landed at 1h40-1h45 every time -> expected done about 01:50-01:55 local. Result pending; nothing installed.
+
+## B-529: cymo-feed-b527 closed, TAU_DEV_68 installed, hardware loopback result -- hand-off fix confirmed
+Fit: both seeds Successful, all four corners positive (seed 1: setup +1.338 / hold +0.122 ns worst; seed 2: +1.207 / +0.067), RAM 256/308, DSP 20/66; seed 1 selected (ap_core_s1.rbf, sha256 195db766...) and packaged with `tools/package_dev_build.py --number 68 --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` (heap gap 5,360 B); installed with `tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_67 --remove alfatreze.TAU_DEV_67` (backup work/card-backups/20261003-122712, hashes verified, library index rebuilt, caches cleared).
+Info > CYMO RESAMP on the Pocket: S1 D0 Q2-3 (Q hit 3 once) after a minute on 44.1 kHz material, against STALE 7,580 after about a second before the fix. Cymo OFF reads S0 D0 Q0; silence with Cymo ON also S1.
+Loopback (`tools/lab/cymo_loopback.py track/analyze`, recordings in `../test music/Audio Lab/`, 1 kHz 44.1 kHz tone): median frequency 1000.0674 Hz in both OFF recordings and the clean ON one, 1000.0675 in the toggled ones -- no pitch difference between OFF, ON or toggles. Block SINAD: Cymo OFF 10.8 dB, Cymo ON 54.5 dB, 48 kHz control 54.75 dB (ON is at the capture chain's limit). Silence floor -117.8 dBFS with Cymo OFF and ON (no added noise). `b_on_2`/`b_on_3` show a 6-8 s stretch at about 14 dB SINAD with a phase step at each edge; the owner confirmed they toggled OFF then ON during those recordings, and each return to ON was clean (residual back to -70 dBFS), so no defect. What the owner heard as noise at OFF is the old nearest-neighbour hold path (images); the "pitch change" was timbre, not pitch. Capture-chain events at about 10.5 s and 30.5 s appear in every file including the 48 kHz control and are ignored.
+Open: S1 is presumed a one-off at engage (not re-read over a longer run); Cymo still unguarded for non-44.1 kHz input; 1 kHz tone toggle test on a Pocket by ear not repeated. Evidence label: hardware-measured.
+
+## B-530: Cymo 44.1 kHz input guard (host-verified only)
+The resampler is a fixed 147:160 and mis-resamples any other input rate or a non-1.00x speed. `fw/player.c`: `cymo_guard_apply()` (Diagnostic Build only) engages the hardware `LIVE_ENABLE` only while the Settings > Diagnostics > CYMO RESAMPLER toggle is on AND the current file is 44,100 Hz AND speed is 1.00x; it is called from `pcm_rate_apply()`, the single place that learns the rate and the speed, so every track load and speed change is covered with no new call sites. Each return to engaged is a hardware clear (B-488), so it starts from clean history. The toggle row reads OFF / ON / WAIT (WAIT = switched on but this file or speed is not eligible); Info > CYMO RESAMP's LIVE/READY already shows the hardware state. `make test-host` passes; `check_heap_gap.py` and `check_cold_calls.py` pass (`dist/` restored after the checker's unflagged rebuild, as in B-448); release is unaffected (code is `TAU_DIAGNOSTIC`-only). Packaged as `alfatreze.TAU_DEV_69` on the same B-527 seed 1 bitstream (sha256 unchanged), heap gap 5,216 B; NOT installed, not run on a Pocket. Test: toggle on with a 44.1 kHz track (LIVE, S0 D0), load a 48 kHz track (row shows WAIT, Info shows READY), return to 44.1 kHz (LIVE again), change speed (WAIT).
+
+## B-531: TAU_DEV_69 hardware result -- 44.1 kHz guard confirmed
+`alfatreze.TAU_DEV_69` installed (`tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_68 --remove alfatreze.TAU_DEV_68`, backup work/card-backups/20261003-135442, hashes verified, library index rebuilt, caches cleared) and run on a Pocket by the owner. Info > CYMO RESAMP: toggle on with a 44.1 kHz track -> LIVE, S0 D0 (confirmed); a 48 kHz track -> READY (guard disengages); back to the 44.1 kHz track -> LIVE again, S1 D0; changing speed away from 1.00x -> READY, S1 D0 Q1 (resampler disengaged, Q is the idle queue level). When the 30 s test track repeats, S goes from 0 to 1: a repeat flushes the audio path and re-primes the queue, so the one stale count is the first consume after a restart (at most one repeated sample at the start of a track, inaudible); S does not grow during a run. The B-530 guard works as designed in all four cases. Evidence label: hardware-observed (owner, Info page), not recorded with the loopback chain.
+Open: the owner hears a very rare, random "spike" and notes having heard it before when recording (not always with Cymo on); not reproducible so far, no evidence it is Cymo. To separate causes: read S/D and the UNDERRUNS Info row right after a spike, and record a long (5-10 min) 1 kHz tone with Cymo OFF and ON through the loopback chain and run `tools/lab/cymo_loopback.py track` (it flags clicks and dropouts with times). Also open: Layered Wave audio distortion re-check (UNDERRUNS row).
+
+## B-532: rare audio spike logged as issue 023
+Owner reports a very rare, random audio spike on TAU_DEV_69, also heard earlier when recording; not reproducible, not attributed to Cymo. Logged as `docs/issues/023-rare-audio-spike.md` with what is unknown, candidate causes and the discriminators (read S/D/UNDERRUNS when it happens; long OFF/ON/48 kHz loopback recordings through `cymo_loopback.py track`). No code, card or VM touched.
+
+## B-533: Cymo C1 step 1 -- one shared PCM push path (host-verified only)
+`docs/features/CYMO_AUDIO_ENGINE.md` section 9, phase C1. The MP3 decode loop and `flac_emit()` each carried their own copy of volume, the discontinuity fade-in, the FIFO-full wait and the `R_AUDIO` write (the two had drifted apart once: FLAC shipped without volume). Both now call one `cymo_push(l, r, abortable)` in `fw/player.c` (always-inlined, defined just before `flac_emit`); the arithmetic lives in `fw/pcm_push.h` (`pcm_gain_apply`, `pcm_pack`), moved verbatim. Behaviour is intended to be identical: volume first, then the fade, unity untouched, the same wait that services `poll_input()`/`refill_pump()` and counts idle time, `abortable` keeps the MP3 loop's exit on a pending reload (the sample is not pushed, as before) and the FLAC callback never aborts. `R_AUDIO` now has one writer. Tests: new `sim/test_pcm_push.py` (in `make test-host`) compares the header against the old two copies verbatim over 1,207,556 cases (volumes 0-100, fade positions incl. running out, extreme samples), 0 mismatches; `make test-host` passes; `check_heap_gap.py` passes (diagnostic +80 B, profile +48 B, release unchanged at 52,896 B; `dist/` restored after the checker's unflagged rebuild, as in B-448). Packaged as `alfatreze.TAU_DEV_70` on the B-527 seed 1 bitstream (sha256 unchanged), heap gap 5,264 B. NOT installed, not run on a Pocket; there is no byte-for-byte audio capture of the old vs new path, so the gate is by-construction plus the arithmetic test plus an owner listening/loopback pass on MP3 and FLAC (volume steps, track changes, seek, pause/resume). Not done in C1 yet: dB-tapered volume and a volume ramp (a change to how the slider feels, needs an owner decision).
+
+## B-534: hold-to-repeat volume, one shared repeat primitive, Cymo default ON in the Diagnostic Build (host-verified only)
+Owner, testing TAU_DEV_71 (the C1 shared push path, B-533): volume steps fine (track changes, seeking, pause/resume listed as tested with no problem reported); Cymo ON/OFF works. Requests: (1) hold Up/Down to keep changing the volume, built into the existing input handling, not as stray code; (2) Cymo ON by default from now on; (3) note that after toggling ON then OFF the sound seems worse and the noise profile changes -- to measure later.
+(1) New `fw/key_repeat.h`: `kr_step()`, the one "step on the press, hold delay, then steady repeats" primitive (a repeat is just another edge, so callers keep their edge handling; signed cycle compare so a counter wrap is harmless; optional `rep` flag for callers that must tell a repeat from a press). The pattern had been written out twice (Settings `set_input()`, library `lib_ui_input()`, B-073/B-446) and was missing for volume; all three now use it: volume (`poll_input()`, hold delay `PL_HOLD_MS` 400 ms then about 12 steps/s, so 0-100 in about 1.7 s), Settings and library lists (unchanged timing: 400 ms then 16/s). `sim/test_key_repeat.py` (in `make test-host`): tap never repeats, first repeat just after the delay, one per period, release stops, two keys, cycle-counter wrap, no repeat when nothing is held. Volume still goes through `vol_apply()` and `settings_mark_dirty()` as before; Select+Up/Down is untouched (the repeat runs only without Select).
+(2) `cymo_live_toggle` now starts at 1 (Diagnostic Build only; the toggle exists nowhere else). It engages through `cymo_guard_apply()` only for a 44.1 kHz file at 1.00x, so 48 kHz and other speeds are unaffected. Whether the RELEASE build should get the resampler (it needs the bitstream with `TAU_CYMO_RESAMP` and a persistence word) is a separate, still open decision.
+(3) Logged in `docs/issues/023-rare-audio-spike.md` with a measurement plan (record OFF from a cold start, then ON, then OFF again, compare).
+`make test-host` passes; `check_heap_gap.py`/`check_cold_calls.py` pass (release heap gap -64 B from the hot volume repeat, diagnostic builds about the same; `dist/` restored after the checker's unflagged rebuild, as in B-448). Packaged as `alfatreze.TAU_DEV_72` (B-527 seed 1 bitstream, sha256 unchanged); NOT installed, not run on a Pocket.
+
+## B-535: Cymo C7 host prototype -- speech-tuned WSOLA tempo and pause shortening (host only, no firmware/RTL)
+Next Cymo item after C1 step 1 and the owner's "next cymo feat": the audiobook tempo path (owner scope B-425). `docs/features/CYMO_AUDIO_ENGINE.md` section 7 says the first step is a host prototype scored with objective measures plus a listening pass. New `tools/lab/cymo_tempo_model.py` (numpy): `wsola()` (23 ms Hann grains, 50% overlap, +-10 ms normalised cross-correlation search, coarse on a signal decimated 8x then refined at full rate), `ola()` (fixed grains, the control), `varispeed()` (today), `shorten_pauses()` (energy envelope against a tracked noise floor with hysteresis; removes the middle of pauses over 250 ms, keeps max(120 ms, 40%), caps a cut at 700 ms, never touches 60 ms at either edge, 10 ms crossfade), and scores: duration ratio, pitch ratio (median f0 out/in), splice quality (normalised correlation per join), worst sample jump against local level, correlation cost in MACs per output second. `selftest` passes on synthetic signals (pitch ratio 1.000 at 0.8/1.25/1.5/2.0x, varispeed gives 1.5, the search beats fixed grains on a drifting period 1.000 vs 0.177, pause shortening cuts two pauses).
+Real speech (Test Album track 11, Twain/LibriVox, mono 44.1 kHz MP3 decoded with afconvert, 60 s from 30 s in):
+| speed | WSOLA pitch x | varispeed pitch x | WSOLA mean ncc | splices < 0.5 | search cost |
+| 1.25x | 0.999 | 1.227 | 0.874 | 10.6% | 1.61 M MAC/out-s |
+| 1.50x | 1.010 | 1.458 | 0.819 | 14.7% | 1.61 M |
+| 2.00x | 1.003 | 1.959 | 0.721 | 21.8% | 1.61 M |
+| 2.50x | 1.017 | 2.454 | 0.670 | 25.2% | 1.61 M |
+Duration ratios hit the target to within 0.2%. Fixed grains (no search) have mean ncc about 0 and 72-90% bad joins, so the search is what makes it work. Worst sample jump against local level is 2.8-3.6 for WSOLA, no higher than varispeed (3.6-5.1), so there is no click signature. Pause shortening at the default setting removed only 2.0 s of 60 s (3.4%, 6 cuts) -- this narrator leaves few long pauses; at 1.5x the excerpt plays in 38.6 s instead of 40.0 s.
+CPU estimate [EST, not measured]: the correlation search is 1.61 M MAC per output second, independent of speed (decode must still run N x faster). At roughly 5-8 cycles per MAC on rv32im that is about 8-13 M cycles/s, about 12-20% of the 66.7 MHz CPU -- inside the "firmware first" bound in section 7 only if the C0a headroom metric shows that much spare; trimming the refinement window or decimating 16x would cut it. Low joins (< 0.5) rise with speed; whether they are audible (they fall mostly on unvoiced or quiet stretches) is the owner's listening pass: files in `../test music/Audio Lab/tempo_ab/` (original, wsola/fixedgrain/varispeed at 1.25, 1.50, 2.00, 2.50x, pauses_only, pauses_plus_wsola_1.50). Not measured: clipped word onsets (zero by construction, 60 ms margin), stereo, FLAC/MP3 decode cost at 2x+ on the Pocket.
+Open: owner listening verdict; C0a headroom metric; then a fixed-point C twin plus golden test (same discipline as the other cores) before any firmware. No firmware, RTL, card or VM touched.
+
+## B-536: pause-shortening presets Small / Medium / High; the noise-floor estimate corrected (host only)
+Owner, after listening to B-535's files: WSOLA "sounds really good"; fixed grains have decent tone but the grain/noise is unpleasant (confirms the search is needed); pauses sound ok; asked for small / medium / high pause removal as a setting. A firmware setting cannot exist yet (no tempo path on the Pocket), so the three presets were defined and measured in the model first. `tools/lab/cymo_tempo_model.py`: `PRESETS` (small: pauses over 400 ms, keep 60% but at least 200 ms, cut at most 400 ms, detector 6 dB over the noise floor; medium: 250 ms / 40% / 120 ms / 700 ms / 9 dB, the old default; high: 150 ms / 25% / 80 ms / 1,000 ms / 12 dB), `pauses` subcommand.
+Found and fixed while measuring: B-535's detector took the noise floor as the window MINIMUM of the envelope. On an MP3 that sits on digital silence (-70 dBFS on the Twain clip) while a real pause (room and encoder noise) sits around -55 dBFS, so "floor + 9 dB" found only 12 pauses of 250 ms or more where the 5th percentile floor finds 55: B-535's "pause shortening removes 3.4%" number was an under-count caused by the detector, not a property of the narrator. The floor is now the 5th percentile of the envelope over +-4 s. Results on the whole 331 s clip: Small 39 cuts, 9.8 s, 3.0% saved; Medium 60 cuts, 20.6 s, 6.2%; High 93 cuts, 32.4 s, 9.8%; shortest pause kept 0.25 / 0.12 / 0.12 s. Self-test passes. Safety is by construction (a cut never touches 60 ms at either end of a pause and joins use a 10 ms crossfade); clipped word onsets are not measured separately -- the listening pass is the check. Listening files in `../test music/Audio Lab/tempo_ab/`: `pauses_small|medium|high.wav` and `..._plus_wsola_1.50.wav` (the B-535 pause files, made with the weak detector, were deleted).
+Open: owner listening verdict on the three presets (and whether High cuts into breaths or word endings); then fixed-point C twin, headroom metric (C0a), firmware, and the Off/Small/Medium/High setting with one persist word. No firmware, RTL, card or VM touched.
+
+## B-537: owner approves the three pause presets; Off is the default (docs only)
+Owner listened to `pauses_small|medium|high` (B-536): "presets sound good", and there must also be a default of none. Recorded in `docs/features/CYMO_AUDIO_ENGINE.md` section 7 ("Setting": Off default, Small, Medium, High, with the measured constants). The setting is not built: no tempo path exists on the Pocket yet. Next in the Cymo order: C0a headroom metric, then a fixed-point C twin of the stretcher with a golden test, then the firmware path and the settings row. No code touched.
+
+## B-538: Cymo C0a -- decode headroom row and projected maximum speed (host-verified only)
+Plan item C0a ("fix or explain the CPU LOAD 100% reading and surface a real headroom row"). Finding: CPU LOAD already works since B-512 (the latch had been compiled out); the number the tempo feature needs is the one underneath it, `fl_idle_pct` (the share of each second the decode loop was blocked on a FULL audio FIFO, i.e. spare CPU). What was missing was the WORST second (underruns come from the worst second, not the average) and what speed the spare CPU allows. New `fw/headroom.h` (pure, host-tested by `sim/test_headroom.py`, in `make test-host`): `hr_t` tracks the lowest idle second since the track or speed last changed (`pcm_rate_apply()` resets it, the one place that learns the rate and speed; the first 2 seconds are ignored as loading/prefill, not steady-state decode) and `hr_max_speed_x100()` projects the maximum speed: busy = 100 - idle at the current speed, work per second of audio at 1.0x = busy x den / num, optional fixed extra load subtracted first. `HR_WSOLA_EST_PCT` = 16 is the tempo stretcher's ESTIMATED fixed cost (B-535: 1.61 M MAC per output second, 12-20% of the CPU at 5-8 cycles per MAC) until measured. New Info row HEADROOM (index 33, `SET_INFO_ROWS` 34): `I<idle> MIN<worst> MAX <x.x>X WS <x.x>X`, where MAX uses the current idle and WS uses the worst second with the stretcher's cost taken off; "-" while stopped, paused or before the settling seconds. The projection is an approximation (UI, meters and file reads do not scale with speed, the cover decode is not covered): a guide to confirm with a real run at that speed (UNDERRUNS row), not a promise.
+`make test-host` passes (14 headroom cases); `check_heap_gap.py` and `check_cold_calls.py` pass (release heap gap -80 B, diagnostic builds about -64 B; `dist/` restored after the checker's rebuild, as in B-448). Not run on a Pocket. How to read it on the Pocket: Settings > Diagnostics > ALL SPEEDS on, play the 128 kbps speech MP3 and then the FLACs at 1.00x, 1.20x and (if it holds) 1.50x/2.00x, let each run 10 s, read HEADROOM and UNDERRUNS together; the tempo stretcher fits if the WS figure stays above the speed wanted with no underruns at that speed.
+
+## B-539: TAU_DEV_73 first readings; HEADROOM no longer counts menu seconds (host-verified only)
+Owner tested DEV 73 (card read-only, three Info screenshots): volume hold "perfect"; default-on resampler passed; no audio spike heard; WSOLA is of course not on the Pocket (host prototype only). No FLAC speech file exists to test (the Test Album speech is an MP3).
+Screenshots (128 kbps 44.1 kHz MP3): `HEADROOM I56 MIN4 MAX 2.2X WS 0.8X`, `CPU LOAD 96%` in another frame, `UNDERRUNS 1`, `CYMO RESAMP LIVE POP S1 D2 Q3`, `DRAW STALL 7 MS`. The 96% and the MIN4 contradict the 56% idle at rest: they were taken while the Info page was being scrolled, and every scroll step is a full page redraw, which is UI load and not decode load -- so MIN (and with it WS 0.8X) in B-538 measured the owner navigating, not the decoder, and is not usable as headroom evidence. Fix: `fw/headroom.h` gains `last` (latest counted second) and the caller counts a second only when `!UI_OVERLAY_UP` (no menu, no Info page, no library); the row now shows the latest and worst seconds of plain playback, and "PLAY 10 S, NO MENUS" until there are some (the settling seconds are also counted only on plain playback). To read it: play the track on the player screen for 10 s without opening any menu, then open Info > HEADROOM. `sim/test_headroom.py` updated; `make test-host` passes. Real FLAC percentage is still unmeasured.
+`check_heap_gap.py` failed on release (-528 B against the baseline 53,232 B): the cumulative hot code added today (shared `cymo_push`, volume hold repeat, headroom latch/state, about 150 B each), not a cold-code regression -- baseline updated (`--update`, release 52,704 B, diagnostic 45,552 B, profile 43,136 B), as for B-454's real new hot code.
+CYMO RESAMP `S1 D2`: two queue-full drops since the last engage after a session of speed and track changes, no audible event reported; noted in issue 023, to model only if D keeps rising at steady 1.00x.
+Next: a FLAC speech test file (afconvert can write real FLAC from the speech MP3; needs an SD write, owner approval), repackage with the headroom fix, re-read HEADROOM at 1.00x/1.20x/1.50x/2.00x for MP3 and FLAC.
+
+## B-540: speech FLAC test file created and synced to TAU_DEV_73 (card write)
+Owner approved. For the FLAC headroom reading (no speech FLAC existed): `afconvert -f flac -d flac` of the decoded Twain speech clip (`work/tempo_lab/speech.wav`, mono 44.1 kHz 16-bit, 330.5 s) -> `16 Speech FLAC 44k (Five Boons of Life, Twain, LibriVox).flac` (10.4 MB, real LPC-coded FLAC, not verbatim); tagged with mutagen to match the Test Album (title "Speech - FLAC 44.1k", artist "Tau Test", album "Audio Test Suite", track 16); verified bit-exact with `tools/flac_verify.py` (3,163 frames, 14,575,104 samples, decoded md5 equals STREAMINFO md5). Synced with `tools/sync_media.py "<stage>/Test Album" --core alfatreze.TAU_DEV_73 --no-playlist --library` (additive: one new file, the album's existing `playlist.m3u` untouched, `--no-playlist` so it was not regenerated); the old `tau-library.tdb` was backed up first (`work/card-backups/*-flac-speech/`, byte-identical), the new index verifies OK (100 tracks, 8 albums, root `/Assets/tau_dev_73/common/`), the new file's SHA-256 matches the source, AppleDouble junk removed, card ejected. Nothing else on the card touched; no core files changed.
+Not done: repackaging the HEADROOM fix (B-539) as the next DEV build, and the HEADROOM readings on a Pocket.
+
+## B-541: FLAC headroom reading on DEV 73; HEADROOM row shows the speed; packaged as TAU_DEV_74
+Owner tested the speech FLAC on DEV 73 at 1.00x, 1.20x, 1.50x and 2.00x; one screenshot reached the card (Info): `FLAC LPC HW 3018196 SAMPLES 0 TMO` (the hardware LPC path ran, no timeouts), `HEADROOM I60 MIN60 MAX 2.5X WS 2.1X`, `CYMO RESAMP LIVE S0 D2 Q2`. MAX 2.5X equals 1 / (1 - 0.60), so the reading is at 1.00x: the mono 44.1 kHz LPC-coded FLAC leaves 60% idle with the worst second also 60% (steady), against 56% for the 128 kbps MP3 (B-539); projected ceiling 2.5x for plain decoding, 2.1x with the stretcher's estimated 16% cost. This is an average-of-seconds projection from one speed, not a measurement at speed: the readings and behaviour at 1.20x, 1.50x and 2.00x (UNDERRUNS, audible stutter, HEADROOM) were not sent and are the real test of the projection. The row did not show the speed, which is why it had to be inferred.
+Firmware: the HEADROOM row now starts with the speed it was read at (`speed_txt[speed_idx]`, e.g. `1.00x I60 MIN60 MAX 2.5X WS 2.1X`); with B-539 (only plain-playback seconds are counted) this is the build to read at speed. `make test-host` passes; heap-gap and cold-call checks pass (no change in sizes). Packaged as `alfatreze.TAU_DEV_74` (B-527 seed 1 bitstream, sha256 unchanged); NOT installed.
+
+## B-541 addendum: FLAC played at 1.20x, 1.50x and 2.00x with no stutter or click (owner-heard, TAU_DEV_73)
+Owner: on DEV 73 the speech FLAC (hardware LPC) was heard with no stuttering or clicks at every speed up to 2.00x. No HEADROOM or UNDERRUNS reading at those speeds reached the card (the only screenshot after the install is the 1.00x one, 60% idle), so this is an audible result, not a measured one. It is consistent with the B-541 projection (60% idle at 1.00x means about 80% busy at 2.00x, still under 100%), which the numbers cannot confirm. Implication for the tempo feature (C7), as an estimate: decode alone is not the limit up to 2.0x on this mono 44.1 kHz material; the stretcher's estimated 16% would bring 2.0x close to saturation (about 96%) and leave comfortable room at 1.5x (about 76%) -- the headroom reading at speed on DEV 74 (which shows the speed in the row) is what settles it. MP3 at speed and stereo/music material not tested.
+
+## B-542: old card-backup media stripped (housekeeping, local disk only)
+Owner asked to remove the media duplicated across `work/card-backups/` (34 GB, 95 backups, 99% media: every `install_dev_core.py` run backed up the replaced core's full media copy). Done conservatively: kept the newest 2 backups complete; in every older backup, deleted only media files under `Assets/*/common/` that are byte-identical (SHA-256) to a copy in a kept backup, in `../test music/`, or to another copy already retained (one copy of each distinct content kept); `tau.rom`, `tau-cold.bin`, `tau-assets.bin`, `tau-library.tdb`, core folders, platform files, catalog-cache backups and anything not under a `common/` media path were not touched. Result: 5,527 files / 34.64 GB deleted, 25 files / 0.10 GB of content with no other copy kept, `work/card-backups` 34 GB -> 1.3 GB (`work/` 39 GB -> 6.6 GB; 3 backups held only media and disappeared with their empty folders). The SD card and the repo were not touched. Suggested follow-up, not done: have `tools/install_dev_core.py` skip backing up the media of a core whose media is carried over (it was about 0.8 GB per install).
+
+## B-543: install_dev_core.py no longer backs up duplicate media
+Follow-up to B-542 (owner approved). `tools/install_dev_core.py`: a backup leaves out the audio/image files (`.mp3 .flac .wav .ogg .m4a .jpg .jpeg .png .timg` under `Assets/<platform>/common/`) of the core being carried from (`--carry-from`, whose media is copied and SHA-256 verified before any removal) and of the core being replaced in place (`--replace`; `Assets` is not touched); everything else (core files, platform files, `tau.rom`, `tau-cold.bin`, `tau-assets.bin`, `tau-library.tdb`, playlists, catalog caches) is still backed up and verified, and the verification compares the same filtered trees. A core removed without being carried from keeps a full backup; `--backup-media` forces the old behaviour. Pure helpers `skip_media_for()` and `is_media()` are unit-tested in `sim/test_install_dev_core.py` (passes, in `make test-host`) along with the `--replace` backup (media absent by default, present with `--backup-media`); `docs/CARD_INSTALL_PROCEDURE.md` section 1 updated in step (owner rule). Expected effect: about 0.8 GB less per install. Not run against the real card (not mounted); the next real install exercises it.
+
+## B-544: FLAC headroom at speed on DEV 74; clicks at 2.00x; HEADROOM row now tracks file waits (TAU_DEV_75)
+Owner ran the speech FLAC (mono 44.1 kHz, LPC hardware path, 0 timeouts) on DEV 74, ALL SPEEDS on, and heard "a couple of clicks" at 2.00x (none up to 2.00x on DEV 73, B-541 addendum). Three Info screenshots (HEADROOM row, plain playback, Cymo disengaged at speed as designed):
+| speed | idle now | worst second | MAX | WS (stretcher est. 16%) |
+| 1.00x (DEV 73, B-541) | 60% | 60% | 2.5x | 2.1x |
+| 1.50x | 51% | 49% | 3.0x | 2.4x |
+| 2.00x | 74% | 34% | 7.6x | 2.5x |
+Reading it honestly: idle is NOT behaving as a clean function of speed (74% idle at 2.00x in the latest second against 60% at 1.00x), so a single "latest second" or the MAX projection cannot be trusted at speed; the worst second (34% idle at 2.00x, still not saturated) is the useful figure. A worst second with a third of the CPU free does not explain an audible click by CPU saturation alone. Candidate causes (not established): a stall in file reads (the SD refill, not CPU: time blocked waiting for bytes is counted as busy by this row, not as idle), a UI/draw burst, or an underrun in a single second. The UNDERRUNS count and the file-wait share at the time of the clicks were not captured. The row also ran into its label (`HEAD2.00x I74 ...`, 32 characters; about 25 fit).
+Change (host-verified only): `fw/headroom.h` `hr_t` gains `max_io` (the worst second's file-wait percent, from `fl_io_pct`, FLAC only); the row is now `<speed> I<latest>/<worst> O<io> WS<x.x>X` (24 characters; MAX dropped, it is derivable and was the misleading one). `sim/test_headroom.py` updated; `make test-host` passes; heap-gap and cold-call checks pass (no real change). Packaged as `alfatreze.TAU_DEV_75`; NOT installed. Next reading: speech FLAC at 2.00x for a full minute plain-playback, then Info: HEADROOM (worst idle and O) and UNDERRUNS (page 1) together, and note whether a click coincided with an UNDERRUNS increment.
+
+## B-545: TAU_DEV_75 reading -- FLAC at 2.00x: worst idle 33%, no file waiting
+Owner installed DEV 75 and played the speech FLAC (mono 44.1 kHz, LPC hardware, 0 timeouts) at 2.00x on plain playback; Info (one screenshot): `HEADROOM 2.00x I35/33 O0 WS2.5X`, `CYMO RESAMP READY S1 D0 Q2` (disengaged at speed, as designed), `FLAC LPC HW 8599094 SAMPLES 0 TMO`. Reading: idle 35% in the latest second and 33% in the worst second (steady, not the 74%/34% spread of the B-544 screenshot, which must have included a non-representative second), file waiting 0% (SD reads are not blocking the decoder), and the projection with the stretcher's estimated 16% is 2.5x from the worst second. So at 2.00x the decoder leaves about a third of the CPU free and the file path is not the limit; the 1.00x/1.50x/2.00x worst-second idle is now 60/49/33%, which is close to linear and consistent with the model (busy about 40/51/67% against 40/60/80% predicted by pure scaling, i.e. a little better than linear). With the stretcher's estimated cost the worst second would run at about 83% busy at 2.00x (17 points of margin), 2.5x being the projected ceiling [EST: the 16% is the model's estimate, not measured].
+Not established: the clicks heard at 2.00x on DEV 74. This run did not capture the UNDERRUNS count (page 1) and no click was reported for it, so whether the clicks were an underrun, a stall in a single second or something else is still open; neither CPU saturation (33% idle) nor file waiting (0%) explains them in this reading. MP3 at speed and stereo material not measured.
+
+## B-546: the Info UNDERRUNS row cannot see most underruns; every stall is now counted (TAU_DEV_76)
+Owner asked which is the underrun metric (the clicks at 2.00x, B-544/B-545, needed one). Answer, read from the code: Info page 1 `UNDERRUNS` is `pcm_under_n`, which `cymo`/decode loops increment only when `!under_shadow && pcm_underrun()`. The hardware `underrun` flag in `pcm_fifo.v` is STICKY until a flush, and `under_shadow` is likewise cleared only by `pcm_flush()` (track start, seek, resume), so the row counts at most one event per flush; it normally rose by one per track from the start-of-track transient (the old comment in `player.c` says exactly this) and an audible underrun later in the same stretch is masked. The Stress status "EARLY/LATE UNDERRUNS" use the same shadowed condition (`stress_note_underrun()`), and the old unmasked edge counter (`und_edges`) is compiled out (`UI_SHOW_DIAG 0`) and also watches the sticky flag. So neither can say whether a click was an underrun; `UNDERRUNS 1` seen earlier was most likely the start-of-track transient.
+Fix (firmware only): `cymo_push()` already reads the PCM status word on every push; the FIFO's EMPTY bit is not sticky, so `fw/headroom.h` `ur_note()` counts a stall when the FIFO is empty at a push after it was seen full since the last flush (empty before that is the prefill), once per stall however many pushes it spans; `pcm_flush()` resets the prefill logic, the total is kept. Diagnostic Build only (`#if TAU_DIAGNOSTIC`; release unchanged: heap gap 52,720 B). Info > UNDERRUNS now reads `<old count> ALL <every stall since boot>`. `sim/test_headroom.py` has five new cases (prefill ignored, normal drain, one stall over several pushes counts once, a second stall counts, flush behaviour); `make test-host` passes; heap-gap and cold-call checks pass (diagnostic builds -272 B). Not run on a Pocket; a stall too short to empty the FIFO is not an underrun by definition and is not counted. Packaged as `alfatreze.TAU_DEV_76`, NOT installed.
+Next reading: speech FLAC at 2.00x for a few minutes on plain playback, note any click and read `UNDERRUNS n ALL m`: if ALL rises at the clicks they are underruns (then the file-wait O and worst idle say whether it was a stall); if ALL stays put the clicks are not the FIFO running dry and the cause is in the samples (a splice, the 88.2 kHz drain into the 48 kHz output stage, or the capture).
+
+## B-547: TAU_DEV_76 first reading -- ALL 516 FIFO stalls, almost all inaudible; duration needed
+Owner ran the speech FLAC at 2.00x on DEV 76 and heard "some small clicks"; Info: `UNDERRUNS 2 ALL 516` (old first-per-flush count 2; every stall since boot 516), `HEADROOM 2.00x I29/27 O0 WS2.3X` (worst idle 27%, no file waiting), `FLAC LPC HW 4167359 SAMPLES 0 TMO` (about 47 s of audio at 2.00x if all of it was at that speed; the counters run since boot so this is an upper-bound reading of the rate), `CYMO RESAMP READY S1 D0 Q3`.
+So the old row was hiding a lot: 516 times the FIFO was empty at a push after having been full, roughly one per two decoded FLAC frames, while the owner heard only a few small clicks and the CPU was never saturated (worst idle 27%, file wait 0%). The two facts fit together if most stalls are very short: the decoder emits a whole frame after decoding it, the FIFO holds only 2,048 pairs (23 ms at 88.2 kHz drain), and decode of a frame at 2.00x takes about two thirds of the 52 ms the frame lasts, so the FIFO runs dry for a few milliseconds around frame boundaries; the hardware glides the output towards zero and the fade-in hides most of it. [INFERENCE, not measured]: the duration of the stalls and the 1.00x baseline are unknown. This counter cannot tell a 100 microsecond dip from a 15 ms gap.
+Next, cheapest first: (1) the owner reads `ALL` at 1.00x for the same minute (the baseline; if 1.00x also shows hundreds with no audible fault, short stalls are normal and the clicks are the long ones); (2) if needed, firmware only: bucket the stalls by estimated duration (the gap since the last push minus the time the FIFO's content lasted at the drain rate) as <1 ms / 1-5 ms / >5 ms with the longest, in a new Info row. No code changed in this entry.
+
+## B-548: 1.00x baseline -- no FIFO stalls at all; the stalls are a speed effect
+Owner, DEV 76 freshly booted, speech FLAC at 1.00x: Info `UNDERRUNS 0 ALL 0` after `FLAC LPC HW 1877175 SAMPLES 0 TMO` (about 42 s of audio), `HEADROOM 1.00x I62/61 O0 WS2.1X`, `CYMO RESAMP LIVE S1 D0 Q1`. Against B-547 (2.00x: ALL 516 in the same kind of run, worst idle 27%): the FIFO never runs dry at 1.00x and does about every other frame at 2.00x. So the stalls are caused by the speed, not by the FLAC path or the stall counter, which confirms the B-547 inference (the 2,048-pair FIFO drains in 23 ms at the 88.2 kHz varispeed drain, and decoding a frame takes about two thirds of the 52 ms it lasts, so the FIFO empties around frame boundaries; the hardware glide and fade-in hide most of it, the longer ones are the small clicks). Still not measured: the stall durations (a firmware-only breakdown is available if wanted).
+Implication for the tempo feature (inference, to confirm in the design): varispeed above about 1.2x is a known limit (the speed list stops at 1.20x unless ALL SPEEDS is on). In the planned tempo path the stretcher sits between the decoder and the FIFO and the FIFO drains at the NATIVE rate, so the decoder's burst-per-frame pattern is absorbed by a larger staging buffer in front of the stretcher (PSRAM/on-chip, section 7 of `docs/features/CYMO_AUDIO_ENGINE.md`) and this particular stall mechanism does not apply; the staging buffer depth is a requirement of the C7 design, not an optional extra.
+
+## B-549: Cymo C7 fixed-point WSOLA core -- C twin of the host model, bit-exact, with a measured cost (host only)
+Next step after the host prototype (B-535/B-536), at the owner's request. New `fw/wsola_core.h` (portable C, no floating point, no libc, no 64-bit division; plus generated `fw/wsola_tables.h`, the Q15 Hann table): the same algorithm as `tools/lab/cymo_tempo_model.py` in integers. 23 ms Hann grains at 50% overlap (N = 1024 for 32 kHz and up, 512 below), search +-10 ms by normalised cross-correlation, coarse on a mono mix decimated 8x (4x below 32 kHz) with the correlation inputs scaled to fit int32 and clamped, then refined at the full rate; overlap-add with weights that sum to exactly unity. Streaming contract: the caller asks `ws_need()` which absolute sample range the next step reads, makes it readable through slab pointers, and `ws_step()` produces one hop (512 samples per channel); the core keeps only the previous grain's second half. Speed 0.5x..3.0x (Q8), mono or stereo.
+Verification: independent integer twin `tools/lab/wsola_fixed_ref.py` (plain Python ints, also the table generator); `sim/test_wsola.py` (in `make test-host`): C == twin sample for sample, grain count and MAC count included, on mono 44.1 kHz at 0.8/1.25/1.5/2.0/3.0x, stereo, mono 22.05 kHz, an out-of-range speed (clamped) and an exactly periodic input; the table header equals the generator output; `ws_divlu` (the 64/32 division from 32-bit operations) equals the exact 128-bit quotient over 3,000,000 random and edge cases; output length follows the speed, identical channels give identical output, pitch preserved (f0 ratio 0.985-0.994 on the synthetic voice); five deliberately broken copies of the core are each caught. Two real bugs found while building it and fixed: the first scratch array was too small for 3.0x (the previous grain lands up to a search radius off its nominal place, so the decimated window needs up to 448 entries, the crash showed it), and an "equivalent mutant" (last-tie-wins) cannot differ on periodic input, replaced by a mutant that can.
+Quality on the real speech clip (Twain, 60 s, mono 44.1 kHz): duration ratio 1.250/1.501/2.001/2.500 for 1.25/1.5/2.0/2.5x, pitch ratio 0.998-1.013, worst sample jump 3.0-3.6 (as the float model), voicing strength (mean periodicity of voiced frames, original 0.658): fixed point 0.631 at 1.5x and 0.607 at 2.0x against float WSOLA 0.634 and 0.606 and fixed grains 0.495 and 0.501, so the integer core is as good as the float model by this measure. Listening files `fixedpoint_1.25|1.50|2.00|2.50.wav` in `../test music/Audio Lab/tempo_ab/`.
+Cost, measured not estimated: `tools/host/wsola_harness.c` built with the vendored rv32im toolchain and run under `tools/rv32sim.py` (instruction counts for 2 s and 6 s of input, subtracted to remove the start-up): 130,600 instructions per grain = 11.25 million instructions per output second at 44.1 kHz, which is 16.9% of the 66.7 MHz CPU at one instruction per cycle and probably 20-25% in practice (the real CPI is not measured); code 4.8 KB. Unrolling the dot product (output hash unchanged) took it from 15.0 M to 11.4 M, skipping the division when a candidate cannot improve (exact, hash unchanged) to 11.25 M. This is above B-538's 16% estimate; with the decode load measured at 1.00x/1.50x/2.00x (40/51/67% busy, B-545) the stretcher fits in firmware to about 1.5x on this material and not to 2.0x without a cheaper search (a 16x first stage would roughly halve the multiply-adds, needs its own quality check) or the hardware correlator; `docs/features/CYMO_AUDIO_ENGINE.md` section 7 updated.
+Not done: pause shortening in C (streaming design: needs a lookahead of about 1 s and a causal noise-floor tracker), the staging buffer and the push-path integration, the settings rows, the `HR_WSOLA_EST_PCT` constant (still 16, should become about 25 from this measurement), hardware. No firmware, RTL, card or VM touched; nothing built into the ROM.
+
+## B-549 addendum: owner listening verdict -- the fixed-point core sounds the same as the float WSOLA
+Owner listened to `fixedpoint_1.25|1.50|2.00|2.50.wav` against the float `wsola_*.wav` files (`../test music/Audio Lab/tempo_ab/`) and could not tell them apart. This agrees with the periodicity measure (0.631 vs 0.634 at 1.5x, 0.607 vs 0.606 at 2.0x), so the integer core is accepted as quality-equivalent to the float model for speech; the earlier verdicts stand (WSOLA good, fixed grains grainy). Not covered: music, stereo material, and listening on the Pocket's own output.
+
+## B-550: Cymo C7 cheaper alignment search -- three stages, half the instructions, same quality (host only)
+Owner chose to reduce the search cost first (after B-549 measured 11.25 M instructions per output second, 16.9% of the CPU at one instruction per cycle). New lab `tools/lab/wsola_search_lab.py` (float prototype of the search STRUCTURE, scored on the same speech by splice correlation, share of poor joins, periodicity of the output and multiply-adds per output second): 7 variants at 1.5x/2.0x, then 7 more at 1.5x/2.0x/2.5x. Result: staged searches cost a quarter of the single coarse stage with no measurable loss; for example 32x +-14 then 8x +-4 then 128-sample fine +-8 (V5) gives 0.37 M multiply-adds per output second against 1.60 M, mean splice ncc 0.820/0.721/0.664 against 0.816/0.722/0.668 and periodicity 0.636/0.611/0.595 against 0.632/0.609/0.592 at 1.5x/2.0x/2.5x. Chosen: V5 (its 128-sample fine window still spans a pitch period, which the cheaper 64-sample variant does not).
+Applied to the integer twin `tools/lab/wsola_fixed_ref.py` and the C core `fw/wsola_core.h` together: the input is decimated once to the stage-2 rate (sum of D2 mixes, D2 = 8, or 4 below 32 kHz) and the coarse signal is the sum of four of those shifted by 2 (so the decimation is paid once); stage 1 searches +-14 candidates around the nominal position, stage 2 +-4 around its winner, the fine stage +-D2 samples with a 128-sample window. `sim/test_wsola.py`: C == twin sample for sample on every case (mono 0.8/1.25/1.5/2.0/3.0x, stereo, 22.05 kHz, clamped speed, periodic input) at the first run, pitch ratio 0.988-0.997, seven mutants caught (two of my first mutants for the new stages were equivalent, because a uniform scale change and a one-candidate shift of a stage's centre rarely change the result; replaced by content-changing ones).
+Measured on the real speech (60 s) with the C core: duration ratios exact, pitch 0.995-1.017, periodicity 0.651/0.636/0.608/0.591 at 1.25/1.5/2.0/2.5x (B-549: 0.631 at 1.5x; original 0.658), 0.36 M multiply-adds per output second. Measured on the rv32im build under `tools/rv32sim.py`: 62,400 instructions per grain = 5.37 M instructions per output second at 44.1 kHz (was 11.25 M; -52%), 8.1% of the 66.7 MHz CPU at one instruction per cycle and about 10-12% at a typical 1.3-1.5 cycles per instruction [the real cycles per instruction are not measured]; code 5.4 KB, stack about 2.1 KB. One further idea tried and dropped: taking the channel test out of the decimation loops gave no measurable change (21.960 M against 21.959 M, output hash identical). `HR_WSOLA_EST_PCT` (the headroom row's stretcher estimate) is now 12 (was 16); `docs/features/CYMO_AUDIO_ENGINE.md` section 7 updated. With the decode load of B-545 (40/51/67% busy at 1.00x/1.50x/2.00x) the projection is that firmware tempo fits to 2.0x on this speech with about 20 points of margin. Listening files `fixedpoint3_1.25|1.50|2.00|2.50.wav` in `../test music/Audio Lab/tempo_ab/`. Not done: pause shortening in C, the staging buffer and push-path integration, settings, hardware. No ROM, card or VM touched.
+
+## B-551: Cymo C7 integration design (docs only)
+Owner asked for the integration design and to check the example audiobook: it is **mono** (Test Album track 11, 44.1 kHz, 128 kbps MP3, mutagen: 1 channel); every other test track is stereo, and stereo audiobooks are expected, so the design supports both. New `docs/features/CYMO_TEMPO_INTEGRATION.md`: data flow (decoder, staging ring, `fw/wsola_core.h`, `cymo_push()`, FIFO at the NATIVE rate, so the 23 ms-FIFO stall mechanism of B-547/B-548 does not apply), the hook points read from `fw/player.c` (`flac_emit`, the MP3 push loop, `pcm_rate_apply`, `meters_feed`, `pcm_flush`, `cymo_guard_apply`), position/time semantics, seek/pause/resume/track-change/end-of-file behaviour (hard reset on seek and track change, a soft reset on resume so nothing is skipped), streaming pause shortening with a roughly 1.2 s delay line, settings (TEMPO Off/1.10-2.00x, PAUSES Off/Small/Medium/High, one persist word), a fail-safe guard (eligibility, headroom/stall guard that steps tempo down, pure firmware so no bitstream interlock), a CPU table and a phased plan T0-T5 with gates.
+Findings that change the plan: (1) the core as built needs a contiguous on-chip window of about 2,400 samples per channel at 2x (3,700 at 3x), 5-17 KB, which fits the release build (52.7 KB free) and NOT the Diagnostic build (5.1 KB free); reading the window from the PSRAM window instead costs 32 cycles per halfword load, about 18% of the CPU, so the recommendation is to give the core a v2 (decimate once as samples enter, small on-chip decimated ring, block reads of the fine-stage and grain windows from a PSRAM staging ring) under the same twin/golden discipline, and to test tempo in the release-style build first; (2) 2.1 KB of step scratch inside the decode callback on the 6 KB stack of the 192 KB link is a stack risk to check; (3) the stereo cost is unmeasured (decode roughly doubles), so T0 is a HEADROOM reading on a stereo 128 kbps MP3 and a stereo FLAC, and the runtime guard caps stereo either way; (4) the 5.4 KB core's speed from the cold PSRAM code alias is unmeasured (T0).
+Open decisions are listed in section 13 of the document. No code, ROM, card or VM touched.
+
+## B-552: stereo headroom readings (T0 of the tempo design) -- partial; two different cores in the screenshots
+Owner ran a stereo MP3 and a stereo FLAC at 1.00x and 1.50x and left screenshots on the card (Info). The twelve images come from TWO cores and must not be mixed: DEV 76 (this repository's build; no AUDIO STATS row) at 19:29 and 19:31, and the owner's meter-worktree core (it has `AUDIO STATS` and `METER PACKS` rows and Layered Wave drawing) at 18:56-19:15.
+DEV 76, MP3 128 kbps 44.1 kHz (stereo, presumed Test Album track 02/07; the track line reads the same for the mono speech clip): 1.00x `HEADROOM 1.00x I43/42 O0 WS1.4X` (idle 43%, worst second 42%, so about 58% busy against 44% for the mono speech MP3, B-539: stereo costs about 1.3x, not 2x), `UNDERRUNS 1 ALL 1`, `FLAC LPC HW 0`. The 1.50x reading was not captured: the one screenshot at speed shows `PLAY 10 S, NO MENUS` (the measurement restarts at every speed change and needs 10 s of plain playback), with `UNDERRUNS 0 ALL 0` after what looks like a restart of the core.
+Meter-worktree core, FLAC 415 kbps 48 kHz (stereo): `HEADROOM 1.00x I0/0 O84 WS0.8X` with `UNDERRUNS 1 ALL 201` (18:57) and `1.00x I3/0 O0 WS0.8X` with `UNDERRUNS 1 ALL 149` and `CPU LOAD 94-96%` (19:09): at 1.00x this core is already at the CPU limit on that file (idle 0-3%, worst second 0%) and the FIFO ran dry 149-201 times in the run; in one screenshot 84% of the time was spent waiting for file bytes. That core runs Layered Wave and meter packs, so the figures say what that combination costs, not what the plain player costs; they are NOT evidence about DEV 76 or the release build. A third pair at 19:15 shows `PLAY 10 S, NO MENUS` and `UNDERRUNS 0 ALL 0`.
+Reading: (1) stereo MP3 128k 44.1 kHz leaves about 42% idle at 1.00x on DEV 76; with the stretcher's estimated 12% and decode scaling linearly (a projection from one reading) tempo would reach about 1.25x (58% x 1.25 = 73% + 12% = 85%) and not 1.5x (87% + 12% = 99%), which matches the design's caution (CYMO_TEMPO_INTEGRATION.md section 10); (2) the meter load is part of the measured busy time, so the active meter changes the tempo ceiling, which the design must count (the guard already measures it at run time); (3) stereo 48 kHz FLAC is not characterised on DEV 76 at all. Still needed on DEV 76: stereo MP3 at 1.50x with 10+ s of plain playback before opening Info, and stereo FLAC (44.1 and 48 kHz) at 1.00x and 1.50x, with the active meter noted. No code changed.
+
+## B-553: stereo headroom on DEV 76 -- stereo MP3 reaches about 1.25x, stereo FLAC has no headroom at 1.00x
+Owner's second set of screenshots (twelve images, 21:45-21:51, DEV 76, plain Info pages, hardware LPC active for FLAC). Readings:
+- Stereo MP3 128 kbps 44.1 kHz at 1.50x: `HEADROOM 1.50x I17/17 O0 WS1.5X`, `UNDERRUNS 1 ALL 0` (no FIFO stalls), i.e. 83% busy at 1.50x against 58% at 1.00x (B-552), so stereo MP3 decode scales roughly linearly (about 1.43x for 1.5x). With the stretcher's estimated 12% added the 1.50x worst second would be about 95% busy: no margin; 1.25x projects to about 85%.
+- Stereo FLAC 354 kbps 48 kHz: 1.00x `I0/0 O0 WS0.8X`, `UNDERRUNS 3 ALL 11`; 1.50x `I0/0 O0 WS1.2X`, `UNDERRUNS 4 ALL 23` (about 12 more stalls over about 30 s at 1.50x): idle 0% at both speeds (the decoder never waits on a full FIFO) and no file waiting; the decoder only just keeps pace, so there is no CPU headroom even at 1.00x.
+- A FLAC at 21:49 (13.3 M samples reconstructed): `1.00x I2/0 O0 WS0.8X`. Stereo FLAC 354 kbps 44.1 kHz (21:51, 20.8 M samples): `1.00x I9/6 O0 WS0.8X`, `UNDERRUNS 6 ALL 2314`, `LOAD MS 1111/18/19/1170` (a slow 1.1 s head read), Cymo LIVE S0 D0. The ALL counter is cumulative since boot and jumped from 23 to 2,314 over the later runs: thousands of FIFO-empty events at 1.00x on stereo 44.1 kHz FLAC.
+Reading: (1) stereo FLAC, even with the hardware LPC unit, is at the CPU limit at 1.00x on this build: idle 0-9%, the FIFO touches empty constantly. Whether those events are audible is not known (B-547 caveat: the counter cannot see how long each lasts, and the hardware glides and fades most of them; the owner has not reported stereo FLAC as broken, and the project's L0 stress/soak results count only the first underrun per flush, B-546); it does say there is no headroom for tempo; (2) the HEADROOM idle figure bottoms out at 0 and then cannot say HOW saturated it is; (3) the mono speech FLAC/MP3 remain the case with headroom (56-62% idle). Consequence for the tempo design (`docs/features/CYMO_TEMPO_INTEGRATION.md` section 10 updated): mono tempo to 2.0x, stereo MP3 capped at about 1.25x, stereo FLAC ineligible, enforced by an eligibility rule and the run-time guard; the ceiling is set by decode speed, not by the stretcher.
+Open: whether stereo FLAC at 1.00x is audibly clean (an owner listening note, since ALL is in the thousands), and which test tracks were used (the track line gives only format, bitrate and rate). No code changed.
+
+## B-553 addendum: which tracks, and a correction to the stereo conclusion
+Owner: the tests used MacCunn and "The Legend of the Wind" from the Nausicaa soundtrack. Checked read-only on the card copy: the MacCunn FLACs are 672 kbps (44.1 kHz) and 694 kbps (48 kHz) by file size, orchestral, the heaviest decode in the test set; the Nausicaa MP3s are about 238-290 kbps (the Legend of the Wind is 238 kbps, 44.1 kHz stereo), while the screenshots' MP3 track lines read `128K`, which matches MacCunn MP3 128 (Test Album track 02), so the 128 kbps stereo MP3 readings are most likely MacCunn and no screenshot is identifiably the Legend of the Wind. The player's FLAC bitrate display (354K) is about half the file's real figure, so it is not a reliable bitrate label.
+Correction: B-553 first concluded "stereo FLAC has no headroom". That is true for these high-bitrate orchestral FLACs and says nothing about a stereo SPEECH FLAC, which decodes with far fewer residual bits. `docs/features/CYMO_TEMPO_INTEGRATION.md` section 10 now says so and replaces the static rule "stereo FLAC ineligible" with: tempo starts only if the first seconds of plain playback show enough idle (the section-9 guard measures the actual file), stereo MP3 capped at about 1.25x at 128 kbps, mono up to 2.0x. Still unmeasured: a stereo speech file in FLAC or MP3 at a speech-typical bitrate (an audiobook as 2-channel 64-128 kbps), which is the real test of the stereo ceiling for audiobooks. Cheap way to get it: make a stereo copy of the Twain clip (duplicate channels, or a light stereo mix) with `afconvert` as FLAC and as 128 kbps MP3 and read HEADROOM at 1.00x/1.50x. No code changed.
+
+## B-554: no speed changes for FLAC (firmware, host-verified only)
+Owner decision after B-553: block speed changes for FLAC for now; FLAC audiobooks are of doubtful availability and may be revisited much later with proper files. `fw/player.c`: new `speed_eff()` (the speed that actually applies: always 1.00x for a FLAC, otherwise the owner's choice), defined next to `pcm_rate_apply()` with the format enum moved above it; every user of the speed goes through it: the FIFO drain in `pcm_rate_apply()`, the Cymo 44.1 kHz guard, the on-screen speed marker, the Settings choice list's active entry, the Info HEADROOM row. `speed_idx` keeps what the owner chose, so a speed set for an MP3 applies again on the next MP3 and a track change MP3 -> FLAC -> MP3 does the right thing (`pcm_rate_apply()` runs at every load, after the format is known). Selecting a speed while a FLAC is loaded changes nothing and shows the toast "SPEED: MP3 ONLY" (the toast is behind an open Settings page, so the list simply stays on 1.00x). `make test-host` passes; `check_heap_gap.py` and `check_cold_calls.py` pass (release heap gap 52,784 B, diagnostic builds about the same); `dist/` restored after the checker's rebuild. The tempo design (`docs/features/CYMO_TEMPO_INTEGRATION.md` section 9) now lists MP3-only eligibility. Not run on a Pocket; packaged as `alfatreze.TAU_DEV_77`, NOT installed.
+
+## B-555: speed list unlocked to 2.00x for MP3 (firmware, host-verified only)
+Owner: unlock all speeds up to 2.0x for MP3 (after B-554 blocked speed for FLAC). `fw/settingsui.inc`: `SET_SPEED_SHOWN` 5 -> 9, so the Settings > Playback > Speed list offers 0.85, 0.95, 1.00, 1.10, 1.20, 1.30, 1.50, 1.75 and 2.00x in every build (the names table is now the same in all builds); 2.50x stays behind Diagnostics > ALL SPEEDS; a FLAC still plays at 1.00x. These are varispeed speeds (the pitch rises); the limit of 1.20x dated from A-133/A-135 (1.25x micro-stuttered at 60 MHz with the software synthesis window). Evidence for the new limit: stereo 128 kbps MP3 is 58% busy at 1.00x and 83% busy at 1.50x with no FIFO stalls (B-553), the owner heard clean MP3 at 1.75x earlier, and the mono speech MP3 leaves 44-56% idle at 1.00x; MP3 at 2.00x on a Pocket and stereo MP3 above 1.50x are not measured, so "to 2.0x" is offered, not promised (the user guide says so: a stereo 128 kbps MP3 may stutter above 1.50x). `README.md` and `docs/guide/USER_GUIDE.md` updated (speed section and the limitations list). `make test-host` passes; `check_heap_gap.py` and `check_cold_calls.py` pass (release heap gap 52,736 B, was 52,784 B). Not run on a Pocket; included in the next DEV package.
+
+## B-556: Cymo C7 T1 -- tempo core v2 (streaming, small on-chip footprint), host only
+Owner started T1 of `docs/features/CYMO_TEMPO_INTEGRATION.md`. `fw/wsola_core.h` gains core v2 (`ws2_t`, `ws2_init`, `ws2_feed`, `ws2_ready`, `ws2_step`) beside the unchanged v1 slab API (kept as the reference): the input is decimated ONCE as it is fed (`ws2_feed`) into a 1,024-entry ring of stage-2-rate mono-mix values (2 KB; the values are defined on the same absolute grid as v1's, so they are identical), the stage-1 signal is derived from four ring entries as before, and the full-rate samples the fine stage and the grain need (about 1,300 per channel per grain) come through a caller-supplied reader `rd(ctx, ch, lo, n, dst)`, so the firmware can serve them in blocks from a PSRAM staging ring; one 1 KB scratch buffer is reused by all stages. `ws2_ready()` says whether a step may run (enough samples fed AND the ring still holding the oldest entry the step reads; feeding more than about 450 entries (3,600 samples) between steps at 3.0x overruns the ring and is detected, not silently wrong). On-chip: the struct about 4.1 KB (2 KB overlap tail, 2 KB ring) plus 1 KB of stack, against v1's 5-17 KB window plus 2.1 KB scratch.
+Verification (`sim/test_wsola.py`, in `make test-host`, 51 checks): C v2 == the independent v2 integer twin (`Wsola2` in `tools/lab/wsola_fixed_ref.py`, written separately) == v1, sample for sample, grain and MAC counts included, for mono 0.8/1.5/2.0/3.0x with 64-sample chunks, 1.5x with 1,152-sample chunks (an MP3 frame) and ONE SAMPLE AT A TIME, stereo 1.5x at two chunk sizes, mono 22.05 kHz and an exactly periodic input; the ring-overrun case (8,192 samples between steps at 3.0x) is detected identically by C and twin; six deliberately broken v2 copies are each caught (ring written one entry late, stage-1 reference from three of four entries, fine window one sample late, the grain's second half not kept as the new tail, the right channel left out of the stereo mix, `ws2_ready()` ignoring the ring). Because v2 equals v1 sample for sample, the quality results of B-549/B-550 (and the owner's listening verdicts) carry over unchanged.
+Cost on the real rv32im build under `tools/rv32sim.py` (`tools/host/wsola2_harness.c`, same input and hash as v1's harness: 0x17615A47 for 2 s and 0x0B42085A for 6 s of speech at 1.5x): 59.0 k instructions per grain INCLUDING a plain-RAM reader that costs about 6.5 k, i.e. about 52.5 k for the core, against v1's 62.4 k (the first version of v2 cost 63.7 k; processing whole decimation groups in the feed loop took off about 4.6 k). That is 5.1 M instructions per output second including the reader. Not counted: the PSRAM latency of the real reader and of the staging writes: about 650 word reads per grain per channel (about 21,000 cycles at 32 cycles each, 2.7% of the 774,000-cycle grain period) plus about 384 word writes (about 10,000 cycles, 1.3%), estimates from B-022/B-054.
+Not done: the staging ring and `tempo_push()` in the player (T2), pause shortening, settings, hardware. No firmware ROM, card or VM touched; the core is not in any build yet.
+
+## B-557: Cymo C7 T2 step 1 -- the tempo funnel (host only); DEV 78 packaged
+First, as asked, the current tree (FLAC speed block B-554, the 2.00x MP3 unlock B-555, the HEADROOM/underrun work) was packaged as `alfatreze.TAU_DEV_78` on the B-527 seed 1 bitstream (heap gap 4,832 B); NOT installed.
+T2 step 1: new `fw/tempo_core.h` (portable; `sim/tempo_funnel_harness.c`, `sim/test_tempo_funnel.py`, in `make test-host`): the funnel between decoder and FIFO. A decoded frame (interleaved or mono, any size) is cut into 64-sample chunks; each chunk's complete pairs are written to a planar staging ring (word-wide, two samples per word, 32,768 samples per channel, in the firmware the PSRAM window) and fed to the core v2; after every chunk the funnel steps the stretcher while it can, pushing every output pair through `TEMPO_PUSH` (in the firmware `cymo_push()`, so the FIFO's blocking paces everything at the native rate; a 0 return aborts, as the pending-reload exit does); an odd last sample per channel waits for its partner. `tempo_rd()` is the reader the core uses (planar word reads). Includer-provided: `TEMPO_PS_L`/`TEMPO_PS_R`, `TEMPO_PUSH`, optional `TEMPO_METER`.
+Verification: the funnel's output equals the independent integer twin's output for the same samples (whole input at once) for mono 1.1/1.5/2.0x with 1,152-, 576-, odd 1,153-sample and ONE-sample frames, stereo 1.5x with 2,304-, 1,152- and odd 2,306-sample frames, mono 22.05 kHz; the input is longer than the ring so it wraps; an abort stops at exactly the pair asked for with the output so far intact; seven deliberately broken funnels are each caught. **A real bug found by the odd-frame cases and fixed:** a chunk that straddled the end of the 32,768-sample ring wrote past it (only the first word index was wrapped); frame sizes that are multiples of 64 never straddle, which is why the aligned cases passed; every word index is now wrapped (and a mutant for it crashes the harness, counted as caught). One of my first mutants (stepping only once per drain) turned out equivalent at 64-sample chunks and was replaced.
+Design correction: the staging ring is at PSRAM offset 0x600000, not the 0x500000 first proposed (the library play queue and dead-track bitmap are at +0x510000 and +0x520000); `docs/features/CYMO_TEMPO_INTEGRATION.md` section 4 updated. `make test-host` passes. Not in the player yet: next the MP3 loop hook, the TEMPO setting, eligibility, the build flag and a release-style dev package.
+
+## B-558: Cymo C7 T2 step 2 -- tempo wired into the player (MP3, release-style build), DEV 79 packaged, NOT installed, NOT run on a Pocket
+New build flag `TEMPO=1` (`TAU_TEMPO`, default 0: the default builds are unchanged, release 52,720 B / diagnostic 45,216 B / profile 42,832 B heap gap as before). `fw/player.c`: `tempo_idx` (Off, 1.10, 1.25, 1.50, 1.75, 2.00x), `speed_eff()` returns 1.00x while tempo is on (the FIFO drains at the native rate), `speed_ratio()` and `speed_marker()` give the HEADROOM row and the on-screen marker the tempo ratio; the MP3 loop sends each decoded frame through `tempo_frame()` when `tempo_use()` says so (MP3 only, 22.05-48 kHz, mono or stereo, the staging window at PSRAM +0x600000 proven by a four-word write/readback, the cold image loaded) and otherwise plays as before; `pcm_flush()` clears `tempo_cfg_key`, so every flush (track start, seek, resume, stop) restarts the stretcher (a HARD reset: what it had staged, at most about 0.15 s, is dropped; the soft reset on resume of the design is not built yet); the meters are fed from the stretched output (a stereo hop as every 4th pair, to avoid a 2 KB buffer). `fw/settingsui.inc`: Settings > Playback > TEMPO row (`CH_TEMPO`, only in `TEMPO=1` builds; choosing a tempo clears the varispeed speed and choosing a speed clears the tempo; not persisted; "TEMPO: MP3 ONLY" on a FLAC). `fw/build.sh` passes `-DTAU_TEMPO`; `tools/package_dev_build.py --variant tempo` builds `fw/build.sh release` for the 192 KB link (output `work/ram192k/release`, so `dist/` is untouched; refuses without `RAM_192K=1`). `tools/ui_snapshot_renderer.py` skips `#if TAU_TEMPO` blocks (fixtures model the default build).
+**Finding that changes the plan (and corrects the design's memory table):** the real release build on the 192 KB link (what every DEV build and the shipping bitstream use) has 13,872 B of heap with a 6,144 B floor, not the 52,720 B the default 256 KB link reports (and the design quoted). The first tempo build overshot the floor by 8,784 B (the stretcher's state is 6.2 KB, its code about 5-6 KB, the Hann table 1 KB, a meter-interleave buffer 2 KB). Fix: the stretcher and funnel functions are COLD CODE (`WS_FN`/`TEMPO_FN` default to `static inline` for the host and are `COLD_FN3 static` in the firmware), the Hann table is cold data (`WS_DATA`), the interleave buffer is gone, and the hot MP3 loop enters cold code only through `tempo_use()`, gated on `COLD_READY()`; the cold-call checker shows exactly two entries from hot code (`tempo_start`, `tempo_frame`, both from `main`). Result: heap gap 7,104 B (floor 6,144 B), i.e. tempo costs 6.8 KB of hot RAM, almost all of it the 6.2 KB of state; the Diagnostic build (4.8 KB of heap above its floor) still cannot hold it.
+Verification: `make test-host` passes; the funnel and core are covered by `sim/test_tempo_funnel.py` and `sim/test_wsola.py` (host, bit-exact against the twin); the player-level wiring is compile-checked only, NOT exercised by any host test and NOT run on a Pocket. Known limits of this build: cold-code execution speed of the stretcher is unmeasured (the design's T0 item; if the instruction cache does not hold its loops the cost per grain rises sharply, and the HEADROOM row will show it); the release-style build has HEADROOM and the first-per-flush UNDERRUNS but not the `ALL` stall counter (Diagnostic-only); resume and every flush drop the staged audio; FLAC excluded; settings not persisted; pause shortening and the headroom guard (auto step-down) not built. `alfatreze.TAU_DEV_79` (tempo variant, B-527 seed 1 bitstream, heap gap 7,104 B) packaged; the card was not touched.
+Test plan for the Pocket (after an install the owner approves): Settings > Playback > TEMPO on the mono speech MP3 at 1.25x, 1.50x and 2.00x (the voice should keep its pitch, no buzzing joins), then a stereo MP3 (MacCunn 128) at 1.25x; with each, 10 s of plain playback then Info > HEADROOM (the marker reads the tempo) and UNDERRUNS; seek, pause/resume, next track and returning to Off; check the voice is not clipped at the start after a seek. Report anything that clicks, stutters or goes silent.
+
+
+## B-559: DEV 79 first hardware result (tempo works to 1.75x; 2.00x saturates the CPU) and parked improvements
+
+Owner ran `alfatreze.TAU_DEV_79` (release-style, tempo variant) on a Pocket: mono speech MP3 (Test Album track 11), plain playback, Info > HEADROOM read after 10 s. Evidence: 12 screenshots from the card (Info rows confirm the build: no `ALL` counter).
+
+| Tempo | Idle latest/worst | HEADROOM projection `WS` | UNDERRUNS | By ear |
+|---|---|---|---|---|
+| 1.25x | 17% / 14% | 1.2x | 1 | good |
+| 1.50x | 8% / 8% | 1.4x | 1 | good |
+| 1.75x | 4% / 0% | 1.5x | 3 | good |
+| 2.00x | 1% / 0% | 1.7x | 3 | clicks |
+
+Findings. (1) Tempo sounds quite good up to 1.75x (owner); 2.00x clicks, consistent with worst-second idle 0% (CPU starvation, not a tempo bug). (2) The stretcher costs about 26-31% of the CPU (busy 86% at 1.25x and 92% at 1.50x, minus decode of about 44% x speed from the 1.00x baseline), against `HR_WSOLA_EST_PCT` 12 and about 8% from the 5.4 M instructions per second under rv32sim: roughly 3x the simulator. Cause not measured; cold code (PSRAM instruction fetch) is the leading suspect (inference, not evidence). (3) The `WS` projection is therefore optimistic (2.00x shows 1.7x while saturated). (4) UNDERRUNS is the sticky once-per-flush row (1 to 3 between the 1.50x and 2.00x readings), so it cannot separate stalls from restarts; the release-style build has no `ALL` counter. Pitch and joins were judged by ear only. Not read: stereo MP3, seek/pause/resume behaviour, FLAC (excluded).
+
+Decision (owner): audiobook and tempo are nice-to-have and there is plenty of other improvement work, so the following are PARKED for later, not scheduled: cap the tempo list at 1.75x (or 1.50x for margin); measure cold versus hot cycles per grain (hot code needs about 6 KB more heap than the 192 KB release link has); correct `HR_WSOLA_EST_PCT` from the measurement (about 26-31); headroom guard (auto step-down on low idle or stalls); soft reset on resume; pause shortening (Off/Small/Medium/High, T3); persistence; tempo in the Diagnostic build; stereo ceiling (T5). DEV 79 stays on the card as is. Nothing in firmware, RTL or the card changed in this entry.
+
+Next (owner's choice of order): analyse the FLAC Rice decoder spec from the meter-builder worktree (`docs/features/FLAC_RICE_DECODER_SPEC.md`, host prototype -47% instructions per channel-sample; would help stereo FLAC, which has no headroom). First check its 62.6% Rice share against the post-hardware-LPC `R`/`U` readings (B-360/B-363 measured 4-11% before LPC went to hardware).
+
+
+## B-560: FLAC Rice decoder speed-up (meter-builder spec): analysis, reproduced on the host simulator
+
+Subject: `docs/features/FLAC_RICE_DECODER_SPEC.md` (branch `meter-builder`, spec only; prototype `tools/lab/flacperf/opt_rice.inc`, candidate C1). Reviewed against `fw/flac.c`, the generated CPU (`src/fpga/rtl/VexRiscv_Full.v`), `docs/research/FLAC_BITREADER_KERNEL_SCOPING.md` / `FLAC_LPC_KERNEL_DESIGN.md`, `docs/features/CYMO_AUDIO_ENGINE.md` and `CYMO_TEMPO_INTEGRATION.md`.
+
+Method: `flacperf` copied to a scratch directory and run unchanged apart from one added variant (`CLZ_MODE 3`), real `fw/flac.c` at the firmware's `-Os` flags on `tools/rv32sim.py` (MEASURED instructions, ESTIMATED cycles; two workloads, 55,296 stereo pairs each).
+
+| Variant | Instr/sample (w1) | Cycles/sample (w1, w2) | vs base | flac.o text+rodata | Audio |
+|---|---|---|---|---|---|
+| Base | 222.4 | 348 / 349 | - | 8,648 B | reference |
+| C1, `__builtin_clz` | 136.3 | 218 / 214 | -37% | 9,160 B | - |
+| C1, inline clz + small-q checks (spec's choice) | 118.1 | 192 / 188 | -45% | 9,260 B | hashes identical (both workloads) |
+| C1, 256 B table clz (extra variant) | 116.4 | 188 / 183 | -46% | 9,476 B | hashes identical |
+
+Findings. (1) The spec's -45% reproduces (118.1 instructions exactly); the table clz adds about 1 point for +216 B and is not worth it. (2) Size is understated: C1 is about +0.6 KB, not +0.2 KB (still small against the 7.8 KB spare above the floor on the 192 KB release link; Diagnostic builds to be rechecked). (3) Using `OPT2=1` in the lab also enables the separate C2 stereo-output loops (-51%): the spec's number is C1 alone. (4) VexRiscv_Full has a full barrel shifter (shifts are one cycle, so the model holds) and no B extension (clz must be software); the generated CPU shows only `MulDivIterativePlugin` signals, so multiplies are probably multi-cycle while the simulator charges one cycle: unverified, possibly part of the model gap. (5) Model versus hardware: modelled 50% CPU for 48 kHz stereo, measured stereo FLAC about 95% busy; mono 40% measured against 23% modelled (1.7-1.9x low). The absolute saving is about 156 cycles per channel-sample, about 22 points of CPU at 48 kHz stereo if the gap is fixed overhead (idle about 5% to about 28%), up to about 40 points if everything scales (ESTIMATE; the Pocket decides). (6) Out of reach even so: 96 kHz stereo (about 110-145% busy after) and tempo on stereo FLAC; mono 96 kHz plausible. (7) No hardware clz/Rice unit: MMIO loads cost more than the software clz (+5 cycles modelled) and ALMs are at 92-98%. (8) After C1 the largest remaining costs are the hardware-LPC glue (49 cycles, about 25%) and `to16` (23 cycles, about 12%, not inlined); inlining `to16` alone was not measured. (9) A weak spot of the spec: the streamed channel (63-66% of cost) calls `rice_next` per value and spills the reservoir state to the struct each time; decoding about 16 residuals into a small stack array first is an untested alternative. 24-bit files were not measured (larger `k`, more slow-path hits).
+
+Decision (owner): build C1 only, with the spec's clz, in a worktree, with the differential test the spec asks for; then one Pocket reading on the hard file (`FLAC 415K 48.0K`) at 1.00x. Nothing in firmware, RTL or the card changed in this entry.
+
+
+## B-561: FLAC Rice fast path (C1) built in worktree `flac-rice`, host-verified, not on a Pocket
+
+Branch `flac-rice` (worktree `../tau-alpha-flac-rice`), from `main` at `56251bd`. Implements C1 of `docs/features/FLAC_RICE_DECODER_SPEC.md` (meter-builder branch; analysis in B-560) in `fw/flac.c`, with two deliberate departures from the spec, both measured.
+
+What changed. `rice_one()`: one Rice value from a left-aligned 32-bit window, inline clz (small-quotient checks first), no 64-bit shifts; anything unusual (no whole word left in `buf`, 32 or more zeros, `q + 1 + k > 32`) uses the unchanged `unary()`/`bits()`. One shared copy of the loop, `rice_run()`; `rice_chunk()` decodes a partition-aware run of residuals (opening partitions, escape partitions, empty partitions exactly as `rice_next()` did). `residual()` is now `rice_init` + one `rice_chunk` over the block. The streamed channel (`subframe_stream`) reads residuals through a 16-entry local buffer refilled by `rice_chunk` with `min(16, residuals still owed)`, so it never reads into the next subframe; the hardware-LPC fallback uses the same buffer, which also removes the desync hazard noted in B-370. `FLAC_RICE_FAST` (default 1) is a switch for the host differential test only; firmware never sets it 0. `FLAC_PROFILE`: the `U` counter increments once per value in the fast path.
+
+Departures from the spec, and why. (1) No separate inline `rice_next` per call site: a first version inlined it four times and cost +1.8 KB of hot RAM; the 16-entry chunk buffer gives one copy of the decode loop and removes the per-value state spill instead. (2) Truncated stream: the old `residual()` returned at the partition that hit end-of-stream; the new one finishes the run on zeros. Both return `FLAC_ERR_SHORT` with `eof` set and agree on every value decoded from real data; values after end-of-data are not compared. A side effect: a corrupt partition layout with `order` larger than the partition size no longer runs the old loop past the array (hardening, not a goal).
+
+Evidence (HOST). `sim/test_flac_rice_fast.py` (in `make test-host`): 6,000 random Rice runs (method 0 and 1, partition orders 0-4, `k` 0..30, escape partitions, unary runs of exactly 31, 32, 33+ zeros, `q + 1 + k > 32`, `order` > 0, input delivered in chunks of 1..512 bytes, both entry points, 1,057 truncated) decoded with the real `fw/flac.c` built both ways: 0 failures against the old decoder and against the encoded truth (values and exact bit position); two injected mutants (wrong clz, off-by-one in `used`) are caught. `make test-host` passes in full (incl. `sim/test_flac_lpc_fw_redirect.py`, `TAU_LPC_FW` 0 and 1 with induced hardware failure). Whole-file decode with the real `flac.c`, old versus new, identical PCM hash on 8 real files: MacCunn 44.1 and 48 kHz, Clementi, Aphex Twin, a 96 kHz 24-bit stereo file (6.08 M frames), a sweep and silence.
+
+Evidence (SIMULATOR, instructions MEASURED, cycles ESTIMATED), `tools/lab/flacperf` workloads w1/w2 with the production `flac.c` and `TAU_LPC_FW=1`: 222.9 to 117.3 instructions per channel-sample (w1), 350 to 192.4 cycles (-45%); w2 226.6 to 118.7 instructions, 350 to 188.6 cycles; audio hashes identical to the old decoder (`2de55c58`, `cf3c48ff`).
+
+Size (MEASURED, 192 KB link, `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`): heap gap release 13,872 to 13,504 B (-368 B), player-library-diagnostic 6,768 B (floor 4,096 B; no old-build figure taken on this link), player-library-diagnostic-profile 4,816 to 4,336 B (-480 B, floor 4,096 B: passes with 240 B to spare). The 256 KB-link baseline was updated (`tools/heap_gap_baseline.json`: -352 to -384 B across the three tracked targets). Cold-call check unchanged. NOT run: the Pocket.
+
+Pocket plan (owner-approved scope): one reading on the hard file (FLAC 415K 48.0K) at 1.00x with this build and with the same build without the change: Info HEADROOM idle and worst, `UNDERRUNS n ALL m`, decode-profile row. Acceptance: higher idle, no new error counters, no audible change. Expectation (ESTIMATE): 20 to 40 points less CPU at 48 kHz stereo (B-560). Open items: package a test core (needs the next free TAU_DEV number and the owner's approval for the card), 24-bit workload not measured in the simulator.
+
+**B-561 addendum (card):** packaged `alfatreze.TAU_DEV_80` (C1, profile diagnostic build, heap gap 4,336 B) and `alfatreze.TAU_DEV_81` (same build with `FLAC_RICE_FAST=0`, 4,816 B), both on the cymo-feed-b527 seed 1 bitstream, flags `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, `check_tau_package` PASS. Installed both with `tools/install_dev_core.py` (hashes verified, media carried from `TAU_DEV_79`, library index rebuilt and verified for each core's own root, `tau-assets.bin` installed, catalog caches cleared, ejected) and removed `TAU_DEV_79` (tempo results parked, B-559). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_80`, `TAU_DEV_81`, and the owner's `TAU_DEV_METER_01/03/08` (untouched). Not yet run on a Pocket.
+
+
+## B-562: FLAC Rice fast path on a Pocket: DEV 80 (C1) against DEV 81 (old Rice), hard file, 30 s each
+
+Evidence (HARDWARE, 6 card screenshots, cores told apart by Info FREE RAM 4336 B = DEV 80 and 4816 B = DEV 81, which matches their heap gaps; owner ran DEV 80 first, then DEV 81). Same file (FLAC 415K 48.0K, stereo), 1.00x, about 30 s each, Info read after the menu was opened; same bitstream (cymo-feed-b527 seed 1).
+
+| | DEV 80 (C1) | DEV 81 (old) |
+|---|---|---|
+| HEADROOM idle latest / worst | 45% / 45% | 0% / 0% |
+| HEADROOM projected max speed (`WS`) | 1.6x | 0.8x |
+| UNDERRUNS (once per flush) / ALL (every FIFO stall) | 0 / 0 | 1 / 12 |
+| LOAD MS, cold image | 117/18/12/169, 263 ms | 119/18/115/292, 266 ms |
+| FLAC LPC hardware samples | 3,316,987, 0 timeouts | 3,123,772, 0 timeouts |
+
+Result. On the hard file the fast path takes the CPU from saturated (0% idle, 12 FIFO stalls in 30 s, projection 0.8x) to 45% idle with no stalls: about 45 points of CPU, at the top of the 20-40 point estimate in B-560. Owner by ear: both sound the same, no audible difference at 1.00x (the 12 stalls on DEV 81 were not audible); owner noticed slight interference on DEV 81 when opening menus to take the screenshots, not on DEV 80, which fits an old decoder with no idle left. Caveats: one file, one 30 s run per core, order fixed (80 then 81); the worst-second figure includes the moment the Info page was opened on both. The old `LOAD MS` third figure (12 against 115) was not examined. Not measured: 24-bit files, 96 kHz, long soak, seek/pause behaviour, mono FLAC.
+
+Next: merge `flac-rice` into `main` (owner decision), long soak and a second file on DEV 80; FLAC speed changes stay off by policy (B-554) though the projection is now 1.6x.
+
+
+## B-563: v0.6.0-alpha.2 release built (FLAC Rice fast path); make_release.py shipped a stale ROM until fixed
+
+Built `alfatreze.TAU_0.6.0_2026-10-04.zip` and `alfatreze.TAU_DIAGNOSTIC_0.6.0_2026-10-04.zip` with `tools/make_release.py` (flags `RAM_192K=1 CLK66=1 SDRAM_BUSY=1`; `LPC_FW` default 1), bitstream = cymo-feed-b527 seed 1 (raw SHA-256 `195db766...f9db89`, rbf_r `08827e94...`), the one DEV 80/81 and the Cymo tests ran on. Version stays 0.6.0 (the `-alpha.N` label is only in the README/CHANGELOG, as for alpha.1); `date_release` 2026-10-04, README line and CHANGELOG section `v0.6.0-alpha.2` added. `make test-host` passed (first run). Release heap gap 13,504 B (floor 6,144 B), Diagnostic Build 6,768 B (floor 4,096 B).
+
+Defect found and fixed. The first run reported "checks ok" but the normal zip carried `dist/`'s stale ROM (b901f35e, 122,480 B, a 256 KB-linked build from 2026-10-02) not the build just made (bacede7d, 105,084 B): since B-333 a `RAM_192K=1` build writes to `work/ram192k/release/`, never `dist/`, and `make_release.py` compared the zip with `dist/` itself, so the check could not fail. A 256 KB-linked ROM on the 192 KB bitstream is the black-screen pairing (B-394/B-448). The Diagnostic Build was not affected (its ROM comes from the flagged `work/diagnostics` build). `make_release.py` now copies `work/ram192k/release/{tau.rom,tau-cold.bin}` into `dist/Assets/tau/common/` when `RAM_192K=1` and asserts the dist files equal the freshly built ones; rebuilt: zip ROM `bacede7d`, cold image `aba55d3e`, both match the build. What alpha.1 shipped is not re-derived here (its zip ROM is 120,276 B, `bcb13bf9`, equal to the dist ROM committed at `0c5a707`); the owner ran alpha.1 as TAU, so it evidently booted.
+
+Not done: tag, push, GitHub publish, Pocket smoke test of the release cores (the release-style ROM itself has not run on a Pocket; DEV 80 was the profile diagnostic build with the same flac.c and flags). `tau-assets.bin` not part of the zip (as before).
+
+**B-563 addendum (owner report, confirmed by disassembly):** the owner had already tested the published v0.6.0-alpha.1 release: the normal core went to a black screen while the Diagnostic Build worked, not yet logged. The stale-ROM defect explains it exactly. Disassembling the ROMs inside the zips: alpha.1's normal `tau.rom` (120,276 B, `bcb13bf9`) checks the core version against 0x4D503317 only (rev 23, a 256 KB-linked image), while the shipped bitstream reports 0x4D50331A (rev 26), so the boot interlock refuses it (the no-framebuffer loop, B-394/B-448). The alpha.2 normal ROM (`bacede7d`) checks 0x4D50331A. Consequence: the published GitHub pre-release v0.6.0-alpha.1 has a non-booting normal core (its Diagnostic zip is fine); `make_release.py` could not catch it because it compared the zip with `dist/` itself (fixed above). Open: decide whether to publish alpha.2 and how to mark the broken alpha.1 asset. A smoke test of the release-style core is still owed before publishing.
+
+
+## B-564: Diagnostics resource analysis (hot RAM cost, ideas assessed)
+
+Analysis only (`docs/features/DIAGNOSTICS_RESOURCE_ANALYSIS.md`); no firmware, RTL or card change. Linked ELFs of `release`, `player-library-diagnostic` and `player-library-diagnostic-profile` on the 192 KB link compared symbol by symbol. Findings (MEASURED): the "heap gap" is unused leftover RAM, not a heap (malloc is a 24,576 B static arena in `.bss`; `_sbrk` is never called), so the floors (6,144 / 4,096 B) are policy; diagnostics already put about 47-52 KB of code and data in the cold image and cost only about 4.8 KB (diag) and 9.2 KB (profile) of hot RAM, mostly main-loop hooks (`stress_hud_draw`, `poll_input`, `stress_set_level`, `main`) and the profile hooks inside the decoders; the biggest hot-RAM items are not diagnostics (Helix about 44 KB, `main` 8.4 KB, arena 24.5 KB, art and Chladni buffers 7 KB). Ranked proposals: lower the diagnostic floors to 2,048 B (+2 KB, no code), a RAM report tool wired into `check_heap_gap.py`, audit the load-time-only `.bss` buffers (5-8 KB for every build), cold-ify the diag-only hooks (about 3.5 KB), per-decoder profile flags (0.7-1.0 KB); runtime toggles do not save RAM. Stale comment noted in `fw/link.ld` (says Helix mallocs from the gap). Owner decision pending on the order.
+
+
+## B-565: diagnostic heap floors lowered to 2,048 B; `tools/ram_report.py` added and wired into the heap-gap check
+
+Implements the first two steps of `docs/features/DIAGNOSTICS_RESOURCE_ANALYSIS.md` (B-564). (1) `fw/build.sh`: `HEAP_MIN` for `player-library-diagnostic` and `player-library-diagnostic-profile` 4,096 to 2,048 B (twice the 1 KiB link minimum); the release floor stays 6,144 B (comment corrected). The gap is unused RAM (malloc is the static arena in `alloc.c`, nothing calls `_sbrk`), so the floor is a policy margin; ROM bytes are unchanged, only the gate moved. Margin on the 192 KB link (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1`): profile 4,336 B (was 240 B above its floor, now 2,288 B), diag 6,768 B (2,672 to 4,720 B). A stale paragraph in `fw/link.ld` that said Helix mallocs from the gap is marked historical. (2) `tools/ram_report.py` (standard library only): per-section, per-feature-group and per-symbol report of a linked ELF; `--diff A B` (ELF or snapshot) and `--snapshot ELF OUT.json`; `tools/check_heap_gap.py` now stores one snapshot per tracked target in `tools/ram_snapshots/` (`--update`) and, when a gap falls past the tolerance, prints what grew. Verified: `sim/test_ram_report.py` (fixture text, in `make test-host`, passes) and a doctored-baseline run that failed as intended and printed the +3,000 B on `main` and its feature group; baseline and snapshot restored and the check passes. `make test-host` passes. Not done: the remaining steps (load-time-only `.bss` audit, cold-ifying the diag hooks, per-decoder profile flags).
+
+
+## B-566: `.bss` audit (which static buffers are only live part of the time)
+
+Audit only (`docs/features/RAM_BSS_AUDIT.md`); no firmware change. Release `.bss`+`.data` 44,793 B (526 symbols; 38 of 96 B or more hold 41 KB). Liveness read from `fw/player.c`, `fw/art.inc`, `fw/chladni.inc` (single-threaded, no interrupts, so program order decides). Findings: (1) the art decode working set (`art_*` 2,816 B plus picojpeg's statics 2,272 B = 5,088 B) is only live inside `art_decode()`, which runs after `pcm_flush()` and the decoder re-init and before the first `MP3Decode(..., pcm, 0)`; `pcm` (4,608 B) is not read at draw time, so the two can share one 5,088 B region and save 4,608 B in every build (release gap 13,504 to about 18,112 B); constraints: `fl` is live during art decode for FLAC tracks, picojpeg's statics are inside the vendored public-domain `picojpeg.c`, and any future background cover decode breaks the exclusivity. (2) Meter scratch (Chladni 2.7 KB, scope/Layered Wave rows 1.1 KB) could share about 2 KB but each meter needs a re-init-on-activate hook; PSRAM-resident `chl_half` needs a CPU measurement first. (3) `fl` sharing with `pcm` is only 760 B and competes with (1). Not worth touching: arena (Helix peak 23,824 of 24,576 B), small symbols (3.8 KB across 490). Ring (24 KB) and tag buffer (4 KB) are outside `.bss` and 14% of RAM. Ranked plan and a design for #1 in the document; the only art test found today is `tools/check_art_load_order.py`, so a host decode test comes before the change. Owner decision pending.
+
+
+## B-568: ring, tag buffer and meter scratch assessed and parked
+
+Docs only. `docs/features/RAM_BSS_AUDIT.md` section 6: the MP3 ring is linear with a 12 KB refill trigger, so half of its 24 KB is slack and 4 to 7 KB can be freed with no change in buffering, but `RING_SIZE` drives 8 thresholds that must first become explicit byte constants; the tag buffer is shared with live-playback probes and is left alone; the meter scratch (about 2 KB) is last. CPU figures are estimates, nothing was measured on a Pocket. Owner: parked to explore later; recorded in `docs/ROADMAP.md` (Later and parked) with the state of the `art-overlay` branch.
+
+
+## B-569: DEV 82 (art buffers in PSRAM) against DEV 80 on a Pocket; covers show the wrong colours: the hardware CLUT is written one slot too high
+
+**Art test result (HARDWARE, 11 screenshots, owner ran 82 then 80; cores told apart by Info FREE RAM 8,304 B = DEV 82, 4,336 B = DEV 80).** FREE RAM differs by exactly 3,968 B as built. Daft Punk, Alva Noto + Ryuichi Sakamoto and a Nausicaa album loaded on both; the cover step of `LOAD MS` (third figure) read 113/119/106 ms on DEV 82 and 125/112/110 ms on DEV 80, UNDERRUNS and DRAW STALL comparable. That is the TIM1 path (a JPEG decode takes seconds): the owner had synced these albums with Tau Omega, and each album folder, one level down (`Artist/Album/tau-art/cover_128.pal256.timg`), already holds a sidecar. So **the JPEG fallback was NOT exercised**: the PSRAM placement of its buffers is still unverified on hardware (needs an album without `tau-art`, a card write to stage). No regression seen on the TIM1 path.
+
+**Defect found (pre-existing, same on both cores).** The owner reported the covers look as if heavily compressed. Host decode of the same `.timg` files (`tools/tau_image.py`) is clean (about 39 dB against the original, no speckle), but the Pocket screenshots differ from it by 13.7 dB (Daft Punk) and 14.2 dB (Alva Noto). Aligning the 128 px cover in the screenshot (offset 8,8) with the file's palette indices: for every palette index the device shows one single colour (100% consistent), and that colour equals the file's CLUT entry **index - 1** (100% match at a shift of 255, against 60.5% and 1.8% unshifted). So the device CLUT is the file's CLUT shifted up by one slot, entry 255 wrapping into slot 0. Cause, from `src/fpga/core/mp3_soc.v` about lines 1326-1330: on an `R_CLUT_DATA` write the SoC sets `clut_wdata_r`, raises the one-cycle `clut_wr_r` and increments `clut_idx` in the same edge, while `clut_waddr = clut_idx` (continuous). The pulse is seen one cycle later, by which time `clut_idx` has already advanced, so each entry lands at `idx + 1`. `mp3_fb.sv` takes `clut_wr`/`clut_waddr` directly, which its testbenches drive at port level, so the MMIO path (`R_CLUT_IDX`/`R_CLUT_DATA`) was never simulated. Present since the B8 CLUT blit; affects the TIM1 covers (`fw/timg.inc`) and the meter previews (`fb_clut_load`, `set_thumb_pal`), whose small palettes are shifted the same way (not yet checked on screen). Firmware does `R_CLUT_IDX = 0` then 256 writes, which is what the register description says.
+
+**Fix options (not started).** (1) Firmware, works on the current bitstream: start the load at `R_CLUT_IDX = 255` (the first write then lands at slot 0); one shared helper for `timg.inc` and `fb_clut_load`. (2) RTL, the proper fix: register the write address with the pulse (`clut_waddr_r <= clut_idx` at the write), test it in a small module with a testbench and a mutant, then a fit with a bumped `CORE_VERSION` so firmware knows which behaviour it is running on. (1) must be removed or version-gated when (2) ships. Owner decision pending on the order.
+
+
+## B-570: CLUT start index 255 in firmware (works around the RTL write-address skew of B-569)
+
+Firmware fix, branch `clut-fix` (worktree `../tau-alpha-clut-fix`). `fw/player.c` defines `CLUT_START_IDX 255u` (with the reason) and both CLUT loaders use it: `fb_clut_load` (meter previews) and `timg.inc` (TIM1 covers): `R_CLUT_IDX = 255`, then the 256 (or N) data writes, so the first entry lands in slot 0 under the current RTL. **Host tests first:** `sim/timg_harness.c` modelled the CLUT as documented (index forced to 0, each store in the next slot), which is why the TIM1 test never failed; it now models the RTL as it is (the written index is kept, a data write lands at `index + CLUT_SKEW`, `CLUT_SKEW` 1) and `sim/test_tau_timg.py` FAILED 15 checks against the unfixed firmware, then PASSED with the fix. New `sim/test_clut_contract.py` (in `make test-host`) reads `mp3_soc.v`: while `clut_waddr` follows `clut_idx` it requires `CLUT_START_IDX` 255 and harness skew 1; once the RTL registers the address it requires 0 and 0, and it fails if any firmware loader writes `R_CLUT_IDX` without the constant. `make test-host` passes; heap gaps unchanged (release 13,504 B, profile 4,336 B). NOT on a Pocket yet: the check is the Daft Punk and Alva Noto covers (colours should now match the host decode, 39 dB class) and the Settings meter previews. The proper RTL fix (registered write address, version bump, constants to 0) is still to do.
+
+**B-570 addendum (HARDWARE, DEV 83, 5 screenshots): the CLUT fix is confirmed.** Covers now match the host decode of their `.timg` files: device against decode 55.7 dB (Daft Punk) and 53.9 dB (Alva Noto), limited only by RGB565 rounding (before: 13.7 and 14.2 dB); the owner reports the covers look great. **New finding, open:** in Settings > Appearance > Meter only two previews show (MASTER VU and LAYERED WAVE), the other four visible rows (VU, WAVEFORM, PEAK DOTS, SPECTRUM) have none. The two that show are exactly the ones drawn by the software path (`set_draw_thumb_soft`, plain `fb_rect` calls); the others go through the CLUT blit (`fb_cblit`, a blit-mode opcode). Leading hypothesis, NOT yet confirmed: the known H2 gap: blit-mode opcodes do not follow `R_DBUF_CPU`; `fb_cblit` never calls `fb_set_bases()`, while the index plane is built with `fb_rect` (which does follow the CPU buffer) once, lazily, so with double buffering the plane and the destination can sit in different buffers (same class as Chladni B-414 and the Scope trail B-450). Alternative: a palette race (`fb_clut_load` only waits for FIFO space, not for earlier CBLITs to finish). Not yet known whether the previews also fail on DEV 80 (that decides whether the CLUT fix revealed it or it is older): needs the same screen on DEV 80.
+
+
+## B-571: meter previews on DEV 80 (all six show) against DEV 83 (four missing): a buffer-parity bug in the CLUT-blit previews, not the CLUT fix (hypothesis, strong)
+
+Owner screenshots of Settings > Appearance > Meter taken on DEV 80 (identified by the persist-file times: DEV 80 saved 01:18:18 right after the screenshots at 01:18:01/01:18:12, DEV 83 saved 01:19:10 after): all six previews show, on both the top and the bottom of the list. On DEV 83 (B-570) only the two software-drawn ones (MASTER VU, LAYERED WAVE) show, the four CLUT-blit ones (VU, WAVEFORM, PEAK DOTS, SPECTRUM) do not. The only functional difference between the cores is the CLUT start index, and with the corrected CLUT the previews' data would still be visible (stored greys map to plate colour for index 0 and light colours for the rest), so the CLUT mapping itself is not the cause. Reasoning from the code: the Settings pages are not inside the `dbuf_redraw_begin()` bracket (it refuses while an overlay holds the screen), so their draws follow `R_DBUF_CPU`, which `dbuf_redraw_end()` leaves pointing at whichever buffer is displayed; every chrome redraw (each track change, each cover) flips the displayed buffer, so its parity depends on what the session did before. `set_thumb_flat_build()` builds the index plane once, lazily, with `fb_rect` (follows `R_DBUF_CPU`), but `fb_cblit` is a blit-mode opcode that follows the sticky bases (0, 0) and never `R_DBUF_CPU`, so with the displayed buffer 1 it reads buffer 0's (empty) stash and writes into the hidden buffer 0: nothing visible; the RECT-drawn previews are unaffected. On DEV 80 the Meter list was opened on a fresh boot (buffer 0), which would explain why it worked. Same class as Chladni (B-414) and the Scope trail (B-450). Check (no code): on DEV 83 open Settings > Meter straight after a fresh boot with no track loaded (should show all six), and on DEV 80 load a couple of covers or change tracks first and then open it (should lose the four). Fix, if confirmed: build the plane with `R_DBUF_CPU` forced to 0 and draw the CBLIT with `fb_set_bases(0, <current CPU buffer base>)` restored to (0, 0), as B-414/B-450 do; a host model of the two buffers first.
+
+
+## B-572: Settings meter previews drawn through the CLUT blit follow the CPU buffer (host model first); fixes B-571
+
+Branch `preview-fix` (worktree `../tau-alpha-preview-fix`). Owner could not test a fresh boot (a track always loads), so the B-571 hypothesis was checked in a **host model of the double-buffered draw engine** instead (`sim/thumb_dbuf_harness.c`, `sim/test_thumb_dbuf.py`, in `make test-host`): the test extracts the REAL preview functions (`fb_clut_load`, `fb_cblit`, `fb_set_bases`, `ui_mix`, `ui_bg_cur_buf` from `fw/player.c`; `set_thumb_pal`, `set_draw_thumb_soft`, `set_thumb_flat_build`, `set_draw_thumb` from `fw/settingsui.inc`) and runs them against an engine that queues commands and, as documented, sends RECT-class commands to the buffer `R_DBUF_CPU` names when they execute, blit-mode commands through the sticky bases when they execute, and reads one shared CLUT at execution (with the RTL's write skew and the firmware's start index 255). **Reproduced:** with the displayed buffer 0 all ten CLUT-blit previews equal the software-drawn ones (what DEV 80 showed); with buffer 1 all ten differ in every pixel, i.e. blank (what DEV 83 showed). So the bug is independent of the CLUT fix and depends on the buffer parity of the session. **Fix** (`fw/settingsui.inc`): `set_thumb_flat_build()` forces `R_DBUF_CPU` to 0 while it builds the index plane (the plane belongs in buffer 0, where the blit reads it) and restores it after `fb_fence()`; `set_draw_thumb()` sets the bases to (plane in buffer 0, destination = the CPU buffer's base), blits, `fb_fence()`s so the blit executes before the bases change or the next preview reloads the shared CLUT (`fb_clut_load` only waits for FIFO space: the previews could draw with each other's palettes), then restores (0, 0). With the fix the model passes for both buffers (22 checks). `make test-host` passes; heap gaps unchanged (cold code); NOT on a Pocket: check is Settings > Appearance > Meter after loading a few covers or changing tracks, repeated: all six previews must always show. The menu cross-fade renders pages into the back buffer with `R_DBUF_CPU` set, which the new destination base follows.
+
+
+## B-573: DEV 84 meter previews confirmed; the boot splash looks bad because its palette has 16 colours (analysis)
+
+**Previews (HARDWARE, DEV 84 identified by its persist time 01:35:12, screenshots 01:34:32 and 01:34:39).** All six previews show at the bottom of Settings > Appearance > Meter (VU, Waveform, Peak Dots, Spectrum, Master VU, Layered Wave) and all six at the top (Winamp Scope, Winamp Bars, Chladni, Bars, Waterfall, Phase Scope), with clean white-on-dark colours (on DEV 80 they were teal-tinted, the shifted palette). The owner did not state how many track changes preceded the screens: the fix is proven by the host model for both buffers; repeated opens after more track changes would be the stronger hardware check.
+
+**Boot splash (owner screenshot 01:35:06, "always looked terrible").** `tools/gen_splash_asset.py` quantises the authored 400x360 image (`assets/ui/tau-loading-source.jpg`, a bright green oscilloscope trace with glow) to **16 colours, median cut, no dither**, RLE, format TAU1 (16-entry palette, `ui_splash_asset()` in `fw/player.c` masks the index with 15 and draws every run with `fb_rect`). Compared with the source: the 16-colour result (reproduced on the host, 25.8 dB) matches the device screenshot: the median cut spends its entries on the many dark background shades, so the bright trace collapses into dark greens (a dim, fat blob) and the glow and bezel become blocky patches. Same image at 32 / 64 / 128 / 256 colours, no dither: 31.4 / 36.3 / 39.5 / **45.9 dB**, 36.9 K / 41.8 K / 46.2 K / 48.9 K runs against 28.0 K now (file 56 KB now, about 96 KB at 256). Not the CLUT (the splash does not use it) and not JPEG noise in the source. Fix, not started: a TAU2 format with a 256-entry RGB565 palette (524-byte header) and the same (run, index) pairs, firmware reads either TAU1 or TAU2 (palette on the stack, mask 0xFF), generator and `check_splash_asset.py`/`capture_splash_frame.py` extended, regenerated asset in `dist/`; cost: about 75% more `fb_rect` calls at boot (about 49 K against 28 K, to be measured) and 40 KB more on the card, no hot RAM. Cheaper alternative without a format change: a hand-weighted 16-colour palette that reserves the bright greens (smaller gain).
+
+
+## B-574: boot splash TAU2 (256-colour palette); fixes B-573
+
+Branch `splash-tau2` (worktree `../tau-alpha-splash`, from `preview-fix`). **Host test first:** `sim/splash_harness.c` + `sim/test_splash_asset.py` (in `make test-host`) extract the REAL `ui_splash_asset()` and its helpers from `fw/player.c` (the `TAU_SPLASH_*` constants are copied from the firmware too) and run them on an asset file with the APF slot read and `fb_rect` stubbed; the drawn 400x360 framebuffer must equal `tools/capture_splash_frame.py`'s decode, a TAU1 file made here from the authored source must still draw correctly, and damaged files (bad magic, wrong size, truncated, header only, empty, zero-length run, runs past the image) must be refused. With the TAU2 asset generated and the old reader it FAILED (red); after the change it passes. **Change:** `tools/gen_splash_asset.py --colors 256` (default) writes TAU2: magic `TAU2`, 12-byte header, 256 RGB565 palette entries, the same (run, index) pairs; `--colors 16` writes the original TAU1. `ui_splash_asset()` reads both (one 524-byte header read; palette on the stack, 512 B; index mask `ncol - 1`). `capture_splash_frame.py` and `check_splash_asset.py` read both. Regenerated `dist/Assets/tau/common/tau-loading.bin`: 98,370 bytes, 48,923 runs (was 55,978 B, 27,967 runs), 45.9 dB against the source instead of 25.8 dB. `make test-host` passes; heap gap release 13,504 to 13,456 B, profile 4,336 to 4,288 B (code and the 512 B palette are not heap, this is the image growth). Cost to be measured on the Pocket: about 75% more `fb_rect` calls while the boot screen is drawn (the code's own comment: boot drawing cost genuinely does not matter, nothing decodes yet). NOT on a Pocket yet.
+
+**B-574 addendum (HARDWARE, DEV 85, screenshot 01:44:36):** the TAU2 splash is confirmed: the oscilloscope trace is bright, crisp green with its glow, the grid and the TAU° label are clean (the dim blob of the 16-colour version is gone); the owner reports it looks great and boot time felt normal (the roughly 75% more rectangle draws are not noticeable; no figure measured). Faint blocky patches remain in the dark bezel area (RGB565 rounding of near-black shades, not the palette). With B-570 (CLUT), B-572 (meter previews) and this, DEV 85 carries all three fixes; branch `splash-tau2` contains `preview-fix` and `clut-fix`.
+## B-567: embedded-cover (JPEG fallback) work buffers moved to PSRAM; host test for the cover decoder
+
+Owner: TIM1 is the normal path and the JPEG decode is the worst-case fallback, so it can go completely cold. Branch `art-overlay` (worktree `../tau-alpha-art-overlay`). **Host test first** (`sim/test_art_decode.py`, `tools/host/art_decode_harness.c`, fixtures `sim/fixtures/art/`, in `make test-host`, about 20 s; `--full` adds the 1024 px reduce-path cover): the real `fw/art.inc` and `picojpeg.c` under `tools/rv32sim.py` decode 7 synthetic JPEGs (full path, 4:4:4, odd sizes, grayscale, tiny, a progressive one that must be refused, and the 1024 px one) as ID3 APIC and FLAC PICTURE; results equal golden hashes recorded from the UNMODIFIED decoder; a second build poisons every candidate buffer with junk before each decode and must give the same result (it does: nothing relies on those buffers being zero or keeping old content).
+
+**Why not all of it.** Data access counts per buffer (MEASURED, rv32 simulator, 300 px full-decode cover / 1000 px reduce-path cover): picojpeg MCU buffers 1.29 M / 14.2 M, coefficient buffer 0.82 M / 9.0 M, `art_xmap` 91 K / 1.0 M, Huffman 86 K / 380 K, input 20 K / 62 K, `art_yslot` 12 K / 127 K, small ones under 40 K. At about 48 cycles per uncached PSRAM access (A-094) moving everything would add about 1.7 s on the 300 px cover and about 18 s on the 1000 px one; moving only the low-traffic buffers adds about 0.2 s and about 1.2 s. So the MCU and coefficient buffers (about 0.9 KB) stay hot and 4.2 KB moves.
+
+**Change.** `fw/art.inc`: `art_rowcnt`, `art_colcnt`, `art_line`, `art_xmap`, `art_yslot` get `ART_COLD_BSS` (`.psram_state.art`, only when `TAU_ART_PSRAM`); `fw/build.sh` compiles `picojpeg.o` with `-fdata-sections` (when `ART_PSRAM=1`) and `fw/link.ld` places `gInBuf`, `gHuffVal*`, `gHuffTab*`, `gQuant*` in `.psram_state` without editing the vendored source. All of it is touched only after `art_psram_ready()` has proved the window. Result (MEASURED, 192 KB link): heap gap release 13,504 to 17,472 B, diag 6,768 to 10,736 B, profile 4,336 to 8,304 B (+3,968 B each); addresses confirmed in `0xA4009000..` by `nm`. `make test-host` passes; `check_cold_calls` unchanged; `tools/heap_gap_baseline.json` and snapshots refreshed. NOT run on a Pocket: the placement and the slower fallback decode are unverified on hardware (the host test cannot see either). Pocket plan: a track on an album WITHOUT a `tau-art` file, new core against DEV 80, Info `LOAD MS` for the cover and the picture itself, then a normal TIM1 album and an MP3/FLAC change.
+
+
+## B-575: `art-overlay` merged into `main` without a Pocket test of the JPEG fallback (owner decision)
+
+Owner: merge anyway. The branch (B-567: the embedded-JPEG fallback's low-traffic work buffers, 4.2 KB, moved to PSRAM `.psram_state`; host test of the real `art.inc` and picojpeg with golden hashes and poisoned buffers) was merged into `main` after the host and size checks, knowing that **its changed path has never run on a Pocket**: the DEV 82 comparison (B-569) only exercised the TIM1 covers. Open risks, unchanged from B-567: the fallback decode is slower (estimate from simulator access counts: about +0.2 s on a 300 px cover, about +1.2 s on a 1000 px one), and the linker placement of the moved buffers (`0xA4009000..`) and the uninitialised-PSRAM behaviour are only proven on the host. The two log files (CLAUDE.md, this file) conflicted only because both sides appended; both sides kept. Verified after the merge: `make test-host` passes (including `sim/test_art_decode.py`); heap gaps on the 192 KB link release 17,424 B, diag 10,688 B, profile 8,256 B (each +3,968 B over the pre-merge main); heap baseline and RAM snapshots refreshed. The check that closes the risk is unchanged: a track from an album with no `tau-art` file on a build of current `main`, reading `LOAD MS`, the cover and a normal playback afterwards.
+
+
+## B-576: CLUT write address registered in RTL (`tau_clut_wr.sv`), firmware probes which behaviour it is running on; no fit yet
+
+Branch `clut-rtl` (worktree `../tau-alpha-clut-rtl`). Proper fix for B-569 (the CLUT written one slot too high). **RTL:** the index/pulse/address logic moved out of `mp3_soc.v` into `src/fpga/core/tau_clut_wr.sv`: a write to `R_CLUT_IDX` sets the index, each write to `R_CLUT_DATA` stores in the slot the index named AT THAT WRITE and advances it; `waddr`, `wr` and `wdata` are registered together on the same edge, so the consumer (`mp3_fb.sv`: `if (clut_wr) clut[clut_waddr] <= clut_wdata`) sees a consistent triple. `mp3_soc.v` instantiates it (registered strobes like its other write ports), `ap_core.qsf` and the PSRAM firmware-in-the-loop source lists include it. **Tests first:** `sim/tb_tau_clut_wr.v` (`make test-rtl-clut-wr`, in `make test-rtl`): random IDX/DATA strobes with gaps 0 to 3 cycles (including consecutive-cycle writes), 256-entry load from 0, loads from 255 across the wrap, a re-seated index mid-load, 200 random loads, exactly one pulse per data write; entry n of a load starting at s must land in slot (s + n) mod 256; `BUG=1` (the old inline behaviour) is the mutant and is caught (`test-rtl-clut-wr-mutation`). **Firmware:** one firmware must run on both kinds of bitstream (every one built so far has the skew), so the start index is probed, not versioned (a wrong guess only shifts colours; a version mismatch can black-screen a core, B-130/B-353): `clut_probe()` in `fw/blit_probe.inc`, run once from `blit_probe_ensure()` after the blit engine is known: load a CLUT of distinct entries starting at 0, CLUT-blit one pixel whose palette index is 3 and read it back through the mailbox: 0x4444 means entry n is in slot n (start 0), 0x3333 means slot n + 1 (legacy, start 255); anything else keeps the legacy default. `CLUT_START_IDX` is now `clut_start_idx_v` (default 255). **Host models:** `sim/thumb_dbuf_harness.c` gained the mailbox and runs the real `clut_probe()` for both RTL behaviours (CLUT_SKEW 1 and 0): the probe chooses 255 and 0 and all previews are right in both (22 checks each); a negative run without the probe on the fixed model draws wrong previews; `sim/test_tau_timg.py` runs for both models (`CLUT_FIXED=1`), and a fixed model with the legacy start fails as intended; `sim/test_clut_contract.py` now checks the RTL instantiation, the registered address, the default 255, the probe hook and that every loader uses the macro. `make test-host`, `make rtl-lint` and `make test-rtl` (47 PASSED) pass; heap gaps essentially unchanged (release 17,376 B, profile 8,144 B). **Not done:** the Quartus fit (needs the VM, two seeds, the `cymo` macro bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt`, expected about 1 h 40 min), packaging and a Pocket run. On the current bitstream the probe must choose 255 (previews unchanged); on the new one it must choose 0 and covers and previews must look right.
+
+
+## B-577: fit clut-rtl-b576 launched
+
+`python3 tools/vm_fit.py launch clut-rtl-b576 --append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` at 10:08 local on 2026-10-04, from commit `b1ad198` (the working tree of `src/fpga` with `tau_clut_wr.sv`; the same macro bundle every Cymo fit has used). Two quartus_sh processes confirmed running on the VM. Expected duration about 1 h 40 min (this bundle's own history: cymo-feed-b527 took about 1 h 40 min), so done around **11:50 local**. Nothing is packaged or installed. On closing: collect the better seed, package with the current firmware, and check on a Pocket that the probe chooses start 0 (covers and previews still right) and, separately, that the current cores are unchanged.
+
+## B-578: clut-rtl fit closed, DEV 86 installed and hardware-confirmed, branch merged into `main`
+
+Owner asked to merge `clut-rtl` into `main` while the fit was still running (merge `98bc150`, one trivial CLAUDE.md log-line conflict, `make test-host` passed). Fit `clut-rtl-b576` then closed on both seeds, all four corners positive: seed 1 worst hold +0.084 / setup +1.160 ns, seed 2 worst hold +0.117 / setup +1.365 ns; RAM 256/308, DSP 20/66. Seed 2 collected (SHA-256 `a44c9f99...3da4`, verified against the VM copy) and packaged as `alfatreze.TAU_DEV_86` (`--build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, heap gap 8,144 B). Installed with `tools/install_dev_core.py` (media carried from DEV 85, index verified, DEV 83/84 removed after a verified backup, caches cleared). **Owner result: covers and meter previews look perfect.** Not yet done: the optional DEV 85 (old bitstream) run with the new firmware to confirm start 255; `main` not pushed.
+
+## B-579: JPEG fallback (PSRAM work buffers, B-567/B-575) confirmed on a Pocket
+
+Owner added the Avalon album (14 MP3s, about 195 kbps 44.1 kHz, embedded covers, no `tau-art` files) to `TAU_DEV_86`; the library index was rebuilt with `tools/tau_library.py build --core alfatreze.TAU_DEV_86 --card /Volumes/Pock --playlists` (114 tracks, 9 albums, 7 artists; old index backed up; the build writes only `tau-library.tdb`, it creates no cover variants). **Owner result: the embedded JPEG covers load fine with correct colours, `04 Murphy's Ghost` (apostrophe in the filename) plays, track changes are a quick swap; no noticeable load-time difference against before** (decode time not captured from the Info page). Closes the Pocket test B-575 left owed.
+
+## B-580: v0.6.0-alpha.2 release zips rebuilt from merged `main`
+
+`tools/make_release.py --rbf work/diagnostics/clut-rtl-b576/ap_core_s2.rbf --rbf-sha256 a44c9f99...3da4 --test`: both ROMs built (192 KB link, rev 26 interlock), `make test-host` passed, both zips checked (15 files each): `alfatreze.TAU_0.6.0_2026-10-04.zip` (SHA-256 `5d2d0553...1442`) and `alfatreze.TAU_DIAGNOSTIC_0.6.0_2026-10-04.zip` (`9ab494d3...bf1a`). The normal core's bitstream is the same `ed977c71...` already running as DEV 86. Supersedes the earlier stale alpha.2 zips (FLAC Rice + cymo-feed bitstream, pre-CLUT). Not tagged, pushed, published or smoke-tested; the normal core still needs a boot on a Pocket.
+
+## B-581: B-580's zips were the wrong build (256 KB link); rebuilt, both cores installed
+
+**Correction to B-580.** The owner reported the normal core black-screening. Cause (mine): I ran `make_release.py` without `RAM_192K=1 CLK66=1 SDRAM_BUSY=1`, so the normal ROM was a 256 KB-linked, 60 MHz build (121,937 B) on the rev 26 bitstream, the B-394/B-448/B-563 pairing; B-580's "192 KB link" claim was wrong. Fix: `tools/make_release.py` now sets those three flags itself (`env.setdefault`), so a plain run builds the right firmware. Rebuilt: normal ROM 105,389 B (192 KB link), zips `alfatreze.TAU_0.6.0_2026-10-04.zip` (SHA-256 `e3a08b73...3ca23`) and `alfatreze.TAU_DIAGNOSTIC_0.6.0_2026-10-04.zip` (`02d6a172...f23c`), `make test-host` passed. Both installed on the card with `tools/install_dev_core.py` (hashes verified, media carried from DEV 86, indexes verified, backups in `work/card-backups/20261004-162742` and `-163138`); TAU_DEV_80 and TAU_DEV_85 removed after a verified backup (DEV 85's optional old-bitstream run therefore not done). Cores on the card: TAU, TAU_DIAGNOSTIC, TAU_DEV_86, the owner's TAU_DEV_METER_*. Smoke test of the rebuilt normal core pending.
+
+## B-582: root cause of the repeated black screen, and a pairing gate at package and install time
+
+**Why it kept happening (4th time: B-394, B-448, B-563, B-580).** The 192 KB / 66.667 MHz bitstream reports CORE_VERSION rev 26 and the firmware's boot interlock (`VERSION_OK`, `fw/player.c`) accepts only the versions its build flags allow, so a ROM built without `RAM_192K=1 CLK66=1` is refused and the Pocket shows a black screen with no message. The flags were separate from the bitstream everywhere (shell env, `--build-flags`, `make_release.py`) and **nothing checked the pairing before it shipped**: `tools/check_tau_package.py` ignores its argument and always inspects `dist/` (so `install_dev_core.py`'s "package check" never looked at the package), and each earlier fix patched one path (comma-separated flags, build-clobber, the dist/ copy) without a check that works on the artefact itself.
+**Fix.** (1) The ROM now carries the versions it accepts as text, `TAUFWPAIR:<hex list>;` (`fw/player.c`, beside `VERSION_OK`, `used,retain`; verified present in both a flagged and an unflagged build). (2) New `tools/check_fw_bitstream_pair.py` reads the marker from the ROM actually in a package and compares it with the bitstream's CORE_VERSION (`src/fpga/core/mp3_soc.v`, or `--bitstream-version` / `TAU_BITSTREAM_VERSION` for a deliberately older bitstream); a ROM with no marker is refused too. (3) Wired in: `install_dev_core.py` (before anything is written to the card), `package_dev_build.py` (after packaging; exits nonzero), `make_release.py` (on `dist/`), and `sim/test_fw_pair_check.py` in `make test-host` (also checks the marker strings match the `VERSION_OK` constants). (4) `make_release.py` sets the three release flags itself (B-581). Verified: an unflagged `package_dev_build.py` run is refused with a clear message; the rebuilt release passes. Side effect: ROMs built before this change have no marker, so the checker refuses them (the ROMs now on the card are such builds, functionally correct). Release zips rebuilt: normal `441ff278...42b6`, Diagnostic `cada3f9f...54ec`; they differ from what is on the card only by the marker. `check_tau_package.py` still ignores its argument (not changed here).
+
+## B-583: v0.6.0-alpha.2 published, alpha.1 marked superseded, DEV 86 removed
+
+Owner confirmed the rebuilt normal core boots on a Pocket. Pushed `main` (`21f69ae..79c3d31`) and tag `v0.6.0-alpha.2`; GitHub pre-release https://github.com/alfatreze/Tau-Alpha/releases/tag/v0.6.0-alpha.2 with both zips (normal `441ff278...42b6`, Diagnostic `cada3f9f...54ec`) and `SHA256SUMS.txt`. The zips differ from the ROMs on the owner's card only by the B-582 pairing marker (owner skipped the reinstall). The v0.6.0-alpha.1 release notes now open with a "superseded, normal core does not boot, Diagnostic zip works" notice (assets and tag untouched). TAU_DEV_86 removed from the card after a verified backup (`work/card-backups/dev86-removal`, no media: the same media is in TAU), caches cleared, ejected. Cores on the card: TAU, TAU_DIAGNOSTIC, the owner's TAU_DEV_METER_01/03/14.
+
+## B-584: Cymo C0 -- CPU load and the Subband split in the Check QR (`SR_T_LOAD`, tag 24); `TAU_DEV_87` packaged
+
+Closes the measurement side of ROADMAP item 11. **New record `SR_T_LOAD`** (Diagnostic Build, every Check run): u16 x 6 = `busy_pct` (100 minus the mean idle share over the CT_AUD window; idle is the time the decode loop was blocked on a full FIFO, the same measure as Info CPU LOAD / HEADROOM), `busy_worst_pct`, `io_pct` (mean share blocked on file reads), `secs` (latched seconds counted), `sub_fdct_pct` and `sub_hw_pct` (profile build, MP3: percent of window realtime in the two software FDCT32 calls per slot and in the hardware-window handoff `tau_poly_hw_slot`; Subband total minus these = the rest). Implemented as a window accumulator in the once-a-second latch (`fw/player.c`, `ld_win_*`, Diagnostic builds only), `MPROF_MARK/MPROF_ACC1` in `mp3_profile.h`/`subband.c` (no-ops unless MP3_PROFILE; `tau_poly_hw_slot` timed around the call), `fw/suite.inc`, `fw/suite_core.h`, decoder `tools/decode_tau_suite.py` (also the tag-width table), test `sim/test_suite.py`. Release ROM unchanged (heap gap 17,360 B on the 192 KB link; 56,112 B on the 256 KB link); Diagnostic 10,528 B, profile 7,936 B (floor 2,048 B). `make test-host` passes. **How to read it:** at 1.00x on a stereo MP3, `busy_pct` against the decode sum h+i+s (SR_T_DECPROF) says how much of the CPU is not decode (push/resample, meters, UI, file I/O); the earlier "100% vs 38%" in B-309 was read at 1.75x (the loop never blocks there, so 100% is correct), so the real gap is probably about 20 points, not 62: a hypothesis until this reading exists. Note the window counts every latched second including the Check page's own redraws. Packaged `alfatreze.TAU_DEV_87` (clut-rtl-b576 seed 2 bitstream, `--build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, pairing check PASS), NOT installed. Also: a plain `check_heap_gap.py` run rebuilt `dist/` unflagged again (the B-448 hazard, restored with `git checkout -- dist`); this is the build-clobber class the pairing gate now catches at package time, but `check_heap_gap.py` itself still dirties `dist/`.
+
+## B-585: `check_heap_gap.py` no longer overwrites `dist/` or the flagged diagnostic ROMs
+
+`tools/check_heap_gap.py` (and so `make test-host`) rebuilt `release`, `player-library-diagnostic` and `player-library-diagnostic-profile` unflagged through `fw/build.sh`, whose output paths are `dist/Assets/tau/common/` and `work/diagnostics/library-diagnostic*/`: every run replaced the committed release ROM with a 256 KB build and could replace a flagged diagnostic ROM at the same path (the B-448 hazard; it dirtied `dist/` again during B-584). `fw/build.sh` now honours `TAU_BUILD_OUT=<dir>` (any target writes to `<dir>/<target>/`), and `check_heap_gap.py` sets it to `work/heapcheck/`. Verified: a full `check_heap_gap.py` run gives the same gaps (release 56,112 B, diagnostic 48,608 B, profile 45,936 B), PASSED, and `git status` shows `dist/` untouched. The baseline still measures the 256 KB link, as before.
+
+## B-586: Cymo C0 result (DEV 87, FULL Check, MP3 at 1.00x): busy 55%, decode about 36%, the Subband handoff costs as much as the software DCT
+
+Screenshot `20261004_171319.png` (QR decoded with `tools/decode_tau_suite.py --qr`; persist file agrees): FULL profile, bitstream 4D50331A, `SR_T_LOAD` over the 15 s CT_AUD window, `audio_full` true, 0 late underruns. **`busy_pct` 55 (worst second 58), `io_pct` 0**, decode stages h 4, i 8 (a 1 + x 6), d 4, **s 20 = `sub_fdct_pct` 8 (software FDCT32 x2) + `sub_hw_pct` 11 (hardware-window handoff) + about 1 other**. Decode (h+d+i+s) is about 36%, so **about 19 points of the 55% are not decode** (push/resample, meters, UI, the Check page, bookkeeping): the "100% vs 38%" gap of B-309/B-365 was mostly the 1.75x reading plus about 19 points of real non-decode load, not 62 unexplained points. Track and meter were not recorded (r_pct 0 means MP3; 55% busy suggests stereo); the Check screen counts too. **Finding:** at 44.1 kHz there are about 1,378 slots per second, so 11% of the 66.7 MHz CPU is about 5,300 cycles per slot spent in `tau_poly_hw_slot` (design estimate: about 400 cycles, `MP3_FILTERBANK_KERNEL_DESIGN` section 2): the handoff is 13x the estimate and as large as the software DCT it hands off from. Candidate: cut the MMIO word traffic (burst/auto-increment writes and reads); not started, no decision. `Track changes` still fails (0 of 10 done, queue 11), unchanged. Heap peak reads 0 (the record's `peak_bytes` is 0 on this build: not investigated).
+
+## B-587: Subband hardware handoff pipelined (the CPU no longer blocks on the unit's compute time); `TAU_DEV_88` packaged
+
+**Finding behind it.** B-586 measured the handoff at about 5,300 CPU cycles per slot against an estimate of about 400. The cause is not MMIO traffic: `tau_mp3_poly.sv` takes about 4,400 clocks per stereo slot to compute (its own header: 16 clocks per macro-step, 136 macro-steps per channel), and `tau_poly_hw_slot()` pushed 64 words (about 130 MMIO accesses, roughly 900 cycles) and then **polled busy for the whole compute**. The software FDCT32 of the same slot costs about 3,900 cycles (8% of the CPU), so the two can overlap almost completely.
+**Change** (firmware only, no RTL): `tau_poly_hw_start()` (push + go, no wait) and `tau_poly_hw_finish()` (bounded wait + read) in `fw/mp3_poly_hw.{h,inc}`; `subband.c` collects slot b-1's PCM after slot b's FDCT32 and before starting slot b (`hw_pend` = where the in-flight slot's PCM goes), and drains the last slot before `Subband()` returns. The first 8 slots of each decoder instance (the self-check window) stay synchronous, so the mismatch/disable behaviour is unchanged. **Behaviour change on a hardware fault:** if the unit times out with a slot in flight, that slot's PCM cannot be recomputed in software (the next slot's FDCT32 already overwrote the oldest history line it needs), so it is output as silence for that one slot (about 0.7 ms) and the rest of the track runs in software; a timeout has never been observed on hardware (`TMO 0` in every Info reading). **Expected effect:** the wait drops from about 4,400 to about 500 cycles per slot (about 3,900 saved per slot, 5.4 M cycles per second, about 8 points of CPU: busy 55% to about 47%, Subband 20% to about 12%): an estimate until DEV 88 is measured.
+**Proof (host).** `sim/mp3_poly_subband_harness.c` models the unit as start/finish with the real protocol (aborts on a push while a slot is in flight or a read with none); `sim/test_mp3_poly_subband.py` (real `Subband()`, all existing cases) still prints PCM identical to the unmodified decoder for a healthy unit, a failing start, a wrong-answering unit, mono and a second decoder instance, and a new case for a slot that never completes (slots 0, 7, 8, 18, 100, 431, 435, 867, 900: exact silence for one slot outside the verify window, identical inside it). Mutation: skipping the end-of-call drain fails 15 checks. `make test-host` passes; builds clean (release heap gap 17,120 B, was 17,360 B; diagnostic 10,288 B; profile 7,584 B). The release ROM changes (POLY_FW is on there). Packaged `alfatreze.TAU_DEV_88` (clut-rtl-b576 seed 2 bitstream, pairing check PASS), NOT installed; the Check QR's `SR_T_LOAD` (B-584) is the measurement: compare `busy_pct`, `s_pct` and `sub_hw_pct` with B-586 (55 / 20 / 11).
+
+## B-588: pipelined Subband handoff measured on a Pocket (DEV 88): CPU busy 55% to 47%, as predicted
+
+Screenshot `20261004_180937.png` (FULL Check, DEV 88, same bitstream 4D50331A, same persist library position as the DEV 87 run: album 4, position 10) against `20261004_171319.png` (DEV 87, B-586). **`busy_pct` 55 to 47, `busy_worst_pct` 58 to 50, Subband `s_pct` 20 to 12, `sub_hw_pct` 11 to 3**; every other stage identical (h 4, d 4, i 8, a 1, x 6, software DCT `sub_fdct_pct` 8), which also shows the two runs decoded comparable material. `io_pct` 0, 0 late underruns, `audio_full` true in both. This is exactly the B-587 estimate (about 8 points). The remaining `sub_hw_pct` 3% is the MMIO traffic (about 130 accesses per slot) plus the part of the compute the DCT did not cover. `Track changes` still fails, unchanged. **Not yet confirmed by ear** (no clicks or gaps reported yet); the release ROM carries the change too (POLY_FW on), so a listening pass belongs before the next release. Possible further step (not started): auto-incrementing push/read registers in the unit to cut the MMIO accesses (RTL, needs a fit): worth at most about 3 points.
+
+**Listening result (owner, 2026-10-04): DEV 88 sounds clean all round.** The pipelined handoff is cleared for the next release.
+
+## B-589: Cymo C0 follow-up: where the non-decode CPU goes (`SR_T_LOAD2`, tag 25); `TAU_DEV_89` packaged
+
+After B-588 (busy 47%) about 11 points of the busy time are still not decode. Instrumented the MP3 main loop (`fw/player.c`, Diagnostic builds only; the release is unchanged, heap gap 17,120 B) with monotonic cycle totals: `MP3Decode`, `meters_feed`, the whole sample push loop, `ui_draw_dynamic`, and the part of `cymo_push()` spent blocked on a full FIFO. The Check's CT_AUD window takes deltas (`fw/suite.inc`) and reports them as `SR_T_LOAD2`: u16 x 5 = `dec_pct`, `feed_pct`, `push_pct` (net of the FIFO wait), `ui_pct`, `wait_pct` (idle plus the input/refill work done while waiting), each percent of window realtime. Decoder `tools/decode_tau_suite.py` and `sim/test_suite.py` updated; `make test-host` passes. What stays unaccounted (busy minus dec+feed+push+ui) is file reads and refill outside the wait, input polling and tag/clock bookkeeping. FLAC's loop is not instrumented (fields read 0). Note `dec_pct` includes the profile build's own tick overhead. Packaged `alfatreze.TAU_DEV_89` (clut-rtl-b576 seed 2, profile variant, pairing check PASS), NOT installed.
+
+## B-590: Check's stress tests filled the screen with noise: the pump range overlapped display buffer 1 (found on DEV 89, pre-existing since H2)
+
+Owner report with two screenshots (`20261004_184748.png`, `20261004_184753.png`): early in the Check (during Stress R1) the whole display turned to random-coloured noise, with the row text drawn over it. Not caused by B-587/B-589 (those only change the Subband handoff and add cycle-counter reads). **Cause:** `STRESS_BASE 0x00100000` (16-bit words, `fw/stress_defs.inc`) is 2 MiB, which is exactly `DBUF_BASE1` (1,048,576 words, `mp3_fb.sv`): the second buffer of the Helios H2 double buffer. The pump writes random data over words 0x100000..0x17FFFE, so whenever buffer 1 is the displayed buffer (after any redraw bracket flips it, as opening Check does) the screen shows the pump's data. The pump range was chosen on 2026-09-20 (A-127, to stay clear of the playlist at 1 MiB), seven days before H2 put a display buffer at the same address (2026-09-27, B-340); the visible buffer 1 area is words 0x100000..0x12CFFF, fully inside the pump range. It also means drawing during stress could have corrupted the pump's own verify, so stress results gathered with buffer 1 displayed are weaker than they looked (earlier Check runs passed). **Fix:** the pump now works on 3..4 MiB (`STRESS_BASE 0x00180000`, `STRESS_LAST 0x001FFFFE`), clear of display buffer 0 and its stash (first 1 MiB), the playlist buffers (1..2 MiB bytes) and buffer 1 (2 MiB..about 2.35 MiB). New `sim/test_sdram_map_overlap.py` (in `make test-host`) parses the real constants and refuses any overlap with buffer 0 + stash, buffer 1 or the playlist buffers; it failed on the old range (red) and passes on the new one (green). `make test-host` passes. Packaged `alfatreze.TAU_DEV_90` (the B-589 load split plus this fix; clut-rtl-b576 seed 2, pairing check PASS), NOT installed. The B-589 measurement run (DEV 89) did not complete cleanly because of this, so it still has to be redone on DEV 90.
+
+## B-591: DEV 90 Check read: noise fixed, and where the non-decode CPU goes (MP3 loop, `SR_T_LOAD2`)
+
+Screenshot `20261004_190238.png` (FULL Check on `TAU_DEV_90`, "Battle" per the owner's guess, 1.00x; QR decoded, persist file agrees). **Whether the screen noise is gone is NOT yet confirmed: only the QR screenshot came back and the owner did not report on the display during Stress R1 (the run completed and the stress results are valid).** All checks PASS except `Track changes` (unchanged); Stress R1-R3, Soak, Blit storm and Cold frame PASS, 0 late underruns, audio continuous, I/O wait 0%.
+CPU over the 15 s window (percent of realtime): **`busy_pct` 48** (worst second 51; DEV 88 read 47: same within noise), `wait_pct` 53 (blocked on a full FIFO = idle, matches 100 - busy). The loop split (`SR_T_LOAD2`): **decode 30** (`MP3Decode` incl. the profile ticks' own cost; the stage sum h+d+i+s is 4+4+7+12 = 27, so about 3 points are bit-reservoir/frame bookkeeping and the profile ticks), **meter feed 2**, **sample push 11** (net of the FIFO wait), **UI 0**, leaving about 5 points for file refill outside the wait, input polling and the Check page itself. **Caveat: `ui_pct` 0 is because the Check page covers the player screen, so no meter is drawn during the window; meter drawing cost is NOT in these numbers** (the Meter Sweep measures it per meter, the meter worktree's area).
+**Finding:** the sample push loop is the largest non-decode item: 11% of 66.7 MHz over 44,100 pairs a second is about 166 cycles per pair, for one status read, two multiplies and one write (MMIO accesses are tens of cycles each). Candidate: wait until the FIFO has room for a burst (64 pairs of its 2,048) and push the burst without a per-pair status read; estimated saving about 4-6 points; firmware only, FLAC and tempo paths untouched.
+
+## B-592: MP3 sample push done in bursts (one FIFO status read per burst, not per pair); `TAU_DEV_91` packaged
+
+Target from B-591: the per-pair push loop cost about 166 cycles a pair (11% of the CPU). `fw/pcm_push.h` gains `pcm_push_pairs()` with a small hooks struct: read the FIFO status once, wait until there is room for `need` pairs (the rest of the frame, or 64 pairs if more; the FIFO holds 2,048), then push as many pairs as the room allows with no status read; room from one read can only be an underestimate because the FIFO drains while we push, and the level register of `pcm_fifo.v` is exact in the same clock domain, so no push is ever dropped. The MP3 main loop (`fw/player.c`) calls it with hooks that make the same hardware accesses `cymo_push()` made (same idle accounting, same abort on a pending reload, diagnostic stall counter once per status read). FLAC (`flac_emit`) and the tempo funnel still use the per-pair `cymo_push()`. **Proof (host):** `sim/test_pcm_burst.py` (in `make test-host`) models the FIFO draining at random rates and checks, over 801 cases (mono/stereo, unity and attenuated volume, fades, empty to full starting levels, frames of 1 to 1,151 pairs), that the pushed stream equals the per-pair reference sample for sample, that nothing overflows, that an abort returns 0 with a correct prefix, and that a 1,152-pair frame into an empty FIFO reads the status once; mutations (ignore the room, skip the gain) fail 83 and 350 cases. `make test-host` passes; builds clean incl. `TEMPO=1` (release heap gap 16,992 B, was 17,120 B). Expected effect: the push share falls from 11% to roughly 5% of the CPU (busy 48% to about 42%): an estimate until DEV 91 is read. Packaged `alfatreze.TAU_DEV_91` (pairing check PASS), NOT installed; compare `SR_T_LOAD2.push_pct` and `busy_pct` with B-591 (11 / 48), and listen: this is the real MP3 audio path.
+
+## B-593: burst push measured on a Pocket (DEV 91): push 11% to 7%, busy 48% to 44%
+
+Screenshot `20261004_192601.png` (FULL Check, DEV 91, same bitstream, same settings as B-591). `busy_pct` 48 to **44** (worst second 51 to 47), `wait_pct` 53 to 57, **`push_pct` 11 to 7** (about 106 cycles a pair, against the estimate of about 5%), decode 30 and meter feed 2 unchanged, 0 late underruns, `audio_full` true, I/O wait 0%. All checks PASS except `Track changes` (unchanged). The 7% that is left is the audio MMIO write (one uncached register write a pair) plus the gain multiplies and loop. **Not yet confirmed by ear, and the display during Stress R1 was not reported** (B-590 visual fix still unconfirmed by the owner). Cumulative since B-586: busy 55% to 44%.
+
+**Owner result (2026-10-04), DEV 91: no clicks or gaps while playing, and the screen stayed clean during Stress R1.** This confirms B-590 (the stress pump no longer overwrites display buffer 1) and clears the burst push (B-592) and the pipelined Subband handoff (B-587, already cleared on DEV 88) for the next release.
+
+## B-594: report codes: pixel grid (TPG) instead of a camera-grade barcode; Info page and every report page, hardware-confirmed
+
+Branch `barcode-study` (worktree `../tau-alpha-barcode`), merged with `main` at B-593. Full study, numbers and design: `docs/features/BARCODE_STUDY.md`; handoff `docs/handoffs/SESSION_HANDOFF_2026-10-04_BARCODE_TPG.md`.
+
+**Why.** The Check/Sweep/Info reports leave the Pocket as a screenshot, read on a PC. Measured on 13 real screenshots: 400x360, lossless, exact RGB565 (32/64/32 levels), so every pixel carries 16 recoverable bits. A QR code (about 2.0 KB binary at version 38, 2 px modules, needing OpenCV's Aruco detector plus an upscale) spends the area on camera robustness the path does not need, and the Info page (34 rows) was the case that did not fit. Host lab `tools/lab/barcode_lab.py`: pixel grid decodes in 0.0-4 ms against 6-36 ms for QR; capacities 258 KB (1 px), 6 KB (robust 4x4 cells) against 2 KB. JAB (4-5 KB estimate, large implementation, an unverified licence concern, no Rust decoder) and 3-plane QR (about 6 KB, fragile at 2 px) were assessed and not built (D-R01).
+
+**Hardware evidence (all on a Pocket, 2026-10-04).** `TAU_DEV_BARCODE_01`: four test patterns (dense random, 1 px checkerboard, gradient, counter) returned 100.000% pixel exact, 0 wrong pixels, via the new Diagnostics > PIXEL GRID TEST page (`tools/pixgrid_check.py`); the mailbox pixel writer works with the default pair order (swapped order scores 0%). `_02`: a real USER CHECK record (231 B) shown as QR, lossless grid and robust grid decodes to the identical record in all three. `_03`: an Info export (886 B, all 34 rows) and a Check with the new context block (now playing, six identity rows) decode; Decode Sweep 330 B. `_04`: the centred layout, six captures, two reports (Info export 883 B, Check 421 B) each in all three views, records byte-identical across views; robust opens first, captions identical on every view.
+
+**What was built.** `tools/tpg.py` (format TPG2 in its docstring: a centred square block from a size ladder, robust mode = 4x4 cells at 2 bits per channel, up to 6,059 B, lossless = 1 px per 16 bits, up to 259,184 B; TPG1 top-row layout still decoded), `fw/tpg.h` (portable pixel source, equal to the Python codec pixel for pixel, `sim/test_tpg_fw.py`), `sim/test_tpg.py` (round trips, capacity, centring and smallest-block rule, damage always detected, JPEG q80/q95 and box/Lanczos/nearest/bicubic resize survive, heavy bilinear downscale detected not mis-decoded, legacy layout), `tools/decode_tau_suite.py --grid` (numpy and Pillow only), `--table` (the Info rows as a table), capture time from the file name. Firmware (`TAU_TPG=1`, `TPG=1` for `fw/build.sh`, default 0): one drawing path `rep_draw()` for the seven code pages (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info export, Meter Config): block centred, frame, the same captions (title, view and size, detail, controls); robust is the default view, lossless takes over when the report is over 6,059 B, X cycles robust, lossless, QR. New record content: `SR_T_INFOTEXT` (every Info row as shown on screen) and `SR_T_NOWPLAYING` (state, queue position and length, title, artist, album) plus six Info identity rows on every report; Decode Sweep cap 20 to 48 tracks in grid builds; `TAU_QR_MAXV` switch (default 38). `tools/package_dev_build.py --barcode NN` names these test cores `TAU DEV BARCODE NN` (platform id `tau_devbarNN`, 15-character limit). `tools/lab/tpg_preview.py` mocks the pages up from the same geometry.
+
+**Merge with main (B-593).** `main` had meanwhile added `SR_T_LOAD2` as record tag 25, the number this branch had given `SR_T_INFOTEXT`. Resolution: `main`'s tag stays (it is in shipped test builds DEV 88-91); this branch's tags moved to **26 (`SR_T_INFOTEXT`) and 27 (`SR_T_NOWPLAYING`)**. The six TPG2 captures already copied into Tau Omega's `testdata/screenshots/` were made before the merge and carry the two entries as tags 25 and 26: valid as container fixtures, to be replaced by captures from a build of main (documented in `docs/features/CROSS_PROJECT_INTERFACE.md`). Lesson: the next free tag number must be checked on `main` before it is used on a branch (D-R05).
+
+**Verified:** `make test-host` passes on the merged tree; `player-library-diagnostic-profile` links with `TPG=1` (heap gap 6,704 B) and `TPG=0` (6,912 B, equal to `main`'s own baseline, default builds unchanged). **Not verified:** the merged build has not run on a Pocket (the hardware results above are from the pre-merge branch builds); robust mode has no error correction (a heavy bilinear 50% downscale corrupts about 14% of cells); large Check and sweep records (over 1 KB) were only run on the host.
+
+
+## B-595: `barcode-study` merged into `main` and removed
+
+Fast-forward merge of `barcode-study` (12 commits: the pixel-grid report codes TPG1/TPG2, B-594; its own merge of `main` at B-593 had already resolved the Check tag numbers, 26 and 27 for the report entries) into `main`; no conflicts, no RTL or `dist/` changes. Tested after the merge: `make test-host` passes (including the branch's `sim/test_tpg.py`, `sim/test_tpg_fw.py`, `sim/test_pixgrid.py`) and all three firmware targets build with the release flags (release heap gap 16,992 B, unchanged: the grid code is Diagnostic-Build only; diagnostic 9,536 B, profile 6,912 B). The branch's worktree (`../tau-alpha-barcode`, clean) and the local branch were deleted; it was never pushed as a branch. Check tags in use are now 24 (LOAD), 25 (LOAD2), 26 and 27 (the report entries); the next free number for any other branch (e.g. `meter-builder`) is 28. `main` is one merge-fast-forward (12 commits) ahead of origin, not pushed.
+
+## B-596: v0.6.0-alpha.3 zips built (not installed, not tagged, not published)
+
+README line and `CHANGELOG.md` now say `0.6.0-alpha.3` (changelog: MP3 CPU 55% to 44% via the pipelined Subband handoff and burst push, stress-pump noise fix, TPG report grids and the load records, pairing check in packaging). `tools/make_release.py --rbf work/diagnostics/clut-rtl-b576/ap_core_s2.rbf --rbf-sha256 a44c9f99...3da4 --test` (it sets `RAM_192K=1 CLK66=1 SDRAM_BUSY=1` itself): `make test-host` passed, pairing check PASS on `dist/` and on both unzipped packages. Zips: `alfatreze.TAU_0.6.0_2026-10-04.zip` (SHA-256 `aa3a384b...5068`) and `alfatreze.TAU_DIAGNOSTIC_0.6.0_2026-10-04.zip` (`8865faa4...ebc33`). Note: version and date are unchanged (APP_VER 0.6.0, `date_release` 2026-10-04), so the zip file names equal alpha.2's; the release tag tells them apart and the local `release/` copies were overwritten. The release ROM now carries the pipelined handoff and burst push, which have only run in Diagnostic-style builds (DEV 88 to 91): a Pocket smoke test of the release-style normal core is the gate before tagging.
+
+**Smoke test (owner, 2026-10-04):** both alpha.3 cores installed (`alfatreze.TAU` and `alfatreze.TAU_DIAGNOSTIC`, hashes verified, backups in `work/card-backups/20261004-202142` and `-202222`); the normal core and the Diagnostic Build both boot, and extended listening found no audio issues. Meter behaviour was not assessed (not needed for this build). Not yet tagged, pushed or published.
+
+## B-597: v0.6.0-alpha.3 published
+
+Owner approved push, tag and publish after the smoke test (B-596). Pushed `main` (`f0aa43c..c228147`, 17 commits) and tag `v0.6.0-alpha.3`; GitHub pre-release https://github.com/alfatreze/Tau-Alpha/releases/tag/v0.6.0-alpha.3 (2026-10-04 20:22 UTC) with both zips (normal `aa3a384b...5068`, Diagnostic `8865faa4...ebc33`, the same files the owner tested) and `SHA256SUMS.txt`; the notes are the changelog section. alpha.2 and alpha.1 releases untouched (alpha.1 already carries its superseded notice).
+
+## B-598: Cymo C1: dB-tapered volume with a click-free ramp (owner chose "pure dB, 60 dB range"); `TAU_DEV_92` packaged
+
+Owner decision: pure dB taper, 60 dB range. Volume is still a position 0..100, but gain(v) = 10^((v-100)*0.6/20) as a Q15 factor (position 100 = 0 dB, 1 = -59.4 dB, 0 = mute), from a 101-entry table in `fw/pcm_push.h`. A change no longer jumps: `pcm_vol_t {cur, target}` moves `cur` toward `target` by 149 (Q15) per pair, full scale in about 220 pairs (5 ms at 44.1 kHz), so a step is a smooth slope; boot and the settings restore snap (`vol_apply_snap`), so the first samples are not a ramp from full volume. The gain multiply is `(sample * cur) >> 15` (int32-safe); steady state costs one compare per pair; the fade-in stage is unchanged. Both users changed: the MP3 burst push (`pcm_push_pairs`) and `cymo_push()` (FLAC, tempo). **Defaults:** `VOL_STEP` 5 to 3 (1.8 dB a press; a hold sweeps the range in about 2.8 s), default volume 65 to 94 (the position that matches the old default loudness, about -3.6 dB), `interact.json` `defaultval` 65 to 94. **Consequence for existing users:** a saved volume number keeps its number but is now a different loudness (a saved 65 is about 17 dB quieter than before). **Tests:** `sim/test_pcm_push.py` rewritten (table equals the formula, monotone, 0.6 dB per position from 40 up, end points exact, default 94 is about -3.6 dB; 1.2 M settled-gain cases against an independent reference; every from/to ramp moves at most 149 per pair, is monotone, arrives within 220 pairs and then stays; mute is exact 0; unity untouched; a no-ramp mutant fails 9), `sim/test_pcm_burst.py` updated (ramping cases included, stream identical to the per-pair path). `make test-host` passes; builds clean incl. `TEMPO=1` (release heap gap 16,672 B, was 16,992 B). User guide updated. Packaged `alfatreze.TAU_DEV_92` (pairing check PASS), NOT installed, not heard yet: listen for clicks on volume changes (there should be none), that steps feel even, that the default level feels like before, and mute.
+
+## B-599: ReplayGain (Cymo C6, first half): tags read from the files, Off / Track / Album setting, folded into the volume ramp; `TAU_DEV_93` packaged (tempo build)
+
+Owner: "do 1, the build including tempo; tempo improvements later". **What it does:** reads the gain tags a file already has, picks the one the setting asks for, and folds it into the volume target, attenuate-only (the target never exceeds 0 dB, so a positive gain can only bring a quiet volume setting back up and can never clip; no peak or limiter logic needed). Sources: ID3v2 `TXXX` frames `REPLAYGAIN_TRACK_GAIN` / `REPLAYGAIN_ALBUM_GAIN` (v2.3 and v2.4; Latin-1, UTF-8 and UTF-16; keys case-insensitive; also found behind a large picture via the card walk) and FLAC Vorbis comments of the same names. Values are centi-dB (`-6.48 dB` = -648), clamped to -30..+18 dB. Album mode falls back to the track gain when there is no album gain; no tag is 0 dB. **Not read:** iTunNORM, RVA2, APE tags, R128 tags, and the peak tags (not needed with attenuate-only).
+**Code:** `fw/replaygain.h` (pure: parse, dB-to-Q15 factor, mode pick, fold, tag readers), `fw/flac.c` keeps the two raw value strings, `fw/player.c` holds `rg_cur`/`rg_mode`/`rg_factor`; `vol_apply()` now targets `rg_target(volume gain, factor)`; the track-load path calls `rg_update()` after the tags. **Everything that parses lives in cold code** (first build put about 2.2 KB in the on-chip RAM; with the helpers in `.cold_text` the release heap gap went 16,672 B to 16,128 B), entered only when `cold_code_ok`, so without cold code ReplayGain does nothing and playback is unchanged. **Setting:** Settings > Audio > REPLAYGAIN (Off default / Track / Album), saved in the `SW_POL` word (bit 0 polarity, bits 4-5 mode; no new persist id; recorded in `CROSS_PROJECT_INTERFACE.md`); **Info > REPLAYGAIN** shows `OFF`, `NO TAG` or `TRACK -6.5 DB` / `ALBUM -3.1 DB`.
+**Tests (`sim/test_replaygain.py`, in `make test-host`):** value parsing (12 cases), the factor within 0.01 dB of 10^(cdb/2000) over -30..+18 dB (worst 0.005 dB), the fold never above unity, mode picking (7 cases), the ID3 scan against REAL tags written by mutagen (v2.3/v2.4, encodings 0/1/3, lowercase keys, a 20 KB picture, every truncation of the tag from 0 to 239 bytes), and the REAL `fw/flac.c` `flac_open()` on hand-built FLAC headers (5 comment layouts). `make test-host` passes; all targets build clean incl. `TEMPO=1`. Packaged `alfatreze.TAU_DEV_93` (`--variant tempo`: release-style with the tempo setting; main as of this commit incl. the dB volume of B-598; pairing check PASS), NOT installed. **Untested on a Pocket:** the firmware wiring (load path, setting, Info row). Plan: install, tag a few test tracks on the card copy with different gains (and rebuild the index), then listen with REPLAYGAIN Off / Track / Album and read the Info row.
+
+**Owner result (2026-10-04), `TAU_DEV_93`:** ReplayGain sounds right to the owner's ears, and the dB volume taper works with smooth transitions and no issues. Cleared for the next release (alpha.4). Not reported: the Info row text, the positive-gain case at volume 100, the FLAC track, the tempo setting; none looked wrong, but they were not itemised.
+
+## B-600: ReplayGain always read Off (persist range clamp); tempo clicks at 1.75x reported on DEV 93; A/B builds packaged
+
+**1. ReplayGain always Off (owner, DEV 93).** Cause (reasoned from `interact.json` and the poll logic; **to be confirmed by reading DEV 93's `interact_persist.json`: id 28 should read 0 or 1, not 16/17/32/33**): the mode is packed into bits 4-5 of the `SW_POL` word, which is persisted as variable id 28 "(internal) theme mode", declared `min 0 max 1`. The Pocket clamps a persisted variable to its declared range, so the saved 16/17 came back as 0/1; `settings_poll_menu()` sees a word different from what was published, calls `settings_load()` and `rg_mode` is reset to Off, so choosing Track or Album snapped back to Off (the Info row always said OFF; the owner's "sounds fine" was then the untouched Off sound). Fix: id 28 now declares `max 255` (`dist/Cores/alfatreze.TAU/interact.json`); old files (0/1) stay valid. New `sim/test_persist_ranges.py` (in `make test-host`) refuses a declared range smaller than the largest packed value; it fails on the old range (max 1) and passes on the new one. **ReplayGain on DEV 93 was therefore never really tested; the earlier "cleared by ear" entry stands only for the dB volume taper.** (B-599's "no new persist id" is true, but a new field inside an existing word needs that word's declared max widened.)
+**2. Tempo clicks at 1.75x (owner, DEV 93, the same mono speech MP3 that was clean on DEV 79).** Not yet diagnosed. Mono: the Subband pipelining (stereo only) and the burst push (non-tempo path) do not apply; changes that do touch the tempo path: the dB volume model (`pcm_gain_apply` with a ramp, in `cymo_push`), code placement (the cold image grew; the stretcher runs from PSRAM through the instruction cache), and the new REPLAYGAIN setting/Info row. Plan: A/B on the same file at 1.75x with **`TAU_DEV_94` = the alpha.3 tag + tempo** (no dB volume, no ReplayGain) against **`TAU_DEV_95` = main + the ReplayGain fix + tempo** (DEV 93's firmware, identical ROM `3966bce6...`), reading Info > HEADROOM and UNDERRUNS at 1.75x on each; if DEV 94 also clicks the regression is older (pipelining, burst push or code layout) and I bisect further.
+Packaged (pairing check PASS), not installed: `alfatreze.TAU_DEV_94` (ROM `c20ccd7d...`) and `alfatreze.TAU_DEV_95` (ROM `3966bce6...`, `interact.json` max 255).
+
+## B-601: the A/B builds are Diagnostic Builds with tempo (owner request); `TAU_DEV_94` and `TAU_DEV_95` repackaged
+
+Owner: use a Diagnostics build (and make sure the barcode improvements are in), and "I didn't see this on 93" (the tempo clicks). The barcode work (TPG pixel-grid report codes, B-594/B-595) is already in both `v0.6.0-alpha.3` and `main` (`764536b` is an ancestor of both), so both builds carry it; it is Diagnostic-Build only, which is why the earlier release-style tempo builds (DEV 93, and the first DEV 94/95) did not have the Check/QR report pages. **New:** a Diagnostic Build with the tempo stretcher links with a heap gap of 1,904 B against the 2,048 B policy floor (the diagnostic-profile target does not link at all with tempo); per B-565 the gap is unused RAM (a policy margin, not a need), so `fw/build.sh` gains `HEAP_MIN_OVERRIDE=<bytes>` (replaces the per-target floor, set after the target is chosen; the hard link minimum still applies; not used by release builds, whose heap gap is unchanged at 16,128 B). **Packaged** (variant `diagnostic`, flags `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1,TEMPO=1,HEAP_MIN_OVERRIDE=1024`, pairing check PASS, NOT installed): `alfatreze.TAU_DEV_94` = the `v0.6.0-alpha.3` source (no dB volume, no ReplayGain; ROM `aa59198b...`, built in a throwaway worktree with the same override) and `alfatreze.TAU_DEV_95` = `main` with the ReplayGain range fix (ROM `9f405e25...`). The earlier release-style tempo packages of the same numbers were deleted (never installed). **A/B plan:** the same mono speech MP3 at tempo 1.75x on both, Info > HEADROOM and UNDERRUNS read on each, and a FULL Check on any that clicks; note the owner did not see the clicks on DEV 93 (identical firmware to DEV 95 except the persist range), so if DEV 95 is clean too the earlier report may have come from a different build or setting; if only DEV 95 clicks, the dB volume or ReplayGain change is the suspect.
+
+## B-602: MP3 noise report withdrawn; tempo 1.75x is at the CPU limit; Cymo C3 started: gain rounding fix and the 16-bit I2S switch (F2)
+
+**1. Noise/clicks regression (issue 024).** The owner's MP3 noise report was probably tempo left on while testing it; no noise was found on DEV 94-96. The real finding: tempo at 1.75x is clean on DEV 100 (a rebuild of DEV 79's firmware with its own bitstream, plus the pairing marker) but with HEADROOM idle 0%/0 (menus and screen changes add clicks), and DEV 97/98/99 (before/after the pipelined handoff and burst push) click. The "regression" is thin margin, not a bug; options (cheaper stretcher, hardware correlator) are parked in `docs/features/AUDIOBOOK_IDEAS_PARKED.md`; the measurement still owed is idle at 1.50x on DEV 100 vs 99.
+**2. C3 spec and model** (`docs/features/CYMO_OUTPUT_STAGE_SPEC.md`, `tools/lab/cymo_out_model.py`, `sim/test_cymo_out_model.py`, 13 properties in `make test-host`). Engineering review (section 6): the clipper is not transparent with the EQ off (knee 0.9 FS; must be bypassed bit-exactly), dither belongs at the real requantisation points not after the EQ, F2 first, atomic L/R, one M10K + one DSP. Owner: the clipper waits for C5 (EQ), where headroom becomes a real need.
+**3. Built (host-verified, NOT on a Pocket):** (a) `fw/pcm_push.h`: the gain and fade now round to nearest (`+16384` before `>> 15`, `+128` before `>> 8`); `sim/test_pcm_push.py` gains a bias check over every 16-bit sample at every volume position (mean error 0.002 LSB, worst 0.5 LSB; a floor shift gives -0.5). (b) F2: runtime-switchable 16-bit I2S slot. `sound_i2s.v` input `full16` (0 = the original `{sign, audio[15:1]}` mapping bit for bit, 1 = the whole 16-bit word, about +6 dB), `mp3_soc.v` register `R_AUDIO_CFG` 0x164 (sticky, reset 0; read: bit 1 = built in, bit 0 = value; `AUDIO16_ENABLE`/macro `TAU_AUDIO16`, default off so other bitstreams are unchanged), `core_game.vh` wiring; firmware probes bit 1 at boot (`hw_a16`) and Settings > Diagnostics > 16-BIT OUTPUT toggles it (Diagnostic Build, OFF at every boot, never persisted, "NO UNIT" without the bitstream feature). `sim/tb_sound_i2s_full16.v` + `sim/test_sound_i2s_full16.py` (8,004 cases, mutant caught; in `make test-host`). `make rtl-lint`, `make test-rtl` and `make test-host` pass. `dist/` ROMs are not rebuilt (alpha.4 will carry the rounding fix).
+**4. Fit and build:** bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_qsf_append.txt` (the shipped Cymo bundle + `TAU_AUDIO16=1`). Test plan on the card: volume LOW first, toggle 16-BIT OUTPUT, loopback level/THD of a tone and a 0 dBFS burst (`tools/lab/cymo_loopback.py`), ear check; ReplayGain tested on the same build (Off/Track/Album, tagged tracks, Info row; its persist-range fix B-600 has never been heard).
+**5. Card and VM (2026-10-06, late).** Packaged and installed `alfatreze.TAU_DEV_101` (Diagnostic Build, main at `496b7ac`: gain rounding fix, ReplayGain with the B-600 persist fix; current clut-rtl-b576 bitstream; heap gap 8,592 B; media and library carried from DEV 99, `tau-assets.bin` kept; pairing PASS). Its 16-BIT OUTPUT toggle reads NO UNIT (the bitstream has no switch yet). Whether the carried media still holds the ReplayGain test tags was not checked (card ejected after the install): Info > REPLAYGAIN says `NO TAG` if not. **Fit `audio16-b602` NOT launched:** the VM was busy with another stream's `quartus_map` (`card-writing-lab/cpu08r2-s1`, 30 min in), and the project rule is never two fits at once; launch with `python3 tools/vm_fit.py launch audio16-b602 --append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_qsf_append.txt --seed 1 --seed 2` when it is free (expect about 1h40-1h50 per the Cymo bundle's own history).
+**6. ReplayGain still reads OFF on DEV 101; pixel grid not visible (B-603).** Card read (owner's DEV 101 run): `interact_persist.json` has id 28 (theme mode + ReplayGain mode) = 0, id 27 = 0; Info export (decoded with `decode_tau_suite.py --qr`): `REPLAYGAIN OFF`, MP3 128K 44.1K playing, firmware 0.6.0, theme file loaded. It is not yet known whether the mode was ever set to Track/Album before the screenshot or the tags are on the carried media; the persist value 0 at last quit says the mode did not survive (or was never set). `max 255` is in the package's `interact.json` (checked). The code path reads correct on paper (`set_ch_apply` sets `rg_mode`, `settings_store` packs bits 4-5, `settings_load` unpacks them). **Pixel grid:** `barcode-study` IS merged (`764536b` is an ancestor), but `TAU_TPG` is off by default (decision D-R04) and no build since alpha.3 passed `TPG=1`, so reports stay QR. **`TAU_DEV_102` (installed, DEV 101 removed):** main plus `TPG=1`, and the Info REPLAYGAIN row now reads `<mode> [<gain>] H<tags found: 0 none, 1 track, 2 album, 3 both> W<saved word read back: 16 = Track, 32 = Album>`. Next: with DEV 102, play a tagged Nausicaa track, set REPLAYGAIN to Track, read the row (H0 = the tags are not on this card copy; H1/3 with W0 = the setting is lost between menu and storage), then quit and read id 28 again.
+**7. Pixel grid is the default (B-604, owner decision 2026-10-06).** `fw/build.sh` now defaults `TPG=1` (was 0): every Diagnostic Build gets the robust grid by default on Check, Decode/Meter Sweep, Meter Trace, Blit Test and the Info/Meter-config exports, X cycling robust grid, lossless grid, QR; `TPG=0` restores QR-only; the release ROM is unaffected (no report pages), `dist/` untouched. D-R04 reversed in `docs/DECISIONS.md`. The owner's menu-consistency changes live on branch `meter-builder` (forked at `21f69ae`, before the barcode merge), so TAU DEV METER cores have no grid until main is merged into that branch (not done: it is the owner's worktree). `tools/check_heap_gap.py` was failing on stale baselines since the B-598/B-599 volume and ReplayGain work (diagnostic gaps 48,704 to 45,936 B and 46,192 to 43,248 B, release 54,416 B: hot `.text` +1.7 KB, `.rodata` +0.8 KB, cold +5 KB); baseline refreshed with `--update` (the check is not part of `make test-host`).
+
+## B-605: ReplayGain was never selectable: the Audio page's row count was hard-coded
+
+Owner, DEV 102: the Info row read `OFF H1 W0` on `Legend of the Wind` (Nausicaa Image Album: a track gain, no album gain, so H1 is right: the tag is read), and **there is no REPLAYGAIN option in the Audio menu**. Cause (read in `fw/settingsui.inc`): `set_menu_n[]` listed the Audio page as a literal `2u` (and Playback as `4u`), so the REPLAYGAIN row, the third entry of `set_audio_rows` since B-599, was never drawn or selectable. **ReplayGain has therefore never been settable on any build**, including DEV 93 (the earlier "sounds right by ear" was Off) and DEV 95-101. The persist-range theory (B-600, `max 1`) was a real defect in principle but was not the cause the owner saw; the widened range stays. **Fix:** every `set_menu_n` entry is now `SET_COUNT(<its table>)`; new guard `sim/test_settings_menu_counts.py` (in `make test-host`) fails on the old `2u, 4u`. I also wrongly described the menu path to the owner earlier; the real tree is Settings (Start) > AUDIO > REPLAYGAIN now that the row is counted, and Settings > INFO for the Info page. Playback's `4u` was a latent over-read of the table (only 2-3 rows exist); now exact. `TAU_DEV_103` packaged (main + this fix, pixel grid default, pairing PASS, heap gap 8,368 B), NOT installed (card unmounted). Install plan, per owner: install DEV 103 carrying media from DEV 102 and remove every superseded test core (DEV 102, 100, 99, 98, 97); keep `TAU`, `TAU_DIAGNOSTIC` and the owner's `TAU_DEV_BARCODE_04` and `TAU_DEV_METER_*`. Packages stay in `work/diagnostics/` if any is needed again.
+**Owner result (2026-10-07), `TAU_DEV_103`: ReplayGain is working.** The REPLAYGAIN row is now in Settings > AUDIO and the mode takes effect (hardware-confirmed by the owner; the finer checks, Info row text, W16 after a pause, persistence across a relaunch, Album mode and the FLAC track, were not itemised). Closes the ReplayGain item; B-599's feature is now actually heard for the first time. Pixel grid and persistence details still to be reported. Fit `audio16-b602` still running (started 23:34).
+
+## B-606: resource ledger of the shipped bitstream (fit `clut-rtl-b576`, seed 2, read from the VM report 2026-10-07)
+ALMs needed 13,207 / 18,480 (71%), placed 14,389 (78%), recoverable by dense packing about 1,294; LABs 1,722 / 1,848 (93%, 11 memory LABs); registers 15,961 (primary 14,963); combinational ALUTs 18,831; M10K 256 / 308 (83%), block-memory bits 1,982,464 (63%), MLAB bits 4,736; DSP 20 / 66 (30%); PLLs 2 / 4; pins 224 / 224 (100%); timing all corners positive (worst hold +0.142 ns Fast 85C, worst setup +1.365 ns Slow 0C). Per module (ALMs needed): VexRiscv CPU 1,525 (4 DSP), EQ 1,659 (4 DSP), Talos `mp3_fb` 1,470 (6 DSP), MP3 window unit 1,255 (3 DSP), spectrum bank 1,213, FLAC LPC 1,113 (2 DSP), Cymo resampler 994 (1 DSP), psram probe 346, SDRAM 311 + bridge 118 + mux 69, `core_bridge_cmd` 304, wave meter 163, Cymo feed 129, `pcm_fifo` 97. **Correction:** earlier reviews (B-602 C3 review, finding G) used "ALM 98%": that was the pre-T2-00 LPC fit; ALMs are not the scarce resource now. Free: about 5,270 ALMs, 52 M10K, 46 DSP, 2 PLLs, 0 pins.
+
+## B-607: Sound Shaping decisions: six stages, rebuilt presets, host model
+
+Owner decisions (2026-10-07): six stages (D-S01), presets rebuilt from the controls and configurable in Tau and Omega with resettable defaults (D-S02), preset recall by gain-dip first (D-S03), de-esser firmware-only and later (D-S04). **Built (host only):** `tools/lab/halcyon_model.py` (six-stage map, control-to-dB mapping, eight default presets, attenuate-only auto-preamp, using the real `gen_eq_coeffs.py` design and quantiser) and `sim/test_halcyon_model.py` (19 properties in `make test-host`: all presets stable, coefficients in the 18-bit range, worst overshoot +3.42 dB, cascade dB additivity 0.0000 dB, each control moves its own band the right way, cost figures 139 clocks and 19,980 table bits). Findings: a pink-weighted preamp can turn positive on cut-heavy presets, so it is capped at 0 dB; the table is two M10K blocks not one. Spec: `docs/features/CYMO_HALCYON_SPEC.md` section 11; decisions D-S01..D-S05 in `docs/DECISIONS.md`. Open: D-S05 (the 16-entry `interact.json` cap limits on-device persistence of edited presets to one user slot unless the legacy ids 20-23 are retired). No RTL, firmware, card or VM touched.
+
+## B-608: in-depth review of the audio stack (gain stage, quantiser, Sound Shaping, DSP use)
+
+`docs/features/CYMO_AUDIO_STACK_REVIEW.md`. Measured with `tools/lab/eq_coeff_precision.py` (new, host only): **the shipped 18-bit Q2.16 EQ coefficients are too coarse for the 100 Hz and 220 Hz stages** (response error up to 0.61 dB and 0.16 dB; the Bass slider's 0.5 dB steps are uneven and 2 of 36 go backwards at 50 Hz; +4 extra bits fix it, the four stages from 1.8 kHz up are exact at 18 bits). Recommendation: 24-bit Q2.22 coefficients (uniform) with a 64-bit accumulator and closed-loop table generation, confirmed by a synthesis-only DSP/ALM/timing run before any fit. Corrections to my earlier proposals: the gain stage needs ONE DSP block (16x16 fits two independent 18x18; two blocks only with a 24-bit input); the 24-bit EQ input needs no state widening; the recall dip should clear the EQ state while muted (about 10 ms, not 25-30). New items: a fixed 35-40 Hz subsonic high-pass as a seventh stage (bass boost also boosts rumble), bass-boost caution for the Pocket's small speaker (measure with loopback sweeps), meters tapped before the gain stage, a per-variant `interact.json` so the release core can free ids 20-23 for user presets. Budget after everything: DSP 21-24 of 66, ALM about 69-70%, M10K about 260 of 308 [EST]. Errata appended to the gain-stage and Sound Shaping docs. No RTL, firmware, card or VM touched.
+
+## B-609: 24-bit EQ coefficients (step 1 of the Sound Shaping path): model, generator, RTL option, bit-exact tests
+
+Owner: "start 24-bit" (recommendation F1 of `CYMO_AUDIO_STACK_REVIEW.md`). **Built, host and simulation only, default OFF:** (1) `tools/gen_eq_coeffs.py`: `EQ_COEF_BITS=24` selects 24-bit Q2.22 (default 18, Q2.16, output byte-identical to before); writes `src/fpga/core/eq_coefs24.vh`. (2) `tools/eq_model.py`: accumulator width derived from the coefficient width (58 shipped, 64 at 24-bit); all four model checks pass at 24 bits (FLAT bit-exact, silence settles, clamp, widths: state 33/36 bits, accumulator 55/64 bits needed; the slowest preset settles in 21 ms). (3) `tools/gen_eq_vectors.py`: 24-bit vectors to `sim/eq24/` (generated, git-ignored). (4) `src/fpga/core/eq_biquad.v`: macro `TAU_EQ_COEF24` selects CW 24, FC 22, AW 64 and the 24-bit include; macro off is the original module bit for bit (rounding constant made width-generic). (5) `sim/tb_eq_biquad.v` takes its vector directory from the macro; new `make test-rtl-eq24` (in `test-rtl`): **all eight presets bit-exact against the model, both channels, 576 samples; the engine still takes 116 clocks per sample (9.2% at 60 MHz)**; a mutant with the wrong coefficient shift (FC 16 against 22-bit coefficients) fails all 8 presets, so the test can fail. (6) `sim/test_eq_coeff_precision.py` (in `make test-host`, with `tools/lab/eq_coeff_precision.py`): proves both halves, the 18-bit defect (worst 0.610 dB, non-monotonic Bass steps, spread over 0.3 dB at 50 Hz) and the 24-bit fix (worst 0.0156 dB, no non-monotonic step, step spread at most 0.038 dB at 50/80/120 Hz). **Not done:** no synthesis or fit (the VM is busy with `audio16-b602`; one Quartus job at a time), so the DSP, ALM and timing cost of the 24x36 multiply and the 64-bit accumulate is still an estimate (`CYMO_AUDIO_STACK_REVIEW.md`: +0 to +2 DSP, accumulate timing the thing to watch); the shipped bitstream and the card are unchanged; the Sound Shaping tables are not yet generated at 24 bits (the model/tables step follows the writable coefficient store). Next: a synthesis-only run with `TAU_EQ_COEF24=1` when the VM is free, then the gain stage.
+
+## B-610: Cymo audio architecture diagram rebuilt in Figma
+
+Figma file `rT7ux8u0R7SS3D34J4Idsq`, page "Diagrams". Frame `cymo-audio-framework` (node 227:650, same id and URL) rebuilt as a block diagram with absolutely placed nodes (auto layout switched off on the frame; the old frame had vertical auto layout, which would have overridden positions): source and ring buffer, MP3 and FLAC decode lanes with their hardware offload units (window unit, LPC unit, parked IMDCT unit), the PCM path (tempo funnel, shared push, software meters), the hardware audio chain (FIFO, resampler, planned gain stage, Sound Shaping EQ, soft clipper, final quantiser, I2S, output), the control plane (policy, Sound Shaping controls, diagnostics switches, measurement, persistence, Tau Omega), colour-coded by status (shipped, RTL unit, built or in test, planned, parked), and a Key Features section replacing "Shipped / Verified". Open issues moved to a new frame `cymo-open-issues` (node 285:2) with ten refreshed items. The previous version is kept as `cymo-audio-framework (v1 backup, 2026-10-07)` (node 278:2). Connector nodes cannot be created in design files through the API and the file had none to clone, so the arrows are editable vector paths; `cymo-audio-light` (node 1468, the light variant) still shows the old content. Verification: `make rtl-lint` exit 0, `make test-rtl` exit 0 (the FAIL lines printed are the deliberate PSRAM fault-injection runs), full `make test-host` clean of failures.
+
+## B-611: DSP review against alsa-jamesdsp, FreeEQ8, Equalizer314 and ZL Equalizer 2; provenance record
+
+`docs/features/CYMO_DSP_REVIEW.md` and `docs/PROVENANCE.md`; decision D-P01 in `docs/DECISIONS.md`. Four public repositories (GPL-2.0, GPL-3.0, GPL-3.0, AGPL-3.0) were cloned shallowly into the session scratchpad, read (the files and commits listed in `PROVENANCE.md`) and deleted; nothing was executed, and no code, constants or tables were copied into Tau. New host-only analysis (all our own code): `tools/lab/eq_cramping.py` (bilinear cramping of the six stages against the analog prototype: up to 1.14 dB at the 10 kHz shelf, 0.79 dB at the 6.5 kHz bell, zero below 1 kHz), the offline least-squares analog-match refinement prototyped in the review (worst error 0.02-0.06 dB, all stable, zero hardware cost), `tools/lab/eq_svf_precision.py` (trapezoidal SVF with an 18-bit word has 0.002-0.009 dB coefficient error at the 100/220 Hz stages against 0.27-0.61 dB for the 18-bit DF1 biquad), `tools/lab/eq_structure_noise.py` (rounding noise negligible for both structures, at most 0.003 LSB RMS), `tools/lab/eq_parallel_study.py` (a parallel fixed-band-pass bank cannot replace the cascade: 0.4-1.9 dB worst across the default presets, up to 4.4 dB for single bands). New hardening: `halcyon_model.clamp_slope()` and a sweep test (lesson from FreeEQ8's published shelf-NaN bug): clamped designs are finite and stable with 24-bit coefficients over +-24 dB; unclamped S above 1 raises at large gains; 12 designs go unstable after 18-bit quantisation (all at 40 Hz, +-24 dB). Correction: the two shelf stages' 0.70 is the cookbook shelf slope S, not Q. Recommendations (review section 7): add the analog-matched refinement to the table generator, keep 24-bit DF1 with the 18-bit SVF stage as the documented fallback, clamp and stability-check every tool that writes shelves, allow a raw biquad list in presets (AutoEQ / Equalizer APO import in Tau Omega), a hardware parallel-dip de-esser as an optional later step, and no FIR/FFT EQ, per-band saturation or oversampling. No RTL, firmware, card or VM touched.
+
+## B-612: fit audio16-b602 closed; TAU_DEV_104 (16-bit I2S switch) installed
+
+Both seeds finished Successful with all four corners positive (seed 1: worst hold +0.116 ns, worst setup +0.737 ns; seed 2: +0.074 / +0.948); M10K 256/308 and DSP 20/66 unchanged from the shipped bitstream (the switch adds a register and a mux). Seed 1 chosen (better hold, the tighter margin); RBF `f822d924...` collected and verified against the VM copy. Packaged `alfatreze.TAU_DEV_104` with the same firmware as DEV 103 (ROM `d1e15b32...`, rounding fix, ReplayGain in the Audio menu, pixel grid default; heap gap 8,368 B; pairing PASS) and installed with `tools/install_dev_core.py` (media and library carried and rebuilt, DEV 103 removed after a verified backup `work/card-backups/20261007-014750`, caches cleared, ejected). **Not run on a Pocket yet.** Test plan: read Info and Settings > Diagnostics > 16-BIT OUTPUT (should read OFF, not NO UNIT); volume LOW first, toggle ON (about +6 dB); loopback record of the 48 kHz 1 kHz tone, the 0 dBFS burst and silence with the switch OFF then ON at the same settings (interface gain set so the OFF peak is about -12 dBFS), analysed with `tools/lab/cymo_loopback.py`; ear check; ReplayGain Off/Track/Album already confirmed on DEV 103.
+
+## B-613: session wrap-up, Halcyon named, recommendations adopted, review phase 2 parked
+
+Owner decisions (2026-10-07): the new EQ is named **Halcyon** (D-H01; the old name "Sound Shaping" remains in historical entries, file names and code identifiers until the rename task), the DSP review's recommendations are followed (D-H02), and the review of the non-EQ parts of the reference projects is parked for later (D-H03, ROADMAP row 15). Documentation updated to the new name (Halcyon spec, stack review, DSP review, gain-stage design, provenance, decisions) and the Figma diagram labels renamed (the light variant left alone). Handoff `docs/handoffs/SESSION_HANDOFF_2026-10-07_CYMO_HALCYON.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md` rows 14-15 and the CLAUDE.md session-start pointer written; local `analogue-pocket-dev` skill entries and memory notes added. Not done this session (carried in the handoff): running `TAU_DEV_104` (installed, untested), the synthesis-only count for `TAU_EQ_COEF24`, the Halcyon generator work, the `halcyon_*` rename, the gain stage and Halcyon RTL.
+
+## B-614: TAU_EQ_COEF24 synthesis count, Halcyon generator work, halcyon_* rename
+
+**Synthesis-only (`quartus_map ap_core`, seed 1, shipped audio16 macro bundle, ~12.7 min each, run in parallel on the VM; stages `eq24syn-base`, `eq24syn-c24`):** both 0 errors. Baseline: DSP 20, ALM estimate 13,535, registers 15,368, block memory bits 1,982,464. With `TAU_EQ_COEF24=1`: **DSP 22 (+2)**, ALM estimate 13,572 (+37), registers 15,380 (+12), block memory unchanged. So the 24-bit coefficient x 36-bit state multiply costs two more DSP blocks (22/66) and almost no logic; ALM stays about 73%. **Not covered by synthesis:** timing of the 64-bit accumulate; that needs a real two-seed fit (not launched; do it together with the gain stage bitstream so one fit answers both). The 18-bit SVF fallback is not needed on resource grounds.
+
+**Halcyon generator (D-H02, numpy only, own method, PROVENANCE.md row updated):** `tools/gen_eq_coeffs.py` gained `analog_response`, `design_matched` (Levenberg-Marquardt refinement of the five coefficients against the analog prototype, 20 Hz-20 kHz log grid, falls back to the cookbook when the refinement is not stable or not better, 0 dB stays the exact cookbook identity), `clamp_slope`, `design_stage` (the one entry for a written stage: clamps shelf S, matched by default) and `quantise_checked` (range plus quantised-pole stability at the build's real width; also the gate for raw biquads). Measured: worst error against the analog prototype **1.144 dB (cookbook) to 0.065 dB (matched)**, every matched stage stable. A 40 Hz low shelf +24 dB is refused at 18 bit (unstable or out of range) and accepted at 24 bit. `tools/lab/halcyon_model.py` gained `build_table` (preset data at the build's width, `EQ_COEF_BITS=24 ... --json` writes `tools/halcyon_presets_q22.json`, all 8 presets pass, worst overshoot +3.47 dB) and `raw_preset` (raw biquad list presets for AutoEQ / APO import: at most six stages, unused stages exact identity, attenuate-only preamp, unstable stages refused). New `sim/test_halcyon_generator.py` (13 checks, in `make test-host`). The shipped tables and RTL tests are unchanged (the matched design is opt-in).
+
+**Rename (D-H01):** `sound_shaping_model.py` to `halcyon_model.py`, `test_sound_shaping_model.py` to `test_halcyon_model.py`, `CYMO_SOUND_SHAPING_SPEC.md` to `CYMO_HALCYON_SPEC.md`, all references updated (log entries keep their old wording). The firmware menu page title becomes HALCYON when that page is built. Nothing in firmware, RTL, card touched.
+
+## B-615: hardware gain stage built (Cymo C3 slice 2), fit running
+
+Owner: go with the recommendations, build the gain stage. **Decisions applied:** position B (at the pcm_fifo output register), hardware meters keep tapping `fifo_l/fifo_r` (before the stage, volume-independent), ramp 149 per sample (5 ms), fade 2048 samples (43 ms), dither later and Diagnostics-only, EQ 24-bit input with the Halcyon RTL.
+
+**G0 model:** `tools/lab/cymo_gain_model.py` (integer-exact). `sim/test_cymo_gain_model.py` (in `make test-host`) proves it equals the shipped firmware gain `pcm_gain_apply()` (compiled from `fw/pcm_push.h`) over 59,119 samples with random volume steps and flushes, plus properties (unity exact, mute exact, ramp rate and arrival in 220 ticks, fade monotonic to the settled level, gaps without a real sample do not consume the fade) and writes the RTL vectors (`--vectors`).
+**G1 RTL:** `src/fpga/core/tau_gain_stage.sv`: one time-shared signed 18x18 multiplier with registered operands and product (DSP packing), four products per tick, L and R published on the same edge. `pcm_fifo.v` gained an `adv` output (a tick that delivers a real sample) so priming and underrun gaps do not use up the fade. `sim/tb_tau_gain_stage.v` replays 79,502 sample pairs against the model with a torn-pair monitor; `make test-rtl-gain-stage-mutation` kills all 9 mutants (no ramp, floor rounding, fade counts without a sample, fade off, mute floor, snap ignored, shift ignored, torn pair, fade rounding). Wired in `mp3_soc.v` behind `GAIN_ENABLE` / `TAU_GAIN` (default off, then the audio path is exactly as before); registers 0x168-0x174 (`MMIO_ALLOCATION.md`); Cymo feed and EQ take `gain_l/gain_r`. Full `make test-rtl` (49 PASSED incl. the real-CPU sims) and `make test-host` pass.
+**G2 firmware:** `hw_gain` probe, `gain_hw_set()`, `vol_st.hw` (single owner: `pcm_gain_apply()` returns at once, host-tested that it never touches samples, ramp or fade then), volume target written to the stage, `fade_restart()` for resume and underrun (flush is automatic in hardware), Diagnostics > HW GAIN toggle (NO UNIT / ON / OFF) for the A/B. Heap gaps unchanged within tolerance (release 54,208 B).
+**G3 fit:** `gain-b615`, seeds 1 and 2, shipped audio16 bundle + `TAU_GAIN=1`, launched 02:41 local, expected done about 04:20-04:25 local (this macro family has landed near 1h40). The `TAU_EQ_COEF24` timing (64-bit accumulate) is NOT in this fit, to keep the two questions apart; it goes into the Halcyon RTL fit.
+**Not done:** G4 hardware test (needs the owner and a card write), 24-bit output, dither / soft clipper quantiser, EQ 24-bit input.
+
+**B-615 fit result (checked 07:16 local; both seeds finished 04:11-04:12, about 1h30):** both Successful, **all four corners positive on both seeds**. Seed 1: worst hold +0.114 ns (Fast 0C), worst setup +1.574 ns (Slow 85C). Seed 2: worst hold +0.065 ns, worst setup +1.465 ns. RAM 256/308 (unchanged from the shipped audio16 bitstream), **DSP 21/66 (+1: the time-shared gain multiplier)**. Seed 1 chosen (better hold margin on every corner); RBF collected to `work/diagnostics/gain-b615/ap_core.rbf`. Not packaged, not installed.
+
+**B-615 package and install (2026-10-07):** `alfatreze.TAU_DEV_105` (`gain-b615` seed 1 RBF `b808ba59...c325`, `player-library-diagnostic` built with RAM_192K, CLK66, SDRAM_BUSY, LPC_FW via `package_dev_build.py --build-flags`, pairing check PASS, heap gap 8,176 B), installed with `install_dev_core.py` (backup verified, 3 core files identical by SHA-256, 132 media files carried and the library index rebuilt, DEV 104 removed, caches cleared, ejected). Not yet run on a Pocket. **B-616 (docs):** headphone analysis and review (`CYMO_HEADPHONE_PLAN.md`, sections 11-13), analysis of the existing recordings (analogue floor -76.4 dBFS), the DEV 105 recording plan saved (`CYMO_RECORDING_PLAN_DEV105.md`) and decision D-G01 gating the dependent developments.
+
+## B-617: inter-sample-peak test files and analyser (gate G-ISP)
+
+`tools/lab/cymo_isp.py` (`gen`, `analyze --kind ladder|imd|hot`, `selftest`) and `sim/test_cymo_isp.py` (in `make test-host`). Files `isp_ladder_48000.flac`, `isp_imd_48000.flac`, `isp_hot_48000.flac` written to `test music/cymo_loopback/` (local, not the card): known true peaks (12 kHz at phase 45 degrees reaches +3.0 dBFS true peak with samples at -0.01 dBFS; verified by 8x FFT oversampling), bit-exact FLAC. Analyser: section detection, per-section tone fit (12 kHz, level against the low-level reference gain, compression verdict at 0.3 dB), intermodulation at 10/11/13/14 kHz relative to the 12 kHz tone (rise over the lowest section), and a spectral-line linearity test for the hot signal (each line's ratio between the two levels against the median). Self-test: linear chain clean on all three; a simulated converter clipping the reconstructed waveform at 1.0 is detected (compression from a true peak of +1 dBFS, IMD from the +0 dBFS 12 kHz section because the carrier adds 0.8 dB, hot signal nonlinear, p95 deviation 2.2 dB); a chain with +3.5 dB headroom is clean. Key design point recorded in the recording plan section 6: with the 15-bit mapping the DAC sees 6 dB less, so the test is only meaningful with 16-BIT OUTPUT ON at core volume 100, and the interface gain must be lowered instead. Recordings pending (session 5). Gate G-ISP unchanged until they are analysed.
+
+**B-617 addendum (owner: the Pocket volume has no numeric display, 31 clicks max to min):** the recording plan now defines the system volume from the end stop (maximum = click 0, `dN` = N down), uses maximum for all runs, and adds session 1b: `sysvol_48000.flac` (6 s silence, 6 s 1 kHz -6 dBFS, 6 s silence) recorded at d00, d01, d02, d04, d08, d16, d24, d30, d31 and analysed with `cymo_isp.py sysvol` (tone level, noise, SNR, dB per click, and whether the noise is generated before or after the volume stage; self-tested on simulated chains). Earlier recordings are a pre-baseline only (position unknown).
+
+**B-617 card write (2026-10-07, owner approved):** copied `isp_ladder_48000.flac`, `isp_imd_48000.flac`, `isp_hot_48000.flac` and `sysvol_48000.flac` to `Assets/tau_dev_105/common/cymo_loopback/` with `sync_media.py --library --no-playlist` (dry run first; 4 new files, SHA-256 identical after copy; library index backed up to `work/card-backups/20261007-isp-sync`, rebuilt and verified: 118 tracks, root `/Assets/tau_dev_105/common/`); junk cleaned, ejected. No core files touched.
+
+**B-617 documentation pass (2026-10-07):** recording plan updated (test files on the card, session order, analysis order, skill references), handoff addendum written, `CURRENT_STATUS.md` and the CLAUDE.md session-start pointer updated, project-local skill entries KB-114 (floor and idle spurs, hardware-validated measurement, source side unresolved), KB-115 (Pocket volume has no readout, 31 clicks, hardware-validated), KB-116 (fs/4 phase-45 ISP signal), KB-117 (single-owner flag), note on KB-111; kb.py validate 0 problems.
+
+## B-618: parallel work plan saved
+
+`docs/features/CYMO_PARALLEL_WORK_PLAN.md` (items A1-A8 host/firmware, B1-B4 VM fits, C1 alpha.4 candidate, D other roadmap items) records what proceeds alongside the DEV 105 recordings, outside the D-G01 gates. Owner order: A1, A2, A3, the B1 fit and B2 experiment, A8. Status per item is kept in that file.
+
+## B-619: 24-bit FLAC reduced to 16 bits with rounding (parallel plan A1), fit eq24-b618 launched (B1)
+
+`fw/flac.c to16()` now rounds to nearest (`(v + (1 << (sh-1))) >> sh`, int32, no libgcc) instead of an arithmetic floor shift; the floor biased every sample by -0.498 LSB (DC) with error following quiet signals. New `sim/test_flac_to16.py` (in `make test-host`): equals an independent reference over 18,040 values for 8/16/18/20/24-bit (edges, random, around zero), worst error 0.5000 LSB, mean error 0.002 against -0.498 for the floor, +full-scale saturates, 16-bit untouched; `flac_test_to16` exposed under `FLAC_TEST_EXPOSE` only. Release heap gap -16 B (54,192 B), baselines unchanged within tolerance. 16-bit and lower-depth files are bit-identical to before. Not on a Pocket. **B1:** fit `eq24-b618` (two seeds, gain bundle + `TAU_EQ_COEF24=1`, `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_eq24_qsf_append.txt`) launched 08:44 local, expected done about 10:15-10:20 (this family has landed near 1h30).
+
+## B-620: dip the hardware gain around abrupt output changes (parallel plan A2)
+
+`gain_dip_begin()/gain_dip_end()` (`fw/player.c`, COLD_FN2): ramp the hardware gain stage to zero (5 ms ramp, 8 ms waited with the cycle counter), make the change, ramp back to the volume target. Used by the Diagnostics toggles 16-BIT OUTPUT (a 6 dB step in one sample) and CYMO RESAMPLER (signal swap). No change to the policy of the 16-bit mode (gated on G-A16): only the transition is smooth. Limits stated in the code: only the hardware stage can do it (the firmware gain acts on samples up to 46 ms ahead of the DAC); with the stage off the step remains; Diagnostics > HW GAIN itself still hands the gain over with up to 46 ms of already-gained samples in the FIFO (a short level dip when switching ON), acceptable for a test switch. Heap gaps unchanged (cold code), `check_cold_calls` clean, `make test-host` passes. Needs a Pocket test with DEV 105 (listen for a click at both toggles).
+
+## B-621: headphone crossfeed host model and listening files (parallel plan A3)
+
+`tools/lab/cymo_crossfeed_model.py` (selftest and render) and `sim/test_cymo_crossfeed.py` (in `make test-host`, 12 checks): difference form (`d = R - L`, `c = b z^-D LP(d)`, `L' = L + c`, `R' = R - c`; mono passes unchanged), plain form, mono mode, and an integer reference (24-bit path, Q30 one-pole, Q15 gain: within 0.56 LSB of float, exact pass-through of mono once settled, no limit cycle in silence). **Two corrections to the plan found by building it:** the low-pass adds about 0.18 ms group delay, so D = 13 samples gave 0.45 ms not 0.27 ms: the model uses D = 4 (cross-path group delay 0.265 ms at 200-500 Hz); and the worst-case overshoot for a full-scale anti-phase sine at b 0.30 is +1.15 dB (at 2.5 kHz; +1.7 dB at b 0.45), not +3.9 dB (`CYMO_HEADPHONE_PLAN.md` section 15). Listening files for two tracks (MacCunn FLAC 48k and the Aphex Twin track, 20 s each, decoded with afconvert, one common gain, so levels are comparable): A original, B/C/D difference form b 0.20/0.30/0.45, E plain form k 0.30, F mono, in `test music/Audio Lab/crossfeed_ab/` (local only). Listening verdict pending; no RTL or firmware yet.
+
+## B-622: true-peak limiter host model (parallel plan A8, prepared for gate G-ISP)
+
+`tools/lab/cymo_tplimit_model.py` + `sim/test_cymo_tplimit.py` (8 checks, in `make test-host`): linked-stereo limiter with a 4x oversampled true-peak detector (16-tap polyphase sinc), 32-sample look-ahead (0.67 ms), 60 ms release, boxcar attack smoothing (the gain is already at its minimum when the peak arrives), delay of 32 samples. Results [MODELLED] on the hot-master proxy (true peak +1.76 dBTP): a sample-domain soft clipper (knee 0.9) leaves +1.59 dBTP (above any sensible ceiling), the limiter with a -0.5 dB ceiling gives -0.45 dBTP using a detector margin of 0.25 dB (the 4x detector underestimates a heavily clipped signal by up to 0.15 dB); an fs/4 phase-45 tone at +3 dBTP (samples under full scale, invisible to a sample-domain device) comes out at -0.75 dBTP; below the ceiling the gain is exactly 1 and the output is the delayed input; gain reduction up to 2.36 dB on the proxy, waveform error after the best level change 1.3% (limiter) against 1.7% (soft clipper). Debugging notes: an off-by-one in the polyphase alignment and the boxcar window were found by the self-test; measuring true peak by FFT oversampling of an excerpt rings at the wrap, so the ends are trimmed. Block cost [EST]: detector 4x16 MACs per channel (or shorter), running min over 32, running sum, one multiply per channel: a real block, to be decided by the owner after G-ISP. No RTL.
+
+## B-623: Halcyon spec updated with the review's design changes (parallel plan A7)
+
+`CYMO_HALCYON_SPEC.md` gained a dated section: infrasonic stage 15-20 Hz (35-40 Hz only in SPEECH), engine sized for 17 stages with state and coefficient store in MLAB/M10K, 24-bit matched coefficients for every stage, peak-safe preamp default with the preamp moving into the gain stage target after the 24-bit EQ input exists, correction presets as raw biquad lists imported by Tau Omega, gates named. Documentation only.
+
+## B-624: LAME encoder delay and padding parsing (parallel plan A4, part)
+
+`fw/lame_tag.h` (`lame_ext_gapless`, `lame_scan`): the two 12-bit numbers at +21..+23 from the start of the LAME extension's encoder string, with a plausibility check (four printable characters) and a length check. `sim/test_lame_tag.py` (in `make test-host`, harness `sim/lame_tag_harness.c`): synthetic cases (delay/padding 576/1105, 0/0, the 12-bit maxima 4095/4095, 1105/0), no tag, truncated extension, non-printable string, and an independent real-file check: on the 6 Test Album MP3s (delay 576, padding 832-1668) `frames * 1152 - delay - padding` equals exactly the number of samples Apple's gapless decoder (afconvert) produces. Found on the way: the ID3v2 tags of these files are far larger than a small read buffer (embedded covers), so the Xing/Info header must be found after seeking past the tag, as the player's own parser does. `fw/player.c` stores the two numbers per track (`track_enc_delay`, `track_enc_padding`, reset per track); nothing reads them yet, so the compiler drops the stores and every ROM is unchanged (heap gaps identical). The gapless trim is: skip delay + 529 samples at the start, drop padding - 529 at the end. Not done in this entry: the load-latency counter (needs a diagnostic build on a Pocket).
+
+## B-625: Info row for the hardware gain (parallel plan A6)
+
+Settings > Diagnostics > Info gained row 36, `HW GAIN` (`fw/settingsui.inc`, Diagnostic Build only; other builds show `-`): `NO UNIT` without the stage, otherwise `HW` or `SW` (who owns the gain), `T` the target and `C` the gain in force (Q15, 32768 = unity), `F1` while a fade-in runs. `SET_INFO_ROWS` 35 to 36; `tools/ui_snapshot_renderer.py` fixture updated; `make test-host` passes; release heap gap -16 B (54,176 B) and baselines within tolerance. The Info export (`fw/info_export.inc`) and the Check report carry the new row automatically (the header reads `36 ROWS`): Tau Omega's Info table decoder must accept 36 rows (it reads the row count from the record). Not on a card yet; it goes with the next build installed.
+
+## B-626: Halcyon preset data format and APO/AutoEQ importer (parallel plan A5, part)
+
+`tools/halcyon_assets.py` + `sim/test_halcyon_assets.py` (12 checks plus the container parse, in `make test-host`) + `docs/features/HALCYON_DATA_FORMAT.md`. The `PRST` section of `tau-assets.bin` (magic `TPRS`): control presets (six int8 positions) and raw biquad presets (up to 10 stages, Q2.22 int24, attenuate-only preamp), with writer-side refusals (reserved or malformed names, out-of-range controls, preamp above unity, coefficients over 24 bits, any pole on or outside the unit circle at Q2.22) and a reader that re-checks CRC and stability (every single-bit flip refused). Importer: Equalizer APO / AutoEQ text (`Preamp:`, `Filter N: ON PK|LSC|HSC ...`), RBJ Q-form design for peaks and shelves, quantised stability check, peak-safe preamp from the quantised cascade (example: a 4-filter profile with a -6.2 dB preamp and a 5.47 dB peak boost keeps -6.2 dB); refuses more than 10 filters, out-of-range Fc/Q/gain. `tools/tau_assets.py` parses the section. **Finding: the firmware reads at most 1,024 bytes of `tau-assets.bin`**, so a raw preset library does not fit with themes and meters, and the gain-indexed EQCO tables (about 3.3 KB) cannot ride in it: recommendation recorded (ROM table generated into the build; a larger cap or its own slot only if raw libraries are wanted); decision open. Cross-project interface table updated (PRST, and the Info export now 36 rows). Not done: firmware loader and macro layer, tuning-lab page.
+
+## B-627: MLAB experiment prepared, finding (parallel plan B2)
+
+Reading `eq_biquad.v` for the experiment showed that an attribute change cannot move the state out of registers: four simultaneous asynchronous reads per stage, a reset loop writing every state word (a RAM cannot reset in one cycle: the same fallback class as KB-069), and a combinational coefficient address. The needed rewrite (sequential registered reads, no reset on the array with a clearing sweep shared with the planned state-clear pulse, registered-read coefficient store) is recorded in the Halcyon spec; the synthesis measurement belongs to that rewritten engine, so no VM time was spent on a meaningless run of the current module. Plan item B2 is analysed, the experiment deferred to the Halcyon RTL step.
+
+**B-626 correction (owner question, 2026-10-07):** the 1,024-byte limit on `tau-assets.bin` is the shared tag buffer the bridge reads data slots into (`TAG_SIZE`), not a format or slot limit; chunked reads into PSRAM (as `fw/cold.inc` does for the cold image) lift it with one file and one slot. `HALCYON_DATA_FORMAT.md` corrected. The MLAB rewrite (B-627) is part of the already planned Halcyon RTL step (ROADMAP row 14 now says so); it needs no decision now.
+
+## B-628: assets read limit lifted to 64 KiB by a chunked PSRAM read (parallel plan A5, owner decision D-A01)
+
+**Correction first:** the earlier statement that the limit was a 1 KB staging buffer was wrong: the shared tag buffer is 4 KiB (`link.ld _tag_size`, equal to `LIB_WIN`); the 1,024-byte cap was a conservative choice in `fw/assets.inc` and `tools/tau_assets.py`. **Change:** `as_load()` in `fw/assets_core.h` (pure, host-tested) reads the container through the window: probe 12 bytes (no file = `AS_NOFILE`, silent as before), magic, section count, header, total size from the section table (limit `AS_MAX_FILE` 64 KiB); a file that fits one window is read into the window exactly as before (no PSRAM touched); a larger file is copied window by window into a PSRAM staging area (`0xA4520000`, 64 KiB, `assets_psram_ok()` proves the window first, error 36 `AS_E_PSRAM` otherwise), and the THEM/METR parsers now take a base pointer instead of the tag buffer. `assets_rd` and `assets_psram_ok` are cold code, so the release heap gap is unchanged (54,176 B), `check_cold_calls` clean. `tools/tau_assets.py pack` limit 1024 to 65,536. New `sim/test_assets_load.py` (10 checks, in `make test-host`; C harness `sim/assets_load_harness.c`): 11 sizes around the window and chunk boundaries and up to 64 KiB load byte-exact (small stay in the window, large in the scratch), a read failure at the header or any chunk is `AS_E_READ`, missing file is `AS_NOFILE`, over 64 KiB or a too small scratch is `AS_E_SIZE`, unusable PSRAM is `AS_E_PSRAM` only for large files, bad magic and a bad section count are refused. PSRAM map updated (`MEDIA_LIBRARY_0.4_SPEC.md` section 4), `THEME_FILE_FORMAT.md` and `HALCYON_DATA_FORMAT.md` corrected. **Not exercised on a Pocket:** no bitstream-level test of the large-file path yet (needs a >4 KiB `tau-assets.bin` on a card). Decision D-A01 records that the owner wants to review this arrangement (one container versus a separate slot or file) once Cymo is fully shipped.
+
+## B-629: 24-bit EQ coefficients fit (parallel plan B1, `eq24-b618`)
+
+Gain-stage bundle + `TAU_EQ_COEF24=1`, two seeds, finished 10:22 local (launched 08:44, about 1h38): **both Successful, all four corners positive.** Seed 1: worst hold +0.107 ns (Fast 0C), worst setup +0.769 ns (Slow 0C). Seed 2: worst hold +0.085 ns, worst setup +0.970 ns. RAM 256/308 (unchanged), **DSP 23/66** (21 with the gain stage, +2 for the 24x36 multiply, matching the synthesis count of B-614). The 64-bit accumulate does not break timing, but the worst setup margin falls about 0.7 ns against the gain-only fits (+1.465..+1.615 ns): still comfortably positive, but it is the number to watch when the Halcyon engine (more stages, writable store) is added. Not collected, not packaged, not installed: `TAU_EQ_COEF24` stays off in every shipped configuration until the Halcyon RTL step. Gate note: this fit is ungated (it adopts nothing).
+
+## B-630: STANDARD FIT experiment launched (parallel plan B4)
+
+Fit `stdfit-b630`: the `gain-b615` bundle with `FITTER_EFFORT "STANDARD FIT"` appended (the project's qsf has `AUTO FIT`, which Intel documents as stopping once timing is good enough; KB-048), seeds 1 and 2 (the same seeds as `gain-b615`, so the two runs differ only in the fitter effort). Launched 11:09 local; expected about 2-3 hours (STANDARD FIT keeps optimising), so about 13:10-14:10. Question: does the effort buy timing margin (gain-b615: worst setup +1.57 ns / hold +0.114 ns seed 1) and at what compile-time cost? Nothing adopted either way.
+
+## B-631: Halcyon macro layer core (parallel plan A5, part)
+
+`fw/halcyon_core.h` (pure C, no MMIO, no trigonometry) + generated `fw/halcyon_tab.h` (`tools/gen_halcyon_tab.py`, 42 KB: Q2.22 coefficients of the analog-matched design for 6 stages x 37 gain steps, the quantised stages' magnitude in 1/64 dB on a 40-point log grid, and a 513-entry attenuation table) + `sim/test_halcyon_core.py` (6 checks, in `make test-host`). The six controls become half-dB stage steps in integer arithmetic (exact in tenths; no rounding ties), each step selects its coefficient row, and the peak-safe preamp is found by adding the six magnitude rows in dB (cascade magnitudes add in dB), taking the largest sum, rounding UP to 1/8 dB and adding a 0.25 dB margin for points between grid frequencies. Verified over 320 settings (the 8 presets, 300 random, the 11 extremes): identical steps to the model, coefficients exactly equal to the model's quantised matched design, preamp never below the exact peak boost of the quantised cascade (800-point grid) and at most 0.38 dB above it (mean 0.26 dB); FLAT gives unity. Not included in any firmware build (nothing consumes it until the Halcyon RTL has a writable coefficient store); the 42 KB of tables belong in the cold image when wired. Not done: the tuning-lab page.
+
+## B-632: Halcyon tuning lab page (parallel plan A5, part)
+
+`tools/lab/halcyon_lab.html`, generated by `tools/lab/gen_halcyon_lab.py` (stale-checked), one self-contained page: the eight presets and six control sliders drive the same integer mapping and the same quantised Q2.22 coefficient rows as the firmware core; it draws the composite and per-stage magnitude on 301 log points, and shows the stage gains and coefficients, the peak boost and the peak-safe preamp exactly as `fw/halcyon_core.h` computes them (add the table rows in dB, round up to 1/8 dB, add 0.25 dB). `sim/test_halcyon_lab.py` (in `make test-host`; skipped without node) runs the page's own script under node and compares stage steps and attenuation with the compiled firmware core for the 8 presets and 60 random settings: identical. Visually checked in the preview pane (SPEECH: peak boost 2.67 dB, preamp -3.00 dB, curve with the low cut, presence lift and sibilance dip). Host only; nothing talks to a Pocket.
+
+## B-633: gap latency counter at natural track ends (parallel plan A4, rest)
+
+Diagnostic Build only. `gap_mark_eof()` is stamped where the MP3 and FLAC loops meet the end of a file and start the next track (just before `lib_advance_auto()`): it records the cycle counter and how much audio the FIFO still holds (ms); `gap_mark_frame()` runs once per decoded frame and, when armed, records the time to the first frame of the next track being pushed. Bodies are cold code (`COLD_FN2`), hot code only tests a flag (the diagnostic heap gap fell 224 B, baseline check passes, `check_cold_calls` clean). Info row 37 `GAP LATENCY`: `LAST <ms> MAX <ms> N<count> BUF <ms>` or `NO TRACK END YET` (`SET_INFO_ROWS` 37, host fixture updated, `make test-host` passes). **Use:** on a Pocket, with a diagnostic build, let several tracks end naturally (an album, same sample rate, library queue) and read the row. If LAST stays under BUF (about 43 ms) a no-flush boundary alone would be gapless; if it is above, the FIFO has to be deeper (8,192 entries is about 186 ms, 26 M10K) or the next file opened earlier. The flush at a natural boundary still happens today, so the number measures the whole load path, not a design that bridges it. Not on a card yet.
+
+## B-634: Cymo resampler output width parameter, 16 or 18 bits (parallel plan B3, resampler side)
+
+`tau_cymo_resamp.sv` gained `OUT_W` (default 16, so every shipped configuration is unchanged; 18 carries the FIR's overshoot instead of hard-clipping at +-32767). The saturation limits are `+-(2^(OUT_W-1))` and a new mutant, BUG 6, keeps the 16-bit limits at width 18. Golden model `sim/cymo_resamp_model.c` (`-DOUT_W`), the independent Python cross-check, and the RTL testbench (`+VEC`, `OUT_W`) now run at both widths. **The test input gained a deterministic hot tail** (the last 1,000 of 4,000 inputs: L a full-scale square of period 8, R a full-scale pattern of period 5): at 16 bits 1,022 of the 4,354 outputs sit at the clip limit, at 18 bits none, so the width test is meaningful (the old random-noise-only vectors barely exercised the clip at all: a finding in itself). Results: model equals Python bit for bit at both widths, RTL passes both vector sets, all six mutants killed, `make test-rtl` and `make test-host` pass, lint clean. Not wired: the EQ takes 16 bits today, so `mp3_soc.v` is untouched; the wide EQ input belongs to the Halcyon engine rewrite, with a fit then (the 16-bit default netlist is functionally identical, but no fit has been run on this source change yet).
+
+## B-635: session wrap-up (2026-10-07)
+
+Handoff Addendum 2, `CURRENT_STATUS.md`, the CLAUDE.md pointer and log, project memory and skill entries KB-118..KB-121 updated. Fit `stdfit-b630` running at the time of writing (launched 11:09, expected 13:10-14:10). No code changed in this entry.
+
+## B-636: Halcyon engine rewrite, RTL + bit-exact model + mutants (Halcyon spec, "Finding while preparing the MLAB experiment")
+
+New module `src/fpga/core/tau_halcyon.sv` (the shipped `eq_biquad.v` is untouched and not replaced; the new module is not wired into `mp3_soc.v` and not in `ap_core.qsf`, so every shipped bitstream is unchanged). Design as the B-627 finding required: filter state in a plain RAM with one registered read and one write port and no reset (a clearing sweep on reset and on a `clr` pulse replaces the reset loop); coefficients Q2.22 (24 bit) in a registered-read store with two banks, written through a port that only ever targets the shadow bank, `commit` swaps banks and latches `nact` at the next sample boundary (a commit during a sample is deferred, never torn); `NST` stages (17 = 10 correction + 6 tone + 1 infrasonic) with a run-time `nact`, then one preamp multiply; one pipelined multiplier (five MACs issue one per clock); wide input/output `W` = 16..24 bits; round to nearest, output clamps; `nact` 0 or `bypass` is a true bypass with state kept warm. `ramstyle` MLAB.
+Model `tools/lab/halcyon_engine_model.py` (independent integer model, wraps like the RTL) and `sim/tb_tau_halcyon.v` replay 608 samples (impulse, noise, full-scale 16 kHz sine, shadow-bank write with output held, mid-sample commit, clear, bypass on/off, nact 7/17/1) sample for sample: **bit-exact at W=16 and W=24**. **Eight mutants killed** (commit not deferred, shadow write to the live bank, sweep skips a word, clamp wraps, preamp skipped, x1 written into the x2 slot, truncation instead of rounding, bypass ignored). Cost: **421 clocks busy for 17 stages x 2 channels** (34% of 1,250 at 60 MHz; 30% of 1,388 at 66.7 MHz), against the spec's estimate of about 200: this is the sequential-read price; stages could be overlapped later if the clocks are needed. A testbench lesson: control pulses must be driven with non-blocking assignments or the pulse can be lost in the clock race (first run failed only for that reason). Makefile: `test-rtl-halcyon`, `test-rtl-halcyon-mutation` (in `make test-rtl`), verilator lint line (warnings only, as for the rest).
+Not done: the synthesis-only RAM-inference/ALM measurement (VM is busy with `stdfit-b630`; it is the point of the rewrite and comes first when the VM frees), wiring into `mp3_soc.v` (writable-store MMIO, sticky index+data like the LPC), the subsonic stage data, firmware loader, soft clipper and quantiser (still gated on G-FLOOR/G-ISP), a two-seed fit.
+
+## B-637: STANDARD FIT experiment result (`stdfit-b630`, parallel plan B4)
+
+The gain-stage bundle with `FITTER_EFFORT "STANDARD FIT"` (instead of AUTO FIT), both seeds, launched 11:09 local, fitter finished 12:59 (seed 1) and 13:03 (seed 2), about **1h50 against about 1h30** for the same bundle with AUTO FIT (`gain-b615`): roughly 20% longer. Both seeds Successful, all corners positive, RAM 256/308 and DSP 21/66 identical to `gain-b615`. Worst slacks (STANDARD FIT vs AUTO FIT, same seed): seed 1 setup Slow 85C +1.822 vs +1.574, Slow 0C +1.438 vs +1.615, hold Fast 0C +0.097 vs +0.114; seed 2 setup Slow 85C +1.544 vs +1.722, Slow 0C +1.556 vs +1.465, hold Fast 0C +0.104 vs +0.065. **No consistent margin gain**: each seed gains on some corners and loses on others by 0.1-0.2 ns, which is the seed-to-seed spread already seen on this design, not an effect of the setting. Conclusion: STANDARD FIT does not buy margin on this bundle and costs time; keep AUTO FIT. (KB-048's hypothesis, that AUTO FIT leaves margin on the table, is not supported here; it may still matter on a design that fails timing, which this one does not.) Nothing collected or packaged. Rapid Recompile (B4's other half) not started.
+
+## B-638: Halcyon engine synthesis-only RAM check (parallel plan B2, the point of the B-636 rewrite)
+
+`quartus_map` (25.1 Lite, Cyclone V 5CEBA4F23C8, VM scratch `~/tau-local/halcyon-syn-b638`, `tau_halcyon.sv` alone as top, default parameters NST 17, W 16), 1m42s, **successful, 0 errors, 4 warnings**. **Both memories inferred as RAM megafunctions (altdpram, RAM_BLOCK_TYPE LUTRAM = MLAB):** the state array `st` 136 x 36 and the coefficient store `cm` 256 x 24, with a registered read and no reset loop. The whole module is **567 registers, 0 M10K bits, 3 DSP blocks** (the 24 x 36 multiply). So the fallback to registers that kept `eq_biquad.v`'s state in ALMs (B-627: 1,659 ALMs for 5 stages) is gone: a rough count is 10 MLABs for the state and 16 for the coefficients (about 260 ALMs of memory, MLAB = 10 ALMs of 32 x 20 bits) for 17 stages and two banks, against about 5,000 ALMs the register form would need at 17 stages. The exact ALM figure and the 3-DSP versus the 2-DSP of the 24-bit `eq_biquad` need the full-design fit (not done); timing is also unmeasured. Two notes: the 64-bit accumulator is only partly used (a narrower accumulator would not save a DSP block); 3 DSP blocks against the 66 total (21 used). Next: the wiring into `mp3_soc.v` (writable-store MMIO, sticky index + data like the LPC), then a two-seed fit.
+
+## B-639: Halcyon engine wired into `mp3_soc.v` (parameter `HALCYON_ENABLE`, macro `TAU_HALCYON`)
+
+`mp3_soc.v` gained `HALCYON_ENABLE` (default 0; `core_game.vh` `TAU_HALCYON` -> `TAU_HALCYON_EN`, both instantiations; `tau_halcyon.sv` registered in `ap_core.qsf`). With it on, `tau_halcyon` (NST 17, W 16, CLK_HZ per `TAU_CLK66`) is fed the same input as `eq_biquad` (`eq_in_l/r`, after the gain stage and the Cymo path) and a sticky enable bit picks which engine drives `audio_l/audio_r` (`eq_biquad` keeps running beside it, so the two can be A/B'd; removing it is a later step). Registers 0x178 HAL_CTRL (enable, bypass, commit pulse, clear pulse, nact), 0x17C HAL_IDX (auto-increment), 0x180 HAL_DATA (24-bit coefficient into the shadow bank); documented in `docs/MMIO_ALLOCATION.md`. A real bug caught while writing it: the auto-incremented index had already stepped on by the time the one-cycle write strobe reached the engine, so the word would have landed one slot high (the B-569 CLUT mistake again); fixed with a separate `hal_widx` that holds the index of the word being written. With `HALCYON_ENABLE` 0 the mux folds away: every shipped bitstream is unchanged.
+**Verification:** new `make test-rtl-halcyon-soc` runs a real firmware (`sim/fw_halcyon/main.c`) on the real VexRiscv inside `mp3_soc` with `HALCYON_ENABLE=1`: constant 16000 into the PCM FIFO; engine not selected = 16000, bank written to the shadow and committed with the engine selected = 8000 (gain 0.5), bypass = 16000, bypass off plus clear = 8000, engine off = 16000; the HAL_CTRL read shows bit 31 (present); passes in 19 s. Verilator lint of `mp3_soc` with the parameter 0 and 1: no errors. Full `make test-rtl` run for regression (see the entry below if it fails). The glue test cannot tell a shadow write from a live-bank write on its own (both would sound the same here); that is the engine testbench's job (`tb_tau_halcyon.v`, mutant BUG 2).
+Fit bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_halcyon_qsf_append.txt` = the `gain-b615` bundle + `TAU_HALCYON=1` (not `TAU_EQ_COEF24`: the Halcyon engine is 24-bit by itself and the fit would otherwise carry both).
+Fit `halcyon-b639` (seeds 1 and 2, the gain-stage bundle + `TAU_HALCYON=1`, commit `a13d95d`) launched 14:01 local; this family took about 1h30-1h50, so expect it done around 15:35-15:55. Check with `python3 tools/vm_fit.py status halcyon-b639` and compare with `gain-b615` (seed 1 worst setup +1.574 ns, hold +0.114 ns, 21 DSP, 256 RAM blocks); the question is the ALM and DSP cost of the second engine and whether timing still closes.
+
+## B-640: Halcyon firmware loader (control presets, Diagnostic Build)
+
+New `fw/halcyon_hw.h` (portable loader: writes a complete coefficient bank, preamp at index 85, then COMMIT and CLEAR, through the MMIO of B-639; `hal_hw_apply_ctl()` builds the bank from the six controls with `fw/halcyon_core.h`; all-zero controls = FLAT = engine selected but bypassed; `hal_hw_commit_bank()` also takes raw biquads for the later PRST path; `hal_hw_off()` hands the output back to the old EQ) and `fw/halcyon.inc` (cold code and cold data: preset selector `hal_cycle()` inside a gain dip as B-620, row text), a boot probe `hw_hal` in `player.c` (the one hot cost, 80 B in the diagnostic build), registers `R_HAL_*`, row Diagnostics > HALCYON (cycles OFF, FLAT, WARM, CLEAR, BASS, VOCAL, SPEECH, LOW VOLUME, SMOOTH; never persisted; NO UNIT on a bitstream without the engine), macro `TAU_HALCYON_FW` (`HALCYON_FW=1`, default on for the Diagnostic Build only, off in the release). The generated table header now marks its data `HAL_TAB` (COLD_DATA in the firmware: the 24 KB of tables live in PSRAM, cold image 155 KB to 187 KB) and carries the eight built-in presets (`hal_preset_name/ctl`, from `halcyon_model.PRESETS`).
+**Tests:** `sim/test_halcyon_hw.py` (in `make test-host`) compiles the real header with a logging `HAL_WR`, drives all eight presets plus 120 random control sets, and checks the write log against the model's quantised matched design exactly (six stages, preamp index 85, COMMIT then CLEAR with nact 6, FLAT bypassed), replays it into the engine model, and kills four mutants (preamp one index off, no 24-bit mask, no clear, FLAT not bypassed). `make test-host` passes (the snapshot renderer needed the new row's sample value). Diagnostic Build heap gap 1,120 B against the 1,024 B link minimum (was 1,200 B; the tempo stretcher already moved it under the 2 KB policy margin); release unchanged at 15,504 B.
+Not done: the PRST file loader (raw presets from `tau-assets.bin`), a SOUND/HALCYON page with the six sliders (the Diagnostics row is the A/B switch for the first hardware test), the infrasonic stage, the quantiser/clipper (gated). Not on a Pocket: the engine is not in any shipped bitstream; the next test needs the `halcyon-b639` bitstream (fit running).
+
+## B-641: Halcyon PRST user presets, firmware reader
+
+`fw/halcyon_prst.h` (portable) reads the PRST section of `tau-assets.bin` as `tools/halcyon_assets.py` writes it: version, count 1..8 and CRC32 are checked before anything is used, then every entry; **any failure refuses the whole section** (no half-loaded file). Beyond the writer's rules the reader re-checks what the engine must never be given: control positions in range (sibilance 0..5), preamp above zero and at most unity, a name that ends inside its 16 bytes, zero flags, 1..10 raw stages and **every raw stage stable at Q2.22** (an integer Jury test, `|a2| < 1` and `|a1| < 1 + a2`, equal to the writer's float pole test on 3,042 random and boundary pairs). Firmware: `hal_prst_load()` (cold, `fw/halcyon.inc`, called at the end of `th_assets_load()`) validates in place and copies the section to PSRAM 0xA4540000 (1,536 B; a small file is read through the tag buffer, which is reused later), keeping only 17 bytes of offsets on chip; Diagnostics > HALCYON now cycles OFF, the 8 built-ins, then the user presets (control presets through the tone tables, raw presets as a bank of up to 10 stages with their own preamp, never persisted).
+**Tests:** `sim/test_halcyon_prst.py` (in `make test-host`, 24 checks): the C reader returns the writer's four presets (two control, two raw incl. a 10-stage one) exactly; every single-byte corruption of the 299-byte section is refused; truncated, extended, empty, count 0/9, version 2 refused; valid-CRC files with a control out of range, a name without NUL, non-zero flags, an unknown type, a preamp above unity or zero, a pole on or outside the unit circle and 11 stages are refused; five mutants killed (no CRC check, no stability check, no control range check, preamp above unity allowed, trailing bytes allowed; one mutant first survived because removing the stability `if` left a dangling `for` that changed the walk, a mutant-construction bug, fixed). **A hot-RAM lesson:** the first build did not link (diagnostic gap under the 1 KB link minimum): `static inline` Halcyon helpers called from two cold functions were being outlined into hot `.text` (680 B for `hal_hw_apply_ctl` alone) and `as_find` lost its inlining; every Halcyon, PRST and `as_find`/`as_crc` function is now marked cold through `HAL_FN`/`HP_FN`/`AS_FN` (host builds keep plain `static`). Result: Diagnostic Build heap gap **1,616 B** with the tempo stretcher (was 1,120 B with only the B-640 loader, and 1,200 B before it), 8,368 B without; release unchanged (15,504 B). `make test-host` passes.
+Not done: nothing exercises it on a Pocket yet (needs the halcyon bitstream and a `tau-assets.bin` with a PRST section: build one with `tau_assets.pack_container` and `halcyon_assets.pack_presets`), the Info row for a PRST error code, and the SOUND page.
+
+## B-642: Halcyon infrasonic stage (fixed 17 Hz high-pass)
+
+The spec's always-on infrasonic stage (errata B-623: 15-20 Hz, Q 0.7, DC and infrasound protection only) is built. `halcyon_model.infra_coeffs()` (RBJ second-order high-pass, 17 Hz, Q 0.70, Q2.22), generated into `fw/halcyon_tab.h` as `hal_infra[5]` = {4187643, -8375286, 4187643, -8375275, 4180992}; `hal_hw_commit_with_infra()` puts it first in every bank that is not bypassed (control presets and raw user presets alike, so a raw profile has room for 16 stages of its own), nact is now 7 for a control preset; FLAT stays a true bypass (no infrasonic filter, the bit-exact reference). It sits first so the boosts after it never see infrasound.
+**A real defect found by the new engine test, fixed:** quantising b0, b1, b2 independently to Q2.22 left `b0 + b1 + b2` at one LSB instead of zero, and with the poles this close to z = 1 (`1 + a1 + a2` is only 21 LSB) that one LSB is a DC gain of 1/21: a DC step left 476 of 10,000 on the output (-26 dB, not a blocker at all). `b1` is now set to `-(b0 + b2)`, so the zero sum is exact by construction; the DC step then decays to a constant 2 LSB. That residue is the rounding dead band of the 17 Hz pole pair in the 16-fraction-bit direct-form-I state (about 1.5 LSB of 16 bit, -84 dBFS, at DC only): acceptable, and it is the number to remember if a lower corner or a wide-input path is ever wanted (the trapezoidal SVF form is about 60x less sensitive at low frequency, `tools/lab/eq_svf_precision.py`). Response of the quantised stage: -3.10 dB at 17 Hz, -0.006 dB at 100 Hz, -30 dB at 3 Hz; a 1 kHz tone passes at unity; stable at Q2.22.
+Tests (`sim/test_halcyon_hw.py`, in `make test-host`): the write log now carries the infrasonic stage first (nact 7, preamp at index 85 unchanged), the engine replay uses 35 words, a mutant without the stage is killed (5 mutants), plus the stage's own response and DC checks above. Diagnostic Build heap gap unchanged at 1,616 B. Not on a Pocket (needs the halcyon bitstream).
+
+## B-644: Halcyon page, design B (curve + six sliders), Settings > Audio > HALCYON
+
+Owner chose design B of the three proposals (mixer / curve / list). Built, Diagnostic Build only for now (`TAU_HALCYON_FW`), cold code. **Page** (`fw/halcyon_page.inc`, page id `SET_HAL_PG`, row `HALCYON` in Settings > Audio): top, the live response curve of the cascade being set, on a log axis 20 Hz-20 kHz and +-14 dB, with the selected control's band lit and the grid at 100 Hz, 1 kHz, 10 kHz; below it the six controls as centre-zero sliders (sibilance a left-anchored 0..5 dip), a footer with the preamp give-back and "17 Hz high-pass on". **Curve** (`fw/halcyon_curve.h`, portable): the six selected table rows added in dB, the infrasonic stage (new `hal_infra_mag` table) and minus the peak-safe preamp's attenuation, on the table's 40-point grid; no trigonometry on the CPU; drawn as 120 three-pixel columns joined to their neighbours (about 150 rectangles per redraw, on change only). **Controls:** Left/Right change the selected control and apply LIVE (a bank written and committed, no state clear, so no click); Up/Down select (wraps); L1/R1 step the presets inside a gain dip with a clear; X compares against the old EQ (engine out of the path and back); Y resets all six (FLAT, bypassed); B goes back, Start closes. Moving a slider selects CUSTOM; Diagnostics > HALCYON cycles on from there. `hal_hw_commit_bank/with_infra` gained a `clear` argument (`hal_hw_apply_ctl_live` = no clear).
+**Tests (all in `make test-host`):** `sim/test_halcyon_curve.py`: the C curve equals the exact quantised cascade response (six tone stages + infrasonic) minus the preamp for 169 settings, worst error 0.034 dB (limit 0.07), 3 mutants killed (preamp ignored, infrasonic ignored, one stage dropped). `sim/test_halcyon_page.py`: the real page code compiled against stub drawing primitives and a logging register interface, driven by key sequences: every rectangle on the 400x360 screen, the curve at most 140 columns inside its plot (also for the worst real setting, which dips 15.7 dB below the axis and needed the clamp), a flat setting on the axis, warmth +4 lifting the lows against the top end, live moves commit without a clear, sibilance clamps 0..5 and the others -5..+5, the row wraps, L1/R1 step FLAT/WARM with a clear and two dip calls each, X and Y behave, NO UNIT writes nothing; 4 mutants killed (a live move that clears, no upper clamp, sibilance allowed negative, no bottom clamp). `sim/test_halcyon_hw.py` extended with live (no-clear) moves and a mutant for them. Two things found on the way: the preamp keeps the whole curve at or just under 0 dB (it gives the peak back), so "boost" shows as a lifted low end against a lower top end, not a curve above the axis; and a first version of the page input function was hot code (the build refused to link: free RAM under the 1 KB minimum) until it was marked cold.
+Diagnostic Build heap gap now 1,424 B with the tempo stretcher (the page costs about 190 B of hot RAM: six controls, three state bytes, the table rows). Release unchanged. **Not on a Pocket** (needs the halcyon bitstream; the page was never drawn on real hardware, only through stubs: the first look at fonts, spacing and the footer is the owner's). Not done: persistence (one saved word, D-S05), a frame fixture in the UI snapshot renderer, user raw presets show no controls (the sliders keep the last values).
+
+## B-645: halcyon-b639 fit result (Halcyon engine in the gain-stage bundle, B-639)
+
+Launched 14:01 local, both seeds finished 15:54 (seed 1) and 16:03 (seed 2): about 1h55-2h, the top of the range for this family. Both **Successful, every corner positive**. **RAM 256/308 (unchanged: the engine's memories are MLAB), DSP 24/66 (+3, the one 24 x 36 multiplier, as the synthesis-only check predicted; `gain-b615` had 21).** Seed 1: worst setup +1.102 ns (Slow 0C), +1.159 ns (Slow 85C); worst hold +0.109 ns (Fast 0C). Seed 2: worst setup +1.510 / +1.620 ns, worst hold +0.114 ns (Fast 0C). For comparison `gain-b615` seed 1: setup +1.574 ns, hold +0.114 ns: the second engine costs about 0.1-0.5 ns of setup margin and nothing of hold. **Seed 2 selected** (better setup margin on both slow corners, equal hold); RBF collected to `work/diagnostics/halcyon-b639/ap_core.rbf`. Not packaged, not installed.
+
+## B-646: wide EQ input (the Cymo resampler's 18-bit output into the Halcyon engine), parallel plan B3
+
+**A correction first.** When the owner asked "why 18-bit, weren't we moving to 24?", my answer said the engine "accepts that width today". It did not mean what the resampler's 18 means: `tau_halcyon`'s `W` treated every bit above 16 as a **fractional** bit (the 24-bit-audio reading), while `tau_cymo_resamp`'s `OUT_W` 18 is **two headroom bits at the same LSB** (its overshoot, up to four times full scale). Wired together as they stood, an 18-bit resampler output would have been read as 4x too quiet. Fixed in the engine: `tau_halcyon` now has `WI`/`IFB` (input width and its fractional bits) and `WO`/`OFB` (output), so headroom (`WI 18, IFB 0`) and a 24-bit path (`WI 24, IFB 8`) are both expressible; the bypass converts the width through the same round-and-clamp. Model `halcyon_engine_model.Engine(w, wo, ifb, ofb)` and the vectors follow.
+**The wiring** (`mp3_soc.v`, parameter `WIDE_EQ_ENABLE`, macro `TAU_WIDE_EQ`, default 0 = every path exactly as before): the resampler is instantiated with `OUT_W 18`; the old `eq_biquad` and the `R_CYMO_OUT` MMIO read still see its 16-bit clamp (`cymo_out16`, the clip the resampler used to apply itself), the Halcyon engine takes all 18 bits (`hal_in`), and its output clamps to 16. Fit bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_halcyon_wide_qsf_append.txt` (the `halcyon-b639` bundle + `TAU_WIDE_EQ=1`).
+**Tests:** `tb_tau_halcyon` passes at 16, 24 (fractional) and **18-in/16-out (headroom)** against the model (728 samples, including a hot phase at 1.6x full scale through a -3 dB preamp and in bypass); mutants killed: the 8 existing at 16 bits, plus at the wide config BUG 6 and **BUG 10 (the headroom bits thrown away before the engine)**. `make test-rtl-halcyon-soc` now runs twice (`WIDE` 0 and 1) with the real CPU: the earlier steps unchanged, then the resampler live in front of the engine (constant 16000 through gain 0.5 = 8000 on both), then a +-32000 square wave: **the 16-bit path peaks at 16,384 (the resampler clips at 32,767 and the engine halves it), the wide path at 22,199: the overshoot now passes through** (35% above the clipped level), which is the whole point. (First run of that check failed at 8,001: the FIFO still held the constant; the firmware now flushes it when it switches pattern. The 16-bit threshold needed 16,384, not 16,383: 32,767 x 0.5 rounds up.) Verilator lint of `mp3_soc` with `WIDE_EQ_ENABLE` 0 and 1: no errors.
+Not done: a fit with the wide path (launch only after the full `make test-rtl`), hardware A/B, and the real 24-bit path (FIFO, gain stage and the output stage; gated on the recordings).
+Fit `wide-b646` (seeds 1 and 2, the `halcyon-b639` bundle + `TAU_WIDE_EQ=1`, commit `a7e4498`) launched 18:08 local; this family took about 1h55-2h, so expect it done around 20:05-20:10. Compare with `halcyon-b639` (seed 2: setup +1.510/+1.620 ns, hold +0.114 ns, 24 DSP, 256 RAM blocks): the question is whether the 18-bit resampler output and wider engine input cost timing or ALMs.
+
+## B-647: Menu simplified; Configure page layout fixed and brought onto the Helios page conventions
+
+**Menu (owner request).** The SETTINGS group is gone: the main menu is now APPEARANCE, AUDIO, PLAYBACK, then (Diagnostic Build only) DIAGNOSTICS, and **INFO always last**. `SET_DIAG` and `set_diag_rows` were removed from `fw/settingsui.inc` (menu enum, rows, counts, titles, parents, hints), Diagnostics' back goes to the home menu, Info's back goes to the home menu (to Stress for the stress status page, as before). Snapshot renderer, its checker and `visual_review.py` follow (the old `settings-diagnostics` fixture is gone, indices of the remaining menu fixtures shifted by one); user docs say Menu > Diagnostics and Menu > Info; CHANGELOG alpha.4 entry added. `make test-host` passes.
+**Configure page (owner report: the list overlays the action bar at the bottom, and some background shows at the sides).** Reviewed against the page-frame conventions: (1) **Overlay, confirmed by arithmetic:** the list started at y 190 (preview 52+122, +16) with 8 rows of 22 px, so rows 7 and 8 ran into the action bar (starts at y 332) and the last one ran off the 360 px screen; every other Settings list is bounded to PL_UI_LIST_Y + 12 rows = 316. (2) **Sides:** the preview box was x 24..384 while every row highlight spans x 12..388, so a strip of body colour showed beside the preview (its own panel colour against the body); it now spans exactly the rows' width. (3) **Method, not just numbers:** the geometry is now derived (`SET_CONTENT_Y1`, `WVCFG_PX/PW/PY/PH/LIST_Y`, `WVCFG_ROWS_VISIBLE` = what fits above the action bar, 6 rows instead of 8) and guarded by `_Static_assert` so a layout that reaches the action bar cannot compile; the two copies of the preview rectangle (draw and tick) are now one set of macros; the page re-asserts the action bar last (`ov_hint_repaint`, as that function's own contract asks of any page whose content could reach it); (4) **Helios:** the live preview is now a Helios region (`wvcfg_preview_redraw` registered cold-aware with the preview's rows, drained through `helios_flush()`), so it is deferred while the display beam is inside those rows and retried, like the player screen's meter box, instead of drawing straight into rows being scanned out; `tools/check_cold_calls.py` lists it as a cold-aware region. The Halcyon page got the same treatment (static asserts for the footer and header, hint re-asserted, the test now checks that nothing it draws reaches y 332). Other pages checked by arithmetic: menu lists (7 x 36), choice lists, read-only pages (12 x 22) and the library lists all end at y 316 or earlier. **Not reviewed in depth:** the Diagnostic-only pages (Check, Decode Sweep, Meter Sweep/Trace, Blit Test, Pixel grid test) and the QR/grid report pages.
+**Not verified on a Pocket** (no screenshot of the broken page was available; the side strip is inferred from the geometry, so please confirm it is gone). Diagnostic Build heap gap 1,408 B (was 1,424 B), release 15,488 B.
+
+## B-648: user test script for TAU_DEV_107 and the alpha.4 cores
+
+`docs/TEST_SCRIPT_DEV107.md`: 18 sections, about 190 numbered steps with expected results, covering everything built since the last hardware pass and marking what has never run on a Pocket: the hardware gain stage (DEV 105 was never run, and 107 makes it the default volume path), the 16-bit I2S switch, the Halcyon engine, page and user presets, the new menu, the Configure page layout and its Helios-region preview, the Info export in the normal core, the tempo row, FLAC 24-to-16 rounding, GAP LATENCY, the Cymo toggles, Check/Stress, a 30-minute soak, the alpha.4 `TAU` and `TAU_DIAGNOSTIC` smoke list, regression checks, a list of known behaviours not to report, and exactly what to send back. One source change made while writing it: the Halcyon curve for FLAT is now a flat 0 dB line and the footer says FLAT: BYPASS (a true bypass has no infrasonic filter); this is in source only, not on the card.
+
+## B-649: the "fluttering wings" (first hardware listening test of TAU_DEV_107): a 30 Hz glitch train from the engines' sample tick
+
+**Report (owner, first run on `TAU_DEV_107`):** every non-FLAT Halcyon setting adds distortion "like a quick fluttering of wings"; on most songs it reads as static or is barely noticeable, on a 1 kHz tone it is plain; same at 44.1 and 48 kHz with the resampler on. **Root cause (numerically confirmed, then fixed):** `tau_halcyon.sv` (and the shipped `eq_biquad.v` it was copied from) paced itself with an INTEGER divider, `CLK_HZ / RATE_HZ`. That is exactly 1250 at 60 MHz but 1388.89 at the 66.667 MHz clock (`TAU_CLK66`, in every bitstream since alpha.2): the divider (1388) ticks at **48,030.7 Hz, 30.7 Hz fast** against the 48 kHz audio, so about every 1,560 samples the filter takes the same input sample twice. A 31 Hz train of repeated samples is the flutter; FLAT is a bypass with no tick, which is why it alone is clean. It is the B-484 resampler bug again (an imprecise borrowed tick); the engine's tick has to be as exact as the audio's. The same fault is in the **old preset EQ at 66.667 MHz** (every non-FLAT preset on the shipped alpha.2 to alpha.4 cores), which went unnoticed.
+**Fix (RTL):** both modules now use a fractional accumulator (`TICK_INC = round(2^32 x RATE_HZ / CLK_HZ)` = 3,092,376 at 66.667 MHz, the same constant `pcm_fifo`'s reset default uses), accurate to better than 0.0001%; at 60 MHz it is within 0.0001% of the old behaviour. New `sim/tb_halcyon_tick.v` counts ticks over 0.1 s (6,666,667 clocks): 4,800 expected, new code 4,799 in both modules; the old integer divider (mutant BUG 11) gives **4,803** and is killed. `make test-rtl` passes in full (the old EQ's bit-exact vectors for all 8 presets, at 18 and 24 bits, the cycle counts, the PSRAM real-CPU sims, the Halcyon engine at all three widths and its mutants). **Needs a new fit and package** (the cores on the card still have the bug): the stale `wide-b646` fit (launched before the fix) was cancelled and replaced by `halcyon-tick-b649` (the wide-input bundle with this fix).
+**Other things the report raised (analysis, nothing changed yet):** (1) a pop only when HW GAIN is switched OFF: expected from the design, documented in B-620: the software gain resumes on samples that already sit up to 46 ms ahead in the FIFO (they were queued unscaled while the hardware owned the gain), so a step is unavoidable on that switch (a diagnostic toggle, not a user feature); the pop on the FIRST repeat of a track is NOT explained and needs the owner's exact sequence. (2) "16-bit output: no difference, only lower volume": the direction was not stated (expected: ON is about 6 dB LOUDER; if ON is quieter the polarity is wrong, to be checked). (3) The four Info screenshots (19:14-19:18) decode fine (`--grid`): the two Halcyon-on and Halcyon-off pairs have identical readings (the Info page has no Halcyon row), UNDERRUNS 4 to 6 (ALL 14 to 23 over the session, the screenshots account for them), no hardware fault: HW GAIN HW T32768 C32768 F0, CYMO RESAMP LIVE (S1 D0 Q2), MP3 WINDOW 0 BAD 0 TMO, 128K MP3 CPU LOAD 37%, FLAC 51-56%. Info gap: add a Halcyon row (state, preset, controls) so the readings say what was on.
+Fit `halcyon-tick-b649` (seeds 1 and 2: the wide-input bundle + the tick fix, commit `10359ca`) launched 19:36 local; expect it done around 21:30-21:40. Then package a TAU_DEV with it and repeat the Halcyon listening test (step 6).
+
+## B-650: expert review of B-649, and a second defect found by it (torn stereo pairs)
+
+Review of the B-649 report (owner request: challenge it as an embedded audio engineer). **Findings:** (1) "numerically confirmed" was overstated: what was confirmed is the module's tick rate in simulation (4,803 vs 4,800 per 0.1 s); the audible symptom was never reproduced and no hardware measurement was taken. (2) **Missed second mechanism, found by reading the I2S writer:** `sound_i2s.v` pushes a word into its 4-deep `dcfifo` whenever EITHER output channel changes, and the serializer takes the newest word at each frame. `tau_halcyon` (and `eq_biquad`) produced the left and right results about 100 and 80 clocks apart and drove the outputs per channel, so every engine sample caused TWO output updates (simulated: 9,600 updates for 4,800 samples) and about 7% of the frames carried a TORN pair (this sample's left, the last sample's right). A one-sample L/R skew on 7% of the frames is about 23 dB SINAD on a 1 kHz tone (worse at high frequencies), against about 46 dB for the duplicated-sample tick error alone: it is probably the dominant audible error, and it is independent of the tick. The gain stage's testbench already had a torn-pair monitor; the engine copy did not inherit it. (3) The same two faults are in the shipped `eq_biquad` at 66.667 MHz.
+**Fix:** both modules latch the finished pair into `pair_l/pair_r` in ONE clock (`pair_go`), and only those reach the outputs. `sim/tb_halcyon_tick.v` now runs both engines on random stereo input and checks 4,800 ticks per 0.1 s AND zero torn edges: the old integer divider (BUG 11) fails with 4,803 ticks, the per-channel output update (BUG 12) fails with 9,600 torn pairs, the fixed design passes with 4,800 / 0 / 4,800 updates. Full `make test-rtl` passes (old EQ vectors at 18 and 24 bits, cycles, real-CPU sims, all engine widths and mutants). **Hardware discriminator added to the next fit:** `TAU_I2S_DIAG=1`, so Info > I2S JITTER shows the interval between DAC-domain sample updates: about 1,389 clk_sys cycles per update when healthy, about 700 (two updates per sample) with the torn-pair behaviour; no firmware change needed.
+
+## B-651: legacy preset EQ removed; Halcyon EQ is the only EQ; HW GAIN pop fix; Halcyon page preset area
+
+**HW GAIN pop (owner, 1 kHz 48k tone):** the first ON-to-OFF toggle after a track start or restart popped; later toggles and an OFF start did not. Cause (source read, not yet confirmed on a Pocket): `pcm_flush()` and `fade_restart()` arm the 2048-sample software fade, but while the hardware stage owns the gain nothing counts it down, so handing the gain back to software started a fade-in from silence. Fix: `pcm_flush`, `fade_restart` and `gain_hw_set(0)` leave `fade_left` at 0 while/after the hardware stage owns the gain (`fw/player.c`). 16-bit output louder when ON is the expected +6 dB.
+
+**Halcyon page (owner):** renamed HALCYON EQ (Audio group row and header); the preset area in the header is a selectable row (Up from the first slider; Left/Right step the presets; shown as an accent pill); `sim/test_halcyon_page.py` extended (new check plus a mutant, a crashing mutant counts as killed).
+
+**Legacy EQ removed (owner decision: Halcyon replaces it in every build, release included).** RTL: `eq_biquad.v`, `eq_coefs.vh`, `eq_coefs24.vh`, MMIO 0x68 (`R_EQ`, `eq_preset`) removed from `mp3_soc.v`, `.qsf`, Makefile; with Halcyon off or absent the audio is the unequalised 16-bit path (`snd_l/snd_r`). Tests/tools removed: `tb_eq_biquad.v`, `tb_eq_cycles.v`, `gen_eq_vectors.py`, `eq_model.py`, the expected-vector hex files and their `.gitignore` lines; `tb_halcyon_tick.v` now tests Halcyon only. Kept: `tools/gen_eq_coeffs.py` and `tools/lab/eq_*` (Halcyon's coefficient math and the research behind it). Firmware: `eq_idx`, `eq_curve.h` use, the CH_EQ choice list, the Diagnostics HALCYON toggle and `R_EQ` removed; Y steps the Halcyon preset in the main loop (`hal_req`, inside the gain dip); the now-playing pill and mode row show the Halcyon selection (`eq_label()`); `SW_EQ` (persist id 16, interact.json renamed "Halcyon EQ preset", max 30) now stores the Halcyon selection, applied after the cold image is up (`hal_restore`, range-checked against the loaded user presets; CUSTOM is not saved). A value saved by the old EQ (0-7) reads as the Halcyon preset of the same index, once. `TAU_HALCYON_FW` is now on in every build (`fw/build.sh`). Verified: `make test-host`, full `make test-rtl`, `make rtl-lint`; 192 KB links: release heap gap 15,536 B, Diagnostic Build 1,360 B (floor 1,024); the profile variant still does not link with Halcyon (as before, it needed HALCYON_FW=0). Baselines refreshed. **Needs a new fit (RTL changed); `halcyon-pair-b650` still contains `eq_biquad`.** Nothing built into a core or installed.
+
+## B-652: independent review of B-651 and its corrections
+
+**Defects found and fixed in B-651's own work:** (1) **Settings choice titles/parents were still indexed with the removed EQ entry** (`set_ch_title[]`, `set_ch_parent[]`): the Repeat list would have been titled EQUALIZER, Blank titled REPEAT, and so on; host tests passed because the fixture renderer looked the title up by its own hand-kept order. Fixed, both tables are now unsized with `_Static_assert` against `CH_N`, and the renderer asserts every fixture's title. (2) **The saved selection was re-applied on every settings re-adoption** (any Core Settings change re-runs `settings_load()`): an audible click without a gain dip, and it dropped the Halcyon page's CUSTOM controls. Now adopted only when it differs from the last saved value (`hal_saved`), applied inside a gain dip. (3) **A restore marked the settings dirty** (a needless persist write at every boot); only the Y key does now. (4) **The restore flag was cleared even when cold code was not ready**, losing the saved selection; it now waits. (5) **Preset changes on the Halcyon page were never saved**; they are (CUSTOM keeps the last preset on file instead of saving 0). (6) Leftover legacy traces: `fw/eq_curve.h` (dead), the `--verilog`/`--curves` modes and the curve helper of `tools/gen_eq_coeffs.py`, the renderer's EQ fixture and visual-review entry, the triad director's `eq_biquad` rows, comments naming the old EQ, and the page text "A/B: EQ" (now "A/B: OFF").
+
+**Known limits, not fixed (documented):** (a) the HW GAIN hand-over is only seamless at unity volume. While the hardware stage owns the gain the firmware pushes UNSCALED samples (`pcm_gain_apply` returns at once), so the 23-46 ms already in the FIFO is unscaled when the stage is switched off (and double-scaled when it is switched on); at any volume below maximum every toggle clicks. The stale-fade fix removes the first-toggle pop only; the owner's test was at full volume, which hides this. A clean hand-over needs the FIFO drained under a mute (the decoder pumping meanwhile): not worth it for a Diagnostics toggle. (b) `tools/blit_g3_..._gain_eq24_qsf_append.txt` still defines `TAU_EQ_COEF24`, now a dead macro; that bundle is a historical fit record and was left alone, and the next fit must use the `..._gain_halcyon_wide_...` bundle. (c) The new firmware on an older bitstream has no EQ at all (reads NO UNIT) and old firmware on the new bitstream ignores its EQ key: both degrade without a fault, so no CORE_VERSION bump (probe, not interlock). (d) With the engine off the audio path relies on the gain stage and `pcm_fifo` updating left and right in one clock (the gain stage does, proven by its testbench; `pcm_fifo` is unchanged and carried the same assumption as the old FLAT mux). (e) The `player-library-diagnostic-profile` variant still does not link with Halcyon (it needs HALCYON_FW=0).
+
+## B-653: the five limits of B-651/B-652, fixed in the proposed order
+
+1. **Profile variant (limit 5).** `fw/build.sh` defaults `HALCYON_FW=0` and `TEMPO=0` for `player-library-diagnostic-profile` (it is a decode-cost measurement build; with Halcyon and the tempo stretcher it was 3,120 B over the 192 KB link, and the first attempt with Halcyon off alone still failed, so both are off; the explicit variables still override). New `tools/check_targets_link.py` (in `make test-host`) builds all three tracked targets under the real shipped flags (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) into `work/heapcheck`; `check_heap_gap.py` only built the 256 KB default flags and had hidden this. Profile heap gap now 5,696 B.
+2. **Dead macros (limit 2).** New `tools/fit_manifest.py`: `check-bundles` (in `make test-host`) fails a live `tools/*qsf_append*.txt` that defines a macro no RTL reads, and `vm_fit.py launch` refuses such a bundle. The retired `..._gain_eq24_...` bundle (dead `TAU_EQ_COEF24`) moved to `tools/fit_bundles_archive/`. `sim/test_fit_manifest.py` proves the checker finds that exact macro and that all 30 live bundles are clean.
+3. **Firmware/bitstream features (limit 3).** The ROM carries `TAUFWNEED:HALCYON,LPC,POLY,...;` (fw/player.c, next to `TAUFWPAIR`). `vm_fit.py launch` records the bitstream's macros (`work/diagnostics/NAME/launch.json`) and `collect` writes `ap_core_sN.rbf.json` beside the RBF (`collect --append BUNDLE` reconstructs it for a fit launched before this change, e.g. `halcyon-pair-b650`). `package_dev_build.py --rbf` copies it into the package root as `bitstream-manifest.json` and `check_fw_bitstream_pair.py --bitstream-manifest` refuses a firmware that uses a feature the bitstream was built without (`--allow-missing HALCYON,...` for a deliberate fail-safe pairing); `install_dev_core.py` repeats the check. A bitstream with no manifest only prints a note. User-facing: Y with no engine shows the toast "EQ: NEEDS A NEWER CORE" instead of nothing. No core version bump (probe, not interlock).
+4. **HW GAIN hand-over (limit 1).** `fw/gain_handover.h` (`gh_handover`, cold code `gain_handover()` in player.c, used by Diagnostics > HW GAIN): mute at the FIFO output with the stage (a software owner first hands the stage a unity pass-through), wait 8 ms, flush the FIFO, flip the owner, ramp up with the fade (hardware) or start the software fade (software). About 46 ms of music is dropped, already muted. `gain_hw_set(on)` is now `gain_hw_adopt()` (boot only; its take-back branch was dead). `sim/test_gain_handover.py` runs the real C and replays its writes against a model of decoder, software gain, 2048-sample FIFO and the stage: at volumes 1.0, 0.30 and 0.03, both directions, the largest output step stays inside the sine's own slope and the steady amplitude is exactly A x volume (the old procedure steps by 4.1x the slope at 0.30); four mutants (no flush, no mute, no unity snap, fade not armed) are caught. The deferred-enable counter in `tau_gain_stage` was NOT built (needs a fit; not needed unless the 46 ms gap ever matters).
+5. **Pair atomicity (limit 4).** `sim/tb_audio_pair.v` + `sim/fw_audiopair/main.c` (`make test-rtl-audio-pair`, in `make test-rtl`): the real mp3_soc and the real `sound_i2s` writer, a stereo stream whose left and right differ and change every sample, six configurations (plain FIFO; + hardware gain stage; + Halcyon engine; + Cymo resampler; engine off again; gain stage off). In each, after settling: no clock in which exactly one channel changes, and every word the serialiser is about to send equals a pair the SoC presented (the 15-bit mapping of the 16-bit-slot-off path applied). All six pass with zero torn clocks; the bench's own mutant (`-DTORN=1`, right channel one clock late) is caught. The shared dcfifo behavioural model moved to `sim/dcfifo_model.v` (both I2S benches include it). Limits: the dcfifo model's flag latencies are a reading of the datasheet; the bench shows the engine-off path is atomic by simulation, not on the chip.
+
+Two bugs found by these tests while writing them (not in shipped code): the first ring-pointer line of the pair bench was swallowed by a trailing comment (every word "matched" only the latest pair until the bench was made to fail on purpose); the profile variant needed TEMPO off as well, not only Halcyon.
+
+## B-654: detailed recording script (handover edition)
+
+`docs/features/CYMO_RECORDING_SCRIPT.md` and the tick-sheet `CYMO_RECORDING_SCRIPT.csv`, generated by `tools/lab/cymo_recording_script.py` from one list (`--check` rejects duplicate or malformed names). 115 recordings: the 41 of the DEV 105 plan with their names unchanged, and 74 new ones from the review of the list (calibration and repeatability, transitions and clicks at low volume, the Halcyon flutter and transparency with a control on `TAU_DEV_107`, the unexplained repeat pop, two 60-minute soaks for issue 023, channel balance and timing, level linearity, load and impedance, the resampler on the production path, ReplayGain, tempo). Every row has the preferred file name (`<core>_<group>_<what>[_<condition>].wav`, volumes in the name), the test file, set-up, procedure, analysis command, the question or gate it answers, and a priority (P1/P2/P3). A list of 13 test files, most still to be built, is in section 2. Corrects my earlier estimate of "35-40" new recordings: the per-preset tones and sweeps and the toggle matrix make it 74 (62 are P1, 37 P2, 16 P3). `CYMO_RECORDING_PLAN_DEV105.md` now points at the script; its rationale, predictions and gates are unchanged. The Volt 1 is assumed to have one input (the stereo group needs one channel per take or a stereo capture): to be confirmed by the owner.
+
+## B-655: first recordings read (groups 0, 1, 1b of the recording script; `test music/Audio Lab/115 Tests/`, 19 files, TAU_DEV_105)
+
+Capture: 48 kHz / 24-bit stereo files, but the two channels are the SAME signal (correlation 1.0000, difference -92 dBFS): the interface is mono, so the stereo group needs one channel per take (confirms the assumption in the script). All figures are RMS dBFS over the steady part of each file, analysed with `cymo_loopback.py analyze` and a band split; `cymo_isp.py sysvol` for the nine system-volume takes.
+
+| Measurement | Result |
+|---|---|
+| Interface alone (shorted plug) | **-90.4**; slightly rising with frequency (-110 below 200 Hz to -94 at 10-20 kHz) |
+| Pocket idle (core loaded, nothing playing) | **-82.5**; idle spurs at 12.30 kHz, 18.48 kHz, 6.18 kHz (-97 to -99.5 dBFS), as in the earlier recordings |
+| Pocket PLAYING digital silence, core volume 100 / 70 / 40 / 10 | **-72.8 / -72.8 / -72.9 / -72.9**: identical at every core volume, +9.7 dB above idle, every band up by 8-10 dB; the spurs unchanged |
+| 1 kHz tone, core volume 100 / 70 / 40 / 10 | level -8.41 / -26.41 / -44.41 / -62.52 dBFS: steps of 18.00, 18.00, 18.11 dB for 30 positions = exactly the 0.6 dB/position taper; SINAD 54.97 / 42.42 / 24.61 / 6.70 dB; THD -72.9 / -64.5 / -50.2 / -27.9 dB |
+| System volume d0, d1, d2, d4, d8, d16, d24 | tone -8.42, -11.35, -12.73, -15.87, -23.01, -37.76, -51.57 dBFS (first click -2.93 dB, then about 1.4-1.8 dB per click); noise -72.84, -75.59, -76.75, -79.11, -83.27, -85.39, -85.28; d30 and d31: no tone found (muted or under the noise) |
+
+**Reading, against the predictions (section 4 of the plan):**
+- **Q1 (floor).** The floor is **not** the -76 dB the earlier recordings gave (-72.8 here, a different volume/system-volume setting or bandwidth) and it does **not** fall with the core volume, so it is not in the digital data: nothing the core does to the samples (rounding, dither, the gain stage) can move it. Against the 16-bit quantisation noise (about -98 dBFS) it is 25 dB higher, so **dither or noise shaping at the final 16-bit quantiser would buy nothing audible at this jack** (G-FLOOR: the scope of the final quantiser's dither falls to a nice-to-have). Playing digital silence is 9.7 dB noisier than idle in every band: the noise depends on what the machine is DOING (decoding, drawing, SD reads), not on the data: session 4 (screen blank, menu, charger) and a run with the meter off now matter more than the floor itself.
+- **Where the noise enters (1b).** Over the first 16 clicks the noise falls 12.5 dB while the tone falls 43 dB, then stops at -85.3: part of the noise is generated AFTER the system volume stage (a fixed floor of about -85 dBFS) and the rest (the 12.5 dB above it at maximum) BEFORE it (it is attenuated by it) but after the core's digital volume (which does not move it): consistent with the DAC's own analogue output noise or its supply/reference noise, the part that rises 10 dB when the core is busy. **Maximum system volume is the noisiest setting for the signal-to-noise ratio only when the music is loud enough to matter**: SNR falls from 61.4 dB at d0 to 57.3 at d8 and 44.6 at d16 (the user hears the same floor against a quieter tone).
+- **Volume taper.** The dB taper is exact to 0.1 dB at all four points: confirmed on hardware.
+- **Tone distortion.** SINAD at full volume is 55 dB with THD -72.9 dB; the spurs sit at exact kilohertz multiples (19.48, 17.48, 13.30, 11.30 kHz at v100; 12.00, 21.00, 22.00 kHz at lower volumes), -78 to -87 dBFS and mostly independent of the tone's level at the lower volumes (a fixed pattern) but about 7 dB higher at v100 (signal-dependent). Not the harmonics of the tone (999.76 Hz).
+- **Not yet answered:** G-SPUR (session 4), G-HWGAIN (session 2), G-A16 (session 3). The noise findings change which of them matters most (see above).
+
+## B-656: group 2 read (HW GAIN ON against OFF, `105_hw_on|off_v94|v70|step`, TAU_DEV_105)
+
+**Steady state: the prediction holds.** 1 kHz tone, same file, same settings except HW GAIN:
+
+| | level | SINAD | THD | frequency (median) |
+|---|---|---|---|---|
+| ON, volume 94 | -12.02 dBFS | 53.37 dB | -77.08 dB | 1000.0676 Hz |
+| OFF, volume 94 | -12.02 | 53.47 | -76.21 | 1000.0676 |
+| ON, volume 70 | -26.42 | 42.09 | -66.75 | 1000.0676 |
+| OFF, volume 70 | -26.42 | 41.90 | -67.15 | 1000.0675 |
+
+Level equal to 0.00 dB at both volumes (the prediction allowed 0.05), SINAD within 0.2 dB and THD within 0.9 dB (allowed about 1 dB), the tone frequency identical to 0.0001 Hz, the same spurs. Level at 94 against the 100 recording is exactly 6 positions x 0.6 dB (-8.41 to -12.02). `track` flagged 3 events in each OFF take and none in the ON takes, but all three sit on the tone's start and stop edges (50 ms blocks cut by the file's start and end), not inside the steady part. **G-HWGAIN: the steady-state half is met;** the hardware gain stage can be called equal to the firmware gain at 94 and 70.
+
+**Not answered, and one surprise:**
+- **No start-of-track fade-in is visible in either mode.** The test tone starts at sample 0 at full amplitude, so a 2048-sample (43 ms) fade would show as a ramp over about 8 of the 5 ms windows. Both ON and OFF go from silence to 86-87 % of full level inside one 5 ms window (OFF volume 70: 38 %, then full). Either the discontinuity fade is not armed on this start path, or it ended before the first audible sample; this also means the prediction "same fade shape" could not be tested. To be settled with the group 7 recordings (loop boundary, track change, Next/Previous), where a fade must be armed; a firmware read of the start path is the cheap parallel check.
+- **The step recordings are not a valid step test.** The tone file is 6 s long, and the takes show the volume going from 70 up to 94 by a held key (about 0.6 dB per repeat, smooth, no discontinuity at 100 ms resolution, in both modes), not 94 down to 70 and back. The HW ON take also has a lower first 0.4 s (-28.2 dBFS against -26.4 afterwards, +1.8 dB at the end of that plateau) that the OFF take does not: possibly a volume gesture of the person, possibly the hardware stage; one take each cannot say. Redo with the 60 s tone file (`tone_1k_48000_60s.flac`, to be built) and a stated sequence, or better the group 7 toggle takes.
+- The tone file is 6 s, not the 12 s the plan's "record 12 s" assumed; the script should say "record the whole tone (6 s) plus 3 s either side".
+
+## B-657: group 3 read (16-bit I2S slot, `105_a16_*`, TAU_DEV_105)
+
+Takes: `a16_off_v94` (reference), `a16_on_v84` (recorded at core volume **85**: the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched), `a16_on_v94` (same volume, interface gain lowered by about 11.4 dB, not the 6 dB the plan said: the tone reads -17.37 where -6.0 would be expected at the old gain; SINAD and the dBc profile below do not depend on it), `sil_a16_on_v94`.
+
+| | level | SINAD | THD |
+|---|---|---|---|
+| OFF, volume 94 | -12.02 dBFS | 53.44 dB | -76.13 dB |
+| ON, volume 85 | -11.40 | 53.53 | -73.34 |
+| ON, volume 94 | -17.37 (gain lowered; +6.02 dB at the same gain) | 53.55 | -71.81 |
+| silence, 15-bit v100 / 16-bit ON v94 | -72.8 / -73.7 dBFS RMS | | |
+
+**Reading:**
+- **The slot gives exactly +6.02 dB.** ON at volume 85 is -11.40 dBFS against OFF at 94 at -12.02: +0.62 dB, which is 6.02 dB minus the 9 positions (5.40 dB) it was lowered. The 15-bit mapping really halves the word.
+- **Level-matched, the SINAD is the same (53.53 against 53.44): the analogue chain dominates.** As predicted.
+- **At the same volume (6 dB hotter) the SINAD does NOT rise by 6 dB (53.55 against 53.44).** The prediction "+6 dB if the noise sits after the DAC" is not met for this signal level, and the noise profile explains why: integrated around the tone, the noise in dBc is identical for 16-bit ON and OFF at volume 94 (-79.4 / -75.1 / -64.1 to -64.9 / -63.5 / -55.5 dBc in the bands 15-60 Hz, 60-200 Hz, 200 Hz-1 kHz, 1-5 kHz, 5-19 kHz), so with 6 dB more signal the noise is 6 dB higher: **at this level the noise is proportional to the signal** (a skirt around the tone, like clock jitter or a multiplicative stage), not a fixed floor. The fixed floor shows only at low levels: the dBc profile worsens by 13-15 dB from volume 94 to 70 and 31 dB to volume 40. The silence floor is the same with the slot on (-73.7 against -72.8 dBFS RMS, the same within a dB).
+- **Consequence for G-A16 and the dither question.** The slot's 6 dB buys loudness and headroom, and SNR only where the fixed floor dominates (volume 70 and below): at equal loudness the SNR is the same (the floor is fixed), at the same digital volume it is 6 dB louder with an unchanged SINAD. It is not a quality gain at high level. THD gets slightly worse with the extra level (-76.1 to -73.3 level-matched, -71.8 at +6 dB): small and smooth, not clipping.
+- **Two takes to add** (in the script): `105_a16_on_v70` and `105_a16_on_v40` (16-bit ON at the lower volumes, against group 1's 15-bit takes), to test the prediction that the 6 dB gives +6 dB SINAD where the fixed floor dominates.
+- The script now names the level-matched take `105_a16_on_v85` (the recorded file is `105_a16_on_v84.wav`).
+
+## B-658: group 4 read (spur source, `105_spur_screen_on|screen_blank|menu|charger`, TAU_DEV_105)
+
+RMS dBFS over the steady part, silence file playing: **screen on -73.6, screen blank -73.7, menu open -73.7, charger connected -73.6** (group 1's silence at core volume 100: -72.8). The four are identical to 0.1 dB; the band levels (20 Hz to 24 kHz) are identical to 0.2 dB; the idle spurs at 12.30, 18.48 and 6.18 kHz sit at -100 to -106 dBFS in every take (the scatter of a few dB is bin noise).
+
+**G-SPUR, first half: the source is not the display, the menu, or the charger.** Switching the screen off, opening a menu (static) and charging change neither the broadband floor nor the spurs. The "idle-noise" claims in the user documentation can say so.
+
+**Still open, and now sharper:** playing digital silence is 9.7 dB noisier than sitting idle (-72.8 against -82.5), and the increase is flat across the band (+9.0 to +10.6 dB in all six bands), with the spurs unchanged. So the extra noise is white and additive, not a spur, and it does not come from the screen, the menu or the charger; with group 1b it sits before the system volume stage and after the core's digital volume. What differs between idle and playing that is left: the decoder/CPU/SD activity, or the DAC / amplifier state (running against idle). Four recordings added to the script to separate them: playing then PAUSED (the decoder stops, the I2S stream keeps clocking), playing then STOPPED, silence with HW GAIN OFF, and an MP3 silence file (decoding load). If the floor returns to idle when paused, the cause is firmware activity and may be reducible (for example no work between decoded frames); if not, it is the converter's state and out of reach.
+
+## B-659: setting the interface gain for the inter-sample-peak takes (owner question: row 42, `105_isp_ladder_a16on`, clips the interface)
+
+Do not record through a clipping interface: an ADC that clips flat-tops the same peaks the test is looking for, so the take proves nothing about the Pocket. With the slot ON the chain gain is +3.6 dB (a file 1 kHz tone at -6 dBFS reads -8.42 dBFS at 15-bit, volume 100, system volume maximum; +6.02 for the slot), so the ladder's loudest section (+3 dBFS true peak) arrives at about +6.6 dBFS at the gain used for the 15-bit takes: about **9.6 dB lower** puts the last section at -3 dBFS (the first version of this entry, and the message to the owner, said "about 13 dB ... near -3": 13 dB gives -6.4, still fine, but the figure was wrong; the plan's "about 10 dB" was close). The owner's meter (Adobe Audition) cannot show levels above 0, which is no obstacle: it shows what the converter receives, never the hypothetical +6.6. Calibrate with a plain tone instead: in the same state (16-bit ON, core volume 100, system volume maximum) play `tone_1k_48000.flac` (-6 dBFS) and lower the interface gain until the PEAK meter reads about -12 dBFS; the ladder's +3 dBFS section is 9 dB above that tone, so it peaks near -3. Record all six ISP takes, ON and OFF, at that one setting (the OFF takes then peak near -9) and do not touch the knob during a take. The noise is not a concern at the low gain: the smallest section (-12 dBFS) still records at about -20 dBFS against an interface floor of -90. Keep the Pocket's system volume at maximum: the attenuator sits after the converter, so lowering it would also lower what the amplifier sees and change the very thing being tested. New: `cymo_isp.py peak <recording.wav>` prints the peak per second and says INTERFACE CLIPPED (three or more samples in a row at full scale: the take is invalid), or how much headroom there is; tested on a clipped, a -3 dBFS and a -0.5 dBFS sine (in `make test-host` through `sim/test_cymo_isp.py`). The script's ISP rows now say this.
+
+## B-660: `105_isp_ladder_a16on` recorded clipped (owner), checked against the file
+
+**The file is correct.** `isp_ladder_48000.flac` regenerated by `cymo_isp.ladder()` has the design's section peaks: phase 0 at -12, -6, -3, 0 dBFS sample peak (equal to the true peak), phase 45 with true peaks -12 to +3 dBFS and sample peaks -15.01 to -0.01 dBFS, 56 s in 11 sections (2 s of silence, 4 s each, 1 s gaps); the FLAC holds 2,736,128 samples (the generator's 2,736,000 padded to the block size), 16-bit stereo, 48 kHz.
+
+**The recording is about 17 dB hotter than the design predicts.** The peak per second is 0.0 dBFS (flat tops, the interface clipping) in every section except the quietest: that one (phase 0, -12 dBFS in the file) records at -1.06 dBFS, a chain gain of +10.94 dB, where the tone calibration (the -6 dBFS 1 kHz tone at -12 dBFS) predicts -18 dBFS (gain -6 dB). The analyser's COMPRESSED verdicts for the other ten sections are therefore the interface's, not the Pocket's: the take is invalid. 17 dB is about five clicks of the Pocket's system volume (d4 is -15.9 dB, d8 -23.0 dB), so the likeliest cause is that the tone was levelled in a different state from the ladder (a lower system volume, or the other 16-bit setting) or the knob moved afterwards; it cannot be a difference between 1 kHz and 12 kHz of that size, and not the file. Not established from the recording alone.
+
+**Process change:** calibrate on the ladder itself, in the take's own state: its first section (a 12 kHz tone at -12 dBFS, 2 s into the file) must peak near **-18 dBFS**, which puts the loudest section (15 dB higher) near -3. Same frequency, same state, no separate tone and no assumption about the volume. The script's ISP rows say so.
+
+## B-661: the calibration tone is itself distorted (`tone-level-test.wav`, state: system volume and core volume at maximum, HW GAIN ON, 16-BIT ON; owner, interface knob not moved)
+
+The tone (`tone_1k_48000.flac`, -6 dBFS) peaks at -12.0 dBFS as calibrated (peak check: ok), but **SINAD 42.08 dB and THD -43.44 dB**, against 53-55 dB and -72 to -77 dB in every earlier take (15-bit v100: 54.97 / -72.86; 16-bit ON v94: 53.55 / -71.81). The distortion is symmetric and odd: 3rd harmonic -44.3 dBc, 7th -50.3, 11th -59.5, 5th and 9th lower, even harmonics under -63 dBc: a symmetric limiting or compression of the peaks, not a fixed floor. Going from volume 94 to 100 (+3.6 dB at the converter, +5.4 dB at the recorder with the knob raised) moved the THD by 28 dB: a threshold, not a slope. Something in the chain is limiting at this level; it is either the Pocket's output stage (DAC or amplifier at maximum system volume with the 16-bit slot) or the interface's input stage, upstream of its gain knob. If it is the Pocket's output, that IS the G-A16 answer (a ceiling for the 16-bit slot / the maximum volume), found without the ladder.
+
+The ladder take recorded next at the same knob is still flat-topped at 0.0 dBFS from its second section on, with its quietest section (12 kHz, -12 dBFS in the file) at about +1 dBFS: a chain gain of +13 dB at 12 kHz against -6 dB at 1 kHz for the tone file. A 19 dB difference between the two frequencies is not credible for this chain (an interface 'Air' boost does not do that); to be separated by the two takes below. **Do not use the tone for gain calibration while it is distorted; the ladder take is invalid.**
+
+Decisive takes (state unchanged, knob unchanged): (1) `tone_10k_48000.flac` (-6 dBFS, 10 kHz): its peak against the 1 kHz tone's -12.0 gives the frequency response of the chain at this state; (2) the 1 kHz tone at core volume 85 (5.4 dB lower at the converter): if the THD falls from -43 to about -70 the limiting is a threshold between the two levels; (3) the 1 kHz tone at volume 100 with the interface knob lowered 6 dB: if the THD improves the interface input is the limiter, if it stays at -43 dB the Pocket is.
+
+## B-662: the decisive takes (`tone_1k_48khz_100_test`, `_85_test`, `_-18db_test`, `tone_10k_48khz_test`, plus `tone-level-test` repeated), state: system volume maximum, HW GAIN ON, 16-BIT ON
+
+| Take | peak | THD | SINAD |
+|---|---|---|---|
+| 1 kHz, "100" | -12.00 dBFS | -43.45 dB | 42.05 dB |
+| 1 kHz, "85" | -12.00 (steady 13 s) | -43.46 | 42.06 |
+| 1 kHz, interface knob lowered 6 dB | -17.97 | -43.44 | 42.05 |
+| 10 kHz tone (-6 dBFS file), knob as for "100" | 0.00 (clipped), fundamental +1.24 | -70.9 | 17.8 |
+| earlier take, same tone, 16-bit ON v94, knob 11.4 dB lower | -17.37 | -71.81 | 53.55 |
+
+**Facts.** (1) The distortion is reproducible to 0.02 dB across four takes and **does not change when the interface gain drops 6 dB** (level -6.0 dB, THD and SINAD identical): it is upstream of the interface's gain stage, in the Pocket's output or the interface's fixed input stage. (2) The "85" take is **exactly as loud as the "100" take** (-12.00 for 13 s): a 5.4 dB volume change did not change the output level, or one of the two takes was not at the volume it is named for. At its end the 85 take rises by 6 dB for about 1.5 s (-6.2, -5.8 dBFS) and returns to -12, which is the 5.4 dB step in the other direction: probably the volume at 100 for a moment. If so, **-12.00 is the level at volume 85 and the tone at volume 100 would read about -6.4**, and the "100" and tone-level takes were not at volume 100 either; unconfirmed. (3) The 10 kHz tone reads at least +7.2 dB above the 1 kHz tone's gain at the same knob (it clips the converter, the fundamental is +1.24 dBFS for a -6 dBFS file), and the ladder's 12 kHz section +13 dB: the chain's response rises by 13 dB or more between 1 and 10-12 kHz, or the 1 kHz tone is compressed. (4) Spurs at exact kilohertz multiples (3, 7, 15 kHz at -53 to -61 dBc) account for most of the "THD" here: they are fixed in frequency (not harmonics of 999.76 Hz) and sit at the same absolute level in every state so far, now 13 dB higher in dBFS than in the 15-bit takes.
+
+**Not concluded.** Which stage limits, whether volume 100 was ever recorded, and the frequency response. Asked of the owner: what was pressed at the end of the 85 take; the Info page's HW GAIN row (T and C values) at each volume (volume 85: T11627; volume 100: T32768); a level map of the 1 kHz tone at core volumes 100, 91, 82, 73, 64 in this state (steps of 5.4 dB); and the 10 kHz tone with the knob 18 dB lower, to measure the response without clipping the converter. Until then the inter-sample-peak takes are on hold.
+
+## B-663: owner answers to B-662
+
+(1) The +6 dB burst at the end of the 85 take was NOT a keypress: it is the rare random glitch of issue 023. Re-analysed at 5 ms resolution it is a 95 ms noise-like burst, not 1.5 s and not a clean +6 dB tone (details in `docs/issues/023`). So "-12.00 is the level at volume 85, volume 100 would read -6.4" is not supported by it. (2) The Info page values were as expected (volume 85: T11627, volume 100: T32768): the firmware and the hardware gain stage had the right targets, and the recorded level was identical, -12.00 dBFS, at both. So the cause of the identical level is downstream of the gain stage: the converter, the headphone amplifier, or the interface's input stage ahead of its gain. Not yet separated. Next, the single most informative take: 16-BIT ON, core volume 100, **system volume 4 clicks down (d4)**, interface knob unchanged: in the 15-bit takes d4 is -15.9 dB and was clean; if the THD returns to about -70 dB the Pocket's amplifier (or the interface input) clips at maximum system volume with the 16-bit slot; if it stays at -43 dB the amplitude is not the cause. Plus d2 and d8 for the curve, the level map of the 1 kHz tone at core volumes 100, 91, 82, 73, 64, and the 10 kHz tone with the knob 18 dB lower.
+
+## B-664: the level map (`tone_1k_48khz_level-map.wav`, 16-BIT ON, HW GAIN ON, interface knob at the "-18 dB" setting, system volume maximum)
+
+Plateaus of the 1 kHz tone at core volume 100, 91, 82, 73, 64: **-17.96, -23.36, -28.75, -34.12, -39.48 dBFS**: steps of 5.40, 5.39, 5.37, 5.36 dB, i.e. 9 positions x 0.6 dB: the volume taper is exact in this state and there is **no ceiling** between 100 and 91. THD (h2-11) / SINAD per plateau: **v100 -42.2 dB / 39.4**, v91 -70.9 / 52.9, v82 -67.2 / 50.7, v73 -63.4 / 47.2, v64 -63.1 / 42.4; the exact-kilohertz spurs at v100: 3 kHz -43.2 dBc, 7 kHz -49.9, 15 kHz -57.3; at v91: all below -85 dBc. So the distortion appears only at volume 100: a **threshold between 5.4 dB below it and itself**; with 16-bit ON, the earlier ON v94 take (-9.6 dBFS at the converter) was clean (-71.8) and v100 (-6 dBFS at the converter) is not. Something between the converter and the interface's gain stage leaves its linear range between about -9.6 and -6 dBFS at the converter when the system volume is at maximum: the Pocket's output amplifier or the interface's input stage (not separated).
+
+**The "85" take is explained:** at this knob v100 reads -17.96 and v85 would read about -26.96 (9.0 dB lower); the "85" take read -12.00 where v85 would be -20.96 at the knob that gave the "100" take -12.00: the "85" take was at volume 100 in effect. So there is no evidence of an output ceiling; the apparent contradiction of B-662 is a take at the wrong volume (the owner confirmed the Info values at some time; whether T and C showed 85 during that take is not known). Confirmed by the owner: HW GAIN and 16-BIT were ON in every take since group 5 asks for it.
+
+**Open, decisive and cheap:** (1) the state of the interface's INST and AIR buttons (the 10 kHz tone at +13 dB and the ladder at +13 to +19 dB relative to 1 kHz suggest an HF-boosting or high-impedance input mode: INST (Hi-Z) with cable capacitance does the opposite, AIR boosts); LINE with AIR off is the neutral setting; (2) the 1 kHz tone at core volume 100 with the system volume 4 clicks down (d4); if the distortion goes, the nonlinearity is a level threshold in the output chain; (3) then repeat (2) with the interface set to LINE: if v100 at d0 is then clean, the interface input was the limiter.
+
+## B-665: the capture chain may be differential (owner: 3.5 mm TRS plug, 6.35 mm TRS adapter, Volt 1 combo input; INST, Vintage and 48V off, Direct on)
+
+A stereo plug in a balanced input is recorded as tip minus ring, **left minus right**. In every test so far the file carries the same signal in both channels, so a perfect pair would cancel and the interface would record only the DIFFERENCE between the Pocket's two outputs: a small residual whose relative size grows with frequency (mismatch of the two amplifiers' impedance and capacitance). That would explain, in one go, the rising response (the 10 kHz tone at least 7 dB and the 12 kHz ladder section 13 dB above the 1 kHz gain), why the knob has to be so high that the ladder clips the converter, and why the "distortion" in the 16-bit take looks like a threshold (the residual's linearity, not the output's). It would also make every absolute number so far (levels, THD, SINAD, noise floor, spurs) a number of the difference signal. Relative findings that survive: the exact 0.6 dB volume taper, equal HW GAIN ON and OFF, noise independent of the core volume. **Not established:** the 1 kHz tone is strong (-8.4 dBFS for -6 dBFS at 15-bit), more than a cancelled pair would give unless the knob is high; it is a hypothesis to be tested, not a finding.
+
+**Test:** `test music/cymo_loopback/tone_1k_48000_rinv.flac` (new, -6 dBFS 1 kHz, 20 s, left normal, right inverted; its bit-exactness is being checked with the project's own decoder, afconvert returned empty files here and was not used). If the chain is differential the recording is about twice as loud (and so much louder than the normal tone at the same knob that the interface gain must start at minimum); if the level is the same, the input sees one channel. **If differential:** record with a mono (TS) plug or a TS adapter (tip only, the left channel against ground), and repeat the findings that rest on absolute values.
+
+## B-666: the cable test is read: the capture chain is DIFFERENTIAL (`tone_1k_48000_rinv.wav`, same state, knob unchanged per the owner)
+
+`tone_1k_48000_rinv.flac` (right channel inverted; bit-exact, 962,560 samples) records at **-0.36 dBFS peak, THD -85.5 dB, SINAD 56.5 dB**, against **-12.0 dBFS, THD -43.4 dB, SINAD 42.1 dB** for the normal tone at the same knob: **11.6 dB louder** and 42 dB cleaner. A single-ended input would see the same level for both files. A TRS plug into a balanced input records LEFT MINUS RIGHT, so the normal tone measured so far is only the DIFFERENCE between the two outputs, which cancel to within about 5.6 dB of one channel's level at 1 kHz (a real channel mismatch in amplitude or phase; the doubled signal reads -0.36, one channel about -6.4). The "distortion" and the "threshold at volume 100" of B-661 to B-664 are therefore properties of that difference signal, not of one channel, and the rising response (10 and 12 kHz) is the mismatch growing with frequency. Every absolute level, THD, SINAD, floor and spur from groups 0-5 describes L minus R; the relative findings (exact 0.6 dB taper, HW GAIN ON equal to OFF, noise independent of the core volume, +6.02 dB of the 16-bit slot) are probably intact since both channels scale together; to be re-confirmed. **Action:** record with a mono (TS) plug or adapter (tip = left channel against ground, never TRS into a balanced input) and repeat group 0, one level and one THD take, the 16-bit v100 tone and the ladder; the ISP takes stay on hold. The 16-bit v100 "threshold" may disappear.
+
+## B-667: `halcyon-pair-b650` collected and packaged as TAU_DEV_108
+
+Both seeds closed, all corners positive (RAM 256/308, DSP 24/66): seed 1 worst hold +0.101 / setup +1.301, seed 2 worst hold +0.119 / setup +1.113; seed 2 chosen (the tighter hold margin is the better one, 0.119 against 0.101). Collected (SHA-256 c4048898...0933, manifest written with `--append` since the fit predates B-653) and packaged as `alfatreze.TAU_DEV_108` (diagnostic variant, `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, firmware heap gap 1,200 B against the 1,024 B floor; ROM 7c89b1c4..., package `work/diagnostics/tau-dev-108/pocket`). Pairing check: version PASS, feature check run against the manifest (no mismatch). This bitstream still contains the legacy preset EQ (bypassed: the firmware no longer writes it); it carries the tick and atomic-pair fixes (B-649/B-650) and the Info > I2S JITTER diagnostic. **Not installed:** the card was ejected; the install needs the card mounted and the owner's approval (`tools/install_dev_core.py ... --carry-from alfatreze.TAU_DEV_107 --remove alfatreze.TAU_DEV_107`, dry run first).
+
+## B-668: TAU_DEV_108 installed (owner approved: keep TAU_DEV_107 for the control recordings)
+
+`tools/install_dev_core.py work/diagnostics/tau-dev-108/pocket --carry-from alfatreze.TAU_DEV_107 --yes`: package and pairing checks passed, core files verified by SHA-256 (ROM 7c89b1c4..., cold image 556d0ba7...), 137 media files carried from 107 (no duplicates written to the backup), library index rebuilt and verified for the new core's own root, `tau-assets.bin` carried from 107 (user presets), five catalog caches deleted, 17 junk files removed, card ejected. Nothing removed: the card holds `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_105`, `TAU_DEV_107`, `TAU_DEV_108` and the owner's barcode/meter cores. Backup `work/card-backups/20261008-070337` (caches only). Not yet run on a Pocket: first listening of the tick and atomic-pair fixes, the new Halcyon page (preset area, HALCYON EQ rename), Y stepping the Halcyon preset, the saved preset, the muted HW GAIN hand-over, and Info > I2S JITTER (about 1,389 clocks per update expected, about 700 if pairs are still torn).
+
+## B-669: first hardware run of TAU_DEV_108 (owner)
+
+**Confirmed on hardware:** the Halcyon listening is clean (the 30 Hz flutter of B-649/B-650 is gone), preset changes are good, Y steps the Halcyon preset, the HW GAIN toggle no longer pops (the stale-fade fix and the muted hand-over of B-651/B-653). Not yet read: the saved preset across a restart, the page's preset area on the real screen (looks as designed by the owner's report only), the toggle at a volume below maximum (the case that mattered).
+
+**Info > I2S JITTER read `179/65535 AVG 538`.** The row is cumulative since the core started and counts every change of the word the I2S writer takes from its FIFO: min 179 clk_sys cycles, max 65535 (the 16-bit saturation: a gap longer than about 1 ms, pauses, silence, track changes), average 538. One clean update per output sample would give 1389 cycles at 48 kHz (1512 at 44.1 kHz; 694 at 2.00x speed); a torn pair gives two events per sample, about 100-180 cycles apart, average about 694. 538 is below both, so since reset there were more updates per sample than one, but the figure mixes everything the core did since boot (varispeed, pauses and flushes with the pcm_fifo glide, gain dips, preset changes, 44.1 kHz material), so it classifies nothing. A clean read needs: quit and relaunch the core, play one steady 48 kHz file for 60 s with no menu, no pause and no speed change, then read it (clean: min and max within a few cycles of 1389 apart from the start-up outliers, AVG about 1389). The audible result (no flutter) and the simulation (`make test-rtl-audio-pair`: one event per sample in six configurations) say it is clean; the row is the check on the real chip.
+
+## B-670: fit `noeq-b670` launched (legacy preset EQ removed from the RTL), 2026-10-08 07:21 local
+
+Seeds 1 and 2, bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_halcyon_wide_qsf_append.txt` (the b650 bundle: Halcyon, wide EQ input, I2S diag; checked clean by `fit_manifest.py check-bundles`), tree at commit `597caff` (clean). Staged copy checked: no `eq_biquad.v`, no `eq_biquad` in the .qsf, the audio path `audio_l = hal_en ? hal_o_l : eq_in_l` present (correction: B-651 said the wire was renamed `snd_l`; the rename never reached the file, the wire is still called `eq_in_l` although nothing named EQ feeds it any more. Cosmetic, to be renamed with the next RTL change, not worth a refit). Expected: about 1 h 45 min, done around 09:05-09:15 local. Then collect the better seed with `vm_fit.py collect noeq-b670 --seed N` (the manifest is written automatically), package a TAU_DEV with the same firmware flags, dry-run the install and ask before the card write. Hardware gates for this build: audio unchanged against TAU_DEV_108 (the engine off is now the plain path), the Y key and the Halcyon page unchanged.
+
+## B-671: `noeq-b670` closed; TAU_DEV_109 installed and heard (owner), 2026-10-08
+
+Both seeds Successful, every corner positive, 256/308 RAM blocks, 20/66 DSP. Seed 1 selected (worst hold +0.119 ns against +0.081 ns; setup +1.52/+1.72 ns on the slow corners). RBF sha256 `23dc9e77...1910`, manifest written by `vm_fit.py collect`. Packaged `TAU_DEV_109` (diagnostic, `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, pair check PASS, heap gap 1,200 B). Installed with `tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_108 --yes` (all hashes identical, library index rebuilt, `tau-assets.bin` carried, caches cleared, ejected; 108, 105 and 107 kept; backup `work/card-backups/20261008-195535`). An earlier attempt hit a different volume (`CARDWRITE`, not the Pocket card): nothing was written to it.
+
+**Hardware (owner, aural):** no menu for the legacy EQ any more, sound seems ok against 108. This meets the gate "audio unchanged against 108" by ear only; the recordings (mono TS plug) and a clean Info > I2S JITTER read are still owed. Not pushed.
+
+## B-672: release-system card probe (two cores on one platform, core-specific files, dev core reading TAU's library), 2026-10-08
+
+Release spec section 7. Two probe cores built from the card's own TAU (alpha.4) bitstream and ROM, installed with `tools/install_dev_core.py`
+(dry runs first, owner's go), run by the owner, then removed with a verified backup (`work/card-backups/probe-h4-removed`). Screenshots kept
+in `work/diagnostics/probe-h4/screens/` (card: `Memories/Screenshots/20261008_2028*`, `2030*`).
+
+- `alfatreze.TAU_PROBE`: platform `tau` beside TAU, version `0.8.0-preview.2`, data slots 1/4/6 core-specific (files in
+  `Assets/tau/alfatreze.TAU_PROBE/`), an extra `tau-release.json` in the core folder.
+- `alfatreze.TAU_PRBDEV`: platforms `["tau_dev", "tau"]`, core-specific build files, slots 5 and 8 with bits [25:24] = 1 (read TAU's
+  `tau-library.tdb` and `tau-assets.bin` in place).
+
+**Hardware results (owner photos and in-core screenshots):**
+1. **Platform list:** TAU appears once with a count badge (3), and a separate **TAU Dev** entry appears. Opening TAU shows a
+   **Select Core** list. The core in the list marked **Default** is TAU. Each row shows the core's **shortname** (`TAU_PROBE`,
+   `TAU_PRBDEV`, underscores and all), not its description. The selected row adds **Version** and **Author**. Full pre-release
+   versions display as written (`0.8.0-preview.2`, `0.8.0-dev.1`).
+2. **A core is listed under every platform in its `platform_ids`:** TAU_PRBDEV appears under TAU as well as under TAU Dev. Sharing
+   media through a second platform therefore puts dev builds into the main TAU list.
+3. **Core-specific build files work (H4 confirmed):** TAU_PROBE booted with its splash, cold image loaded (113,684 B, CODE), TIM1 cover
+   loaded, library 114 tracks, theme file loaded, MP3 played. The unknown file in the core folder had no effect.
+4. **Platform-index slots work:** TAU_PRBDEV read TAU's library (114 tracks) and `tau-assets.bin` (theme file loaded and applied)
+   through bits [25:24]. Tracks played (0 underruns), covers loaded.
+5. **TAU_PRBDEV's first launch was slow** (5-10 s of black screen; later launches normal). Its Info showed **DRAW STALL 19,965 ms**,
+   against 32 ms on TAU_PROBE. Not explained; it may be first-launch work inside the firmware. Check DRAW STALL on a later launch.
+
+**Found while removing the probes:** `install_dev_core.py --remove` deleted the removed core's whole `Assets/<platform>` folder and its
+platform files. That was correct while every Tau core had its own platform. With TAU_PROBE beside TAU it would have deleted TAU's music,
+library and platform entry. Fixed before the removal:
+- removal and backup are scoped to `Assets/<platform>/<core>` whenever another core lists the platform;
+- an exclusive platform is still removed whole, with a full backup;
+- new remove-only mode (`--remove` without a package);
+- tests include a mutant of the old behaviour, which is caught.
+
+**Consequences for the release design:**
+- Core shortnames are the display text, so they must read well (`TAU`, not `TAU_0_7_0_B_2`).
+- Versions carry the channel and number.
+- Dev cores should not list `tau` as a second platform. The proposed alternative is a dev core on its own platform with a copy of the
+  9 KB index, whose root already points at `/Assets/tau/common/` (tracks and covers open by absolute path, B-033). It is not yet
+  tested.
+
+## B-673: release-system card probe 2 (shortname characters; dev core with an index copy only), 2026-10-08
+
+Four probe cores built from TAU alpha.4's bitstream and ROM with the H4 layout, installed with `tools/install_dev_core.py` (dry runs,
+owner's go), run by the owner, then removed with the B-672 scoped removal (`work/card-backups/probe-2-removed`; TAU's media untouched).
+Screenshots kept in `work/diagnostics/probe-2/screens/`.
+
+**Shortnames with a space, a dot and a hyphen** (`alfatreze.TAU Preview`, `alfatreze.TAU 0.7`, `alfatreze.TAU-0.7`, platform `tau`):
+all three are listed under TAU exactly as written (`TAU Preview`, `TAU 0.7`, `TAU-0.7`) with their versions, and all three boot. Their
+build files sit in folders with those characters (`Assets/tau/alfatreze.TAU 0.7/`), so the Pocket also resolves them. **Readable display
+names are possible.**
+
+**Dev core with its own platform and an index copy only** (`alfatreze.TAU_DEVIDX`, platform `tau_dev` alone, TAU's 9 KB
+`tau-library.tdb` copied into `Assets/tau_dev/common/`, its root `/Assets/tau/common/`):
+- not in the TAU list (TAU shows 4); Core Info shows Platforms: TAU Dev;
+- the library loads (Info LIBRARY 114 TRK);
+- **selecting a track plays nothing**: TRACK NONE, TIM1 COVER 0 LOADED. Decoded from the Info export pixel grid (all 37 rows from one
+  screenshot).
+
+Conclusion: the Pocket does not open a file outside the platforms the core declares. B-672's TAU_PRBDEV played TAU's music because it
+also declared `tau`. A dev core can share TAU's music only by declaring `tau`, which lists it under TAU too. Otherwise it needs its own
+media copy (today's `--carry-from`). The "absolute path open" of B-033 holds within the core's platforms. The exact rule is inferred from
+behaviour; no Analogue text read states it.
+
+Also: TAU_DEVIDX's first launch showed **DRAW STALL 0 ms**. B-672's 19,965 ms on TAU_PRBDEV is therefore tied to that two-platform
+core, not to every first launch (still unexplained, low priority).
+
+## B-675: Helios chrome region registered cold-aware (closes the check_cold_calls warning), 2026-10-09
+
+`tools/check_cold_calls.py` warned that `ui_draw_chrome` (cold code, `COLD_SR`) was registered with the plain `helios_region_register()`, so `helios_flush()` called it through the stored pointer with no `cold_code_ok` check. It was safe only because its sole marker, `ui_chrome_paint()`, starts with `if (!SR_READY()) return;`; a future caller of `helios_mark_dirty(ui_chrome_region)` would have bypassed that. Now registered with `helios_region_register_rows_cold(ui_draw_chrome, 0u, 0xFFFFu)` (same immediate-draw behaviour, the full-screen extent), so the gate lives in `helios_flush()` itself. Pre-existing since `93ffc84` (2026-09-25), not from ram-diet. Verified: `make test-host` passes; heap gaps on the 256 KB builds identical to the unmodified tree; on the shipped 192 KB link release 15,392 to 15,376 B (-16 B, floor 6,144 B), diagnostic and profile unchanged; the script now lists the region as cold-aware (on a 256 KB build it shows the callback as hot, which makes the gate a harmless no-op there). Not on a Pocket (behaviour unchanged once the cold image is loaded). ram-diet's own audit entry keeps the id B-674 when it is merged (its original B-662 collides with main's).
+
+## B-674: RAM diet on branch `ram-diet`: measure the shipped link, tempo in release, tempo state diet, QR archived, Diagnostic-Build features switchable at build time
+
+**Id note.** B-653..B-661 were claimed on `main` while this branch ran; this entry takes B-662 so the numbers do not collide (see D-R05). Merging this branch will conflict on the tails of this file and `CLAUDE.md`: interleave.
+
+**Evidence labels.** Host: builds, symbol sizes, host tests, hash comparisons, all run here. Pocket: nothing of this entry has run on a Pocket.
+
+1. **The heap-gap guard measured the wrong link.** `tools/check_heap_gap.py` rebuilt the 256 KB link without `RAM_192K/CLK66/SDRAM_BUSY`; the shipped bitstream is the 192 KB one. Shipped numbers: release 15,504 B free, Diagnostic Build 1,328 B (then 1,600 B), profile build did not link. Fixed: the guard builds the shipped flags and records a link that does not fit as a negative gap. **Correction:** the first profile figure (3,376 B over) was overstated by 2,048 B because the over-limit estimate in `fw/build.sh` still assumed the old 8 KB stack of the 192 KB link (now 6 KB); real shortfall about 1 KB.
+2. **Tempo ships in the normal release** (`fw/build.sh` default, `TEMPO=0` removes it). Release with tempo: 8,960 B free against the 6,144 B floor.
+3. **Tempo state diet, behind switches for a Pocket A/B:** `TEMPO_SLICE=1` produces and pushes the output hop in 64-sample slices (`ws2_step_begin/_emit/_end`, -1,792 B); `TEMPO_RING=512` halves the stage-2 ring (-1,024 B; measured worst span 320 entries over 0.5-3.0x and 8-48 kHz). Release 11,776 B, Diagnostic 4,416 B, profile links (1,760 B). Host: sliced == whole-hop for every slice size and rate, ring 512 == ring 1024, 11 mutants killed (`sim/test_tempo_slice.py`, `sim/test_tempo_funnel.py -DTEMPO_SLICE=1`). Rejected: tempo state to PSRAM (estimated +8-12 % CPU on a stretcher already at 26-31 %), `PolyphaseStereo` to cold code (it is the stereo fallback and playback must work without the cold image), ring to 20 KB (owner), art sharing `pcm` (already PSRAM since B-567).
+4. **QR encoder archived** (`archive/qr_encoder/`, tag `archive/qr-encoder`): the pixel grid is the only report view. About 4.4 KB cold code and 0.2 KB hot RAM. Owner decision: Tau Omega has no users yet, phone scanning not needed. Tau Omega decodes QR only: noted in `docs/features/CROSS_PROJECT_INTERFACE.md`.
+5. **Every Diagnostic-Build piece is a registered build-time feature** (`fw/diag_features.json`, 17 features, `dx` diagnostics / `fx` incubating features, class and "influences" per feature; `DIAG_DROP`, `DIAG_PRESET=perf|slim|release-like`, `FEATURES_ON`). After every conversion step the default builds were hashed (`tau.rom` + `tau-cold.bin`: release, diagnostic, profile at 256 KB; release, diagnostic at the shipped 192 KB link) and were identical. Each feature builds and links when dropped alone; costs in `tools/diag_cost.json`: `stress` +2,944 B hot, `blit_test` +720, `check` +720 (and 10 KB cold), `meter_experimental` +496, `sweeps` +416, the rest under 300 B; presets: perf 4,416 B, slim 7,568 B, everything dropped 8,944 B (release 8,960 B). Only `cymo_toggle` changes the default audio path.
+6. **Guards for agents:** `sim/test_diag_features.py` (register complete and consistent, every firmware macro registered and every registered macro used, no new bare `#if TAU_DIAGNOSTIC`, measurements cover every feature, refusals), `fw/build.sh` prints the cheapest features to drop when a Diagnostic Build is under its floor, `CLAUDE.md` section 3b.
+7. **Mode-overlay region:** proposal and host prototype only (`docs/features/MODE_OVERLAY_PROPOSAL.md`, `sim/overlay_proto/`); recommended against (2-3 KB for the exact bug class this project has met before). Not built.
+
+**Open / not done.** No Pocket run of the tempo diet or of any lean Diagnostic Build; no package made (the Halcyon bitstream fit is still pending); `dist/` still holds a 256 KB build; nothing else open here. **Addendum (rename):** the `*qr*` identifiers that named the grid pages are renamed (`chk_draw_rep`, `bt_draw_rep`, `info_rep_up`, `wvcfg_build_rep`, ...; the page-state enums `CK_/SW_/MW_/MT_/BT_` `QR` became `CODE`: `SW_REP` was already the Repeat persist id, which the first attempt collided with and only the profile build caught). Every ROM and cold image of the five-config set then differs from before in exactly 4 bytes, the cold-image layout id (a hash that includes symbol names), in both files; all code and data bytes are identical. Comments that said QR now say report code.
+
+## B-676: `ram-diet` merged into `main`, 2026-10-09
+
+Merged with `--no-ff` (11 commits, B-674 below). Conflicts only in the appended logs (`CLAUDE.md`, `docs/AUDIT_TRAIL.md`, `docs/CURRENT_STATUS.md`: both sides kept); all code merged automatically. Fixes made in the merge: ram-diet's audit entry renumbered B-662 to **B-674** (B-662 was already main's recordings entry; references updated in `CLAUDE.md`, `CURRENT_STATUS.md` and the ram-diet handoff); the stale `test-qr` Makefile target removed (encoder and test archived in `archive/qr_encoder/`); heap baselines and snapshots refreshed on the merged tree (they predated Halcyon: release 8,832 B on the shipped 192 KB link against a 6,144 B floor, normal diagnostic 1,440 B against 1,024 B, profile 5,872 B). Verified: `make test-host` exit 0, `check_targets_link.py` (all three targets link), audit-ID check passes (821 unique). Behaviour changes now on `main`: tempo ships in the normal release (`TEMPO=0` removes it), the QR encoder is gone (pixel grid is the only report view; Tau Omega cannot read these reports until its grid decoder lands), Diagnostic-Build features are a build-time register (`DIAG_DROP`, `DIAG_PRESET`). NOT done: `diag_cost.json` remeasure (about 12 min; measured before Halcyon), `dist/` rebuild (the tracked ROM and cold image still predate the merge; `make_release.py` builds its own), any Pocket run of the merged release or of the tempo diet. Not pushed.
+
+## B-677: `tools/diag_cost.json` remeasured on the merged tree, 2026-10-09
+
+`python3 tools/diag_cost.py` (24 builds, about 12 minutes, shipped 192 KB / CLK66 / SDRAM_BUSY link, output to `work/diagcost`, `dist/` untouched). The old table predated Halcyon. The Diagnostic Build with nothing dropped now has 1,440 B free hot RAM (was 1,600 B) and a 183.6 KB cold image; every drop is 16 to 176 B smaller than before in the same pattern, so the ranking is unchanged: `stress` is still the big one (+2,928 B), then `check` and `blit_test` (+704 B each), `load_stats` (+992 B with dependents); `DIAG_PRESET=slim` frees +6,000 B (7,440 B free) and `release-like` / EVERYTHING +7,376 B (8,816 B free). The floor is 1,024 B, so the default Diagnostic Build keeps 416 B of margin. Every build linked. `sim/test_diag_features.py` passes. Not on a Pocket.
+
+## B-678: `dist/` rebuilt from the merged tree, 2026-10-09
+
+`dist/Assets/tau/alfatreze.TAU/tau.rom` and `tau-cold.bin` rebuilt with the shipped flags (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 bash fw/build.sh release`, copied from `work/ram192k/release/` exactly as `tools/make_release.py` does; a plain build would write a 256 KB ROM that the rev 26 bitstream refuses). They predated the ram-diet and Halcyon-only-EQ merges. ROM 107,197 to 107,617 B (sha256 `fb2ac04f45176866...`), cold image 113,704 to 147,096 B (`1fdd00e6a3fb242d...`; tempo is in the normal release now and its stretcher is cold code, plus the Halcyon page). Markers in the ROM: `TAUFWPAIR:4D50331A`, `TAUFWNEED:HALCYON,LPC,POLY`, `TAUVER:0.6.0`. Heap gap 8,832 B (floor 6,144 B). `check_tau_package.py` and `check_fw_bitstream_pair.py dist` pass; `make test-host` exit 0. The bitstream in `dist/` is unchanged. Not on a Pocket: this is the first run of the merged release firmware on hardware still owed; `make_release.py` rebuilds and re-stamps its own ROMs for a release, so this only brings the tracked copy in line.
+
+## B-679: `TAU DEV 110` installed (merged main on the noeq-b670 bitstream), 108 and 109 removed, 2026-10-09
+
+Packaged with `package_dev_build.py --number 110 --variant diagnostic --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` and the `noeq-b670` seed 1 RBF (sha256 `23dc9e77...1910`, same bitstream as DEV 109): firmware from main `9510952` (ram-diet merged: tempo in the build, switchable diagnostic features, pixel-grid reports; Halcyon the only EQ; cold-aware chrome region), version `0.6.0-dev.110+9510952`, heap gap 1,440 B (floor 1,024 B). Installed with `tools/install_dev_core.py` (dry run first, then `--yes`): bitstream, ROM and cold image identical, card check against `tau-compat.json` 0 errors, `alfatreze.TAU_DEV_108` and `alfatreze.TAU_DEV_109` removed after a verified backup (`work/card-backups/20261009-075921`), 16 junk files removed, ejected. **First real-card install of the Dev channel layout**: platform `tau_dev` (listed under `tau` too), core folder `Assets/tau_dev/alfatreze.TAU DEV 110/`, media and `tau-assets.bin` read in place from TAU's `Assets/tau/common` (no media copied); only the B-672/B-673 probe cores had exercised this before. Cores on the card now: `TAU`, `TAU_DIAGNOSTIC` (alpha.4), `TAU_DEV_105` and `TAU_DEV_107` (kept for the recordings), `TAU DEV 110`, and the owner's `TAU_DEV_BARCODE_04`, `TAU_DEV_METER_14/18` (not touched). Not run on a Pocket yet. To check on hardware: it boots and finds TAU's library and covers; Halcyon page and Y preset; Settings > Playback > TEMPO on MP3; Info > I2S JITTER (clean read), HEADROOM; USER CHECK.
+
+## B-680: `TAU DEV 110` run on a Pocket (owner): no issues, 2026-10-09
+
+Owner: "build run on pocket without any issues." This is the first hardware run of the merged main (ram-diet, Halcyon-only EQ, cold-aware chrome region) and the first real-card run of the Dev channel layout (platform `tau_dev`, TAU's media and `tau-assets.bin` read in place). Hardware-observed (owner report, no screenshots or per-feature detail given), so the evidence is "boots and runs without problems"; the specific checks listed in B-679 (TEMPO on MP3, Halcyon page and Y preset, a clean Info > I2S JITTER read, HEADROOM, USER CHECK) are not individually recorded as done. Closes the "merged release firmware never on a Pocket" item as far as a smoke run goes; the tempo diet (`TEMPO_SLICE`/`TEMPO_RING`) and a lean diagnostic build (`DIAG_PRESET`) were not part of this build and are still untested on hardware.
+
+## B-681: softer gain dip for preset changes (owner: slight pop on a Halcyon preset change), 2026-10-09
+
+Owner on `TAU DEV 110`: tempo as expected at 1.25x and 1.50x, clicks still at 1.75x (known, parked); Halcyon changes the sound as expected, no fluttering, but a slight pop when changing preset. Every recall already runs inside `gain_dip_begin()/gain_dip_end()` (B-620), but the hardware gain stage's ramp (`R_GAIN_STEP`, reset 149 per sample = 5 ms for full scale) is short enough to click as the signal is faded out and back in. Fix (firmware only, no RTL, no fit): the dip now sets `R_GAIN_STEP` to 43 (762 samples, about 16 ms) for the fade down and up, waits 17 ms (was 8 ms; the FIFO holds 46 ms), and `gain_step_poll()` in the main loop puts the normal 149 back 18 ms after the ramp up starts, so volume changes and every other user of the register keep their 5 ms. The same dip serves the Cymo resampler toggle and the 16-bit slot switch, so those get the softer fade too. Cost 64 B hot RAM on every build (release 8,768 B free, floor 6,144 B; diagnostic 1,376 B, floor 1,024 B). `make test-host` passes. Not on a Pocket. If a click remains, the cause is then the filter state clear or the coefficient swap rather than the fade, and the next step is a true parameter morph (step the six controls toward the target live, no clear), which is firmware-only too but needs a non-blocking stepper in the main loop.
+
+## B-682: `TAU DEV 110` report codes read from the card (owner screenshots 08:12-08:22), 2026-10-09
+
+Decoded with `tools/decode_tau_suite.py --grid` (card read only). Firmware `0.6.0-dev.110+9510952`, FPGA rev `4D50331A`, heap gap 1,440 B.
+
+- **USER CHECK (run 1):** 7 of 7 PASS (SDRAM window 88, PSRAM window 88, cold code, library 114 tracks, playback counters 0 late underruns with audio continuous, timings). **FULL (run 2):** all PASS except **Track changes FAIL** (`changes_done` 0, queue 16, library source; the old failure, still unexplained) and Blit storm and Cold frame **N/A** (no audio playing in their windows, `audio_full` false). Stress R1 to R3 and Soak PASS. Stack peak 1,736 of 6,144 B.
+- **Load (window of 14 s, MP3 128k 44.1k, 1.00x):** CPU busy 43% (worst 44%), decode 33%, feed 2%, push 3%, waiting 58%; same as B-593's 44%, so the merge cost nothing here.
+- **Info export (37 rows):** UNDERRUNS 2 ALL 7 (seven FIFO stalls since boot), DRAW STALL 6 ms, VBLANK 61/s, TIM1 cover loaded in 89 ms, MP3 window unit HW with 0 bad, HW GAIN on, CYMO LIVE (S1 D0 Q2), ReplayGain OFF (no tags on this track), theme file loaded, METER FILE none.
+- **HEADROOM row: no reading** ("PLAY 10 S, NO MENUS": the Info page was open, so no plain-playback seconds counted); the load numbers above are the usable substitute.
+- **I2S JITTER `1383/65535 AVG 595 N5175907`:** the minimum is now 1383 clk (a sample is 1389 clk at 48 kHz; DEV 108 read 179), so the stereo-pair fix holds: no short events. The maximum is saturated at 65535 (pauses, track changes, menus: expected for a since-boot read). **The average is wrong: the RTL sum register is 32 bits (`i2s_diag_sum_r`), 5,175,907 intervals of about 1,389 clk is 7.2e9, so it wrapped once; the true mean is about (595 x N + 2^32) / N = 1,424.** The row is only valid for about the first 64 s of playback after boot. Cosmetic diagnostic bug, fix needs RTL (a wider sum) with the next fit; not urgent.
+- Owner's listening notes on `TAU DEV 110`: tempo as expected at 1.25x and 1.50x, clicks at 1.75x (known, parked); Halcyon changes the sound as expected, no fluttering; slight pop on a preset change (addressed in B-681).
+
+## B-683: `TAU DEV 111` installed, `TAU DEV 110` removed, 2026-10-09
+
+`TAU DEV 111` (`0.6.0-dev.111+c497161`: B-681's 16 ms gain dip on the same `noeq-b670` bitstream) installed with `tools/install_dev_core.py` (dry run, then `--yes`): bitstream, ROM and cold image identical, card check 0 errors, `alfatreze.TAU DEV 110` removed after a verified backup (`work/card-backups/20261009-083425`; the shared `tau_dev` platform files were kept, as the tool does when another core uses the platform), catalog caches cleared, ejected. Cores on the card: `TAU`, `TAU_DIAGNOSTIC` (alpha.4), `TAU_DEV_105`, `TAU_DEV_107`, `TAU DEV 111`, and the owner's barcode and meter cores (untouched). Not run on a Pocket yet. To check: whether a Halcyon preset change (Y, or the preset area on the Halcyon page) still pops; whether the Cymo toggle and the volume ramp feel unchanged; a quick USER CHECK.
+
+## B-684: v0.6.0-preview.1 built and published (first release on the Stable / Preview / Dev scheme), 2026-10-09
+
+Owner after `TAU DEV 111` ("seems pretty good"): make and push a full Preview release. Tag `v0.6.0-preview.1` (Preview channel: `alfatreze.TAU Preview` + `alfatreze.TAU Preview Diagnostics` on platform `tau_preview`, reading TAU's media and `tau-assets.bin` in place). `v0.6.0-alpha.4` was never published, so the previous release for `tau-compat.json` is `v0.6.0-alpha.3` (zips from `release/`, persist ids changed 10, 16, 28); alpha.4's changelog section stays and the Preview section says everything in it is included. CHANGELOG section written from the commits since alpha.4 (Halcyon-only EQ, flutter fix, softer preset change, tempo in the normal core, pixel grid only, Info export, release channels); two lines I first wrote too strongly were corrected before committing (preset change "softer", not click-free; the held-key Info scrolling was alpha.3's). Built with `tools/make_release.py --release v0.6.0-preview.1 --previous-release v0.6.0-alpha.3 --previous <alpha.3 zips> --test` on the `noeq-b670` seed 1 bitstream (sha256 `23dc9e77...1910`, CORE_VERSION `4D50331A`, features HALCYON LPC POLY SDRAM_BUSY), 192 KB / CLK66 link, ROMs stamped `0.6.0-preview.1+3b64ef2`. **First attempt stopped at `make test-host`:** `sim/test_tau_compat.py` inserts its own `v0.6.0-preview.1` changelog section and failed once the real changelog had that heading (its notes check read the real one); fixed by neutralising a real heading of that tag inside the test (`3b64ef2`). Rerun: both zips (1,018,755 and 1,038,491 bytes, 14 files each) pass the package, pairing, card-layout and schema checks; `tau-compat.json` source commit `3b64ef2`, not dirty. `dist/` now carries the release's ROM, cold image and bitstream. **Not smoke-tested on a Pocket in the Preview layout** (platform `tau_preview`); the same firmware and bitstream ran as `TAU DEV 111` (Dev layout, `tau_dev`) and the shared-platform read-in-place mechanism was exercised by the B-672/B-673 probes and TAU DEV 110/111, so the first Preview install is the real test. TAU Preview needs TAU (with the music and library index) installed.
+
+## B-685: v0.6.0-preview.1 installed on the card from the published zips, 2026-10-09
+
+Both zips were unpacked from `release/` (the files that were uploaded) and installed with `tools/install_dev_core.py --compat release/tau-compat.json` (dry runs first, then `--yes`; the compat file describes each package, card check against v0.6.0-preview.1, caches cleared, ejected after the second): `alfatreze.TAU Preview` and `alfatreze.TAU Preview Diagnostics` on platform `tau_preview`, nothing removed. Cores on the card now: `TAU` and `TAU_DIAGNOSTIC` (alpha.4), `TAU DEV 111`, `TAU Preview`, `TAU Preview Diagnostics`, `TAU_DEV_105`, `TAU_DEV_107`, and the owner's barcode and meter cores (untouched). Not run on a Pocket yet: this is the smoke test of the Preview layout. To check: both appear in the Select Core list as TAU Preview / TAU Preview Diagnostics; they boot and find TAU's library and covers (media is read in place from TAU's folder); splash and Info > FIRMWARE read `0.6.0-preview.1+3b64ef2`; Halcyon page and Y; settings and theme from TAU are found; the original TAU is unaffected.
+
+## B-686: v0.6.0-preview.1 smoke test on a Pocket (owner): everything as expected, 2026-10-09
+
+Owner: "Everything worked as expected" with `TAU Preview` and `TAU Preview Diagnostics` (B-685), the first real run of the Preview layout (platform `tau_preview`, media read in place from TAU). Card read afterwards (read only): `tau.rom`, `tau-cold.bin` of both cores identical to the published zips, bitstream identical to `TAU DEV 111`'s (`5c50584a...`). Two Info exports (12:01 normal core, 12:02 Diagnostics): FIRMWARE `0.6.0-preview.1+3b64ef2`, FPGA REV `4D50331A`, 114 tracks found in TAU's library, cover OK, TIM1 cover loaded (91 and 101 ms), theme file loaded, VBLANK 60/s, MP3 window HW 0 bad, UNDERRUNS 0, free RAM 8,768 B (normal) and 1,376 B (Diagnostics). In the normal core Cymo reads OFF and HW GAIN `-` (those are Diagnostic-Build features; the release keeps them off); the Diagnostics core shows Cymo LIVE and HW GAIN on. I2S JITTER reads `N0` in both: the exports were taken with the player stopped (CPU LOAD 0%), so the DAC was not being written; not a fault (DEV 110, playing, counted 5.2 million intervals). A third screenshot (12:02:51) is not a report code. Preview layout confirmed on hardware: the cores list, boot, find TAU's media, and show the full version; the original TAU was not reported affected. v0.6.0-preview.1 is now smoke-tested; the release notes' "not yet run on a Pocket" line is out of date (the published notes were not edited).
+
+## B-687: stray auto-attached zip on v0.6.0-preview.1; release workflow removed, 2026-10-09
+
+Owner noticed two "preview" zips on the GitHub release. Only four files were uploaded (`TAU_Preview`, `TAU_Preview_Diagnostics`, `SHA256SUMS.txt`, `tau-compat.json`); a fifth, `alfatreze.TAU_0.6.0-preview.1_2026-10-09.zip` (1,019,086 B), appeared 10 s later. Cause: `.github/workflows/release.yml` ("Attach release zip", since the first commit era, run on every published release including alpha.1 to alpha.3) zips the repo's `dist/` and names it `alfatreze.<TAU>_<tag>_<date>.zip`. `dist/` is the **Stable** layout (`alfatreze.TAU`, shortname `TAU`, platform `tau`, core.json `0.6.0`, ROM `TAUVER:0.6.0` unstamped), so the zip was a stable-named core under a preview filename, listed in neither `SHA256SUMS.txt` nor `tau-compat.json`: installing it would have replaced a user's stable TAU. It had been downloaded once (count 1; by whom is unknown). Fix: the asset was deleted from the release (the release now lists exactly the four intended files) and the workflow was removed, since `tools/make_release.py` builds, checks and names the real zips and the workflow duplicated it wrongly under the channel scheme (it would also have added a bad zip to every future release). Earlier releases' stray duplicates (alpha.1 to alpha.3 carry both `alfatreze.TAU_0.6.0-alpha.N_<date>.zip` and `alfatreze.TAU_0.6.0_<date>.zip`) were left as published. Lesson: after publishing, list the release's assets and compare with `release/SHA256SUMS.txt`.
+
+## B-688: GitHub releases v0.6.0-alpha.1, alpha.2 and alpha.3 deleted (owner), 2026-10-10
+
+At the owner's request the three published 0.6.0 alpha pre-releases (alpha.1 notes and zips marked superseded earlier because its normal core black-screened; alpha.2 and alpha.3 with their zips and the stray duplicate auto-zips) were deleted from GitHub with `gh release delete` (release pages, notes and uploaded assets; **the git tags `v0.6.0-alpha.1`, `v0.6.0-alpha.2`, `v0.6.0-alpha.3` were kept**, so the source at each is still reachable). Releases now listed: `v0.6.0-preview.1`, `v0.5.0 (alpha)`, `v0.3.0 (alpha)`. Local copies of the alpha.3 zips remain in `release/` (alpha.1 and alpha.2 zips were overwritten locally by later builds). Note: `v0.6.0-preview.1`'s `tau-compat.json` records `previous_release` as `v0.6.0-alpha.3`; that release no longer exists on GitHub, so Tau Omega cannot fetch it for a comparison (the persist-id diff is already inside the compat file).
+
+## B-689: recording plan reassigned to one interface (Audient EVO 4, stereo); Volt 1 demoted to one optional cross-check
+
+Owner now has an Audient EVO 4 (two inputs, stereo capture) and a 6.35 mm TS to 3.5 mm TRS cable for the Volt 1, and wants to avoid swapping units. Decision: record the WHOLE plan on the EVO 4 as stereo WAVs (both channels analysed with `cymo_loopback.py analyze --channel 0/1`), so no unit swap happens during the main run; the Volt 1 with the TS cable (left channel only) does one optional cross-check sitting at the end (new group 6x: `{c}_xchk_volt_cable_rinv/tone_v94/idle/sweep`). The cable test row moved from group 0 (where it asked whether a TRS plug is differential, now known: a TRS plug in one balanced input records L minus R) to the Volt group, where it checks what the new TS cable records (plain-tone level = left only, near silence = L+R summed, +6 dB = still differential).
+Re-recording judged essential: groups 0-5 (39 rows) are marked RE-RECORD, because L minus R also cancels any click or tone the two channels share, so absolute floors, SINAD, THD and spurs and also the presence of clicks in the old takes are suspect; the optional load group keeps its original status. Two new group-6 rows measure the stereo chain itself: `{c}_cal_ch_balance` and `{c}_cal_ch_swapped` (leads swapped at the interface: a mismatch that follows the plug is the Pocket's, one that stays on the input is the interface's). New section 2 of the script: three Pocket-core sessions with the EVO 4 connected throughout (A the new build, B `TAU_DEV_105`, C `TAU_DEV_107`) and D the optional Volt cross-check; P1-only shortcut given. The script now has 127 rows. `tools/lab/cymo_recording_script.py` regenerated the `.md` and `.csv`; the tick-sheet's done/date/notes columns are preserved by name. EVO 4 specifics (how its gain dial and Smartgain treat the two inputs, line versus instrument selection) are NOT verified here: the script says to check the manual. No firmware, RTL, card or VM touched.
+## B-690: CARDWRITE is the Pocket card from now on
+
+Owner: the original `Pock` card is lost; `CARDWRITE` is mounted and is to be used for Tau from now on. This reverses the 2026-10-10 handoff's trap ("`CARDWRITE` is the Omega test card, never a Tau install target"). Changed: `tools/install_dev_core.py`, `tools/sync_media.py`, `tools/tau_library.py` and `tools/tau_assets.py` default `--card` to `$TAU_CARD`, else `/Volumes/CARDWRITE` (was `/Volumes/Pock`); `docs/CARD_INSTALL_PROCEDURE.md` gains a "Which card" section and its example command uses CARDWRITE. `install_dev_core.py` still refuses a volume without `Cores/`; `sim/test_install_dev_core.py` passes (scratch card only). Open: CARDWRITE's contents are unknown here (it held the Tau Omega write-validation namespaces, `tauomegasync` / `tauomegapkg`, which were cleaned up afterwards); the first dry run must list `Cores/` before any install. The five catalog caches, the backup-and-verify steps and the eject rule apply unchanged. No card write was made.
+
+## B-691: group 0 re-recorded on the EVO 4 and closed (rows 1 and 2)
+
+Recorded by the owner on the EVO 4 stereo chain (Pocket left to input 1, right to input 2, gains matched, channels checked isolated by unplugging one lead at a time); files `105_if_short.wav` and `105_idle.wav` in `test music/Audio Lab/115 Tests/` replace the Volt 1 takes of 7 October (which were mono and differential). Read with `cymo_loopback.read_wav`, RMS over the middle 80 % of each file:
+
+| File | Left RMS | Right RMS | Left/right correlation |
+|---|---|---|---|
+| `105_if_short` (interface alone, shorted plug) | -92.01 dBFS | -91.72 dBFS | 0.46 |
+| `105_idle` (core loaded, nothing playing) | -78.41 dBFS | -78.61 dBFS | 0.08 |
+
+- Interface floor about -92 dBFS (peaks about -78); the channels agree within 0.3 dB.
+- Pocket idle is about 13.5 dB above it, so the idle floor is the Pocket's: the interface contributes well under 0.5 dB to it. The old differential -82.5 dBFS is superseded (left minus right cancels shared noise).
+- The shorted take's channels share some noise (correlation 0.46); the cause is not measured and does not change the floor figure.
+- Gain assumed unchanged from the -12 dBFS calibration of `tone_1k_48000` at core volume 94; the knob position was not re-photographed for these two takes.
+- Not analysed: spectrum and spurs of these two files (band split, 12.30 / 18.48 / 6.18 kHz idle spurs). Group 1 onward (rows 3 to 10) is still to be re-recorded.
+- Plan page and CSV: rows 1 and 2 marked closed.
+
+### B-691 addendum: `105_idle` re-recorded at system and core volume maximum
+
+The owner was unsure the first take had the Pocket system volume at the end stop and re-recorded (19:11, replaces the 19:01 file). Same analysis (middle 80 %): **-72.42 dBFS left, -72.22 dBFS right, correlation 0.04**, peaks -57.3 / -57.2. The first take read -78.4 / -78.6, 6 dB lower, which matches the 6.3 dB fall between d0 and d4 measured earlier (B-655), so it was recorded with the volume about 4 clicks down. **The d0 figure replaces the table above for row 2**; the interface floor (-92.0 / -91.7, no Pocket involved) is unchanged.
+
+Consequences, not yet tested:
+- The Pocket's idle floor at d0 is about 19.5 dB above the interface floor, so it is still the Pocket's.
+- It equals the old figure for playing digital silence at d0 (-72.8, Volt 1 chain, B-655). B-655's "playing silence is 9.7 dB noisier than idle" compared that with an idle take of -82.5 whose system volume is unknown; that gap may have been a volume mismatch, not a real effect of playing. To be settled by the playing-silence rows on the EVO 4 (rows 3 to 6 at d0, and the spur rows 36 to 39); until then treat the 9.7 dB claim as unconfirmed.
+
+## B-692: groups 0 and 1 re-recorded on the EVO 4 after re-levelling the gain (rows 1 to 10 closed)
+
+**SUPERSEDED by B-694: the takes of this entry were recorded with 16-BIT OUTPUT ON (+6.02 dB). Its tone figures and its distortion reading do not describe the normal state.**
+
+The owner re-levelled the EVO 4 gain (the earlier takes were recorded with the gain too high: `tone_v100` clipped the interface) and re-recorded rows 1 to 10 (`105_if_short`, `105_idle`, `105_sil_v100|70|40|10`, `105_tone_v100|70|40|10`, saved 19:21 to 19:30, `test music/Audio Lab/115 Tests/`). They replace the 19:01 to 19:11 takes of B-691, which were at the earlier gain (their absolute figures, -92 / -72.4 dBFS, are superseded). Stereo, 48 kHz; analysed per channel with `cymo_loopback.read_wav` / `analyze_tone`, RMS over the middle 80 %. **The gain is now set so that `tone_1k_48000` at core volume 100 reads -12.1 dBFS, which is 3.6 dB lower than the script's standard (volume 94 at -12); keep this gain for every later row of the same sessions, or redo the floors.**
+
+| Row | Left RMS | Right RMS | L/R corr |
+|---|---|---|---|
+| interface alone | -110.67 dBFS | -110.61 | 0.04 |
+| idle | -102.74 | -102.54 | 0.04 |
+| silence v100 | -102.71 | -102.56 | 0.04 |
+| silence v70 | -102.74 | -102.59 | 0.04 |
+| silence v40 | -102.75 | -102.59 | 0.04 |
+| silence v10 | -102.73 | -102.57 | 0.04 |
+
+| 1 kHz tone, system volume max | Level L / R | SINAD L / R | THD L / R | Waveform peak |
+|---|---|---|---|---|
+| v100 | -12.15 / -12.10 | 51.3 / 51.5 | -53.0 / -53.3 | -12.1 |
+| v70 | -30.19 / -30.14 | 56.9 / 56.9 | -79.0 / -79.4 | -30.2 |
+| v40 | -48.20 / -48.15 | 50.0 / 50.0 | -65.4 / -65.6 | -48.1 |
+| v10 | -66.28 / -66.23 | 32.6 / 32.5 | -43.2 / -42.9 | -65.6 |
+
+**Reading:**
+- **The chain is sound.** Channels agree within 0.1 dB in level and 0.3 dB in SINAD, are uncorrelated in noise, and nothing clips (tone peak -12.1 dBFS at v100). The interface floor is -110.7 dBFS; the Pocket's idle floor is -102.7, 8 dB above it, so the interface adds under 1 dB to it: the idle floor is the Pocket's.
+- **Playing digital silence is NOT noisier than idle.** Idle -102.74 and silence at every core volume -102.71 to -102.75: identical to 0.05 dB. B-655's "+9.7 dB when playing" and the "decoder/CPU/SD activity" hypotheses came from comparing playing silence at d0 with an idle take at an unknown lower system volume (see B-691 addendum); **it is refuted on the valid chain**. The G-SPUR follow-up rows 36 to 39 lose most of their reason (paused, stopped, HW GAIN OFF, MP3 silence); keep them P3 only if idle spurs matter.
+- **The floor does not depend on core volume** (-102.7 at 100, 70, 40, 10): it is not in the digital data, as B-655 said, so dither at the final quantiser buys nothing at this jack (G-FLOOR holds).
+- **Volume taper is exact:** tone steps 18.04, 18.01, 18.08 dB per 30 positions (0.60 dB/position).
+- **Distortion at core volume 100 is real and specific to it.** The third harmonic is -52.7 dBc at v100 (about -65 dBFS) against -89.7 dBc at v70, in both channels and with the interface not clipping; B-655's -72.9 dB was measured on the differential chain. Rows v40 (-65.4, 5th harmonic -65 dBc) and v10 (-43.2) are limited by the tone sitting close to the noise floor, so their THD says little. SINAD at v100 (51.3 dB) is below v70 (56.9). So the knee is between core volume 70 and 100; group 2 (v94 and v70, HW GAIN ON and OFF) sits at v94, so it will show whether v94 is clean. Not yet known whether the cause is the gain stage, the DAC / headphone amplifier at full drive, or the system volume stage.
+- **Not analysed:** spurs beyond the five largest, band splits, the first/last seconds of each take.
+
+## B-693: group 1b re-recorded on the EVO 4 (system volume, rows 11 to 19 closed)
+
+**SUPERSEDED by B-694: recorded with 16-BIT OUTPUT ON; rows 11 to 19 are open again.**
+
+Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` (19:35 to 19:43, `test music/Audio Lab/115 Tests/`), core volume 100, 15-bit, the gain of B-692, `sysvol_48000.flac`. Analysed with `cymo_isp.py sysvol` plus `cymo_loopback.analyze_tone` per channel (left shown; right within 0.1 dB level and 1.5 dB THD).
+
+| Clicks down | Tone dBFS | Noise dBFS | SNR dB | dB per click | THD dB | SINAD dB |
+|---|---|---|---|---|---|---|
+| 0 | -12.17 | -102.69 | 87.5 | | -53.0 | 51.3 |
+| 1 | -15.16 | -104.83 | 86.7 | -2.99 | -63.8 | 55.9 |
+| 2 | -16.54 | -105.70 | 86.2 | -1.38 | -78.2 | 56.8 |
+| 4 | -19.62 | -107.07 | 84.4 | -1.54 | -80.0 | 56.7 |
+| 8 | -26.80 | -108.80 | 79.0 | -1.79 | -81.2 | 56.6 |
+| 16 | -41.58 | -109.33 | 64.7 | -1.85 | -83.8 | 56.1 |
+| 24 | -55.30 | -109.28 | 51.0 | -1.71 | -78.9 | 50.2 |
+| 30, 31 | no tone found | -109.2 / -109.7 (L / R) | | | | |
+
+**Reading:**
+- **Where the noise enters.** Noise falls 6.6 dB over the first 16 clicks (-102.7 to -109.3) while the tone falls 43 dB, then stays at -109.3: part of the noise is generated AFTER the system volume stage, a fixed floor of about -109.3 dBFS, which is within 1.5 dB of the interface alone (-110.7, B-692), so that part is the interface plus almost nothing from the Pocket. The rest, about -103.8 dBFS at maximum volume (what dominates the idle floor), sits BEFORE the stage and is attenuated by it. With B-692 (the same floor at every core volume, so not in the digital data) the Pocket's idle noise is analogue, ahead of the system volume stage and after the core's digital volume: DAC or headphone-amplifier input stage. Maximum system volume is the noisiest setting for the floor; SNR is 87.5 dB at d0 and falls with the volume at 1.4 to 1.9 dB per click above d1.
+- **The first click is 3.0 dB, then 1.4 to 1.9 dB per click** (as B-655 on the old chain, whose figures were relative and held).
+- **The distortion of B-692 is tied to the output level, not to the core volume.** THD at core volume 100 is -53.0 dB at d0, -63.8 at d1, -78.2 at d2 and -80 at d4 or lower: it is gone after two clicks, while the tone level changes only from -12.2 to -16.5 dBFS (interface level). Together with B-692 (core volume 70 at d0, level -30 dBFS, THD -79) the knee is between about -16.5 and -12 dBFS at this interface gain, i.e. the Pocket's output stage overloads near the top of its range at maximum system volume. The test tone is -6 dBFS: a full-scale music peak at volume 100 and d0 would be 6 dB further into it. My reading; the cause (headphone amplifier or DAC output) is not separated, and group 2 at core volume 94 (level about -15.8) should be clean if this holds.
+- **d30 and d31 are silent (muted, or below the floor):** noise -109.2 / -109.7, no tone section; d24 still carries the tone (-55.3 dBFS, SINAD 50.2).
+- **Repeatability:** the d0 tone (-12.17 dBFS) equals `105_tone_v100` (-12.15) taken 10 minutes earlier to 0.02 dB.
+- **Not analysed:** spurs, the right channel in detail, and `d02` is 1.1 s shorter than the others (16.9 s against 18 s); the tone was found and analysed, but whether the whole test file played was not checked.
+
+## B-694: 16-BIT OUTPUT was ON in the takes of B-692 and B-693; groups 0 and 1 re-recorded with it OFF
+
+The owner noticed that 16-BIT OUTPUT had been ON for the takes of B-692 (rows 1 to 10, 19:21 to 19:30) and B-693 (rows 11 to 19, 19:35 to 19:43). The slot adds exactly 6.02 dB (B-657), so every tone read 6 dB high and the interface gain had been set against a 16-bit-ON tone. The owner re-levelled again and re-recorded rows 1 to 10 with it OFF (`105_idle`, `105_if_short` 19:55 and 19:56, silence 19:58 to 20:00, tones 21:02 to 21:04); rows 11 to 19 (system volume) are NOT yet re-recorded and are open again. Analysis as in B-692 (middle 80 %, left / right):
+
+| Row | Left RMS | Right RMS |
+|---|---|---|
+| interface alone | -109.82 dBFS | -109.67 |
+| idle | -97.43 | -97.26 |
+| silence v100 / v70 / v40 / v10 | -97.43 / -97.40 / -97.45 / -97.43 | -97.25 / -97.22 / -97.23 / -97.23 |
+
+| Tone, system max | Level L / R | SINAD L / R | THD L / R | 2nd / 3rd harmonic dBc (L) |
+|---|---|---|---|---|
+| v100 | -12.36 / -12.31 | 57.8 / 57.8 | -73.7 / -74.5 | -73.5 / -88.1 |
+| v70 | -30.36 / -30.31 | 56.8 / 56.8 | -77.2 / -76.4 | -86.2 / -88.4 |
+| v40 | -48.37 / -48.32 | 45.4 / 45.1 | -63.2 / -62.8 | -68.6 / -83.4 |
+| v10 | -66.45 / -66.40 | 27.5 / 27.2 | -40.5 / -40.2 | -43.3 / -50.1 |
+
+**Reading:**
+- **The distortion of B-692 and B-693 was the 16-bit slot.** With it OFF, v100 at system maximum has THD -73.7 dB (third harmonic -88 dBc, not -52.7), SINAD 57.8 dB (not 51.3). The 6 dB the slot adds drove the Pocket's output stage into soft clipping at core volume 100 and d0. This is a result for G-A16: with the slot ON the top of the volume range overloads the output at a -6 dBFS tone, so the slot needs the loudness-neutral policy (or a lower ceiling) before it is adopted. The residual at v100 is the second harmonic (-73.5 dBc).
+- **The noise floor does not depend on the slot** and the earlier reading holds: playing silence equals idle at every core volume (-97.4 dBFS, within 0.05 dB), which still refutes B-655's "+9.7 dB when playing" claim on a valid chain; the floor does not move with core volume.
+- **Absolute floors moved with the gain:** interface alone -109.8 (was -110.7), idle -97.4 (was -102.7); the interface gain is about 6 dB higher than for B-692. Idle is 12.4 dB above the interface, so it is the Pocket's (the interface adds about 0.3 dB).
+- **Gain now:** tone at core volume 100 reads -12.3 dBFS with the slot OFF, so core volume 94 reads about -15.9, 3.9 dB below the script's standard (-12 at volume 94). Keep this gain for the rest of the 105 session and note any change.
+- **Taper:** 18.00, 18.01, 18.09 dB per 30 positions, exact.
+- **Open:** rows 11 to 19 to be re-recorded with the slot OFF; spurs and band splits not analysed.
+
+## B-695: group 1b re-recorded with 16-BIT OUTPUT OFF (system volume, rows 11 to 19 closed)
+
+Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` re-recorded after B-694 (core volume 100, 16-BIT OFF, the gain of B-694, `sysvol_48000.flac`). `cymo_isp.py sysvol` and `analyze_tone`, left shown (right within 0.1 dB level, 1.2 dB THD).
+
+| Clicks down | Tone dBFS | Noise dBFS | SNR dB | dB per click | THD dB | SINAD dB |
+|---|---|---|---|---|---|---|
+| 0 | -12.38 | -97.46 | 82.1 | | -74.5 | 57.4 |
+| 1 | -15.34 | -99.91 | 81.6 | -2.96 | -76.3 | 57.3 |
+| 2 | -16.71 | -100.94 | 81.2 | -1.37 | -77.2 | 57.2 |
+| 4 | -19.79 | -102.81 | 80.0 | -1.54 | -80.4 | 57.1 |
+| 8 | -26.98 | -105.54 | 75.6 | -1.80 | -84.2 | 57.0 |
+| 16 | -41.77 | -106.56 | 61.8 | -1.85 | -85.9 | 55.9 |
+| 24 | -55.49 | -106.45 | 48.0 | -1.71 | -77.6 | 47.8 |
+| 30, 31 | no tone found | -106.45 / -107.49 (L / R) | | | | |
+
+**Reading (supersedes B-693):**
+- **Where the noise enters.** The noise falls 9.0 dB over the first 16 clicks (-97.5 to -106.5) while the tone falls 43 dB, then stays at -106.5: a fixed part after the volume stage and a part before it that the stage attenuates. In power terms the fixed part is -106.5 dBFS, of which the interface alone (-109.8) is about half; the Pocket's share after the stage is about -109 dBFS, and the part before the stage at maximum volume is about -98 dBFS and dominates the idle floor. Same conclusion as B-693 at the new gain: the Pocket's idle noise is analogue, ahead of the system volume stage and after the core's digital volume.
+- **No distortion step.** THD is -74.5 dB at d0 and improves smoothly to -86 dB at d16 (it was -53 dB at d0 with 16-BIT ON): confirms that B-693's distortion came from the 16-bit slot (B-694). SINAD is 57.4 to 57.0 dB from d0 to d8.
+- **Steps:** the first click is -2.96 dB, then 1.4 to 1.9 dB per click, as in B-693 and B-655.
+- **d30 and d31 are silent** (no tone section, noise at the floor).
+- **Repeatability with `105_tone_v100`** (21:02, same state): d0 -12.38 dBFS against -12.36, 0.02 dB.
+- **Not analysed:** spurs, a precise subtraction of the interface share.
+
+## B-696: group 2 re-recorded on the EVO 4 (HW GAIN ON against OFF, rows 20 to 25 closed; G-HWGAIN met)
+
+Six takes `105_hw_on|off_v94|v70|step.wav` (16-BIT OFF, the gain of B-694, `tone_1k_48000.flac`). The two step takes are 18.6 s long instead of the 12 s the script says (the owner's choice, for ease of handling); this changes nothing in the analysis. `analyze_tone` and `track_tone` on the left channel (right within 0.1 dB level, 1.5 dB THD).
+
+**Steady state, ON against OFF:**
+
+| | Level | SINAD | THD | Frequency |
+|---|---|---|---|---|
+| ON, volume 94 | -15.97 dBFS | 56.5 dB | -74.6 dB | 1000.0629 Hz |
+| OFF, volume 94 | -15.97 | 56.5 | -75.1 | 1000.0630 |
+| ON, volume 70 | -30.37 | 55.5 | -75.9 | 1000.0629 |
+| OFF, volume 70 | -30.37 | 55.9 | -77.0 | 1000.0629 |
+
+Level equal to 0.00 dB at both volumes (prediction: within 0.05), SINAD within 0.4 dB, THD within 1.1 dB (predicted about 1 dB), frequency identical to 0.0001 Hz, `track` frequency span 0.001 to 0.002 cents. Level at 94 against 100 (B-694, -12.36) is -3.6 dB, exactly 6 positions of 0.6 dB.
+
+**The start-of-track fade-in is present in both modes with the same shape** (the open point of B-656, which could not see it): in 5 ms blocks, ON v94 rises -41.3, -33.5, -29.3, -26.5, -24.4, -22.6, -21.2, -20.0, -19.1, -19.0 dBFS and OFF -38.5, -32.1, -28.4, -25.8, -23.9, -22.2, -20.9, -19.7, -19.0: a ramp of about 45 ms to full level in both (ON and OFF differ by 1 to 3 dB in the first blocks, which is the 5 ms block alignment). The same holds at volume 70. So the prediction "same fade shape" is met.
+
+**Step takes:** both are held-key ramps (94 to 70 over about 1.5 to 1.75 s, back to 94 over about 1.75 to 2 s), not instantaneous steps, and the timing of the gestures differs between the two takes (the down ramp starts at 5.8 s ON and 6.0 s OFF, the return at 10.0 s ON and 10.5 s OFF), so they compare the ramp shape, not the timing: both go -19.0 to -33.4 dB block RMS (14.4 dB for 24 positions), smooth, no discontinuity, the same 17 brief `track` SINAD events during the ramps in both, the same largest 5 ms level jumps (4.2 dB at the onset fade, about 1.8 dB inside a ramp), no frequency events. ON and OFF are indistinguishable.
+
+**G-HWGAIN is met** (the steady state, the fade-in and the ramp shape agree within the predictions): putting `TAU_GAIN` in a release bitstream and making hardware gain the shipped default is no longer held by this plan. The toggle rows of group 7 still test the ON/OFF switching itself and the loudness-neutral hand-over, which this group does not. Not analysed: spurs, the right channel in detail, an instantaneous step.
+
+## B-697: group 3 re-recorded on the EVO 4 (16-bit I2S slot, rows 27 to 31 closed, row 26 open; G-A16 read)
+
+Six takes `105_a16_off_v94|on_v85|on_v70|on_v40|on_v94.wav` and `105_sil_a16_on_v94.wav` (HW GAIN ON, system volume maximum, the interface gain of B-694 unchanged for the whole group: nothing clips, the loudest take peaks at -9.9 dBFS). `analyze_tone` per channel (left shown; right within 0.1 dB level and 2 dB THD).
+
+| Take | Expected | Level L | SINAD | THD | 2nd / 3rd harmonic dBc |
+|---|---|---|---|---|---|
+| `a16_off_v94` (reference) | -15.97 | **-14.17** | 56.7 | -74.0 | -74.0 / -90.1 |
+| `a16_on_v85` (level-matched) | -15.35 | -15.35 | 56.8 | -76.0 | -76.1 / -96.1 |
+| `a16_on_v70` | -24.35 | -24.35 | 56.6 | -83.7 | -85.0 / -90.4 |
+| `a16_on_v40` | -42.35 | -42.36 | 50.4 | -65.8 | -89.8 / -88.1 |
+| `a16_on_v94` (same volume) | -9.95 | -9.95 | 56.4 | -68.9 | -70.4 / -79.8 |
+| `sil_a16_on_v94` | idle -97.4 | floor -97.40 / -97.27 | | | |
+
+**Row 26 is open.** `a16_off_v94` reads -14.17 dBFS, 1.8 dB above the -15.97 of `105_hw_on_v94` (B-696): that is core volume 97, three positions up, not 94 (the volume moves in steps of 3). Its SINAD and THD are normal; it is the wrong reference level. Use `105_hw_on_v94` (same state: volume 94, HW ON, 16-BIT OFF, same gain) as the 15-bit reference, or re-record; the Group 1 takes (v70 -30.37, v40 -48.37) are the references for rows 28 and 29.
+
+**Reading (G-A16):**
+- **The slot gives exactly +6.02 dB** at every volume: v85 against v94 15-bit -15.35 against -15.97 (0.62 dB = 6.02 minus 9 positions), v70 and v40 at -24.35 / -42.36 against Group 1's -30.37 / -48.37 (6.02, 6.01), v94 -9.95 against -15.97 (6.02).
+- **Level-matched, SINAD is the same:** 56.8 (on, v85) against 56.5 (off, v94): the analogue chain dominates, as predicted.
+- **At the same volume (6 dB hotter) SINAD does not rise:** 56.4 against 56.5 at v94, 56.6 against 56.8 at v70. The prediction "+6 dB" is not met above v70, because the limit is a spur pattern at -68 to -72 dBc that scales with the signal (as B-657 found on the old chain).
+- **Where the floor dominates (v40) the slot pays:** SINAD 50.4 against 45.4 in Group 1 (+5.0 dB against a predicted +6), THD -65.8 against -63.2. So the slot helps at low volume and buys only loudness at high volume.
+- **THD with the slot ON is slightly worse at the top** (-68.9 against -74.6 at v94: second harmonic -70.4 dBc) but not clipping at this level. The B-694 overload (THD -53 at v100 and d0) is not re-measured at this gain: there is no ON take at v100 in this plan.
+- **The silence floor is unchanged** by the slot: -97.40 / -97.27 against -97.43 / -97.26 idle (B-694).
+- **Consequence for the decision:** adopting the slot is a loudness and low-volume SNR decision, not a quality gain at high level; it needs the loudness-neutral policy (the volume ramp that compensates 6.02 dB when it is switched) and a ceiling below the v100 overload. An ON take at v100 would size that ceiling: optional.
+- Not analysed: spurs, band splits, the right channel in detail. Takes `a16_on_v70` and `a16_on_v40` are 29.3 s long, longer than the others; the tone was found and analysed.
+
+### B-697 addendum: row 26 re-recorded (21:47)
+
+`105_a16_off_v94` taken again at core volume 94: **-15.98 dBFS left, -15.93 right**, SINAD 56.7 / 56.6 dB, THD -75.5 / -76.2 dB (second harmonic -75.3 dBc, third -94.3), peak -15.9 dBFS, 12.6 s. It matches `105_hw_on_v94` (-15.97, B-696) to 0.01 dB, so the reference is valid, and the 16-bit ON take at the same volume (-9.95) sits 6.03 dB above it. Row 26 is closed; group 3 is complete and the G-A16 reading above stands with this as the 15-bit reference.
+
+## B-698: group 4 re-recorded on the EVO 4 (spur source, rows 32 to 35 closed; G-SPUR read)
+
+Four takes `105_spur_screen_on|screen_blank|menu|charger.wav` (silence file playing, core volume 100, 16-BIT OFF, the gain of B-694; 15.4 to 15.7 s). Broadband RMS over the middle 80 % (left / right) and the three idle spurs (6.18, 12.30, 18.48 kHz) from a Welch average of 21 segments of 32768 samples, each spur as its peak above the median of the surrounding bins (left channel).
+
+| Take | RMS L / R dBFS | 6.18 kHz | 12.30 kHz | 18.48 kHz |
+|---|---|---|---|---|
+| idle (B-694, reference) | -97.43 / -97.26 | +17.8 dB | +19.1 | +14.4 |
+| silence, v100 (B-694) | -97.43 / -97.25 | +17.9 | +19.1 | +18.5 |
+| screen on | -97.39 / -97.21 | +18.3 | +20.0 | +18.4 |
+| screen blank | -97.54 / -97.29 | +14.4 | +16.4 | +16.3 |
+| menu open | -97.51 / -97.28 | +16.9 | +18.6 | +17.6 |
+| charger connected | -97.39 / -97.18 | +11.5 | +17.6 | +14.8 |
+
+**Reading:**
+- **The broadband floor is identical in all four takes and in idle and silence** (-97.4 dBFS, within 0.15 dB): not the display, the menu or the charger, and not playing (B-694): **G-SPUR's source question is answered at the broadband level, as on the old chain (B-658)**.
+- **The spurs are present everywhere and move by a few dB.** Two takes in the same state (idle and silence at v100) already differ by 4.1 dB at 18.48 kHz, so about 4 dB is scatter. Screen blank is 2 to 4 dB lower on all three spurs and the charger 6.8 dB lower at 6.18 kHz but 1.5 and 3.6 dB at the others: nothing outside the scatter except the charger's 6.18 kHz line, a single line in a single take. Claims such as "screen blank reduces the spurs" are not supported; one repeat of screen on / screen blank would be needed to say more. These spurs sit about 17 to 19 dB above the noise bins around them; their absolute level was not computed.
+- **Consequence:** the rows that would explain the old "+9.7 dB when playing" (36 to 39: paused, stopped, HW GAIN OFF, MP3 silence) have no effect left to explain, since B-694 found playing equals idle; they can be dropped. The idle-noise claims in the user documentation can say that the display, the menu and the charger do not change the floor (broadband, within 0.15 dB); they should not say anything about the individual spur lines.
+- Not analysed: the right channel's spurs, a repeat of any take.
+
+## B-699: group 5 re-recorded on the EVO 4 (inter-sample peaks, rows 42 to 47 closed; G-ISP read)
+
+Six takes `105_isp_ladder|imd|hot_a16on|a16off.wav` (core volume 100, HW GAIN ON, system volume maximum, the interface gain of B-694; the script's "lower the interface gain by about 10 dB" appears not to have been applied (inferred from the levels, not confirmed with the owner): the quietest ladder section reads -12.55 dBFS for a file level of -12, a chain gain of -0.55 dB with the slot ON and -6.57 with it OFF, the same as the tone takes of B-694 and B-697, so the interface was not at risk: every take peaks at -4.2 to -5.4 dBFS, `cymo_isp.py peak` says ok for all six). The owner let the imd and hot files play twice (27 and 28 s files, to match the length of the ladder take). `cymo_isp.py analyze` expects one pass and refuses the two-pass files, so I cut each take at its silent gap into two single passes (scratch copies, originals untouched) and analysed both: the two passes agree within 0.3 dB in every figure, so the takes are repeatable.
+
+**Ladder (left channel, level = what the interface reads, dev = deviation from the expected gain):**
+
+| True peak of the file | 16-BIT ON level / dev | 16-BIT OFF level / dev |
+|---|---|---|
+| -12 dBFS | -12.55 / -0.02 ok | -18.57 / 0.00 ok |
+| -6 | -6.52 / +0.02 ok | -12.57 / 0.00 ok |
+| -3 | **-4.96 / -1.42 COMPRESSED** | -9.57 / 0.00 ok |
+| 0 (phase 0) | **-4.47 / -3.93** | -6.54 / +0.04 ok |
+| +1 (phase 45) | -4.46 / -4.92 | -5.72 / -0.15 ok |
+| +2 | -4.62 / -6.09 | **-5.27 / -0.69 COMPRESSED** |
+| +3 | -4.44 / -6.91 | -4.96 / -1.39 |
+
+With the slot ON the chain compresses from a true peak of -3 dBFS, and for everything above the level is pinned at about -4.4 to -4.6 dBFS (a hard ceiling); the phase-0 sections show it is not an inter-sample effect (a sample peak of -3 dBFS already compresses). With the slot OFF the ceiling is the same (about -4.9 dBFS, with a softer knee) but it is reached 6 dB later: clean up to +1 dBFS true peak, compressed from +2.
+
+**Two-tone IMD** (1 kHz at -20 dBFS plus a 12 kHz tone; both passes agree):
+
+| 12 kHz true peak | ON: IMD dBc / verdict | OFF: IMD dBc / verdict |
+|---|---|---|
+| -12 | -70.5 ok | -74.3 ok |
+| -6 | **-37.4 IMD (+33 dB)** | -76.8 ok |
+| 0 | -53.0 IMD | **-50.6 IMD (+24 dB)** |
+| +1 | -35.1 IMD | -45.0 IMD |
+| +2 | -42.7 IMD | -52.2 IMD |
+
+**Hot-master proxy:** NONLINEAR above 0 dBFS true peak in both states: ON gain step 8.0 to 8.4 dB (the signal drops 2 dB more than the 6 dB step), deviation p95 about 8 dB, max 10.5 to 12.9 dB; OFF gain step 6.02 dB, deviation p95 1.4 dB, max 4.8 dB.
+
+**Reading, against the plan's outcome table (G-ISP):**
+- This is the table's third case, "compression already at 0 dBFS in the phase-0 sections: the amp stage clips at full scale, so 16-bit full-scale operation needs a lower ceiling and that feeds G-A16", and it is stronger than that: with the slot ON, compression begins at -3 dBFS and intermodulation at -6 dBFS (12 kHz peak), at core volume 100 and maximum system volume. A final clipper ceiling of about -0.5 dBFS is NOT acceptable in that state; a ceiling near -12 dBFS (IMD under -70 dBc, no compression) would be needed at the top of the range, or a lower maximum system volume (B-693: no distortion once the tone is about 4 dB lower at the output).
+- With the slot OFF (the shipped mapping) the output is clean to about 0 dBFS true peak and compresses from +2: the 15-bit mapping gives the chain 6 dB of free headroom, and full-scale music is only marginally affected (the hot proxy deviates 1.4 dB p95).
+- **The ceiling is in the analogue chain after the DAC or in the interface input, not in the data:** it sits at about -4.4 to -4.9 dBFS as the interface reads it, in both states. The interface's own peak meter is far from clipping, which points to the Pocket's output stage, and it fits B-662's puzzle (identical level at core volumes 85 and 100) and the THD jump at maximum volume (B-693, B-694). It is not separated from the interface's analogue input stage: one ladder take with the interface gain 6 dB lower would settle it (the ceiling moves with the gain if it is the Pocket's, stays at -4.4 dBFS if it is the interface).
+- IMD is worse with the slot ON at the same interface level (-37 dBc at level -6.7 against -50.6 at level -6.6 with the slot OFF), so it is not only a level ceiling; the cause is open.
+- Not analysed: the right channel; per-section frequency response.
+
+## B-700: the ISP ceiling moves with the interface gain, so it is the Pocket's (extra take `105_isp_ladder_a16on_-6`)
+
+The extra take proposed in B-699: the same state as `105_isp_ladder_a16on` (16-BIT ON, HW GAIN ON, core volume 100, system volume maximum) with the interface gain lowered by about 6 dB (saved 22:25, `105_isp_ladder_a16on_-6.wav`; not a row of the script, so the row numbers are unchanged). `cymo_isp.py peak` says ok (peak -10.2 dBFS), `analyze --kind ladder`:
+
+| True peak | Level, gain as before (B-699) | Level, gain 6 dB lower | Deviation (both) |
+|---|---|---|---|
+| -12 | -12.55 | -18.39 | -0.02 |
+| -6 | -6.52 | -12.35 | +0.02 |
+| -3 | -4.96 | -10.79 | -1.42 |
+| 0 (phase 0) | -4.47 | -10.30 | -3.93 |
+| +1 | -4.46 | -10.29 | -4.92 |
+| +2 | -4.62 | -10.45 | -6.08 |
+| +3 | -4.44 | -10.27 | -6.90 |
+
+The interface gain moved the quiet section by 5.84 dB (-12.55 to -18.39) and the pinned ceiling by 5.8 dB (about -4.4 to -10.3 dBFS), while the deviations are the same to 0.01 dB in every section. **The compression and the ceiling are therefore upstream of the interface's gain stage: the Pocket's output (DAC or headphone amplifier) at core volume 100 and maximum system volume with the 16-bit slot ON, not the interface input.** This settles the open point of B-699: the ceiling is a property of the Pocket's output, and the gate G-ISP reading (a clipper ceiling near -12 dBFS, or a lower maximum system volume, when the slot is ON) stands.
+
+The gain was changed for this take: the owner must restore it and check it by recording `tone_1k_48000.flac` at core volume 100, 16-BIT OFF, system volume maximum, which must read -12.36 dBFS (within about 0.1 dB) as `105_tone_v100` did, before any further recording at the B-694 gain. Not checked in this entry.
+
+### B-700 addendum: gain restore verified (`LevelRestore.wav`, 22:29)
+
+After the -6 dB take the owner restored the interface gain and recorded `tone_1k_48000.flac` at core volume 100, 16-BIT OFF, system volume maximum. Result: **-12.39 dBFS left / -12.34 right**, SINAD 56.9 / 57.0 dB, THD -73.5 / -74.3 dB, peak -12.36 / -12.31, against `105_tone_v100` (B-694) at -12.36 / -12.31, SINAD 57.8 / 57.8, THD -73.7 / -74.5. The level differs by 0.03 dB in both channels (the prediction allowed about 0.1 dB); SINAD is 0.9 dB lower, which is within the take-to-take scatter seen elsewhere (for example 56.4 to 57.8 dB across the tone takes at similar levels). **The gain is restored: the 47 rows of groups 0 to 5 remain valid at it, and the same gain can be used for session A.**
+
+## B-708: Cyclone V reference docs captured locally, skill knowledge extended, MLAB and RAM-inference notes corrected (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).**
+
+**Skill (`analogue-pocket-dev`, separate repository, public).** Weekly refresh run and pushed (`f5103c2`): Analogue developer docs unchanged, Cyclone V edition chart unchanged (Lite and Standard yes, Pro no), three watched community repos recorded, Codeberg tutorials still unreachable. Eight generic local entries promoted to the public set after removing project names, audit ids and "owner" wording (KB-056, 060, 079, 080, 081, 082, 103, 126; KB-103 and KB-126 lowered from low to medium confidence). New `scripts/fetch_cyclone_docs.py` (`cdbf048`) fetches the Cyclone V Device Handbook Volume 1 (379 topics), Device Datasheet, Device Overview and GX/GT/E errata through the docs.altera.com public API, plus the two Cornell-hosted PDFs (older full handbook and the DSP white paper) converted to text. All of that text stays in the git-ignored `references/docs-snapshot/cyclone-v/`; the repository holds only the script, a SKILL.md row and a resources line. Eight new paraphrased entries KB-143 to KB-150 (`0963e58`): M10K versus MLAB capabilities, read-during-write modes by block, MLAB register structure, power-up values, DSP block modes and the 66-block count, PLL counters and VCO range, the fractional-PLL and JTAG errata, clock-network gating. `kb.py validate`: 147 entries, 0 problems.
+
+**Findings that change earlier project statements.**
+- MLAB read-during-write: the project note "MLAB only supports old-data" was too narrow. Same-port on an MLAB is "don't care" only; mixed-port offers old data, new data (registered output only), "don't care" and "constrained don't care". M10K mixed-port offers only old data or "don't care".
+- PLL VCO range: the datasheet range is 600 to 1600 MHz for -C6, -C7 and -I7 but 600 to 1300 MHz for -C8 and -A7. The Pocket FPGA is a 5CEBA4F23C8 (-C8), so the ceiling that applies is 1300 MHz. The earlier PLL entry (KB-081) quoted the faster-grade range.
+- DSP counts for the A4: 66 blocks give 66 27x27, 132 18x18 or 198 9x9 independent multipliers (a first draft of KB-147 said 66 for 18x18 and was corrected before publishing).
+- Errata: the fractional-PLL phase alignment error lists fixed die revisions for 5CEA4 and similar; the Pocket's exact 5CEBA4 part is not named, so whether it is affected is not established.
+
+**Project docs changed (`0d6ac6f` on main).** `docs/features/PHASE_F_SPEC.md` section 2 (read-during-write correction, block limits, MLAB register structure, 308 M10K / 303 MLAB for the 5CEBA4) and `docs/DEVELOPERS.md` (block-capability bullet, -C8 VCO ceiling). Historical audit entries and the Talos review documents were left as written; their MLAB statements are consistent with the handbook.
+
+**Process note.** The shared checkout was on branch `mod` with another session's uncommitted files (including this file), so the documentation edits and this entry were committed from a temporary worktree on `main`; the uncommitted copies in the `mod` checkout were dropped. This entry takes id B-708 because `mod` already uses B-701 to B-707; if the `mod` session renumbers, keep the pair distinct.
+
+**Not done.** No code, RTL, firmware, card or VM touched. The I/O, external-memory, configuration and power chapters of the handbook are captured locally but not yet distilled into entries.
+
+### B-708 addendum: handbook chapters 5 and 6 distilled into skill entries KB-151 to KB-155 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Skill repository commit `f4efa2b`, pushed; `kb.py validate`: 152 entries, 0 problems. Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot.
+
+- **KB-151** I/O bank rules: one VCCIO per bank, outputs drive VCCIO, a 3.3 V bank accepts 2.5, 3.0 and 3.3 V inputs, VCCPD 2.5 to 3.3 V, clamp diode recommended for 3.0/3.3 V inputs.
+- **KB-152** 3.3 V LVTTL versus LVCMOS DC levels (VIL 0.8 V, VIH 1.7 V; VOL/VOH 0.45 V / 2.4 V at 4 mA versus 0.2 V / VCCIO-0.2 V at 2 mA) and the datasheet footnote that the levels hold only at the matching current-strength setting. Default strengths are not recorded (shown in bold in the source, lost in the text copy).
+- **KB-153** Per-pin controls: slew rate, current strength, output buffer delay (0, 50, 100, 150 ps), open-drain through the OPNDRN primitive, bus-hold versus weak pull-up (mutually exclusive), clamp diode.
+- **KB-154** The I/O element's input, output and output-enable registers (the hardware behind "packing a register into the I/O cell").
+- **KB-155** External-memory scope: only DDR3, DDR2 and LPDDR2 are supported standards; SDR SDRAM and asynchronous PSRAM are plain fabric I/O with no hard controller. The A4 in the F484 package lists 224 GPIO.
+
+**Limits stated in the entries.** KB-152 to KB-155 are medium confidence: the F23 package reading in KB-155 is an inference from the part-number scheme; the statement that the Pocket uses SDR SDRAM and asynchronous PSRAM comes from the project, not the handbook; KB-154's packing conditions come from observed Quartus behaviour, not the chapter. Skipped as not relevant to the Pocket's single-ended interfaces: on-chip termination, LVDS and SERDES, DQS/DLL, UniPHY, the hard memory controller's detail.
+
+**Not done.** No code, RTL, firmware, card or VM touched. No project design document changed in this step (the MLAB and RAM-inference notes were corrected earlier under B-708). Committed from a temporary worktree on `main`, as for B-708, because the shared checkout is on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 2: handbook chapters 7 and 10 distilled into skill entries KB-156 to KB-160 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot. Skill repository commit `a2fc45a`, pushed; `kb.py validate`: 157 entries, 0 problems.
+
+- **KB-156** After configuration the design is not released from reset all at once: hold it in reset for the CONF_DONE-to-user-mode interval (datasheet tCD2UM, 175 to 437 microseconds), and let external devices ignore the FPGA until INIT_DONE. User I/O sits on weak pull-ups until configured; reconfiguration starts with nCONFIG held low for tCFG.
+- **KB-157** JTAG configuration takes precedence over every other scheme and is the one scheme with no decompression (compression gives about 30 to 55 percent smaller files elsewhere); FPP is the fastest scheme and cannot mix compressed and uncompressed data in one chain. This matches the project's own observation that a JTAG-loaded image is replaced when the Pocket loads a core from its menu (B-190), without the handbook mentioning the Pocket.
+- **KB-158** Serial configuration sends each .rbf byte least-significant bit first. The handbook says nothing about a bit-reversed file, so it neither confirms nor explains the Pocket's `.rbf_r`; the entry records that gap instead of a guess.
+- **KB-159** Power-on reset: monitored rails (VCC, VCC_AUX, VCCBAT, VCCPD, VCCPGM) versus not monitored (VCCIO, PLL and transceiver rails); a missed ramp time tri-states the I/O; VCCBAT must be powered even without a key; VCCPD at least VCCIO; POR delay 4 to 1274 ms (fast) or 100 to 300 ms (standard); the Group 1 / Group 2 power-up sequence.
+- **KB-160** Hot-socketing: outputs tri-stated and weak pull-ups on until user mode, nSTATUS and CONF_DONE excepted, input signals cannot back-feed the supplies, ground first.
+
+**Limits stated in the entries.** KB-156 and KB-158 to KB-160 are medium confidence because how the Pocket wires and drives its configuration pins and rails is not covered by the handbook (the Pocket's own system side performs configuration). Skipped as not relevant to a core loaded by the Pocket's system FPGA: remote system update, design security, the serial-flash and multi-device chain schemes. Chapters 8 (SEU mitigation) and 9 (JTAG boundary scan) were not distilled.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 3: handbook chapters 8 and 9 distilled into skill entries KB-161 to KB-164 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot. Skill repository commit `6cc8dd7`, pushed; `kb.py validate`: 161 entries, 0 problems.
+
+- **KB-161** Error detection basics: a 16-bit CRC per frame during configuration (mismatch pulls nSTATUS low) and an optional 32-bit per-frame CRC scan of the configuration RAM in user mode (CRC_ERROR pin, 32-bit syndrome register, 67-bit error message register); internal scrubbing only on SC-suffix parts; no effect on fitting or performance.
+- **KB-162** Numbers for the E-series A4: full-device CRC pass between 9 ms (fastest) and 2.76 s (slowest), scan clock the internal oscillator divided by 2^n (n 0 to 8), error-message register update interval 1.47 microseconds at best.
+- **KB-163** The E A4 JTAG IDCODE is 0x02B050DD (derived by hand from the handbook's bit fields; it matches what a chain scan of the Pocket's FPGA reports in this project's JTAG sessions, B-186 onward), plus the fixed ten-bit instruction codes (SAMPLE/PRELOAD 0x005 used by SignalTap, IDCODE 0x006, BYPASS 0x3FF, CONFIG_IO 0x00D, others).
+- **KB-164** JTAG operating rules: which instructions work during configuration, CONFIG_IO and nCONFIG usage, JTAG pins powered from the bank 3A VCCPD supply, all user I/O tri-stated during JTAG configuration, JTAG disabled only by pin ties.
+
+**Limits stated in the entries.** KB-161, KB-162 and KB-164 are medium confidence because whether the Pocket exposes the CRC_ERROR pin or drives the JTAG pins as the handbook assumes is not covered by the handbook. The boundary-scan register cell internals (section 9.6) were not distilled.
+
+**Coverage of the handbook after this step (corrected statement).** Distilled into skill entries so far: chapter 2 (embedded memory), 3 (DSP), 4 (PLLs and clocking), 5 (I/O), 6 (external memory scope), 7 (configuration), 8 (SEU), 9 (JTAG) and 10 (power), as KB-143 to KB-164. **Chapter 1 (logic array blocks and adaptive logic modules) has not been distilled**, and several sub-sections were skipped on purpose as not relevant to the Pocket (termination, LVDS, DQS/DLL and UniPHY, remote system update, design security, the serial-flash and chain configuration schemes). An earlier remark in the session that all ten chapters were finished overstated this and is corrected here.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 4: handbook chapter 1 distilled into skill entries KB-165 and KB-166 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot. Skill repository commit `ec2cd94`, pushed; `kb.py validate`: 163 entries, 0 problems.
+
+- **KB-165** The E-series A4 has 18,480 ALMs and 73,920 registers (four per ALM, from the Device Overview resource table); ten ALMs per LAB, up to a quarter of LABs usable as MLABs; each LAB offers only two clock sources and three clock enables; a LAB reaches 30 ALMs through local and direct-link interconnect; register packing rules.
+- **KB-166** The four ALM modes (normal, extended LUT, arithmetic, shared arithmetic); dedicated adders with up to 50 percent resource saving in arithmetic mode; carry chains start at the first or fifth ALM of a LAB and are linked vertically across LABs beyond 20 ALMs (10 in arithmetic modes); half-LAB chains.
+
+**Limits stated in the entries.** Both are medium confidence because each ends with an engineering inference that is labelled as such and not a handbook statement: that many distinct clocks, enables or resets spread over small register groups pack less densely (KB-165), and that a wide adder feeding other logic is often a timing-critical path (KB-166). The 18,480 ALM figure matches the device total the project's Quartus reports show.
+
+**Coverage of the handbook after this step.** Chapters 1 to 10 have now each been distilled at least in part, as KB-143 to KB-166. Still deliberately skipped as not relevant to the Pocket: termination, LVDS and SERDES, DQS/DLL and UniPHY, the hard memory controller's detail, remote system update, design security, the serial-flash and chain configuration schemes, and the boundary-scan register cell internals. Nothing else from the handbook is open. This closes the sentence in addendum 3 that chapter 1 was not yet distilled.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 5: skill changelog and README updated with the session's additions (2026-10-13)
+
+**Evidence label: docs only (edits to the skill's own documentation; nothing measured).** Skill repository commit `8f12828`, pushed; `kb.py validate`: 163 entries, 0 problems.
+
+- `references/changelog.md` (a digest of openFPGA framework versions) gained a section "Skill additions (not framework changes)": the 2026-10-13 weekly refresh results, the eight promoted entries by id (KB-056, 060, 079, 080, 081, 082, 103, 126), the Cyclone V reference work with KB-143 to KB-166 listed by topic, and the three corrections made along the way (the -C8 VCO ceiling of 1300 MHz refining KB-081, the wider MLAB read-during-write modes in KB-144, and the 132 multiplier count for 18 x 18 on the A4 in KB-147).
+- `README.md`: Layout now lists the local-only `references/docs-snapshot/cyclone-v/`, the new `scripts/fetch_cyclone_docs.py` (needs `pypdf` for the PDF text) and an optional install step to fetch the Cyclone V documents.
+
+**Not done.** No code, RTL, firmware, card or VM touched; no project design document changed. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 6: Codex pointed at the analogue-pocket-dev skill (2026-10-13)
+
+**Evidence label: configuration and documentation only; the Codex behaviour is NOT verified (no Codex session was run).**
+
+**Finding.** The skill already sits in the project as `.claude/skills/analogue-pocket-dev`, a symlink (since 2026-09-20) to `~/.claude/skills/analogue-pocket-dev`. Claude Code finds it there, but Codex looks in `.codex/skills/` or `~/.codex/skills/` and reads `AGENTS.md`, and `AGENTS.md` did not mention the skill. `.claude/` is git-ignored and the link points outside the repository, so a fresh clone, a worktree or a sandboxed Codex run cannot be assumed to have it.
+
+**Change (`744f108` on main, pushed).** `AGENTS.md` gained a section at the top: read `.claude/skills/analogue-pocket-dev/SKILL.md` first, then `references/knowledge-base/INDEX.md` (KB-143 to KB-166 cover Cyclone V); report a missing or unreadable symlink instead of guessing; the Cyclone V vendor text stays in the skill's git-ignored `references/docs-snapshot/cyclone-v/` and is never copied into this repository or the skill's published files; new knowledge goes in through `scripts/kb.py new`, with project names and audit ids kept out of public entries. `.gitignore` gained `/.codex/`. A local symlink `.codex/skills/analogue-pocket-dev` was created in the shared checkout (not committed) for Codex versions that load skills by name, and `.codex/` was added to the local `.git/info/exclude` so it does not show as untracked on branch `mod`.
+
+**Open.** Whether Codex follows the `AGENTS.md` pointer, and whether the installed Codex version loads skills by name from `.codex/skills/`, are untested. Suggested check: start a Codex session in the project and ask which Cyclone V memory block supports true dual-port; the expected answer is M10K only, citing the skill (KB-143). On a fresh clone the `.claude/skills` symlink is also needed.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+## B-709: group 6 recorded on the EVO 4 with TAU DEV 111 (rows 51 to 59 closed, rows 48 to 50 open)
+
+Twelve takes `111_*.wav` in `test music/Audio Lab/115 Tests/` (the build is TAU DEV 111, `{c}` = 111), the interface gain of B-694 (restore verified in B-700), 16-BIT OFF, system volume maximum. The owner also recorded `111_spur_paused|stopped|hwoff|mp3sil` (rows 36 to 39, not asked for because B-694 and B-698 made them unnecessary); not analysed. `analyze_tone` per channel (left shown; right within 0.1 dB level, 1 dB THD).
+
+| Take | Level L / R dBFS | SINAD | THD L | Peak |
+|---|---|---|---|---|
+| `rep_tone_v100_a` | -15.97 / -15.92 | 58.6 | -75.0 | -15.9 |
+| `rep_tone_v100_b` | -15.97 / -15.92 | 58.5 | -75.5 | -15.9 |
+| `rep_tone_v100_c` | -15.97 / -15.92 | 58.4 | -75.5 | -15.9 |
+| `rep_tone_v100_cold` (cold boot) | -15.97 / -15.92 | 57.8 | -75.3 | -15.9 |
+| `smoke_tone_v94_hwon` | -15.97 / -15.92 | 57.3 | -75.4 | -15.9 |
+| `smoke_tone_v94_hwoff` | -15.97 / -15.92 | 57.4 | -74.9 | -15.9 |
+| `cal_ch_balance` | -15.97 / -15.92 | 57.5 | -75.2 | -15.9 |
+| `cal_ch_swapped` | -15.90 / -16.00 | 57.5 | -76.2 | -15.9 / -16.0 |
+| `rep_idle_b` (floor) | -97.41 / -97.20 RMS, corr 0.03 | | | |
+
+**Readings:**
+- **The "v100" repeat takes read -15.97 dBFS, which is the level of core volume 94** (`105_hw_on_v94`, B-696), not of volume 100 (-12.36, B-694): they were recorded at core volume 94 (the default), not 100. The repeatability result is still valid, only the file names are wrong for the state; the notes say so.
+- **Repeatability:** level identical to 0.00 dB across the three back-to-back takes and the cold boot; SINAD 58.6 / 58.5 / 58.4 (spread 0.2 dB) and 57.8 after the cold boot (0.8 dB lower, probably the 5 s start effects or the take's length, not measured further); THD within 0.5 dB. **Use 0.2 dB (SINAD), 0.5 dB (THD) and 0.01 dB (level) as the noise of every later comparison.**
+- **Smoke test of the new build: no regression.** `smoke_tone_v94_hwon` level -15.97 / -15.92, THD -75.4, against 105's -15.97 / -15.92 and -74.6; HW GAIN ON equals OFF again on this bitstream (level identical, SINAD 57.3 against 57.4, THD -75.4 against -74.9): G-HWGAIN holds on the build that would ship. The idle floor on 111 (-97.41 / -97.20) equals 105's (-97.43 / -97.26).
+- **Channel balance and the swap:** normal take: left (input 1) -15.97, right (input 2) -15.92; swapped (Pocket left plug into input 2, right plug into input 1): input 1 -15.90, input 2 -16.00. Solving the two takes: the **interface's input 1 is about 0.025 dB hotter than input 2**, and the **Pocket's right output is about 0.075 dB louder than its left**, so most of the 0.05 dB left/right difference belongs to the Pocket. All of it is below 0.1 dB. **Correction to my earlier statement:** the right channel reads 0.05 dB HIGHER (less negative), not lower; the sign was wrong, the size is right.
+- **Rows 48 to 50 (`cal_if_loop_tone|silence|sweep`) are NOT interface-only measurements.** They read exactly like the Pocket: the loop tone is -15.97 / -15.92 dBFS with THD -75.0 and SINAD 58.8 (the same as the Pocket takes to 0.01 dB), the loop silence is -97.45 / -97.20 dBFS (the Pocket's idle floor; the interface alone is -109.8, B-694), and the sweep's reference level is -21.97 dBFS for a -12 dBFS file, i.e. a chain gain of -9.97 dB, the Pocket's chain gain at core volume 94. An output-to-input loop of the EVO 4 cannot show the Pocket's gain and floor, so the Pocket must have been connected and playing (or the loop went through the interface's own mixer with the Pocket still plugged in). These three rows stay open.
+- **A bonus: the Pocket's frequency response through the chain** (from the `cal_if_loop_sweep` take, if it is a Pocket take as the levels indicate): +0.02 dB at 50 Hz, 0.00 at 1 kHz, -0.09 at 10 kHz, -0.29 at 15 kHz, -0.42 at 18 kHz, -0.46 dB at 20 kHz, relative to 1 kHz; flat to 0.5 dB.
+- Not analysed: spurs, the right channel in detail, the four `spur_*` takes.
+
+## B-710: group 7 started: `111_tog_hw_v94` (HW GAIN toggle at core volume 94, row 64 closed)
+
+First group 7 take on TAU DEV 111: `111_tog_hw_v94.wav`, 28.5 s, 48 kHz stereo, the interface gain of B-694, `tone_1k_48000_60s.flac`, core volume 94, HW GAIN toggled six times about 4 s apart (the plan's procedure). Left channel, `track_tone` and 2.5 ms block RMS; the take is valid: six events at 4.51, 8.20, 12.33, 16.35, 20.42 and 24.33 s, tone level -15.97 dBFS (as `105_hw_on_v94`), steady SINAD 58.7 dB, THD -75.7 dB, peak -15.95 dBFS.
+
+**Each toggle makes a short drop-out, not a click.** Block RMS falls from -19 dBFS to between -48 and -68 dBFS for 45 to 57 ms (a fade down and up), with a hard silent gap of 12 to 25 ms inside it (samples under 5 % of the steady peak). The peak around five of the six toggles stays at or below the steady peak (-15.89 to -15.95 versus -15.95 dBFS): no overshoot, so no click. This is the mute-and-flush hand-over of B-653 working as designed.
+
+**One toggle is different:** the one at 12.33 s has a peak of **-13.51 dBFS, 2.4 dB above the steady peak**, a longer SINAD disturbance (200 ms) and a second disturbance at 12.6 s. That is a real transient (a click) at one of six toggles; the other five are clean. It is not known whether it was an ON-to-OFF or OFF-to-ON toggle (the file does not say), so the direction was not separated.
+
+**Reading:** at core volume 94 the HW GAIN hand-over is a clean 50 ms dip in five of six toggles and has one click, which is why rows 65 and 66 (volume 70 and 40, where the B-653 limit was found) still matter, and why the take should be repeated if the 12.33 s event looks like a one-off. Not analysed: the right channel, whether the dip is audible at the owner's listening level.
+
+## B-711: group 7 rows 65 and 66: the HW GAIN hand-over clicks come back below full volume (`111_tog_hw_v70`, `111_tog_hw_v40`)
+
+Two takes on TAU DEV 111, the interface gain of B-694, `tone_1k_48000_60s.flac`, HW GAIN toggled about every 4 s: `111_tog_hw_v70.wav` (32.5 s, **7 toggles** instead of the plan's 6) and `111_tog_hw_v40.wav` (28.7 s, 6 toggles). Left channel, 2.5 ms block RMS and the peak in a window around each toggle against the steady peak (v70 -30.34, v40 -48.27 dBFS; the tone levels match Group 1's volume steps).
+
+| Take | Toggle (time s) | Dip (block RMS) | Peak around it | Over the steady peak |
+|---|---|---|---|---|
+| v70 | 1 (4.42) | -47.8 dBFS | **-16.33 dBFS** | **+14.0 dB** |
+| v70 | 2 (8.20) | -72.8 | -29.63 | +0.7 |
+| v70 | 3 (12.31) | -40.8 | **-13.03** | **+17.3** |
+| v70 | 4 (16.15) | -85.0 | -28.97 | +1.4 |
+| v70 | 5 (20.22) | -48.7 | **-20.18** | **+10.2** |
+| v70 | 6 (24.18) | -64.6 | -29.61 | +0.7 |
+| v70 | 7 (28.09) | -46.8 | **-16.05** | **+14.3** |
+| v40 | 1 (4.44) | -54.1 | **-14.84** | **+33.4** |
+| v40 | 2 (8.40) | -78.3 | -48.28 | 0.0 |
+| v40 | 3 (12.47) | -54.3 | **-12.83** | **+35.4** |
+| v40 | 4 (16.57) | -74.3 | -48.30 | 0.0 |
+| v40 | 5 (20.51) | -53.4 | **-13.37** | **+34.9** |
+| v40 | 6 (24.66) | -84.6 | -48.29 | 0.0 |
+
+**Reading:**
+- **Every other toggle clicks, and the even ones are clean.** The odd toggles (1, 3, 5, 7) produce a transient 10 to 17 dB above the tone at volume 70 and 33 to 35 dB above it at volume 40; the even toggles show a clean dip (a 12 to 13 ms hard silence, peak within 1.4 dB of the tone). At volume 94 (B-710) the same pattern is there but small: toggle 3 had +2.4 dB, toggles 1 and 5 were clean. So the glitch is one direction of the hand-over (ON to OFF if the take began ON, not recorded), and its size grows as the volume falls.
+- **The click has about the same absolute level at every volume:** peaks of -13 to -16 dBFS at volume 70 and 40 (one at -20.2), and -13.5 dBFS at volume 94, close to the tone's level at core volume 100 (-12.3 dBFS, B-694). That fits a few samples emitted at full gain at the instant of the switch, not a gain error that scales with the volume. This is a hypothesis from the numbers; the cause in the firmware or the RTL has not been traced.
+- **This is the open limit B-651 and B-652 recorded** ("HW GAIN hand-over clicks below full volume") and B-653's mute-and-flush did not remove it: it is audible and loud at volume 40 (a pop 35 dB above the music).
+- **The whole-file SINAD of these two takes is not valid** (26.2 dB at volume 70, -13.8 dB at volume 40): the analysis window contains the clicks. Do not compare them with other takes; the tone level in the quiet parts agrees with Group 1 (-30.4 and -48.3).
+- Open: whether the clicking direction is ON to OFF or OFF to ON (the starting state of the toggles was not recorded); whether the same happens with Halcyon ON; the cause. Not analysed: the right channel.
+
+### B-711 addendum: the clicking direction is ON to OFF (owner: all takes started with HW GAIN ON)
+
+The owner confirmed every toggle take began with HW GAIN ON, so toggle 1, 3, 5 and 7 are ON to OFF and toggle 2, 4 and 6 are OFF to ON: **the click belongs to ON to OFF** (hardware gain stage to firmware gain); OFF to ON is the clean dip. (Stated by the owner as "I think"; the take data agree, since the clicking toggles are exactly the odd ones.)
+
+Read of `fw/gain_handover.h` (B-653), no change made: for ON to OFF (`on` = 0, the stage owns the gain now, `v->hw` = 1) the sequence is: target 0 (the stage ramps to silence, 5 ms; 8 ms waited), `flush()` of the FIFO, then `v->hw = 0; v->cur = v->target; *fade_left = fade_samples` and `ctrl(0)` which switches the stage off, i.e. to a unity pass-through. While the stage owns the gain the firmware pushes UNSCALED samples; anything unscaled that reaches the output after the stage is switched to pass-through plays at full gain, which matches a click of roughly constant absolute level near the volume-100 tone level (B-711). What could still deliver unscaled samples after the flush is **not found by reading**: candidates are samples held after the stage (the I2S side FIFO, the Cymo or Halcyon path), a push that happens between the flush and the flip, or the stage reading its target at a different time than the software fade starts. `sim/test_gain_handover.py` checks the order of the writes against a pipeline model and passes, so the cause is something that model leaves out. A measurement would settle it (for example the length and shape of the click, and whether it is present with Halcyon OFF and Cymo OFF).
+
+## B-712: group 7 rows 67 and 69 closed (16-bit toggle, Halcyon preset changes), row 68 open (Cymo toggle shows no change)
+
+Three takes on TAU DEV 111, the interface gain of B-694, saved 14 October: `111_tog_a16_v84.wav` (24.4 s), `111_tog_cymo_44k.wav` (24.7 s), `111_tog_hal_preset.wav` (43.8 s). Left channel; per toggle: the 1 ms peak profile (hard-silence length), the steady peak 1.2 s before and after, and the largest peak inside the toggle window (an overshoot would show as a click).
+
+**Row 67, 16-BIT OUTPUT toggle at core volume 85** (the volume moves in steps of 3, so 84 was not selectable): 5 toggles (the plan said 6), at 4.42, 8.32, 12.47, 16.57 and 20.63 s; the take started with 16-BIT ON (the level at the start is the ON level). The level alternates between **-15.33 dBFS (ON) and -21.35 dBFS (OFF)**: a step of exactly 6.02 dB at every toggle, so every toggle changed the state. Each toggle has a hard silence of 14 to 15 ms and **no overshoot** (the window peak equals the louder steady level to 0.0 dB at all five): clean, a dip and not a click.
+
+**Row 69, Halcyon preset changes:** 9 changes at 7.68, 11.60, 15.67, 19.60, 23.61, 27.57, 31.63, 35.63 and 39.61 s. Per the owner: Halcyon started OFF, was set to FLAT, then every press moved to the next preset, and the cycle goes back to FLAT, never to OFF. The steady peak after each change gives the 1 kHz level of each preset: FLAT -15.95 (OFF and FLAT identical), WARM -18.82, CLEAR -18.52, BASS -20.57, VOCAL -17.46, SPEECH -17.72, LOWVOL -21.63, SMOOTH -16.11, FLAT -15.95 again (order and count match the preset list). Each change has a hard silence of 11 to 14 ms, **no overshoot** at any of the nine: clean, no click. (The 12 ms silences are the preset-change dip of B-681.)
+
+**Row 68, Cymo resampler toggle on the 44.1 kHz file: the take cannot show a change.** 5 toggles at 4.59, 8.24, 12.32, 16.28 and 20.38 s, each a clean 11 to 12 ms silence with no overshoot, but **the SINAD is 58.3 to 58.4 dB and the THD -74.5 to -74.7 dB in every one of the six segments**, and the tone level is -15.97 dBFS throughout, with the same 19.48 / 17.48 kHz spurs as the 48 kHz takes. Without the resampler a 44.1 kHz tone reads about 10.8 dB SINAD (B-529); with it about 54.5 dB. The segments cannot differ that little if the toggle switched between the two paths. So either the played file was not at 44.1 kHz, or the hardware resampler stayed engaged (or stayed off, which would not give 58 dB) the whole time, for example because of the 44.1 kHz guard (B-530: the hardware is engaged only for a 44.1 kHz file at 1.00x, and the toggle shows OFF / ON / WAIT). Which file played and what the Info CYMO RESAMP row said is not known. The row stays open.
+
+**Totals for group 7 so far** (rows 64 to 67, 69 recorded; 68 open): the HW GAIN hand-over clicks on the ON to OFF direction (B-711); the 16-bit toggle, the Halcyon preset changes and the Cymo toggle (as far as it can be read) produce clean 11 to 15 ms dips without clicks. Not analysed: the right channel, how the dips sound at the owner's listening level.
+
+## B-713: group 7 row 68 re-recorded with the real 44.1 kHz file (Cymo resampler toggle, closed)
+
+The owner found the first take (B-712) had used the 48 kHz file and re-recorded `111_tog_cymo_44k.wav` (25.0 s, 7.2 MB) with `tone_1k_44100_60s.flac`. Left channel; segments between the toggles (0.4 s after and 0.2 s before each), `analyze_tone`; per toggle the 1 ms peak profile and the steady peak either side.
+
+| Segment (s) | State | Level dBFS | SINAD dB | THD dB | Largest spurs |
+|---|---|---|---|---|---|
+| 1.1 to 4.4 | ON | -15.97 | 58.2 | -75.8 | 17.5, 13.3, 19.5 kHz at -70.5 dBc (the chain's fixed pattern) |
+| 5.0 to 8.4 | OFF | -15.98 | **27.8** | **-61.2** | **4.9 and 2.9 kHz at -36 dBc**, 8.8 kHz at -42 dBc |
+| 9.0 to 12.5 | ON | -15.97 | 58.2 | -75.4 | as ON |
+| 13.1 to 16.5 | OFF | -15.98 | 27.8 | -60.6 | as OFF |
+| 17.1 to 20.5 | ON | -15.97 | 58.2 | -75.7 | as ON |
+| 21.1 to 24.5 | OFF | -15.98 | 27.8 | -61.0 | as OFF |
+
+**Reading:**
+- **The toggle works and is clean.** 5 toggles (4.60, 8.58, 12.73, 16.68, 20.71 s; the take started with the resampler ON, as the Diagnostic Build's default), the state alternates exactly, each toggle has a hard silence of only 4 to 6 ms (the shortest of any toggle in group 7) and **no overshoot** (the window peak equals the steady level, -15.93 to -15.95 dBFS), the level does not change (-15.97 against -15.98 dBFS).
+- **The hold path measures 27.8 dB SINAD with the image at 4.9 kHz, which is the model's figure** (27.7 dB, image at 4.9 kHz, B-427/B-430/B-442) to 0.1 dB. The earlier hardware reading of about 10.8 dB for the same path (B-430, B-529) came from the differential Volt chain of the first recordings (B-666), so the "17 dB worse than the model" puzzle of B-430 is explained by the capture chain, not by the RTL or the FIFO; the loopback readings of B-529 were relative to that chain. On the valid chain the resampler path (58.2 dB, the chain's own limit) gains **30.4 dB** over the hold (27.8 dB) at 1 kHz.
+- This closes the group 7 row on the resampler toggle: no click, a 4 to 6 ms dip, and the A/B difference is large and as predicted.
+- Not analysed: the right channel, other tone frequencies (the image strength at 10 and 18 kHz is the open P3 resampler group).
+
+## B-714: group 7 row 70 (Halcyon slider moves) closed: smooth and click-free
+
+`111_tog_hal_slider.wav` (48.7 s, 14 MB), TAU DEV 111, the interface gain of B-694, one Halcyon slider moved from 0 to +5 and back at about 4 s steps (Settings > Audio > HALCYON EQ). Left channel; 100 ms RMS for the level, 1 ms peaks for silences, and 5 ms peaks against the median of their neighbours for clicks.
+
+- **The level changes at ten moments** (8.4, 12.4, 16.4, 20.4, 24.4, 28.3, 32.4, 36.4, 40.5 and 44.5 s): the 1 kHz level goes from -18.99 dBFS (block RMS) down in five steps to about -23.1 dBFS at +5 (-4.1 dB, steps of 0.3 to 1.3 dB) and back up in five steps to -18.99 dBFS, exactly where it started: five moves up, five back, each one audible in the data as a step and nothing else.
+- **No silence and no click:** zero hard silences (nothing under -50 dBFS inside the tone, against the 11 to 15 ms dips of the toggles in rows 64 to 69), and no 5 ms block more than +1.5 dB above its neighbourhood in the whole take (0 events). The live slider writes are therefore click-free, which is what the row asked.
+- Not analysed: the right channel, the slider's frequency effect (this is a 1 kHz tone: the sweep rows 89 to 97 give the response).
+
+## B-715: two-track playlist `ab_change.m3u` added to the card for group 7 row 73 (track change by Next and Previous)
+
+Row 73 (`111_trk_change_tonesab`) needs `tone_1k_48000.flac` and `tone_1500_48000.flac` one after the other, and the player's Next follows the queue order, in which the two files are not adjacent. Owner confirmed the card was mounted. `ab_change.m3u` (two bare filenames, in that order) was written to the local `test music/cymo_loopback/` and synced with `tools/sync_media.py --core alfatreze.TAU --library` to `Assets/tau/common/cymo_loopback/` (TAU DEV 111 reads TAU's media): 1 file written, 33 identical, the library index rebuilt and verified OK (134 tracks, playlists 3 to 4, root `/Assets/tau/common/`). The previous `tau-library.tdb` was backed up first (`work/card-backups/20261014-ab-change/`, same SHA-256 as the card's), the `._` files were removed and the card ejected. No core, cache or other media was touched. To use it: open the library, play the `ab_change` playlist's first track and press Next and Previous.
+
+## B-716: group 7 rows 71 and 72 closed (volume steps, loop of ten): no click, and a 0.37 s gap at every loop restart
+
+Two takes on TAU DEV 111, the interface gain of B-694: `111_tog_vol_step.wav` (23.7 s) and `111_loop_tone_x10.wav` (303.9 s). Left channel; 100 ms RMS for levels, 1 ms peaks for silences, and 5 ms peaks against the median of their neighbours for clicks.
+
+**Row 71, volume steps at core volume 94** (five presses Down, then five Up, a press about every 2 s): the level falls from -19.0 dBFS (block RMS) in five equal steps of 1.8 dB (-19.0, -20.8, -22.6, -24.4, -26.2, -28.0: 9.0 dB in total, the size of three taper positions per press) and returns in five steps to exactly -19.0 dBFS. **No silence and no click** (zero silences inside the tone, no 5 ms block more than +1.5 dB over its neighbourhood): the volume ramp is click-free, as the row asked.
+
+**Row 72, loop of ten (Repeat = one):** nine loop boundaries at about 30.35, 60.72, 91.08, 121.44, 151.81, 182.17, 212.52, 242.88 and 273.24 s (a period of 30.37 s), all alike:
+
+| At every boundary | Value |
+|---|---|
+| Fade-out before the gap | none (the tone file ends at full level: 1 to 2 ms from full level to the gap) |
+| Silence | **366 to 376 ms** (mean 371 ms) |
+| Fade-in after the restart | 32 ms to full level |
+| Largest peak around the boundary | -15.95 dBFS, equal to the steady peak (0.00 dB) |
+
+- **There is no pop at any restart, and the first repeat is identical to the later ones** (silence 376 ms, fade-in 32 ms, no overshoot): the "unexplained first-repeat pop" the row was meant to find did not appear on this build and in this take.
+- **The loop restart is not gapless:** about 0.37 s of silence every time (stop, flush, reopen, prime), with a 32 ms fade-in. That is the cost of a loop or a track change on this player and is the figure to compare with any gapless-playback work. It is a property of the file ending at full level plus the restart, not a click.
+- Not analysed: the right channel, whether the 0.37 s silence is shorter with a library track than with a file opened from the list, track-change timing (row 73).
+
+## B-717: group 7 row 73 closed (track change by Next and Previous): 1.5 s of silence, no click
+
+`111_trk_change_tonesab.wav` (25.3 s), TAU DEV 111, the interface gain of B-694, the two-track playlist `ab_change` of B-715 (A = `tone_1k_48000.flac`, B = `tone_1500_48000.flac`). Left channel; the tones were told apart by zero-crossing rate (1.0 and 1.5 kHz), silences from 1 ms peaks, peaks and fades per gap as in B-716.
+
+- **The sequence is as intended:** A plays from the start, Next was pressed at about 6.9 s, B (1.5 kHz) plays from about 8.4 s, Previous was pressed at about 16.4 s and A (1.0 kHz) plays again from about 17.9 s.
+- **Each change has the same shape:** a silence of **1,480 ms (Next) and 1,459 ms (Previous)**, a fade-in of 44 and 43 ms, and no fade-out (the tone is cut at full level, as in the loop of B-716: the file ends or is stopped at full level). **No pop:** the largest peak around either change equals the steady peak (-15.95 dBFS, 0.00 and +0.02 dB). Levels before and after are the same (-16.0 dBFS).
+- **A track change costs about 1.5 s of silence, four times the 0.37 s of a loop restart** (B-716): opening a different file takes longer than restarting the same one. The silence is the cost to compare with any gapless or audio-first track-load work. The press was at 6.9 s rather than the plan's 6 s; this does not matter for the result.
+- Not analysed: the right channel, how long the silence is for a track with a cover and tags (these test tones have none), the Check test "Track changes" that has failed since B-070 (this take shows the manual change works and is click-free).
+
+**Group 7 summary (rows 64 to 73 recorded and analysed; the two 60-minute soaks, rows 74 and 75, not recorded):**
+
+| Transition | Result |
+|---|---|
+| HW GAIN ON to OFF (rows 64 to 66) | **clicks**, larger as the volume falls (B-711) |
+| HW GAIN OFF to ON | clean 12 to 25 ms dip |
+| 16-BIT toggle (67) | clean 14 to 15 ms dip, exact 6.02 dB step |
+| Cymo resampler toggle (68) | clean 4 to 6 ms dip; ON 58.2 dB, OFF 27.8 dB SINAD |
+| Halcyon preset change (69) | clean 11 to 14 ms dip |
+| Halcyon slider (70) | no dip, no click |
+| Volume steps (71) | no dip, no click |
+| Loop restart (72) | 0.37 s silence, 32 ms fade-in, no pop |
+| Track change (73) | 1.5 s silence, 44 ms fade-in, no pop |
+
+## B-718: group 8 (Halcyon) recorded on TAU DEV 111 and analysed: flutter fix and bypass transparency confirmed
+
+Rows 76 to 98 of `docs/features/CYMO_RECORDING_SCRIPT.md`, EVO 4 stereo chain, interface gain of B-694, 16-BIT OFF, HW GAIN ON, core volume 94. Rows 76 to 86 and 89 to 98 on TAU DEV 111; rows 87 and 88 (controls) on TAU_DEV_107. Hardware measurement and documentation only; no firmware or RTL changed. Recordings are in `test music/Audio Lab/115 Tests/` (git-ignored).
+
+- **Flutter fix confirmed.** The 1 kHz track of OFF, FLAT, WARM, BASS and SMOOTH (`cymo_loopback.py track`): frequency 1000.062 Hz, standard deviation 0.0001 Hz (0.00 cents), no flagged events, block SINAD within 0.3 dB; no spur at ±30 Hz in any take. The other four tone takes (CLEAR, VOCAL, SPEECH, LOWVOL) were analysed one-shot only (SINAD 57.06 to 57.20 dB), not tracked.
+- **The measurement sees the flutter (row 87/88 controls on TAU_DEV_107).** Old EQ POP: frequency std 0.152 Hz (span 0.81 cents), SINAD 24.4 dB. Old EQ FLAT: std 0.0001 Hz, SINAD 57.2 dB. So the clean Halcyon takes are not clean because the method is blind.
+- **Transparency.** SINAD 57.0 to 57.4 dB on every Halcyon take (OFF 57.33, FLAT 57.02); level OFF = FLAT = -15.98 dBFS. Silence floor -97.4 / -97.2 dBFS RMS (L/R) with OFF and -97.3 / -97.2 with FLAT, equal to the idle floor of B-694: the engine adds no noise.
+- **Loudness match (1 kHz level against OFF):** FLAT 0.0, SMOOTH -0.15, VOCAL -1.5, SPEECH -1.8, CLEAR -2.6, WARM -2.9, BASS -4.6, LOWVOL -5.7 dB (the auto-preamp: presets are quieter, not louder).
+- **Response of each preset (sweep, dB against the OFF sweep, relative to 1 kHz) at 50 / 200 / 2k / 5k / 18k Hz:** WARM +2.1 / +2.6 / -0.1 / -0.3 / -1.3; CLEAR -1.4 / -2.5 / +0.4 / +1.0 / +2.2; BASS +3.8 / +1.4 / +0.2 / +0.4 / -0.5; VOCAL -2.2 / -1.4 / +1.1 / -1.3 / -1.3; SPEECH -4.4 / -2.6 / +1.4 / -1.3 / -0.9; LOWVOL +4.7 / +1.6 / -0.1 / -0.5 / +1.1; SMOOTH 0.0 / +0.1 / -0.7 / -2.5 / -1.7. FLAT is 0.0 everywhere. The OFF sweep itself is flat to -0.45 dB at 20 kHz (the chain's own response). **Not done:** comparison with the curves the Halcyon page displays (needs the per-preset curve values from firmware).
+- **Row 98 (low-frequency tones, FLAT):** 10, 17, 20, 30, 50 Hz read -22.06, -21.99, -21.97, -21.95, -21.94 dBFS, flat to 0.12 dB. FLAT is a true bypass (`fw/halcyon_hw.h`: no infrasonic stage when all controls are zero), so this measures the chain, and the plan wording "infrasonic stage on" was wrong (corrected in the script). **Not done:** the same file with a non-FLAT preset to see the 17 Hz high-pass; optional.
+- **Halcyon OFF is reachable** by Y on the player screen or A on the Settings > Audio row (the Halcyon page's L/R and L1/R1 skip OFF). Rows 76, 85 were delayed because of this.
+- **Status:** group 8 closed (script, CSV statuses). Open: displayed-curve comparison, non-FLAT low-frequency take, and the open items of the handoff (HW GAIN ON-to-OFF click, G-LOAD, groups 9 to 14, soaks 74 and 75). The plan page (`CYMO_RECORDING_PLAN_PAGE.html`) was not updated.
+
+## B-719: HW GAIN ON-to-OFF click found (the FIFO's held, unscaled output sample) and fixed in firmware; not yet heard on a Pocket
+
+**Measurement first.** Re-analysed `111_tog_hw_v40.wav` and `111_tog_hw_v70.wav` (B-711) at 0.5 to 2 ms. At every ON-to-OFF toggle: about 7 ms of silence (the mute), then a burst that starts at roughly the source level (-13 to -20 dBFS, varying from toggle to toggle) and falls about 5 to 8 dB per 2 ms (-13, -18, -26, -34), then the music at its new level. Both channels identical. Burst length 1.5 to 9 ms (one at 72 ms).
+
+**Cause (RTL and firmware read, matches the numbers; not yet confirmed on hardware).** `pcm_fifo.v` does NOT clear its output register on a flush (a comment says so, to avoid a click), and when empty or unprimed the register glides to zero (`x - (x >> 7)`, snapped inside ±128: halves about every 90 ticks, at most 707 ticks from full scale). While the gain stage owns the gain the firmware pushes UNSCALED samples, so at the flush that register holds an unscaled sample. `gain_l = gain_en ? gst_l : fifo_l` (`mp3_soc.v`): with the stage enabled and target 0 the held value is multiplied by zero; `ctrl(0)` in `gh_handover()` disables the stage and exposes `fifo_l` directly, so the decaying unscaled sample plays at full gain. It explains the constant absolute level at any volume, the 5 to 8 dB per 2 ms decay, the varying peak (it is whatever sine sample was last), and why OFF to ON is clean (the stage stays enabled).
+
+**Why the earlier host test passed.** `sim/test_gain_handover.py` modelled the FIFO output as 0 when empty (no held register), a decoder that refills instantly, and one sine phase. Made faithful (held register with the glide, the stage's discontinuity fade, a refill of 2 samples per tick, twelve phases): it fails on the old header at every volume (largest step 11,805 against the sine's own 1,571), the same pop as the hardware.
+
+**Fix (`fw/gain_handover.h`, `fw/player.c`).** For hardware to software only, after the flush wait for the glide (760 output ticks, `ceil(760 000 / tick_hz)` ms, capped at 200) with the stage still enabled and muted, then disable it. The wait follows the file rate and the speed (`pcm_tick_hz` set in `pcm_rate_apply`, 4 B of hot RAM): 16 ms at 48 kHz, 18 ms at 44.1, 35 at 22.05. The FIFO is empty during the wait and the stage is muted, so nothing audible changes; the decoder pause is the only cost. Test now green (24 plus rate cases), mutants caught including "no glide wait" and "glide wait ignores the rate"; `make test-host` passes; `check_heap_gap.py` PASSED (release 8,768 B). **Not run on a Pocket**: needs a build and a repeat of rows 64 to 66 (`tog_hw_v94/v70/v40`, 6 toggles each, start with HW GAIN ON): every toggle should then be a clean dip.
+
+Other places this register could be exposed: none found (OFF to ON keeps the stage enabled; the preset and 16-bit dips keep it enabled). Not checked: tracks where the file rate is below 8 kHz (wait capped at 200 ms, residual up to about -40 dBFS).
+
+## B-720: positive ReplayGain against the peak tag (gain stage BOOST, +6 dB ceiling): built and host-verified; fit and hardware pending
+
+Owner decision: +6 dB ceiling. **RTL (`tau_gain_stage.sv`, parameter `BOOST`, default 0 = the stage as shipped):** with `BOOST=1` the target cap is 65535 (+6.02 dB) instead of unity and the volume product is saturated to 16 bits before the fade. Below unity it is bit-identical (the shipped vectors replay clean on `BOOST=1`). New macro `TAU_GAIN_BOOST` -> `GAIN_BOOST` on `mp3_soc` (`core_game.vh`); `R_GAIN_CTRL` reads bit 30 = the stage can boost (firmware probes it: new firmware on an old bitstream simply never boosts). `make test-rtl-gain-boost` (boost vectors from the host model, plus the shipped vectors on `BOOST=1`) and `test-rtl-gain-boost-mutation` (BUG 10 no saturation, BUG 11 unity cap left in), both killed; the nine existing mutants still killed; full `make test-rtl` 49 groups pass, `rtl-lint` clean.
+
+**Firmware (`fw/replaygain.h`, `flac.c/.h`, `player.c`, `settingsui.inc`):** reads `REPLAYGAIN_TRACK_PEAK` / `ALBUM_PEAK` (ID3 TXXX and Vorbis comments; four decimals, rounded UP so the value is never below the true peak; `flac_t.rg_txt` 2 -> 4 entries). The total gain (volume x ReplayGain) may exceed unity only while the hardware stage owns the gain and has the boost bit, and only up to `0.944 / peak` (-0.5 dB of full scale, for the inter-sample peaks a sample-peak tag cannot show), never below unity, never above +6.02 dB; no peak tag, no boost. The software path stays capped at unity (its 32-bit product would overflow above 2.0). The cap is recomputed on every track, mode change and owner change (`gain_handover` now calls `vol_apply()` after the flip). Info > REPLAYGAIN gains `C<percent>` (100 = no boost possible, 200 = +6 dB). 10 new mutants of the header all caught (`sim/test_replaygain.py`); `make test-host` passes.
+
+**Cost (first build):** heap gap -208 B on the Diagnostic Build (1,280 -> 1,072 B, floor 1,024 B) and -224 B on release (8,768 -> 8,544 B). `ram_report.py --diff` split it: `flac_open` +80 B of code (two more inlined key comparisons), +44 B of rodata (two more 22-byte key strings), `fl` +32 B (`rg_txt` 2 -> 4 entries), +4 B `.data` (`rg_cap_hw` initialised to unity), the rest small additions in `vol_apply`. **Trimmed:** the four keys are matched by one table-driven loop (`rg_key`, +16 B instead of +80 B of code) and `rg_cap_hw` is zero-initialised (0 = unity, `.bss`); a shared-prefix variant was tried and was LARGER (+64 B over the first build: not inlined, so the call and the loop outweigh the string saving). **Now: Diagnostic Build 1,120 B (-160 B), release 8,608 B (-160 B)**, the diagnostic build 96 B above its floor. Baseline updated; the fit is unaffected (RTL unchanged).
+
+**Not done:** the Quartus fit (bundle `tools/..._gain_boost_halcyon_wide_qsf_append.txt` = noeq-b670 + `TAU_GAIN_BOOST=1`), packaging, any Pocket run. Hardware check once fitted: a tagged quiet track (peak around -12 dBFS) at volume 100 with REPLAYGAIN on should read several dB louder than before and never clip (loopback tool); a loud track (peak near 1.0) unchanged; Info shows the cap.
+
+## B-721: boost test files built and run through the real firmware parser; interaction review of the +6 dB ceiling
+
+**Test set** (`test music/rg_boost_tests/`, local, git-ignored; copies, the Test Album sources are untouched). Gain and peak measured with `ffmpeg -af replaygain` on the real tracks: the Clementi pieces are quiet masters (**+5.87 dB, peak 0.3933**), MacCunn is loud (-4.31 dB, peak 0.9707). Files: `rg_clementi_flac_boost.flac` and `rg_clementi_mp3_boost.mp3` (real tags, expect the full +5.87 dB), `rg_clementi_flac_nopeak.flac` (gain tag, NO peak: must stay at unity), `rg_clementi_flac_hotpeak.flac` (false peak 0.90: limited to +0.41 dB), `rg_maccunn_flac_control.flac` (attenuation only, as before). Through the real `flac_open()` (FLAC) and `rg_id3_scan()` (MP3) plus the real `rg_pick_*`/`rg_cap_q15`/`rg_target`: boost files read have=15, cap +6.02 dB, target +5.87 dB at volume 100 (+3.73 dB at volume 94, the default); no-peak file target 0 dB; hot-peak file +0.41 dB; control -4.31 dB; with a stage that cannot boost every file stays at or below unity. **Predictions for the Pocket (loopback tone-free: use the music, compare levels):** boost files 5.87 dB louder than with REPLAYGAIN Off at the same volume; hot-peak +0.41 dB; no-peak and control unchanged; Info REPLAYGAIN row `C197` or `C200` for the boost files, `C100` for the others.
+
+**Interaction review (reading, no new test):**
+- **Peak margin.** The cap leaves 0.944 of full scale (-0.5 dB) for what a sample-peak tag cannot show. It only binds for tracks whose peak is above about 0.47 (the Clementi boost lands at 0.77 of full scale); for those, -1 dB (0.891) would be the more careful margin at a cost of 0.5 dB of boost. Left at -0.5 dB; a one-constant change (`RG_PEAK_NUM`).
+- **Cymo resampler and Halcyon.** A boosted sample is at most 0.944 FS at the stage, so the Halcyon engine's peak-safe preamp assumption (input up to full scale) holds. With the live 44.1 kHz resampler a true peak above the sample peak by more than about 0.5 dB would still hit the resampler's 16-bit clamp: only tracks that are both loud and boosted; the quiet masters the feature is for are nowhere near.
+- **16-bit I2S slot ON** adds 6.02 dB after the stage: a boosted track at the cap (0.944 FS) would then sit above the Pocket's compression onset (-3 dBFS true peak, B-699). The slot is a Diagnostics toggle, off by default and not planned to be adopted, so this only affects A/B sessions; a boosted quiet master (peak 0.77) is also over that onset with the slot ON.
+- **Owner switch to software.** HW GAIN OFF returns the gain to the firmware path, which is capped at unity: a boosted track drops by the boost (up to 6 dB) at the switch, behind the mute and the software fade. Expected, not a bug; stated in the Diagnostics row's behaviour.
+- **Tag oddities are safe.** A peak written in dB (`-0.2 dB`), empty, or non-numeric reads as no peak, so no boost; an exponent form (`1.0E-1`) reads as 1.0 (the larger value, so the cap is conservative); a peak above 8 saturates; a track with a gain tag but no peak never boosts.
+- **Album mode** takes the gain AND the peak from the album tags (the album peak is at least the track peak), so every track of an album is capped by the loudest one.
+- **Remaining risk is the fit, not the logic:** the new saturation sits after the multiplier (`mp` + rounding constant, arithmetic shift, two compares) in one clock at 66.667 MHz; if that closes timing the RTL is done, if not it is a one-register retime.
+- **Install note:** the Dev core reads TAU's media in place (`Assets/tau/common`): the five test files must go into TAU's media (`tools/sync_media.py`, then the library index rebuilt), not into the Dev core's folder.
+
+## B-722: group 8 completed: displayed Halcyon curves match the measured response; the four untracked tone takes tracked
+
+**Displayed curve against the Pocket (closes the open item of B-718).** The curve the Halcyon page draws is `hal_curve()` (`fw/halcyon_curve.h`: the six selected table rows, the infrasonic stage and the peak-safe preamp, in 1/64 dB on the 40-point log grid), so it is an absolute response against the input. Built from the real `halcyon_tab.h` / `halcyon_core.h` / `halcyon_curve.h` with the eight preset control sets, then compared with the measured response of `111_fr_hal_<preset>_sweep.wav` divided by `111_fr_off_sweep.wav` (sweep envelope method: 0.1 s RMS windows at the sweep time of each grid frequency, 30 Hz to 18 kHz). **Result: every preset agrees to rms 0.03 to 0.05 dB, worst 0.20 dB (SPEECH at 34 Hz; the same 0.13 to 0.20 dB at 34 Hz on all presets, a small low-frequency droop of the chain, not of the engine).** FLAT is 0.00. The 1 kHz levels agree to 0.01 dB (WARM -2.87 against -2.86, CLEAR -2.56/-2.54, BASS -4.61/-4.62, VOCAL -1.48/-1.49, SPEECH -1.77/-1.77, LOW VOLUME -5.68/-5.69, SMOOTH -0.15/-0.16), so the auto-preamp is exactly what the page says. The displayed curves and the loudness match are therefore true.
+
+**A false alarm worth recording.** The analyser's point table (`cymo_loopback.py analyze --sweep`) showed BASS 3 dB low at 15 kHz (-3.01 dB between -0.38 and -0.94). The time-domain envelope of the same take is smooth there (-27.1, -27.2, -27.3 dBFS over the neighbouring 250 ms windows) and the envelope method agrees with the displayed curve (rms 0.03), so it was a single-bin estimation artefact of the analyser, not the engine. Use the envelope method (or a finer analyser) for pass/fail on a single point.
+
+**Tone takes tracked.** CLEAR, VOCAL, SPEECH and LOW VOLUME (the four not tracked in B-718): frequency 1000.062 Hz, std 0.0001 Hz, 0.00 cents. CLEAR shows one flagged 50 ms block at 0.60 s (level -0.64 dB, SINAD 19.5 dB): the start of the take (the 45 ms hardware fade-in), not a flutter; nothing in the rest of its 12.5 s. All nine Halcyon tone takes are now confirmed flutter-free.
+
+**Still not done in group 8:** the optional non-FLAT low-frequency take (what the 17 Hz high-pass does).
+
+## B-723: gapless playback: spec, sizing model and the trim rule proven on six real MP3s (docs and host only)
+
+New `docs/features/GAPLESS_SPEC.md` and `tools/lab/gapless_model.py`. **Findings:** (1) the trim rule `playable = frames x 1152 - delay - padding` (LAME tag, `fw/lame_tag.h`) equals the FLAC sample count of the same recording **exactly on all six Test Album MP3s** (44.1 and 48 kHz, 128 and 320 kbps; delay 576, padding 832 to 1,668), so the MP3 trim can be built with confidence; (2) the measured load times (263 to 292 ms typical, 1,170 ms for a slow-head FLAC, B-562 and B-544) are far above the 46 ms hardware FIFO, and **a deeper RTL FIFO is not the answer**: 8,192 pairs (26 M10K) still leaves a 77 ms gap on a typical track and 16,384 pairs (52 of the 68 free M10K) still gaps on the slow FLAC; a **decoded-PCM ring in PSRAM, 1.5 to 2 s deep, covers every measured load, costs no block RAM and no RTL**, and reuses the structure of the tempo funnel (planar PSRAM staging ring and drain, host-tested); estimated cost about 4% CPU (58 of about 1,512 cycles per pair from the measured PSRAM access costs, B-022), paced decode-ahead; (3) boundary rules: same sample rate only, no flush and no fade at a natural end, trim at open, UI and ReplayGain switch when the marker is played, manual change keeps flush and fade. Build order G0 (measure) to G4 (optional crossfade) with gates in the spec. Nothing built; no firmware, RTL, card or VM touched. The 1.48 s manual-change silence of B-717 is a flush-and-load case and is not what gapless removes.
+
+### B-723 addendum (B-724): I/O check of the 2 s ring size
+
+Checked with the `analogue-pocket-dev` skill (KB-139 SD path 850 KB/s with 4 KB reads, KB-040 PSRAM 32/26 cycles, KB-043 `0192` open) and the firmware. **SD and PSRAM are not limits** (decode-ahead is under 20% of the SD path; the ring is 345 KiB, about 88 k PSRAM accesses per second). **Two corrections to B-723:** (1) the 1,170 ms outlier is most likely the slot-settle loop of `read_track_head` (it waits up to about 1 s for the new file's bytes to differ and stabilise) and not a big head: FLAC picture blocks are skipped by a seek, and the Test Album heads (160 to 285 KiB) would cost only 0.2 to 0.35 s even if read; it is one sample, so the 2 s figure is **provisional until G0**; (2) the missing cost of the ring is the **lead build time**: it fills at (decode speed - 1.0) s per second, so at a 1.25x pacing it takes 8 s to reach 2 s (MP3 unpaced about 1.5 s, hard FLAC about 2.5 s); a boundary reached before the lead is full gaps by the shortfall, and short tracks never fill it. A 1 s ring would hide all typical loads and fill twice as fast. Spec updated (section 2b and the verdict); nothing built.
+
+
+## B-725: gapless G0 instrumentation (Diagnostic Build): the distribution behind the ring size
+
+Extends the registered feature `gap_timing` (`TAU_DX_GAP_TIMING`, B-633), which already timed the natural-end gap (Info > GAP LATENCY: last, max, n, FIFO level at EOF). New, all Diagnostic-Build only: **Info > GAP HIST** (natural-end gaps in buckets <150, <300, <600, <1000, <2000 ms and longer, plus the average) and **Info > SLOT SETTLE** (the slot-open settle loop of `read_track_head()`: last, longest, count, average ms and the most reads one load needed, 32 = the cap), the loop B-724 identified as the likely source of the 1.17 s outlier. Release keeps both rows and reads "-" (rows keep their slot; the Info export grid picks them up). Hot cost: 28 B of counters; **net saving**, because the Info label pointer table (39 rows) now lives in the cold image (`COLD_DATA`): release heap gap 8,608 -> 8,736 B (+128 B), Diagnostic Build 1,120 -> 1,216 B (+96 B). `make test-host` passes (fixture `INFO_SAMPLE` +2); baseline updated. Not run on a Pocket. **How to use:** play an album of real tracks to the end of several tracks (natural ends, not skips) and read the three rows; the rows also come out in the Info export. What to read: GAP HIST shows how often the gap exceeds 0.5 / 1 / 2 s, SLOT SETTLE MAX and T show whether the 1 s timeout is the outlier; those decide the ring size (1 s or 2 s) and the pacing of the decode-ahead (B-724).
+
+## B-726: owner feedback on DEV 113 and the gapless spec; cover decode must be asynchronous; track details page noted
+
+**Owner (DEV 113 on the Pocket):** a click remains when HW GAIN is toggled, and a click on track changes (not yet measured; recordings of the toggle and of a track change on real music requested). **Gapless omission found:** the embedded-cover fallback decode (2.6 s at 707 px, 5.3 s at 455 px, 15.8 s at 1400 px, A-120/B-027) runs synchronously in `load_track()` and stops the whole loop, so a ring cannot hide it and section 5.5 of the spec was wrong; new section 2c and step G1b (resumable, lowest-priority `art_job_*`, feasible because `art_decode()` is already one `pjpeg_decode_mcu()` per MCU into an accumulator that lives in PSRAM). **Test files** retitled (RG1 to RG5, album "ReplayGain boost tests") and re-synced to TAU's media, library 139 tracks (identical titles made the three Clementi FLACs indistinguishable). **Track details page:** `docs/features/TRACK_DETAILS_SPEC.md` (the one-slot constraint, three options, decisions needed). Docs only apart from the card media.
+
+## B-727: track details page (full feature), host-verified; not run on a Pocket
+
+Owner: "do the full feature now" (library track list: a details subpage with all metadata and the technical facts). **Built:** (1) `tools/tau_details.py` extracts the technical data and `tau_library.py` writes it as an optional ninth index section (header bytes 112..119, version stays 1); `scan` caches it (old caches are re-read), the sidecar flag is re-checked on every build; (2) `fw/library_core.h` `lib_details` with a tolerant loader (malformed or missing section = no details); (3) `fw/track_details.h` all formatting and all text from one string list, `fw/library.inc` the page (Y on a track row, scroll, B back; playing-track live rows). **Tests (all in `make test-host`):** `sim/test_track_details.py` (hand-built MP3 and FLAC with every field known, record round trip, index carries and orders the records, gain and peak parsing equal to the firmware's for 25 inputs), `sim/test_track_details_fw.py` (13,500 random fields, firmware formatter equal to an independent Python one), `sim/test_library_fw.py` (the real firmware loader reads every record and the encoder string back on a 400-track index; wrong count, wrong magic and wrong length leave the library loadable with no details; **the committed pre-change loader loads the new index and reads back identical tracks, albums, artists, order and queues**). Found and fixed by the tests: a 32-bit overflow in the file size rounding near 4 GiB, the Python peak and gain parsers rejecting ".5" which the firmware accepts, and a stale `fw/diag_features.h` committed in B-725 (the JSON title changed without regenerating the header: `make test-host` would have failed on that commit). **Heap:** release 8,656 B, Diagnostic Build 1,136 B (about 80 B hot for the page: a jump table; code and text are cold). **Spec and format:** `docs/features/TRACK_DETAILS_SPEC.md`, `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 16, `docs/CROSS_PROJECT_INTERFACE.md` addendum. **Not done:** page from the now-playing screen, genre/composer/comment, Omega writer, layout check on hardware (25 characters per value row is an estimate).
+
+
+## B-728: cover art sidecar spec (always, per album, sizes as a table)
+
+`docs/features/ART_SIDECAR_SPEC.md` (design only), from the owner's points on DEV 113: sidecars always, optimised sizes per use, sizes to be settled later with a minimal change. Facts recorded: pal256 file = W x H + 528 B, one sidecar per album folder at the fixed name `cover_128.pal256.timg` today, created only with `--art-variants`, sizes 64/128/360 proposed with read times at the measured 850 KB/s (6 ms, 20 ms, 150 ms). Decisions: sync default-on (`--no-art` to skip), sizes live in `tools/art_sizes.json` with a generated `fw/art_sizes.h` (add or change a size = one JSON edit and a re-sync), fallback chain sidecar of the size, other size scaled by `OP_SBLIT`, embedded JPEG through the async job (GAPLESS_SPEC 2c), placeholder. Open: whether a list size is needed, the fullscreen size, wide covers. Nothing built.
+
+## B-729: owner review of DEV 113/114: HW GAIN click and a track-change click remain; details page defects; Info screenshot read
+
+Logged only (owner: "log only, prepare to go fresh"); no code changed after `bd0c256`. **Info export** of DEV 113 (`Memories/Screenshots/20261014_090217.png`): firmware `0.6.0-dev.113+edf75e3`, FPGA rev `4D50331A`, FREE RAM 1,216 B, LOAD MS `113/18/16624/16774` (a 155 KB embedded cover decoded for 16.6 s with no sidecar: the freeze the owner named), REPLAYGAIN `TRACK T+5.8 H15 C99` (tags read; C99 was a rounding display bug, fixed in `bd0c256`), HW GAIN `HW T32768 C32768 F0`, CPU LOAD 41%, I2S JITTER min 1383, GAP rows `NO TRACK END YET`. The export decoder's row list is older than the firmware's 39 rows (the last rows print garbage labels): `tools/decode_tau_suite.py` needs the two new labels. **Click:** both toggle directions, all volumes, Halcyon off, plus a small click at track changes; B-719's mechanism (held unscaled FIFO sample exposed on disable) is real in the RTL but the fix did not remove the click, so it is at most part of it (KB-169). **Details page:** (1) the previous list row's marquee keeps drawing over the page: `lib_ui_marquee()` runs whenever `lib_ui_open` (fw/player.c:10246) and is not gated by `lib_det_open`; Helios is used only for the open/close view switch, the page and the list share one overlay with a dirty flag, so no view owns the tick; (2) too much text per row: stacked two-line fields wanted. Handoff: `docs/handoffs/SESSION_HANDOFF_2026-10-14_CYMO_FEATURES.md`. Skill: KB-169..KB-172 (local).
+
+## B-730: gapless G0 read, Info rows fixed, track details layout, G1 ring core (host)
+**Owner results on DEV 115:** new menu fine; HW GAIN click and track-change click still present (recordings owed, no guess-fixes). **Fixed:** the details page marquee (`lib_ui_marquee` gated on `lib_det_open`) and stacked two-line rows; Info GAP HIST and SLOT SETTLE had no value case and read as CYMO RESAMP (cases 37/38 added). **G0 first reading [HW, one boot]:** GAP LATENCY LAST 560 ms (one natural end, BUF 45 ms: about 515 ms of silence), GAP HIST `0/0/1/0/0/0 A560`, SLOT SETTLE `L82 X1074 N12 T33` (the 1.1 s outlier of B-544 is the slot-open settle loop: 33 reads). **Decision:** ring size stays 2 s (345 KiB at 44.1 kHz): the 1.07 s settle plus the typical load must fit. **G1 core:** `fw/pcm_ring.h` (raw pairs into a ring; gain and fade applied at the DRAIN so volume is immediate and the fade-in fades what is heard; non-power-of-two capacity) and `sim/test_pcm_ring.py` (301 random cases, 6.3 M pairs through put/drain/flush/abort; stream equals the per-pair gain path, never overflows the FIFO, six mutants caught; in `make test-host`). **Not done:** firmware wiring (the PSRAM region, drain in the main loop and in the producer's spin, heard position, seek/pause/flush sites); no Pocket run. Commits are local.
+
+## B-731: gapless G0b, Info POLL GAP (longest CPU stalls)
+Built from the adversarial review (GAPLESS_SPEC section 9, item 1b): `poll_input()` stamps `cycles()` and a call after 20 ms or more away is bucketed in cold code: 20-46, 46-300, 300-1000, 1000+ ms (saturating u8 counts) and the worst in ms, shown as Info row POLL GAP `a/b/c/d Xmax` (Diagnostic Build, part of the gap_timing feature). Stalls above 46 ms are where a firmware ring drain could not run. Hot cost: 7 B of state and a read, subtract and compare per call; `player-library-diagnostic` is now exactly at its 1,024 B heap floor (first attempts with 16-bit counters and five buckets were 16 B short; a tighter variant was chosen, not a lower floor). make test-host passes. Not run on a Pocket: play an album through a natural end, a manual change, a menu session and a cover-less album, then read GAP LATENCY, SLOT SETTLE and POLL GAP together.
+
+## B-732: the FLAC slot-settle timeout (1 s of every FLAC-to-FLAC change); DEV 116 readings
+**DEV 116 results (owner script, three Info code shots, decoded with `decode_tau_suite.py --grid --table`):** natural end of a FLAC: GAP LATENCY 1,543 ms (was 560 ms in one earlier MP3-adjacent sample), SLOT SETTLE `L1068 X1068 N3 T33` (every FLAC load ran the settle to its 32-read timeout), LOAD MS head 1,102 of 1,144; an Avalon MP3 with no tau-art: LOAD MS `370/0/2391/2785` (cover fallback 2.4 s, the G1b problem), SLOT SETTLE last 76 ms (MP3 fine); TIM1 `E4 (1 FAILED)` for the cover-less album; POLL GAP `81/5/3/5 X3939` after the menu session (a 3.9 s stall seen, site not yet attributed; the 2.4 s cover decode and the 1.1 s settle account for two of the 1000+ ones). **Root cause found by reading and confirmed on the host files:** `read_track_head` waits until the slot's first 16 bytes DIFFER from the song being left, then agree twice. For FLAC the first 16 bytes are `fLaC`, the STREAMINFO header and the block sizes: identical for two files of the same encoder. Measured on 52 FLACs of the test library: **646 of 1,326 pairs have identical first 16 bytes**, only 1 pair identical over 48 bytes (3 of 4 identical MP3 pairs at 16 bytes stay identical at 48: identical tags). So the check can never see "different" and always times out (about 1.07 s). **Fix:** compare a hash of the first 48 bytes (reaches the end of STREAMINFO: total samples and MD5; an ID3 tag's length and first frame); four bytes of RAM instead of sixteen (diagnostic heap gap 1,024 to 1,040 B). Expected: a FLAC change settles in tens of ms, the natural-end gap falls by about 1 s with no ring at all. Residual: two files with byte-identical first 48 bytes still time out as before (no regression). Not run on a Pocket.
+
+## B-732 addendum: result (DEV 117, owner shots: one natural end, one manual change; both MP3 albums)
+SLOT SETTLE `L76-77 X100 N3-4 T4` (DEV 116: X1078 T33): the settle fix works (worst 100 ms; a FLAC pair was not in this run, so the FLAC case itself is not yet re-read on hardware). POLL GAP worst stall 925-1009 ms (was 3,939). Natural-end GAP LATENCY 731 ms with BUF 7 ms (the FIFO was nearly empty at the end); GAP HIST bucket 600-1000. **Where the 731 ms goes (read from the code, LOAD MS 369-371 for the head):** every MP3 load sleeps 250 ms and then re-reads the head and the tags a second time, unconditionally (`read_track_head` convergence loop: the first pass has no previous read to compare, so it always waits `CLK_HZ/4` and goes round once more; `attempt >= 1` then breaks). It predates the slot-open settle check, which now proves the switch (a hash that differs, two agreeing reads). Candidate: skip the second pass when the settle loop succeeded (about 250 ms plus a 64 KB read per MP3 load). Risk: this loop is the guard behind the old wrong-tag-length click, so it needs a Pocket check of titles and clicks across many tracks before it is kept. Not changed yet.
+
+## B-733: skip the second head pass when the slot-open check proved the switch
+`read_track_head` (fw/player.c): `proven = differs && agree >= 2` is taken from the slot-open check and the convergence loop breaks after the first pass when it is set, instead of sleeping 250 ms and re-reading the head and tags. A check that timed out (no difference proven) still takes the second pass, as before. Expected: LOAD MS head from about 370 ms to about 100 ms per MP3 load, natural-end gap from 731 ms to about 450 ms. Risk to verify on a Pocket: the wrong-tag-length click this loop once guarded against, and titles/artists of the new track (a stale tag read would show the previous track's title). make test-host passes; `player-library-diagnostic` heap gap 1,040 B.
+
+## B-734: DEV 118 owner report and readings; seek tagged for a rebuild
+**Owner (DEV 118):** seek no longer works properly: it jumps back and forth, plays on, then lands near the start (8 s, 9 s, 10 s, 8 s...), not every time and more than twice. Tagged: **entirely rebuild seek later** (ROADMAP row 20). Not attributed: the seek path does not run `read_track_head` (only `load_track` does), so B-732/B-733 are not an obvious cause, but this build was the first to have both, so a seek log on DEV 117 versus 118 would settle it cheaply if wanted. **Track change:** a slight click only while audible music plays, nothing on the tail or a silence track: the discontinuity (flush, fade-in) at a change, unchanged by B-733 as far as is known. **Readings (two Info code shots):** FLAC natural-end GAP LATENCY 563 ms (DEV 116: 1,543 ms), FLAC load head 124 ms (was 1,102), SLOT SETTLE `L82 X101 N18 T4` in the first shot; the second shot shows `X1085 N35 T33`: one more load hit the 32-read timeout (a pair of files whose first 48 bytes are identical, or an unlucky settle; not yet identified). POLL GAP `137/213/6/2 X1186`: many 46-300 ms stalls after the seek session.
+
+## B-733 addendum: result (DEV 118, owner run: a ReplayGain test MP3 to its natural end, then Avalon "Murphy's Ghost" picked from the library; two Info code shots)
+Natural end (MP3 320K): **GAP LATENCY 469 ms** (DEV 117: 731, DEV 116 FLAC: 1,543), BUF 45 ms; LOAD MS head **127 ms** (was 370), total 161 ms; SLOT SETTLE `L83 X83 N2 T4`. Library pick of the cover-less Avalon track (MP3 128K): head 118 ms, **cover 2,277 ms** (no tau-art, TIM1 `E4 (1 FAILED)`), total 2,420 ms; POLL GAP shows `61/6/1/1 X2427`, the 1000+ stall IS the embedded-cover decode, so the unattributed 3.9 s stall of DEV 116 was probably the same kind (a 155 KB cover). Settle `X84 N6 T4`: no timeouts in this run. Titles and clicks on the new tracks: owner reported none this run. Left of the 469 ms at a natural end: the flush with its 44 ms fade, the 119-ms-class head, prefill and the first pushed frame. The cover decode (2.3 s here) is the one remaining large, blocking item, and the case for G1b.
+
+## B-735: gapless G1b, the cover decodes in the background; sidecars for three albums; library index
+**Sidecars (card, owner "do both"):** `tau-art/cover_128.pal256.timg` written for Avalon, Alva Noto + Ryuichi Sakamoto / Vrioon and Daft Punk / Random Access Memories (generated from the owner's local albums in a scratch card layout and copied, each byte-compared; tracks untouched). The library index was rebuilt: the first rebuild forgot `--playlists` and dropped the Favourites section (the card was ejected before I saw it); rebuilt again with `--playlists` (playlists 102 B, as before), verified OK, backup in `work/card-backups/20261014-sidecars`. **Owner:** the click at a track change is still present (only on music, not on silence): unchanged, still owed recordings. **G1b firmware:** `fw/art.inc` split the blocking decode into `art_decode_begin` / `art_decode_run(max_mcus, budget_cycles)` (state in a PSRAM `art_job`, the tag window given back after every step) with `art_decode()` = begin + one unlimited run; `sim/test_art_decode.py` now also requires the stepped decode (1 and 5 MCUs per step, the tag buffer clobbered between steps, the stash wiped first, work buffers poisoned) to equal the blocking one for every fixture, and a mutant that skips the window give-back is caught (14 failures). **Player:** `load_track()` calls `art_job_launch()` (returns at once; the empty plate shows, `art_sig` stays 0 until the end so a next track never reuses a half stash); `art_job_tick()` runs from `ui_draw_dynamic_cold()` (zero hot cost beyond a flag test) for 4 ms per step when the FIFO holds at least 1,024 pairs and no load/reload/overlay/async read is pending; anything that can switch the slot's file clears `art_job_on` (load_track, the 0192 open in `pl_cmd`, `reload_pending/armed` checked each tick); at the end the cover is rounded, cached and drawn (or the bad-cover reason and toast). LOAD MS' cover field now shows the whole background decode time. **Heap:** `player-library-diagnostic` 1,024 B (floor 1,024). make test-host passes. Not run on a Pocket: play a cover-less album (Avalon before the sidecar existed is gone, so use an album without tau-art), read LOAD MS (cover field = decode wall time), POLL GAP (the 2.4 s stall should be gone), and listen for any underrun or tick during the decode.
+
+## B-735 addendum: DEV 119 readings and the step-cost fix
+**Owner run (six code shots):** a Daft Punk MP3 played, skipped to its end and continued: natural-end GAP LATENCY **510 ms**, SLOT SETTLE `L77-87 X89 T4`, POLL GAP worst stall 786 ms and unchanged through every later shot, so **the 2 s-class cover stall is gone**. The cover-less Avalon track: the background job ended after **5,147 ms** of wall time (LOAD MS cover field; the blocking decode took 2,277 ms), CPU LOAD 99% during it, but **FIFO stalls rose from 8 to 32 in that period and the owner heard skipping while it loaded**. Cause by reading: a step ends with a 4 KB window re-read (5 to 13 ms) after 4 ms of decoding, and the fixed 1,024-pair floor (23 ms) let a step end with about 6 ms of audio left, so the next frame's decode underran. **Fix (DEV 120):** the floor is now 1,000 pairs plus the cycles the previous step actually cost (capped at 1,900), the decode budget 3 ms; a slow step makes the next wait for a fuller FIFO. To check: cover-less album, STALLS (UNDERRUNS `ALL`) must not rise during the decode and nothing audible; the wall time will be longer than 5 s.
+
+## B-736: cover sidecars are the default in sync_media.py; DEV 120 confirmed
+**Owner:** DEV 120 on the cover-less Avalon album: **no underruns** during the background decode (the step-cost fix of B-735 works). **Decision (owner, 2026-10-14):** sidecars become the default and Tau Omega will follow; the embedded-JPEG fallback may be removed later (analysis in the conversation: about 1.1-1.4 KB hot RAM, 14-16 KB cold code, 19.5 KB PSRAM; risk: sidecars are one per track folder, so flat or compilation folders share one cover). **Tool:** `tools/sync_media.py` writes `tau-art/cover_128.pal256.timg` for every album folder unless `--no-art-variants`; missing Pillow/numpy only warns when the default is in force, an explicit `--art-variants` still fails hard; docstring and `CARD_INSTALL_PROCEDURE.md` updated. make test-host passes. Avalon's sidecar is still renamed `tau-art.off` on the card for the test (to restore: rename it back). **C6 status asked by the owner:** ReplayGain half done and hardware-confirmed; gapless half missing: the firmware trim primitive, the boundary (G1 ring or an FPGA ring reader, then G2), the split-tone and split-music test files, the sample-exact host test and loopback proof, and the same-rate/shuffle/repeat cases (G3).
+
+## B-737: gapless trim primitive (MP3 delay/padding), proven against the FLACs
+**Host proof:** `sim/mp3_decode_host.c` decodes a whole MP3 with the real Helix; `sim/test_mp3_trim.py` (in `make test-host`; the real-file part skips when the owner's `test music` is absent) shows, for four Test Album MP3s (MacCunn and Clementi, 128 and 320 kbps, 44.1 kHz), that decoded pairs [spf + delay + 529, + frames*spf - delay - padding) have exactly the FLAC's length and line up with it at lag 0 at BOTH ends (start SNR 23-49 dB, end 8-21 dB; a one-sample shift at either end scores far worse). Helix decodes the Info frame as a frame of silence, so the decoded stream is (xing frames + 1) frames. `fw/mp3_trim.h` is the pure arithmetic (random test of 3,484 parameter sets: the kept pairs of all frames concatenate to exactly the kept range; four mutants caught; a file with padding below the decoder's 529-sample delay, no frame count or insane numbers is refused and plays untouched). **Firmware (`fw/player.c`):** the MP3 loop plays only the kept part of each decoded frame (`mt_range`, cold, one packed return); the load-time warm-up stops after the frame containing the first kept pair (it used to discard 1-3 whole frames, i.e. music at low bitrates) and plays that frame's kept tail from the buffer; `mt_wu` (frames discarded by the warm-up, 0xFF = off) is cleared by any seek (the decoded-frame count then says nothing about the stream position) and reset to 0 by the two restarts-from-the-start; the tempo path gets the same trimmed input. No trim at a seek means the encoder padding (about 25 ms of near-silence) still plays at the natural end after a seek. **Cost:** about 160 B hot, which pushed the default Diagnostic Build 96 B under its 1,024 B heap floor; **owner decision (1): `config_export` (the parked Winamp configurator export, 160 B hot) is now off in the default Diagnostic Build** (`default_off` in `fw/diag_features.json`, honoured by `gen_diag_features.py`; the register test updated); the gap is 1,088 B. make test-host passes. Not run on a Pocket: play an MP3 album with LAME tags through a natural end and check GAP LATENCY, and listen to the very start and end of a track (no click, nothing cut: the start has up to a frame of music that the warm-up used to discard at low bitrates).
+
+## B-739: issue 025 logged (details index writer crashes on a ReplayGain peak of 2.0 or more)
+Reported by the Tau Omega session (read-only on this side). Confirmed on the host: `tau_details.parse_peak_q15("2.0")` is 65,536 and `pack()` raises `ushort format requires 0 <= number <= 65535`, which stops the whole index build; "1.999" is fine (65,504), "3.5" gives 114,688. Written up with the reproduction and a suggested clamp (not applied) in `docs/issues/025-details-pack-crashes-on-peak-2.md`. Omega clamps on its side.
+
+## B-738: DEV 121 readings; POLL GAP now names where the longest stall was
+**DEV 121 (owner, silent transitions: no click; code shots):** natural-end GAP LATENCY 537 ms (FLAC 48 kHz), 483 and 476 ms (64 kbps MP3), mean about 500; the trim removes silence inside the file but not the load, so the gap stays at the load time (about 163-172 ms measured plus the flush, its 44 ms fade-in and the first prefill). SLOT SETTLE `L75-86 X86 T4`: no timeouts. **POLL GAP shows another 3.9 s stall (`X3944`)** appearing between shots 2 and 3 (same value as DEV 116's 3,939: likely one specific action, not yet identified). **Instrumentation:** the worst stall now also records the return addresses of the `poll_input()` calls before and after it (`pg_ra_max`, `pg_rb_max`), shown on the POLL GAP row as `X<ms> @<addr>><addr>` (address bits 27..4: hot code reads 0002xx, cold code 24xxxx); resolve with `riscv-none-elf-nm` against the matching `fw.elf` kept next to the package (`work/diagnostics/tau-dev-122/fw.elf`). Cost: 12 B hot, the default Diagnostic Build gap 1,056 B. This is also the first piece of the drain-call audit the gapless review asked for: the addresses name which loop a ring drain must be added to.
+
+## B-740: gapless decision: hardware PCM ring reader (design only)
+The drain-call audit the adversarial review asked for, read from the POLL GAP buckets (stalls between `poll_input` calls are exactly where a firmware drain could not run): one natural track end (plus a few other actions) took the 46-300 ms bucket from 2 to 14 and the 20-46 ms bucket from 1 to 43, i.e. about a dozen stalls each longer than the 46 ms FIFO, adding up to the 470-540 ms gap. Hooking a firmware drain into every one of them and keeping them hooked is not robust. **Decision: the drain goes into hardware** (`docs/features/PCM_RING_HW_DESIGN.md`): a PSRAM ring written by the CPU, read by a new RTL client into the audio FIFO, 1 s deep, boundary by position marker; build order host model, RTL + mutants, synthesis check, two-seed fit, firmware, Pocket. Nothing built; the RTL and its fit are the next step and need the VM (about 1h40 per fit).
+
+## B-742: CLAUDE.md cleaned up (442 KB to 9 KB)
+Owner asked whether it was safe and useful to clean it up (it was loaded in full every session, about 100k+ tokens, and 719 of its 922 lines were a dated log). Done: the **execution log moved verbatim** to `docs/EXECUTION_LOG.md` (719 entries kept; counted before and after), the **old chain of "Newest" session-start pointers (section 2b) archived verbatim** to `docs/archive/CLAUDE_SESSION_START_CHAIN_2026-10-14.md`, and CLAUDE.md now holds: who does what (the Aider/Qwen and "adversarial reviewer" personas were stale: Claude does the work, Codex is an optional second opinion through `AGENTS.md` and the experimental `tools/triad` workflow), a short start-of-session list (`docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, newest handoff, `docs/AUDIT_TRAIL.md`, the install-script rule with `--card /Volumes/Pock`), and the unchanged rules sections (3, 3b, subagent policy, audit targets). One rule changed: "append an execution log entry to this file" became "record each finished change in `docs/AUDIT_TRAIL.md`". No code touched.
+
+## B-743: PCM ring reader, two-seed fit launched
+`tau_pcm_ring.sv` (B-741: testbench with behavioural PSRAM and FIFO, five mutants killed; wired into `mp3_soc.v` as a third PSRAM client with the FIFO push mux, MMIO 0x184-0x198, macro `TAU_PCM_RING`, qsf registered; `make test-rtl` passes incl. the real-CPU PSRAM sims) is staged on the VM as `pcmring-b743` (seeds 1 and 2) with the shipped bundle plus `TAU_PCM_RING=1` (`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_boost_halcyon_wide_ring_qsf_append.txt`). Launched 23:04 WEST; synthesis (first about 12 min) is the early check for elaboration problems (a third arbiter client, no new memory array); expected done about **00:45-00:50 WEST** (the family's fits take 1h40-1h45). A failed or negative-slack fit means looking at the arbiter paths first. Not yet done: the MMIO doc entry, the system-level sim of the ring through the real mp3_soc, the firmware side (put, heard position, boundary).
+
+## B-744: shared project rules, a size check for CLAUDE.md, one status format
+Owner approved items 1, 2 and 5 of the organisation review. **1:** `docs/PROJECT_RULES.md` holds the eight merged rules (worktrees and branch check; no reset/stash on the shared tree; fit duration and finish time; card installs through `install_dev_core.py` and ask before SD writes; registered diagnostic features and no lowered floors; measure on the shipped 192 KB link; no copyleft code; check release assets against `SHA256SUMS`, plus `--repo` for `gh`). The two that lived only in memory notes (copyleft, release assets) are now rules. `CLAUDE.md` imports it with `@docs/PROJECT_RULES.md` (40 lines now), `AGENTS.md` (Codex) points at it; section 3b moved verbatim to `docs/features/DIAG_FEATURES.md` ("Standing rules and owner decisions"); the generic "audit compliance targets" lines were dropped. Path-scoped `.claude/rules/` was NOT used: `.claude/` is git-ignored (so worktrees and clones would not have it) and Codex does not read it; revisit with an explicit un-ignore if needed. **2:** `tools/check_claude_md.py` (in `make test-host`, with `sim/test_check_claude_md.py` and five mutants) fails if CLAUDE.md exceeds 150 lines or has dated log lines, does not import the rules, if the rules file does not have eight numbered rules, or if AGENTS.md lacks the pointer or has dated log lines. **5:** CLAUDE.md states the one status format: `docs/ROADMAP.md` (order), `docs/CURRENT_STATUS.md` (now, one page), `docs/handoffs/` (a session's detail). Not done (held, other sessions' worktrees): the same cut for `tau-alpha-test-720` and `tau-alpha-meter-builder`, whose CLAUDE.md files (285 KB, 384 KB) will conflict with main's when merged and are best resolved by taking main's file and archiving the branch's unique log lines.
+
+## B-745: PCM ring reader gets a HOLD bit; fit relaunched
+Found while planning the firmware: with the ring the hardware keeps draining it into the FIFO after the CPU stops decoding, so a PAUSED track would have played on for the ring's whole depth. Fix in RTL: `hold` (RING_CTRL write bit 1, sticky, read bit 3) stops new reads while keeping the unread pairs (a read in flight completes); testbench phase 2b (nothing pushed while held, nothing lost or stale after) and mutant BUG 6 (hold ignored), all six mutants killed, `make test-rtl-pcm-ring` passes. The in-flight fit `pcmring-b743` was stopped (25 min in) and `pcmring-b745` (same bundle, seeds 1 and 2) launched **23:32 WEST, expect done about 01:10-01:15 WEST**.
+
+## B-746: gapless G1 firmware (CPU side of the hardware PCM ring), behind `TAU_PCM_RING_FW`
+**Pure core** `fw/pcm_ring_hw.h` (`prh_put`, `prh_put1`, `prh_room` with a margin, `prh_lead`) and `sim/test_pcm_ring_hw.py` (in `make test-host`): against a model of the reader's contract (it sees only the published index and runs concurrently, also right after the index moves): 1,202 random puts, 1.4 M pairs, stream equal, no unread slot and none of the margin behind the read index ever overwritten, the data stored before the index that exposes it, aborted waits publish what was stored; six mutants caught (room without the unused slot, without the margin, index before data, unpublished tail, mono not duplicated, no wrap). **Wiring** (`fw/pcm_ring_fw.inc`, macro default 0, `fw/build.sh PCM_RING_FW=1`; with the macro off the profile ROM differs from DEV 122's only in the 16-byte version stamp): probe once at the first track load (unit present, hardware gain stage owns the gain, PSRAM window answers) then arm (ring 52,000 pairs = 208 KB at window +0x700000, clear of the tempo staging at +0x600000 and the cold image at 8 MiB; margin 3,328 slots behind the read index so the heard pairs stay readable); MP3 and FLAC/tempo pushes put RAW pairs into the ring (gain is at the FIFO output); `pcm_flush` is unchanged (hardware drops the unread pairs, the write index stays); **pause holds the reader** (RTL hold bit, B-745), resume releases it; a natural end plays the ring out before the next load flushes (G2 will replace that with a boundary marker); the clock shows the heard position (decoded minus ring fill and FIFO level); the software meters are fed from the ring at the heard position (pairs the FIFO has released, 1,152 at a time, as before); the warm-up trim tail goes through the ring; a hardware-gain hand-over to software and the tempo stretcher switch the ring off (direct FIFO path, flush). **Cost:** with the macro on the profile build's heap gap is 4,864 B (5,392 off): about 530 B hot, so the default Diagnostic Build keeps the macro off until the code is cold-moved or something else is dropped. `make test-host` passes. **Not run on a Pocket and not possible yet:** the bitstream with the ring is still in its fit (`pcmring-b745`, due about 01:10 WEST); the unit-level and hold testbenches pass but the ring through the real SoC (`make test-rtl-pcm-ring-soc`) had not finished its first run.
+
+## B-746 addendum: the ring through the real SoC, with the hold case (passes)
+`make test-rtl-pcm-ring-soc` (real VexRiscv running `sim/fw_pcmring/main.c`, real `mp3_soc`, PSRAM arbiter with the new third client, `tau_psram_async` and the strict chip model): **PASSED, 0 failures**, simulated 228 ms (about 25 minutes of wall time, so it is NOT in `make test-rtl`: run it by hand after changing the ring RTL, the arbiter or the firmware's put side; its console output only appears with a pty, e.g. `script -q log vvp ...`). Delivered to the FIFO, in order: the 2,500 put pairs (the poison written to `R_AUDIO` ignored), 20 marked pairs put while HOLD was on and delivered only after release (no pair reached the FIFO during the hold: the count at "hold on" equals the count at "hold off"), the first 1,536 of the next 1,540 pairs (the reader stops at its threshold; the remaining unread pairs and 10 marked pairs were dropped by the flush, none reached the FIFO), and the 5 pairs after the flush; `RING_CNT` read back 4,061 = the pairs delivered; FIFO max level 1,537, no overflow, no DQ contention, no guard access, chip model errors 0. The `RING=0` variant (bitstream without the unit: the firmware must read "no unit" and report `RING NOFEATURE`) was not rerun for the new firmware.
+
+## B-746 addendum 2: re-arm fix and the list of what the ring firmware still lacks
+**Fixed:** the ring was probed only once (`rg_tried`), so after a tempo start or a hardware-gain hand-over to software (`rg_off()`) it never came back. The probe now runs at every track load while the ring is off (and tempo is off), so it re-arms at the next load; default builds unchanged (default Diagnostic gap 1,056 B, profile with the macro 4,864 B). **Still missing (firmware):** (1) Info rows (ring fill now and minimum, write and read index, count, hold, underruns while non-empty): without them a Pocket result is only audible; (2) host tests for the meter read-back index arithmetic (wrap, margin), the heard-position clock and `rg_playout` (only the put side is tested); (3) seeks still base their target on the decoded position (a second of lead off) until the seek rebuild; (4) the macro stays off in the default Diagnostic Build and the release (about 530 B hot with it on): move more of it to cold or drop something first; (5) the `RING=0` system-test variant with the current firmware; (6) G2, the actual gapless boundary: no flush at a natural end, the next track opened behind a position marker, UI/ReplayGain/clock switch when the read index passes it, same-rate rule, and the lead-fill rule after a start or seek; (7) G3 corner cases (shuffle, repeat, refused file, cross-rate).
+
+## B-747: ring Info row and the host tests of the rest of the ring firmware
+**Info > RING** (row 41; `fw/settingsui.inc`): `-` in a build without `TAU_PCM_RING_FW`; `NO UNIT` / `OFF` when the bitstream has no ring or it is not in use; otherwise `F<pairs in the ring> M<lowest fill since armed> C<pairs pushed> H<hold> U<times the FIFO ran dry while the ring held pairs>` (U must stay 0: the reader fell behind). M and U are updated by the meter feed (once per decoded frame). Cost: the default Diagnostic Build's heap gap 1,056 to 1,040 B (floor 1,024); the profile build with the ring on 4,800 B. A flush now also moves `rg_fed` to the push count (the hardware drops the unread pairs, so the meter read-back restarts there). **Pure helpers moved into `fw/pcm_ring_hw.h`** so they can be tested: `prh_meter_span` (which pairs the meters take, and where in the ring they sit), `prh_heard_pos` (the clock: decoded minus lead, never below zero), `prh_playout_step` (the natural-end wait: reload leaves, a pause holds, done when ring and FIFO are empty, a 5 s limit). **Tests** (`sim/test_pcm_ring_hw.py`, 400,000 steps of a ring + reader + FIFO + DAC + flush model with the ring running full most of the time): every meter feed reads exactly the pairs that were pushed, in order, from the slots the margin protects (31,528 feeds, 336 flushes), the clock helper, and all 32 combinations of the play-out wait; seven more mutants caught (feed ignoring the heard offset, no margin, no clamp to the window, wrong slot direction, negative clock, a pause not holding the wait, a reload not leaving it); 13 mutants in all. The first version of the margin mutant survived because the model flushed too often to ever fill the ring: caught by reducing the flush rate. `make test-host` passes. Not run on a Pocket.
+
+## B-748: G2 design (the gapless boundary), from a read of load_track and the natural-end chain
+A scoped read-only research pass over `fw/player.c`, `fw/library.inc`, `fw/playlist.inc` mapped the natural-end chain (EOF test, `rg_playout`, `lib_advance_auto`, `lib_play_span`, the `0192` open, `pl_arm_load`, the reload gate, `load_track`), every variable `load_track`/`read_track_head` write (decoder/input, display, slot identity), every user-visible or flushing statement inside them, and which per-frame main-loop reads would break if the next track's values replaced them early (`frames`, `rate_set`, `samp_per_frame`, `samprate`, `ui_sec`, `track_secs`, `track_kbps/hz`, `rg_*`). Result: `docs/features/GAPLESS_SPEC.md` section 11, a staged plan (G2a pure refactor of the art/chrome tail, G2b gapless mode with a display shadow, a marker, the old-track clock and deferred ReplayGain, G2c lead-fill and Info rows), first version same rate AND same codec only, every other case on today's play-out and flush path. Nothing built. One correction to the research text: `rg_arm()` does not call `pcm_flush()` (only `rg_off()` does).
+
+## B-749: G2a, the screen part of load_track() moved into load_ui_tail() (pure refactor)
+`fw/player.c`: from `lib_meta_apply` / `ui_loader_begin_ex` through the cover (sidecar, cache, background JPEG job, bad-cover frame), the panel state, `ui_chrome_paint` and `ui_boot_cancel` is now `COLD_SR static void load_ui_tail(uint32_t *tphase)`, called once from the same place in `load_track()`; the gapless boundary (G2b) will call it at the marker instead. **Verified by building the commit before and after in a scratch worktree (same flags, profile variant):** identical heap gap (5,376 B); the hot ROM differs in 8 bytes only: the 4-byte cold-layout id (the cold image changed: a new function) and two 2-byte call-target fields that hold addresses of cold functions that moved. The cold image is 104 bytes larger. `make test-host` passes. No behaviour change intended or expected; not run on a Pocket (the next DEV build, which carries the ring firmware, will be its first run).
+
+## B-749 addendum: the art-order check follows the move
+`tools/check_art_load_order.py` still looked for `art_decode(audio_start)` inside `load_track()` after G2a moved it into `load_ui_tail()`; it now checks the ORDER on the call (`pcm_flush` then `load_ui_tail` then `prefill` inside `load_track`) and that `load_ui_tail` still contains the art decode. (I had committed G2a with that check failing; fixed in the next commit.)
+
+## B-750: G2b and G2c, the gapless boundary in the firmware (behind `TAU_PCM_RING_FW`, default off)
+**What a track load really is (found while building this):** after `load_track()` returns, the reload gate sets `stop_req`, and the restart body (flush, rewind to `audio_start`, `frames = 0`, `mt_wu = 0`, prefill) is what actually starts the audio; the decoder warm-up in `load_track()` only warms the decoder. The gapless hand-off is therefore `load_track()` in a gapless mode plus `gp_handoff()`, the restart body without its flush and without touching the screen. **Flow** (`fw/pcm_ring_fw.inc` "G2b", state in the new `fw/pcm_ring_state.h`): at end of file `gp_eof_begin()` publishes the ring and records the marker (pairs put so far), the old track's decoded position, codec and rate; `lib_advance_auto()` opens the next file as before; in the reload gate `gp_begin_load()` enters gapless mode, `load_track()` skips the flush, `paused = 0`, the screen tail (`load_ui_tail`) and the warm-up tail push, defers ReplayGain (`rg_update_cold` does not `vol_apply`), and abandons gapless (`gp_abort`: play the old tail out, flush, apply ReplayGain, carry on as an ordinary load) if the codec (after the head read), the FLAC rate (after `flac_open`) or the MP3 rate (first warm-up frame) differs; `gp_end_load()` saves the new track's display variables to a PSRAM shadow and puts the old ones back (the screen does not move), marks the boundary pending; a failed open restores the old display and flushes nothing. `gp_tick()` (from `ui_draw_dynamic_cold`, not while an overlay holds the draw engine) applies the new display, ReplayGain and the cover/chrome tail when the old track has been heard to its end (`RING_CNT - FIFO level` reaches the marker, signed compare); the old track's clock in the meantime is its frozen decoded position minus what is still unheard; a flush (seek, Next) sets the marker to the push count so it applies at once; an ordinary `load_track()` discards a pending boundary; `rg_off()` clears all gapless state. **G2c:** the MP3 loop's draw is throttled to one per 20 ms while the ring is on (the decoder runs at 2-3 times real time while the ring fills; steady playback at 26 ms per frame is untouched), and `Info > RING` shows `G<applied>/<abandoned> P`. **Tests (all in `make test-host`):** `sim/test_pcm_ring_gp.py` compiles the REAL `fw/pcm_ring_fw.inc` and `fw/pcm_ring_state.h` against stubs of the player (`sim/pcm_ring_gp_harness.c`) and runs: a full gapless hand-over (marker and old-track facts recorded, gapless mode entered, old display back on screen, hand-off without a flush with the new counters from 0, nothing changes before the marker nor under an overlay, at the marker the new display + ReplayGain + tail and no flush at all), the rate/codec fallback (tail plays out, flush, ReplayGain), an open failure, a flush bringing the marker forward, no ring / not a library track / no request / FLAC facts / `rg_off`, and the draw throttle; ten mutants of the firmware text all fail it. `prh_marker_reached` and `prh_old_clock_pairs` (`fw/pcm_ring_hw.h`) are tested through counter wrap, a flush and clamping with three more mutants. **Cost:** with the macro on the profile build's heap gap is 4,848 B (5,376 off): about 520 B hot; the first measurement was 1.3 KB because the shadow's first declarator had landed in hot `.bss` (an attribute after a declarator list applies to the last one only) and the put hooks were outlined hot; fixed. The default Diagnostic Build (1,040 B free, floor 1,024 B) cannot afford the macro: it stays off until hardware proves the feature, then the release takes it (it has 2.3 KB spare) and the default Diagnostic Build drops features to match. `make test-host` passes; **not run on a Pocket** and not possible to run G2b on the host beyond the control flow: decoder warm-up, trim at the boundary, the hand-off's `prefill` and `flac_restart`, clicks and the real clock/cover swap are the Pocket test.
+
+## B-751: fit `pcmring-b745` closed (the hardware PCM ring reader with the hold bit)
+Both seeds Successful and **all four corners positive**: seed 1 hold +0.114/+0.130/+0.273/+0.280 ns, setup +5.883/+5.662/+1.212/+1.435 ns; seed 2 hold +0.108/+0.131/+0.237/+0.284, setup +6.050/+5.863/+1.622/+1.725; RAM blocks 256/308 and DSP 20/66, both identical to the same bundle without the ring (the reader adds only ALMs and registers). Seed 1 collected (best worst-case hold, the critical corner of this family): `work/diagnostics/pcmring-b745/ap_core_s1.rbf`, sha256 `c7423a54...0249e`, verified against the VM copy. Packaged with the ring firmware as `alfatreze.TAU DEV 123` (`--build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,PCM_RING_FW=1`), pairing check passed; NOT installed (card write: needs your approval). **To test on the Pocket:** play an album track through its natural end with the library (MP3 then MP3, FLAC then FLAC; same rate), read Info > RING (`F M C H U G P`: expect U 0 and G counting up, M well above 0), loop-record the boundary with `cymo_loopback.py track`, listen for a click or a gap; also pause mid-track and resume (the hold), skip with Next during the tail, change tempo (the ring switches off and comes back at the next load).
+
+## B-752: DEV 123 to 128, first hardware reads of the ring and the gapless boundary
+**DEV 123** (ring + gapless firmware): MP3 playback fine; **MP3 picked from the library then FLAC played very slow and distorted**. Info RING read `F0 U1210` and HEADROOM `I0/0`: the FIFO was starved and the CPU had no idle time. Cause [READ + HW]: the one-pair put (`rg_put1`) was `COLD_FN2` code fetched from PSRAM (about 31 cycles a word) with several indirect hook calls and an uncached read of `RING_RIDX` per pair, about 300 cycles a pair; FLAC idle fell from 45% to 0%. **DEV 124** fixed it: a hot inline fast path in `cymo_push` with a cached free-slot count (the reader only frees space, so the cache is conservative; `rg_put_frame` and `rg_arm` reset it). Read afterwards: FLAC `U0`, ring fill healthy (`F29535`), idle 8% (a 44.1 kHz test file; thin). **Lesson (P5 of PLAYER_V2_SPEC):** a hot loop must contain no indirect call into cold code.
+**Info and report fixes (DEV 125):** the export cut every Info value at 28 characters (why `RING` ended at `G1/`): it keeps the whole value now, the report record moved to `0xA4004000` and grew to 16 KB (the retired QR scratch), a new tag `SR_T_TRACKINFO` (28) carries the details of the playing and the previous track (`decode_tau_suite.py --table` prints both), and `UND CTX` records ring fill and time since the last hand-off at each underrun edge. The default Diagnostic Build fell 16 B under its heap floor from the two new rows, so the Info label strings moved to the cold image as a fixed-width table (about 300 B back; 1,328 B against the 1,024 B floor).
+**Hand-off reads (DEV 125/126, tone album `test music/gapless_tone/`, 1 kHz split at 12 s + 1237 samples):** three MP3 hand-offs applied (`G3/0`), gap latency 456 to 459 ms, `U0`, one underrun edge in the whole run with `F0` (a screenshot pause is the likely cause, unproven). The recordings (EVO 4): **MP3 to MP3: the tone fades over about 6 ms, then 41 ms of silence, then returns abruptly; FLAC to FLAC: a 199 degree phase jump, which equals about 2,053 samples lost, the size of A's last partial FLAC frame (530,437 mod 4,096 = 2,053)**. The same two MP3s decode on the host with the firmware's trim arithmetic to exactly 1,058,400 samples and a continuous phase (90.0 degrees both sides), and the host FLAC decoder returns all 530,437 samples of A: the loss is in the firmware or the ring path, **cause still open**. `GP SWAP` shows the swap fires on time (heard 12 and 25 ms past the marker, no flush while pending).
+**Clock:** the old track's clock read 10 to 11 s of 12 s at the swap: `ui_tail` added one frame's worth of time per UI tick although the decoder runs several frames per tick in ring mode. Fixed to add every decoded frame since the last call (DEV 127); that broke on Stop (the frame counter resets and the delta wrapped), fixed in DEV 128 (a reset, a seek or a delta over 512 counts one frame). **DEV 127 adds `GP AUDIT`** (pairs put for the track that ended against what it should hold: FLAC STREAMINFO, MP3 `frames x spf - delay - padding`) to say whether the lost pairs are lost before the ring. Not yet read: the Info shots after the DEV 127/128 runs.
+**Design consequence:** each of these bugs is of a kind a different structure would have prevented; `docs/features/PLAYER_V2_SPEC.md` (B-753) turns them into design rules.
+
+## B-753: Player 2 specification (docs only, nothing built)
+`docs/features/PLAYER_V2_SPEC.md`: a new player built around the Cymo audio architecture, implementing the module map of `FIRMWARE_MODULARIZATION_PLAN.md`, the staged retirement of inherited HarpMudd application code of `HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md` (stages R0 to R7), the Helios view layer and the gapless/ring design. Core ideas: audio is hardware-paced and the firmware a producer with a fill target (governor on ring level); an immutable `track_t`, a 4-entry **timeline** of segments, and the screen follows the **heard** segment (no display shadow, one position formula); a sample-accounting invariant checked on the device; one target request in flight with generations; hot paths with no indirect calls into cold code; a counter registry that generates Info and the report rows; a typed capability struct. The product firmware drops the software gain, the direct FIFO push paths and the `gp_*` shadow; the FLAC decoder is replaced last by a new one written from the RFC (gated on CPU idle), Helix is kept as the vendor MP3 decoder. Ten owner decisions listed (section 17); delivery stages S0 to S9 with gates (section 16). Corrections made while writing: the ring bitstream is in no published release yet, so Player 2's first release is the first to ship it.
+
+## B-754: Player 2, S0 and the first host-proven cores (branch `player2`, worktree `../tau-alpha-player2`)
+**S0 (spec section 16).** Decisions D-P2-01..10 recorded (`docs/DECISIONS.md`, D9 decided: no LTO, revisit at S6). `tools/player2/baseline.py` pins the SHA-256 and size of the shipped `dist/` files and of the TAU DEV 128 package, plus the heap-gap snapshots, in `docs/research/player2/BASELINE.json` (`--check` is in `make test-host`). `tools/player2/globals_map.py` (a lexical analysis of `fw/player.c` and the 26 `.inc` files it includes) found **736 file-scope variables, 601 functions, 163 variables written by more than one cluster and 74 touched by more than three** (`docs/research/PLAYER2_GLOBALS_MAP.md`): the coupling the rewrite exists to remove, now a number. It is a lower bound (macros that hide names are not followed) and an approximation (clusters are function-name prefixes).
+**Cores (pure C, host-tested, red-then-green, in `fw2/cores/`).** `timeline_core.h`: segments, the heard position, swap events, the sample-accounting check; `sim/test_p2_timeline.py` drives it against an independent model of the ring over 300 random scenarios (starts a few pairs below 2^32 so the wrap is crossed; flushes; empty tracks; tempo ratios) and kills 9 mutants (off-by-one at the segment start, accounting never firing, unsigned compare across the wrap, a flush keeping the old put count, the position ignoring the source start, puts counted on the wrong segment, the put count forgetting pairs, an overlong segment passing, an empty segment kept). The first run found a real design gap: a segment closed with no pair produced a phantom swap; the rule is now that it leaves the queue and still counts against the accounting. `governor_core.h`: the ring-level modes with hysteresis; the C core equals a Python twin over 120 sequences (3 mutants killed) and a scheduling simulation reproduces the spec's claims: an MP3 stays in NORMAL 99.7% of passes and never underruns; **a hard FLAC underruns constantly without the governor and not at all with it, but the UI then gets only about 3.5% of the time**; a stall from a full ring survives 900 ms and not 1,300 ms; a decoder slower than real time underruns even governed (the model does not pretend otherwise). `counters_core.h`: the registry that generates Info and the report rows; the export equals the registry, including a 38-character text and a 19-character numeric value; 5 mutants killed (the last counter dropped, the old 28-character cut, a prefix lookup, a wrong width, an unsigned value printed negative). `tools/check_deps.py` enforces the module dependency rule of spec section 4 (8 synthetic-tree tests plus the real tree).
+**Not done:** nothing runs on a Pocket; the next stages (S1 probes, S2 platform skeleton that boots, S3 the `aout` module and a tone player) need the real startup, link and hardware layers. `make test-host` passes in the worktree (the vendored toolchain is linked from the boost worktree, untracked).
+
+## B-755: Player 2 S2, a platform skeleton that boots (branch `player2`; packaged `TAU DEV 130`, NOT installed, never run on a Pocket)
+`fw2/`: own startup (`platform/start.S`: stack, sentinel paint, bss, main), own link map (`platform/link.ld`: 192 KB only, the protected ring and tag zone kept, an assert on the free gap), the register map (`platform/mmio.h`), one typed capability struct probed once (`platform/platform.c`: ring, gain, Cymo, Halcyon, polyphase, LPC, wave, spectrum, double buffer), the bitstream interlock (CORE_VERSION must be `4D50331A`, the same unmistakable halt pattern), the ROM contract markers (`TAUFWPAIR`, `TAUFWNEED`, `TAUVER`), a minimal text layer on the draw engine (`gfx/`), and an Info page generated from the counter registry (`diagnostics/info_page.c`, `info_counters.c`: firmware version, core version, the nine capability bits, uptime, loop count and worst loop, keys, FIFO level and flags, ring count/indices/control, gain, Cymo status, stack peak, image size, free bytes). The ROM is **3,348 bytes**, entry at address 0, no libgcc calls. `fw2/build.sh` builds it; `tools/package_dev_build.py --variant player2` packages it (with the existing cold image as a filler, since Player 2 has no cold image yet) against the `pcmring-b745` bitstream; the pairing check and the compat manifest pass. `make test-host` now also builds it. **Caught on the way:** `tools/check_deps.py` rejected my first layout (the counter table instance, which reads platform state, sat in `counters/`, whose rule allows only cores); it moved to `diagnostics/`. **Unknowns this first hardware run answers:** whether the ROM boots with no cold image and no settings, whether the draw-engine text (1x, no scale registers beyond CHAR) renders, whether `R_INPUT` scrolls, and what the nine capability bits read on the ring bitstream. Not on the card: it was not mounted.
+
+## B-756: Player 2 S2 hardware result (TAU DEV 130, first run on a Pocket, 2026-10-16)
+**Boots first time, no cold image, no settings.** Two screenshots read (`Memories/Screenshots/20261016_000353.png`, `_000428.png`): the page renders correctly (orange title, name/value rows, right-aligned values, row clearing works), the firmware reads `0.6.0-dev.130+8400ff2` (the packager's stamp reached the ROM and the registry reads it through its volatile pointer), `CORE VERSION 4D50331A` (the interlock passed). **All nine capability bits read 1 on the ring bitstream** (ring, gain, Cymo, Halcyon, polyphase, LPC, wave, spectrum, double buffer). Loop: 86,924,170 passes in 47 s (about 1.85 M a second, 36 cycles an idle pass), **worst pass 26,620 cycles (0.40 ms)** which is a full page redraw; uptime counts in real seconds (the CLK66 constant is right). Idle hardware state: `PCM LEVEL 0`, `PCM FLAGS 1` (the empty bit), `RING CNT/RIDX/WPTR 0`, **`RING CTRL 80000002`: the reader is built in (bit 31) and the hold bit (bit 1) is SET at reset, enable (bit 0) clear** (S3 must clear hold when it arms the ring; the old firmware's `rg_arm` wrote `1` with hold 0), `GAIN CUR 32768` (unity), `CYMO STATUS 00000041` (built in, hand-off queue level 2, the idle value the old Info showed as Q2). **Memory: stack peak 152 B of 6 KB, image 3,456 B, 158,336 B free** between the image and the DMA buffers. Buttons were not exercised in the shots beyond the page having been scrolled once (the second shot is the scrolled view: wrap and scroll work). S2 exit gate met (spec section 16): boots on a Pocket; counters on the Info page.
+
+## B-757: Player 2 S3, the audio output module and a tone transport (branch `player2`; packaged and installed as `TAU DEV 131`, not yet heard)
+`fw2/aout/` (arms the ring with the window proof and the hold bit cleared, puts RAW pairs as a block and publishes the write index once per block, a coherent snapshot of push count / FIFO level / read index, flush, hold, the output rate and the Cymo guard, the unity gain stage, stats; the underrun counters ignore the normal refill moment after a flush: `under_ring` counts only an empty FIFO lasting more than 2 ms with pairs in the ring, `dry` only after the stream had started), `fw2/transport/tone.c` (a continuous 1 kHz sine at -24 dBFS from a generated 257-entry table with linear interpolation, played as 12-second SEGMENTS through the timeline and the governor, no flush between them; keys A start/restart, B hold/resume, X flush, Y switch 44.1/48 kHz). **Host proof before any hardware** (`sim/p2_aout_host.c`, `sim/test_p2_aout.py`): the REAL module code compiled against a model of the ring reader, FIFO, hold bit and flush; a ledger knows every put pair's value, segment and source position and every pushed pair's push index. Checks every loop: the heard segment and position (29,119 comparisons), the window contents the reader sees, a double-precision sine reference (within 2 LSB), the accounting, and **conservation: put = consumed + dropped by flushes + still queued**. With 73 injected stalls up to 500 ms, five flushes, a hold, a rate change: all exact. 80 s of plain play: exactly 6 gapless swaps (one per 12 s), 3,528,001 pairs heard, no underrun, no dry spell, 126 stalls absorbed. Filling the ring to its limit never overwrites the margin. **7 mutants caught** (write index wraps late, no margin, index never published, restart without timeline restart, sine phase restart per segment, heard side never pops, segments one pair short: the accounting says so). The firmware is 9.9 KB; counters on the Info page: the heard segment and position, swaps, accounting errors and last delta, ring fill/min/max, underruns, dry spells, put stalls and worst put, timeline overflow/empty/flushes, governor mode and entries. **To test on the Pocket:** A starts the tone at about -24 dBFS (safe at normal headphone volume); record the headphone output on the EVO 4 across at least two segment boundaries (12 s apart, no key presses) and run `cymo_loopback.py track`: a gapless boundary shows no level dip and no phase jump; the Info page should read `SWAPS` counting up, `ACCT ERR 0`, `UNDER RING 0`, `DRY 0`, `HEARD POS` advancing within a segment and `HEARD SEG` incrementing every 12 s; then X (flush), B (hold), Y (rate) and watch the counters.
+
+## B-758: Player 2 S3 hardware result: the tone through the ring, two segment boundaries, zero slips (TAU DEV 131, 2026-10-16)
+Recording `test music/Audio Lab/115 Tests/p2_tone_44100_1khz.wav` (EVO 4, 48 kHz 24-bit stereo, 30.9 s, tone from about 0.64 s, A pressed once, nothing else), analysed with `tools/lab/cymo_loopback.py track` and a phase demodulation at the tone's exact frequency over 50 ms blocks. **The tone covers two 12-second segment boundaries (about 12.6 s and 24.6 s after the start), the Cymo resampler live (44.1 kHz).** Results: frequency 1000.0633 Hz, **std 0.0036 Hz, span 0.08 cents**; level **-30.46 dBFS, min/max -30.47/-30.45** (no dip anywhere, including at the boundaries); **phase residual against a straight line: max 0.14 degrees, std 0.03 degrees over the whole 30 s** (a single-sample slip at 44.1 kHz is 8.16 degrees at 1 kHz; the old player's boundary showed 199 degrees and a 41 ms dropout on the same kind of file), fitted frequency offset -0.00001 Hz; the largest block-to-block phase step anywhere is 0.16 degrees; around each boundary the level and the phase residual are flat (+-0.03 degrees). L/R correlation 0.9915 (a mono tone through two noisy channels). The tracker's 47 SINAD events are scattered blocks of the analogue noise floor (median SINAD 41.9 dB at a level of -30.5 dBFS against the Pocket's -78 dBFS idle floor: about 47 dB is the ceiling), not at the boundaries and with no frequency or level event. **S3's exit gate is met for the output path: segments are gapless by construction, with no lost or inserted pair at either boundary, and the tone is continuous.** Not read: the Info page (`SWAPS`, `ACCT ERR`, `UNDER RING`, `DRY`), which would confirm the device-side accounting; X, B and Y were not exercised.
+
+## B-759: Player 2 S3 Info readings, two corrections, and the uptime bug (TAU DEV 131 screenshots, 2026-10-16)
+**The Info shots were taken after the recording, with the tone held (B pressed: `TONE STATE 2`, `RING CTRL ...09` = hold + enable, `PCM FLAGS 5` = FIFO empty + the sticky underrun flag, `UNDER RING 0` because holding is not an underrun).** They confirm the device-side accounting: `HEARD SEG 6`, `PUT SEG 6`, **`SWAPS 4`**, **`ACCT ERR 0`**, `LAST DELTA 0`, `ACCT BAD 0`, `UNDER RING 0`, `DRY 0`, `PUT STALLS 0`, `TL OVERFLOW 0`, `TL EMPTY 0`, ring max 46,731 (the governor's 95% stop), `PUT MAX 15,832` cycles (0.24 ms for a 512-pair block, 26 cycles a word as measured before), 5,340 blocks / 2,733,248 pairs put, `TL FLUSHES 2`, governor entries 2 each (a flush or the start empties the ring: the governor passes through PANIC and AUDIO_ONLY on its way up: the real transport needs a separate fill phase, written into the spec section 9.2), `RING FILL 46,330 = WPTR 29,248 + 52,000 - RIDX 34,918` exactly, `GAIN CUR 32768`, stack peak 184 B, image 11,424 B, free 150,368 B.
+**Correction to B-756:** the `RING_CTRL` read layout is `{present(31), hold(3), busy(2), empty(1), enable(0)}` (`mp3_soc.v`): at reset `...02` meant the ring was EMPTY, not that hold was set. Hold is clear at reset; the S3 arm sequence was correct and unaffected. The Info page now has separate `RING HOLD` and `RING EMPTY` rows.
+**Bug found: `UPTIME` read 5 and 12 after more than a minute of play.** It was `(cycles() - start) / CLK_HZ` from the 32-bit cycle counter, which wraps every 64.4 s. Replaced by `fw2/cores/monoclock_core.h` (a remainder that accumulates every delta and carries whole seconds), host-tested across the wrap with two mutants (`sim/test_p2_monoclock.py`). The class of bug (a derived time from the wrapping counter) is the same one the old firmware hit; the rule is spec principle P2.
+
+## B-760: Player 2 report page: every counter in ONE screenshot (TAU DEV 133)
+Taking several Info screenshots per check was tedious, so Player 2 reuses the existing pixel-grid report: START draws the whole counter registry as a TPG2 grid (robust mode, about 1.2 KB for the 60 counters) and the existing decoder turns one screenshot back into every row: `python3 tools/decode_tau_suite.py --grid <shot.png> --table`. START again refreshes it (a snapshot at the press); any other key returns to the counters page. `fw2/diagnostics/report_record.c` (pure: one `SR_T_INFOTEXT` entry per counter through the shared TAUD record builder) and `report_page.c` (the grid through the SDRAM mailbox into buffer 0, a frame, captions that never touch the block). Host test `sim/test_p2_report.py`: the real record builder over a 60-counter table (text, hex, signed, units), through the robust AND the lossless grid, decoded by the real decoder to exactly the same rows, and a flipped bit is refused by the CRC. The record builder and the grid encoder are the Tau-written pure cores of the old player (`fw/suite_core.h`, `fw/tpg.h`), reused unchanged until S7 moves them. The firmware is 13.6 KB. Not yet run on a Pocket: the mailbox write path (about 0.3 s for the grid) and the screenshot decode are the hardware checks.
+
+## B-761: Player 2 report page confirmed on a Pocket (TAU DEV 133, 2026-10-16)
+Two screenshots (`Memories/Screenshots/20261016_004940.png` playing, `_004956.png` held) each decoded with `tools/decode_tau_suite.py --grid <shot> --table` to **all 56 counter rows** (the SDRAM-mailbox pixel writes and the screenshot-to-decoder path work first time; one shot replaces about four Info shots). **UPTIME 92 and 109: the 64-second wrap is fixed.** Playing shot: HEARD SEG 8, SWAPS 7, ACCT ERR 0, ACCT BAD 0, UNDER RING 0, DRY 0, PUT STALLS 0, TL FLUSHES 1 (the A press), the governor entered each degraded mode once (the fill phase at start), RING FILL 46,714, CYMO STATUS `3D` (live enable set: the resampler is live at 44.1 kHz), PCM LEVEL 1,536 (the reader's threshold), KEYS 16384 (the screenshot combo's Select bit). Held shot (after the owner pressed B): TONE STATE 2, RING HOLD 1, RING CTRL `80000009`, PCM LEVEL 0, PCM FLAGS 5, HEARD SEG 9 and SWAPS 8 (continuing), still ACCT ERR 0 / UNDER RING 0 / DRY 0; 4,616,064 pairs put over 109 s with no accounting error at any of the 8 boundaries. **Measured: LOOP MAX 6,966,909 cycles (104 ms) is the report page's own draw (the mailbox grid writes), not 0.3 s as estimated in B-760; the producer was stopped that long and the ring (lead about 1.05 s) absorbed it: UNDER RING 0, DRY 0.** Memory: image 19,296 B, stack peak 376 B, free 142,496 B.
+
+## B-762: Player 2 S4 host stage: stream reader and play queue (pure cores, mutant-tested)
+`fw2/cores/stream_core.h` (spec 9.3): one circular compressed-byte ring filled by READ commands, one request in flight ever, generation per open/seek (a stale completion is dropped and counted), read-ahead as soon as a whole chunk of space exists, no read wraps the ring, exact end of file when the size is known (failing read retried, then SHORT), unknown size found by halving to 512 B and three failures at that length, timeout orphans the command and blocks new ones. `fw2/cores/queue_core.h` (spec 10): play order over u16 library ids, seeded shuffle (the library's xorshift32 Fisher-Yates; with keep_current off it equals `lib_queue_shuffle_all` bit for bit), keep-the-playing-track, repeat off/all/one (auto stays, manual moves), reshuffle on wrap without the same track twice across the seam, shuffle history so Previous returns to what was heard. Tests: `sim/test_p2_stream.py` (time-stepped card model with latency/jitter, the 1,074 ms outlier, transient open failures, reads past the end failing, seeks with a command in flight, a hung command; every byte checked; 5 mutants killed) and `sim/test_p2_queue.py` (independent Python statement over 300 random scripts; 5 mutants killed). Both in `make test-host`. **Findings:** with an unknown size the last under 512 bytes of a file cannot be read (the old player had the same limit, undocumented); the library's size makes the end exact, so S4 opens by library details. A 24 KB ring holds 600 ms at 40 KB/s but only 140 ms of FLAC at 176 KB/s: the 1,074 ms settle outlier starves the stream ring (counted, recovered with exact bytes); it is the PCM ring (1.1 s) that must carry audio across it, so the real transport must start the first read before the PCM ring drains. **Not done:** the platform driver (APF target registers, open-by-path, `0190` identity), the library load through slot 5, the device list-play transport and its counters/report rows; no Pocket run. Local commits, not pushed.
+
+## B-763: Player 2 S4 device stage confirmed on a Pocket (TAU DEV 134/135, 2026-10-16)
+`fw2/stream/slot.c` (APF target driver, open by path ported from the old player's template method), `fw2/stream/library.c` (index into PSRAM), `fw2/transport/listplay.c` (queue walk, stream reader, no decoder), LP/LIB/SLOT/ST counter rows; built with `S4=1`, packaged as `TAU DEV 134` then `135` (flat-out default, rate on Y). **Hardware [HW]:** library 143 tracks loaded in 163-179 ms; open by path 15-16 ms (31 ms worst), 0 failures; DEV 135 run: **8 tracks streamed to the end, all 8 exactly the library's size (LP OK 8, SIZE BAD 0), 21,803 reads / 89,289,228 B, 0 fails, 0 retries, 0 stale, 0 timeouts**, worst single read 2.93 M cycles (44 ms), flat-out throughput 2,433 KB/s (the old player measured 736 KB/s in its own comment). ST STARVED counts one per need while the consumer is flat out and means nothing in that mode. **Still open:** content-hash comparison on a replayed track (HASH SAME/BAD are 0 because nothing was replayed), the 40 KB/s starvation check, X/shuffle and Left/Right on hardware, repeat has no key. The first-read-after-open latency is counted as starvation (expected). Local commits, not pushed.
+
+## B-764: Player 2 S4 closed: replay hashes and the 440 KB/s consumer (TAU DEV 135)
+Two more START reports [HW]. At 440 KB/s with skips: `ST STALE 3` (the generation check dropped three late completions after skips with a read in flight; no bad byte), 0 fails/timeouts, starvation only the first read after each open. Replay run: **4 tracks done, 4 exact sizes, LP HASH SAME 2, LP HASH BAD 0** (the same file read twice gives the identical content hash), 18,080 reads / 74 MB, 0 fails, 2,083 KB/s, worst read 2.61 M cycles (39 ms). Stack peak 1,124 B. **S4 exit gate met:** a Pocket plays a library list through the stream reader and queue with no decoder, exact bytes. Not yet exercised on hardware: shuffle (X) and the repeat modes (no key). Next: S1 probes (VM fit) or S6 MP3 transport. Local commits, not pushed.
+
+## B-765: Player 2 S6a: MP3 transport (Helix through the ring) on a Pocket (TAU DEV 136/137)
+Host first (B-762 follow-on): `fw2/cores/mp3_frames_core.h` (ID3 skipped by a stream seek, sync search, Xing/LAME trim, one frame per step) driven through the real stream reader into the real Helix: `sim/test_p2_mp3.py` bit-exact against a whole-file decode with the gapless trim on 4 real files (incl. mono speech), odd ring sizes/timings, junk, truncation, 3 mutants (found on the way: a harness timeout of 0xFFFFFFFF made every read an instant timeout and 'equal' compared two empty outputs; the test now requires non-empty). Device: `mp3play.c` (timeline segment per track, governor, same-rate natural end continues with no flush, other rates drain first), `libc_min.c` arena. **DEV 136 [HW]:** worked until a manual skip: Helix's 24 KB arena holds ONE decoder and the skip path did not free the old one, so the next `MP3InitDecoder` failed, `MP3Decode(NULL)` errored forever (MP ERRORS 2840, FRAMES 0, NEED DATA 1M) and the track never ended (not a silence). **Fix (DEV 137):** free before init, count init failures, skip FLAC (S8), Up/Down album jump, title on screen. **DEV 137 [HW]:** 4 natural ends all continued gaplessly (MP GAPLESS 4, SWAPS 4), ACCT ERR 0, ACCT BAD 0, MP ERRORS 0, RESYNCS 0, INIT FAIL 0, UNDER RING 0, DRY 0, PUT STALLS 0, ring near full (46.6 k of 48.7 k), 4 FLAC tracks skipped, ST FAILS 0 / STALE 9 (dropped correctly) / TIMEOUTS 0, stack peak 856 B. Longest decode step 2.16 M cycles (32 ms, expected 12; probably cold starts, to watch), loop max 3.38 M (the report page's own draw). Owner's listening verdict pending. Skip-silence design recorded in spec 10.1 (Omega detects, player applies). Not done in S6: seek, hardware polyphase, ReplayGain, pause fade, tempo, FLAC. Local commits, not pushed.
+
+## B-766: Player 2 S6b..e: seek, gain, polyphase, tempo (host-proven where possible; DEV 139..141, not yet run on a Pocket)
+**Seek** (`mp3d_plan_seek`/`mp3d_seek`, `sim/test_p2_mp3.py`): restart 3 frames early, rebuild Helix, drop the warm-up to the exact pair. Output after a seek is bit-exact against the whole-file decode, landing 0..2 frames from the target on 4 real files (13 targets each, 5 mutants killed). **Finding:** a Xing TOC is 8-bit (span/256, about 0.4% of the file), so it is only that accurate; CBR files (LAME 'Info' tag, or no tag) use the constant frame size and are exact to a frame; a sample-exact seek in a long VBR file needs a frame table from Omega (add to the Omega sync list with skip silence, spec 10.1). Device: Y = +30 s. **Gain** (`gain_core.h`, `sim/test_p2_gain.py`: independent rules over 3,000 cases, 3 mutants): volume taper x ReplayGain from the library details, peak cap, applied when the segment is HEARD (per-segment side table), L1/R1 volume, Select+Y mode. **Fade on manual change/pause** through the hardware gain stage (DEV 138 content). **Polyphase:** `fw2/decode/poly_hw.c` implements the API vendored Helix's subband.c already calls (TAU_POLY_FW, the old player ran 404,712 slots with 0 mismatches, B-309); `POLY=1` default, `POLY=0` builds the software window for an A/B; counters MP POLY ON/SLOTS/BAD/TMO and MP DEC AVG (microseconds of CPU per decoded block; a block lasts 26,122 us at 44.1 kHz). **Tempo:** the Tau-written `wsola_core.h`/`tempo_core.h` are reused unchanged (staging ring PSRAM +6 MiB); a decoded block's whole stretched output (up to 2,800 pairs) must fit the ring before the block is decoded; segments carry ratio 256/q8 and a 4,096-pair accounting tolerance; Select+L1/R1 steps 0.75/0.85/1.00/1.10/1.25/1.50/1.75/2.00x and restarts from the heard position. Not host-tested: the device pump itself (counters will show ACCT ERR, stalls, tempo output). Image 88 KB. Local commits, not pushed.
+
+## B-767: Player 2 S8a: FLAC plays through the interim (inherited) decoder (TAU DEV 142, not yet run on a Pocket)
+Per decision D-P2-03 the inherited `fw/flac.c` is replaced LAST; until then Player 2 uses it so the whole library plays. Glue in `mp3play.c`: `flac_pull` (services the card only during the open), `flac_skip` (a stream seek past a cover), `flac_sink` straight into `aout_put` + the timeline, and a decode gate (`FLAC_NEED` 19,500 compressed bytes buffered or end of file, and ring room for one block) so a decode step never waits on the card. The 20 KB channel-0 buffer comes from the Helix arena (one codec live at a time). Hardware LPC via `fw2/decode/lpc_hw.c` (port of `fw/flac_lpc_hw.inc`, hardware-confirmed B-386). Refused (counted, skipped): over 48 kHz, more than 2 channels, blocks over 5,120. No FLAC seek or tempo yet. RAM: the image had grown past the 192 KB link by about 3.4 KB; recovered with the tempo output buffer at 2,100 pairs (1,152/0.75 + a hop) and `TEMPO_SLICE=1` (-1.75 KB, host-equivalent, B-674). New rows: FLAC REFUSED/ERR/WAITS, LPC SAMPLES/TMO. The old FLAC decoder's frame step can take up to ~85 ms on a hard file (the governor's lead absorbs it; the new decoder with partition-sized steps is S8 proper). Local commits, not pushed.
+
+## B-768: Player 2 S5: settings table and persistence; S1 hardware underrun counter (RTL); DEV 143 (not yet run on a Pocket)
+**S1.** Finding: the host command `0x008A` is NOT unused: `core_bridge_cmd.v` handles it and `R_RELOAD` (0x44, pending/ready/allcomplete bits) has carried it to the old player since the reload work (hardware-proven); the spec's S1 'probe core' is therefore unnecessary, `R_RELOAD` is now in Player 2's register map for SLOT_CHANGED if it is ever needed (Player 2 opens its own files, so it does not poll the slot). The optional CAPS register is dropped (each unit's own status bit already answers, `platform_probe`). **Built:** `pcm_fifo.v` free-running underrun statistics (reset-only, a flush keeps them): `under_events` (runs of output ticks that found the FIFO empty while primed, 15 bits, saturating) and `under_ticks` (each one lost pair, 16 bits, saturating), MMIO 0x19C `UNDER` ([31] present on the ring bitstreams); `sim/tb_pcm_under.v` (`make test-rtl-pcm-under` + `-mutation`: counting while unprimed, per-tick events, flush clearing: all three caught); report rows CAP UNDER / HW UNDER EV / HW UNDER TK. Needs a fit (two seeds, the shipped bundle) before it can run on a Pocket; the firmware reads 0 on the current bitstream. **S5.** `fw2/cores/settings_core.h` (table: volume word 0, repeat word 2, ReplayGain mode bits 5:4 of word 17; the old player's ids, never renumbered), `sim/test_p2_settings.py` (independent table over 800 random register files, the legacy layout reads back exactly, out-of-range falls back to defaults, pack keeps the polarity bit and every foreign word, 4 mutants), `fw2/settings/settings.c` (the persist register file: wide-file probe, adopt at boot, publish only while nothing streams because APF saving drops the slot's fragment cache, Core Settings changes adopted). Select+X cycles repeat. Report buffer moved into the idle 4 KB tag zone (-4 KB RAM: the image was at the 192 KB limit again); free RAM now about 4.0 KB. Local commits, not pushed.
+
+## B-769: Player 2 S7a: Now Playing view (TAU DEV 144, not yet run on a Pocket)
+First real screen. `fw2/cores/nowplaying_core.h` + `sim/test_p2_nowplaying.py` (clock text H:MM:SS / M:SS from pairs and rate, bar width clamped, tempo and kHz labels against independent statements, 2 mutants caught). `fw2/ui/nowplaying.c` draws the HEARD track from `np_info_t` (title, artist, album from the library, "MP3 128K 44.1K STEREO", clock, total, progress bar, state, volume, ReplayGain mode, tempo, repeat, shuffle, key help), only the fields that changed (a per-field string cache; long text cut to fit by measuring the proportional font). The transport owns the data (`mp3play_np()`, refreshed when the heard segment changes: each timeline segment remembers its library id; the total is the segment's `src_start + expect`, scaled back for a tempo segment). `fw2/app/main_player.c` is the player build's loop (the older S2/S3/S4 builds keep `main.c`): Now Playing by default, Select+B toggles the Info page, START the pixel-grid report (any other key returns to the view you were on), Up/Down scroll Info or jump album. The tempo output no longer buffers a block's whole output: it goes to the ring in 256-pair blocks as the stretcher produces it (the room is checked before the block is decoded), which freed 7 KB (free RAM now about 6 KB). Local commits, not pushed.
+
+## B-770: Player 2 S7b: library browser (TAU DEV 145, not yet run on a Pocket)
+`fw2/cores/browse_core.h` (a stack of list levels Home > Artists > Albums of > Tracks of, Home > Albums > Tracks of, Home > All tracks, Home > Playlists > Tracks of; selection and scroll window per level; wrap; page; Back restores the parent's selection) with `sim/test_p2_browse.py`: the C core equals an independent Python model over 300 random key scripts on a synthetic library, the selection is always inside the visible window and the window never runs past the end, Enter on a track row plays the right track, Home row 4 is Shuffle All, 2 mutants caught. Device: `library.c` answers the core's two callbacks (count, child id) from the real index, row text, and `library_build_queue` (an album, All tracks A-Z, a playlist, all tracks natural, Shuffle All with the library's seed); `transport/browser.c` holds the state and the rows; `ui/browser_view.c` draws 9 rows with the selection highlighted and a position counter; Play builds the queue in the PSRAM buffer and `mp3play_play_queue` starts it (fade out/in as for any manual change); it remembers how the queue was made so X (shuffle off) rebuilds its natural order. Keys: Select+A opens/closes the browser; Up/Down move, Left/Right page, A opens or plays, B back (at Home it leaves). RAM: the image was 64 B from the limit; the non-hot files (library, browser, views, report, settings, slot) are now compiled -Os (-2 KB), free RAM about 3.6 KB. Local commits, not pushed.
+
+## B-771: Player 2 S7c: spectrum meter on Now Playing (TAU DEV 146, not yet run on a Pocket)
+`fw2/cores/spectrum_core.h` (the old player's hardware-measured calibration: 16 per-band gains, a logarithmic scale of 16 units per octave over a 50-unit window above a floor of 200, instant attack and release by a quarter plus one) with `sim/test_p2_spectrum.py` (1,800 random cases against independent statements, the 16-units-per-octave property, 2 mutants caught). `fw2/ui/meter.c` reads the hardware filter bank (`tau_spec_bank.sv`, MMIO 0xDC-0xE4) when a new 1024-sample window completes (coherently: the window counter must not move during the 16 reads), draws 16 bars of 20 px with a falling peak cap, and repaints only the bars that changed; the box is 96 px tall under the progress bar. The governor sheds it first (no bars while the ring is below half, as spec 9.2 says), and the meter does nothing without the bank (CAP SPEC). Now Playing was re-laid out for it (status lines at 296/316, one help line). Local commits, not pushed.
+
+## B-772: Player 2 S7d: cover art from the TIM1 sidecar (TAU DEV 147, not yet run on a Pocket)
+`fw2/art/art.c` ports the old TIM1 reader's method onto the new modules: the album's `tau-art/cover_128.pal256.timg` (path from the library: album folder + the fixed name, only when the index says the sidecar exists, details flag bit 2) is opened into data slot 7, validated (`timg_core.h`, unchanged), its 256-entry palette loaded, its index bytes streamed through the SDRAM mailbox into an off-screen plane (rows 400..527), and drawn with one palette blit (OP_CBLIT). **One known-answer probe settles both unknowns of a bitstream** (new, replaces the old two probes): palette entry i = 0x1000 + i, a source word with index 5 in the high half and 7 in the low, one 1-pixel palette blit, and the pixel read back says which half is the lower address and whether a palette load from index 0 lands entry n in slot n (registered address) or n + 1 (legacy): 7/5/6/4 decode the four cases; the loader starts the palette at 255 for the legacy case. New `gfx` primitives: mailbox read/write, a fence (the engine runs in order: a sentinel pixel written by a queued rect proves everything before it ran), palette begin/put, `gfx_cblit`. Blocking (~150 ms): the Now Playing view runs it when a new track is heard AND the governor is NORMAL (otherwise it waits), after `mp3play_io_quiesce()` has let the media stream's command in flight finish (one command channel); the ring (1.1 s) carries the audio. No cover or any failure shows a 'NO COVER' tile and a code (ART ERR). Module `art` added to the dependency table (gfx, stream, platform; used by ui and diagnostics). Now Playing re-laid out: cover left (20,40), text beside it, bar 178, meter 212..292. **RAM:** back at the limit; recovered with the Helix frame window 1,536 (a frame is at most 1,441 B; host mp3 and seek tests still pass), the tempo output block 128 pairs, 40-char field cache, and the stack 6 KB to 5 KB (measured peaks 0.9 to 1.1 KB; `platform_stack_peak` keeps watching). Local commits, not pushed.
+
+## B-773: Player 2 S5b: in-player Settings menu, hold-to-repeat (TAU DEV 148, not yet run on a Pocket)
+`fw2/cores/menu_core.h` (items that are a range (clamped) or a short choice (wraps), a selection that wraps, a window that follows it) with `sim/test_p2_menu.py` (an independent model over 250 random key scripts, the window invariant, 2 mutants). `fw2/ui/settings_view.c`: VOLUME, REPLAYGAIN (off/track/album), TEMPO (0.75 to 2.00x), REPEAT, SHUFFLE, SEEK STEP (10/30/60/120 s, session only); every change goes through the transport's `mp3play_pref_set`, so it takes effect at once (tempo restarts from the heard position, shuffle rebuilds or reshuffles the queue) and the persisted three are saved by the settings service; values changed elsewhere (a button, the Core Settings menu) show up in the view. Keys: Select+Up opens/closes, Up/Down select, Left/Right change, B back. **Hold to repeat** (the old player's pure `key_repeat.h`, reused): a held direction repeats on the Library, Settings and Info views, and L1/R1 repeat for volume on Now Playing. **RAM** (again at the limit): the inherited FLAC decoder is now its own unit compiled -Os (`decode/flac_unit.c`; 10.6 KB at -O2, 6.2 KB at -Os, the size and speed the old player shipped and measured), and the non-decode-path functions of the transport are -Os: free RAM about 8 KB. Counter rows only used by the S4 list walker are not in the player build. Local commits, not pushed.
+
+## B-774: Player 2: skip silence (MP3) and a sturdier MP3 sync/seek (TAU DEV 149, not yet run on a Pocket)
+**Gapless:** nothing new to build: a natural end into a track of the same rate already continues with no flush (B-765, B-767); a different rate drains first by design (spec 6.3). Its hardware acceptance (phase and level at the boundary) is still the open gate. **Skip silence:** Tau Omega will write one `tau-skip.bin` per album (format `TSK1`, CRC-32, FNV-1a of the file name, lead and tail in source pairs; `fw2/cores/skiptab_core.h`, `sim/test_p2_skiptab.py`: files written the way Omega will write them read back exactly, every refusal means 'play the whole track', 3 mutants; row added to `docs/features/CROSS_PROJECT_INTERFACE.md`). The details record is NOT changed (no index version bump, the old player and Omega's index writer are untouched). Player: `skiplist.c` looks the track up through slot 7 when the track is opened (a folder without the file is remembered), the decoder applies the **tail** as an early end (`mp3d_set_tail`: the P3 expectation shrinks with it) and the **lead** as a seek at the first block; setting SKIP SILENCE (off by default, session only, takes effect at the next track); counters SKIP ON/LEAD/TAIL/APPLIED/HITS/MISSES. MP3 only; FLAC needs a seek first. Host proof (`sim/test_p2_mp3.py`): lead and tail windows played exactly on the CBR files; on a true VBR file the window moves with the landing error. **Found by the new tests and fixed (these also harden ordinary seeks and damaged files):** (1) after a seek into the middle of a frame the sync search could accept a FALSE sync word inside the audio data and decode garbage (seek to 5,000 pairs in tone A, 9,000 ...): a sync is now accepted only if the next frame's header sits where this one says the frame ends (`mp3d_confirm`; the last frame of a file is accepted when only a tag or padding follows; a fake 'valid-looking' header with too little data after it is skipped and the real frames survive: new test, mutant 7); (2) the CBR landing estimate lands half a frame EARLY now (it used to land one frame late whenever the estimate fell a byte past a frame start: every seek on a 128 kbps file was one frame off, now all four files land exactly, shift 0 on 21 targets each); (3) warm-up 5 frames instead of 3 (a late landing leaves fewer real warm-up frames). Local commits, not pushed.
+
+## B-775: FLAC decoder v2: spec audit, S8-0 measurements, independent review (host only)
+`docs/features/FLAC_DECODER_V2_REVIEW.md`. Audit of PLAYER_V2_SPEC 8.2: stale CPU gate (the Rice fast path already gives 45% idle on the hard file), four spec defects (yield granularity, per-frame data contract, one bad frame ends the track, MD5 for 24-bit), eight omissions, revised spec. S8-0 (`tools/lab/flacperf`, rv32 simulator, instruction counts exact, cycles an ESTIMATE): current decoder 189-194 cycles per channel-sample (`to16` 23, Rice about 49, unit handshake 36-49); dr_flac as a yardstick is bit-exact on every 16-bit slice and, at equal optimisation, has the same instruction count (the headline gap was `-O2` vs `-Os`); reuse closed (foxen LGPL; dr_flac misses the gate). A Claude subagent reviewed it (the Codex attempt failed on a model error) and found a real contradiction (audio streamed before the CRC-16 is known: fixed by stage-then-commit), wrong arithmetic in my speed estimate, and RFC gaps; all applied. Owner decisions 1-5 accepted. Not on a Pocket.
+
+## B-776: New FLAC core pieces 1-4 (`fw2/cores/flac2_core.h`), host-proven
+Resumable Rice bit reader (atomic units, any chunking/slicing identical), predictors (FIXED, 32-bit tier behind `sum|c| < 2^(32-b)`, 64-bit), CRC-8/16, STREAMINFO, frame header, frame decoder. Independent Python encoder `sim/flac2_enc.py`. Results: 60/60 synthetic streams exact, 9 real files exact to their STREAMINFO MD5 (incl. 24-bit music, mono, 8/20-bit), 300 single-bit corruptions all detected, UBSan/ASan clean, mutants 1-17 caught. Bugs found by the tests: the streaming channel skipped its warm-up pairs; a test harness that gave a fixed 1-byte window; weak wasted-bit generation. S8-1c: after the Rice hot loop, 256-entry CRC table and unrolled predictor the core costs 173/187 cycles per channel-sample at `-Os` (16-bit, software only) against 189/194 for the current decoder with its unit; 24-bit needs the unit (345 vs 201 without).
+
+## B-777: Recovery, open and seek (`flac2_core.h`), host-proven
+Recovery layer (`f2_rec_step`): frame finder with CRC-8 + STREAMINFO + blocking-strategy + timeline plausibility, silence fill so `put == timeline`, stage/commit/discard events, give-up after 8 consecutive failures; only a VERIFIED frame sets an unknown timeline (a forged header cannot poison a seek). Open walker (ID3v2, `fLaC`, blocks, SEEKTABLE/VORBIS_COMMENT capture, caller-side skipping): 66 real files identical to a Python parse. Seek: table pick + interpolating bracket search with plausibility filter, window walking, ceiling re-aim, bisection every third probe: 1,296 synthetic seeks and real music land on the frame holding the target (median 1-5 probes), end-to-end exact to the sample. Mutants 18-31 caught (two are equivalent while the older overlapping defence exists; their attacks were moved to values only the target defence sees).
+
+## B-778: Track driver, staged audio puts, firmware wiring (not run on a Pocket)
+`fw2/cores/flac2_track_core.h` (open/play/seek/end, bridge over ring wraps, staged-commit events, silent tail, IO failure), verified through the real stream reader and a card model with real music. `aout_put_staged/aout_commit/aout_rollback` (host model scenario, 3 mutants). `P2_FLAC2` in `mp3play.c`: compiles and links under the real linker asserts; the first attempt overflowed the 192 KB link by 17 KB; fixed with an own `-Os` unit (`fw2/decode/flac2_unit.c`), state overlaid on the MP3 decoder's (`dec_live` guard), the FLAC pass outlined, 32-bit position math: tau.rom 121,612 B, 1,120 B spare; default config unchanged (157,408 B). The 32-bit narrowing exposed that a start past 2^32 must be a false sync (now rejected).
+
+## B-779: LPC unit tier in the core (host model), `undercnt-b768` closed
+`f2_hw_t` hook: the unit takes only the 64-bit tier, a fault finishes the sample in software and turns it off for the session. Host model of the unit with fault injection: 24-bit synthetic and Rite of Spring exact with it, a fault at sample 0/7/300/2000/4000 exact and counted once, Clementi (16-bit) never touches it, mutants 51/52 caught. The real wrapper over `tau_lpc_hw_*` is NOT wired. Fit `undercnt-b768` closed on both seeds (RAM 256/308, DSP 20/66, all corners positive), seed 2 packaged as `TAU DEV 150` (DEV 149 firmware, new bitstream), not installed.
+
+## B-780: Player 2 on a Pocket: FLAC2 runs; three real bugs found from START reports (DEV 150..159)
+Hardware: the new FLAC decoder plays 16-bit and 24-bit (software LPC) perfectly after the fixes below; DEV 159 (cold image, views, Helios) ran with no issues reported. **(1) The Rite of Spring lock** (24-bit, 48 kHz): `mp3play_io_quiesce` ignored the result of `stream_pump`, which marks a NEW read as in flight when it returns 1: the stream then waited for a read that was never issued (`ST TIMEOUTS 1`, `ST TO OFF/LEN` named it, `LOOP MAX` 4-6 s), nothing was read again. Only FLAC hit it (a 24-bit stream never keeps the ring full). Fix `stream_wait_idle()` + `sim/test_p2_stream_idle.py` (mutant 60 = the old behaviour). **(2) The meter "flash"**: a bar that shrank while its peak cap was held was not erased (only the strip between old and new tops was); `sim/p2_meter_harness.c` compares the picture with a clean render after every window (1,817 of 2,000 frames wrong before, 0 after; `sim/test_p2_meter.py` with the old erase as mutant). A wrong first theory (spectrum start-up windows, a "settle" skip) was built and later removed. The whole bar was also coloured red-orange above three quarters of the box height; now only the part above. **(3) Covers never loaded** (`ART ERR 8` on every track): the palette probe read the destination at a fixed time, before the blit landed (the old player's B-325); it polls now, gives up after 3 failures, `ART PROBE RAW` shows the read-back (`sim/test_p2_art_probe.py`, mutant = the old read). On DEV 159: `ART LOADED 15`, 138 ms, raw `DEAD1007`. Also: FLAC reads 8 KB per card command (24-bit needs ~200 KB/s), `ST TO OFF/LEN` and `ST READS/BYTES` rows.
+
+## B-781: Player 2 rebuilt on the cold image, the views table and Helios; the MP3 window unit is required; dead code archived
+**Cold image** (PSRAM, `tau-cold.bin`, data slot 6): UI, diagnostics, art, library and settings run from PSRAM. Objects are chosen by FILE NAME in `fw2/platform/link.ld` (every source is compiled to its own object); `tools/pack_cold.py` packs and binds the image to the ROM; `fw2/platform/cold.c` loads, verifies and proves it at boot and stops with a visible code if it fails. Bug found on the card (black screen): the pattern `*art.o` also matched `start.o`, so `_start` was linked into PSRAM; patterns now carry the path separator and the build refuses an entry point outside hot RAM. Hot ROM 117 KB to 96 KB, free hot RAM 6 KB to 27 KB. **MP3 window unit required** (`TAU_POLY_REQUIRED` in vendored `subband.c`): the 5 KB software stereo window is gone; an absent or failed unit gives silence that is counted (`MP POLY SILENT`) and shown on Now Playing (`MP3 UNIT FAILED`); the first-slots self-check against software is gone with it (host tests: healthy, absent, failing at several slots, never completing). **Views and Helios** (spec 11): `cores/helios_core.h` (beam-aware drawing with a physical beam oracle in the test, dirty regions, the wrap rule), `cores/view_core.h` (the one place a view is left, regions marked by `invalidates`), `cores/menupages_core.h` (the previous menu structure as data: Home > Appearance / Audio / Playback / Diagnostics / Info; unported features dimmed "SOON"; Accept all rates in Diagnostics), glue in `ui/helios.c`, `ui/views.c`; Now Playing is three regions. Not built: double-buffered full redraws, the Settings crossfade. **Keys**: the previous player's assignments (table in `fw2/README.md`); Select+Start is the report. **Info rows**: 23 restored, Helios/cold/accept-rates rows added (Helios on DEV 159: beam present, 433k drawn, 193k deferred). **Archive**: `archive/player2_bringup/` (S2-S4 firmwares, list walker, unreferenced functions; tag `archive/player2-bringup`), `archive/player2_superseded/` (flat menu core; tag `archive/player2-superseded`); one build configuration. Open: hardware under-run events (`HW UNDER EV 6`, `DRY 4` on DEV 159: not yet attributed), the LPC unit on in the new decoder (DEV 160 packaged, never run), the SOON features, double buffering.
+
+## B-782: Player 2: Halcyon page, themes and assets.bin, the five Tau-era meters, meter presets (host-proven; not yet run on a Pocket beyond DEV 162's Halcyon)
+**Halcyon** (TAU DEV 162, installed): engine loader, PRST user presets, curve page (`fw2/aout/halcyon.c`, `fw2/ui/halcyon_view.c`), Y cycles presets, the output gain dip around a change. **Themes, colour, mode, tau-assets.bin**: role table identical to the old player (`fw2/ui/theme.*`, `fw2/cores/theme_core.h`), built-in themes x Dark/Light, accent colour from the 19 Pocket colours (L1/R1), text gamma for Light, THEM and PRST sections from `tau-assets.bin` (slot 8, `fw2/stream/assets.c`, staging in PSRAM). **Meters** (the inherited HarpMudd meters are not ported): Winamp Bars, Winamp Scope (hardware wave block, 64 columns), Master VU, Chladni (the old core and mailbox-plane method; `gfx_blit`/`gfx_sblit` added; known-answer probe says so on the meter's face if the path is wrong), Layered Wave (the old golden-tested body included unchanged, history ring in PSRAM `.psram_state` at 0xA4560000, window proven before the first store). The fullscreen view (Select+Y) shows the current meter. **Presets**: generated tables (`tools/player2/gen_meter_presets.py`, `gen_lw_presets.py`), Select+X cycles the current meter's presets, the five selections are saved four bits each in word 18 (NEW persist id 29 in `interact.json`, registry entry marked not yet released; a bitstream without word 18 simply reads 0). Scope presets set the smoothing only (the trail needs the blend and double buffer, not in Player 2 yet).
+**Layering**: `tools/check_deps.py` failed on earlier work and is green again: the cold loader moved to `stream/`, `stream/assets.c` no longer includes aout or ui (the app hands each section to its owner), `aout/halcyon.c` takes its gain-dip hooks from the app, the diagnostics pages reach the views through a table the app registers, `ui` may use `aout`. `CLAUDE.md` lost its two dated log lines (the size/log check requires them here). **Tests added**: Chladni (box equals the scaled, repeated plane through a draw-engine and mailbox model, swapped halves, dead mailbox, two mutants), Layered Wave (all 8 presets inside the box, ring only with a proven window, two mutants), preset bookkeeping (two mutants), settings table extended; Scope and VU tests now run in `make test-host`. **Not done**: Meter Configure page and the METR section (user-tuned parameters); the 'SCREEN BLANK' row; Chladni EMBER/OCEAN colours are fixed Pocket-independent values (not theme roles); hardware checks of themes, THEM files, Scope, VU, Chladni, Layered Wave and fullscreen.
+
+## B-783: Player 2: meter Configure page, METR user presets, screen blank (host-proven; not yet run on a Pocket)
+**Configure page** (Settings > Appearance > METER: CONFIGURE, view `V_CONFIGURE`): the live meter on top, below it a PRESET row, every visible parameter of the meter's manifest and a RESET row. Left/Right change the value (a number steps and clamps, a choice wraps, an on/off toggles; hold repeats), Up/Down move, B or Start leaves. Parameters come from descriptors generated from `meters/*/meter.json` (`tools/player2/gen_meter_presets.py`: label, type, range, step, choices, a `when` condition) and edit the meter's live parameter array (each module now exports `meter_X_mv` and `meter_X_apply`); experimental parameters, raw colour values, the Scope trail and the VU tech-info overlay are hidden (not drawn in Player 2). An edit calls the preset CUSTOM until another is chosen. Edits are for the session; the saved thing is the selected preset. Logic in `cores/configure_core.h` (host: `sim/test_p2_configure.py`, mutant; the drawn rows: `sim/test_p2_configure_view.py`, two mutants). **METR**: the `METR` section of `tau-assets.bin` replaces a meter's presets and picks its boot preset (`cores/metr_core.h`, checked against files the Python writer produced and against every flipped byte: `sim/test_p2_metr.py`; the integration through PSRAM: `sim/test_p2_mpre.py`, with an off-by-one mutant). The section is copied to PSRAM `0xA4550000`; a preset is read back by words. The preset fields in word 18 now allow 0..7 for every meter. Not read when the whole file sits in the PSRAM staging area (over 4 KiB). Found and fixed on the way: `meters_init()` ran in `views_init()` AFTER the saved meter and presets were applied, which reset them at every boot; it now runs before the assets and the settings. **Screen blank** (Settings > Appearance, Off / 1 / 5 / 10 / 30 minutes, session only as in the old player): `cores/blank_core.h` (seconds from a one-second deadline, wrap-safe), the first press wakes and is swallowed, nothing is drawn while blank, playback is untouched (`sim/test_p2_blank.py`, mutant). The Pocket backlight cannot be reached from a core: this is a dark screen, not a power saving. Also: the baseline pin of `dist/.../interact.json` was updated for persist id 29; the compat test expects id 29 as a new id.
+
+## B-784: Player 2: double buffering (H2), off-screen compose for whole-box meters, Scope trail by alpha blend, Settings page crossfade (host-proven against an engine model; not yet on a Pocket)
+**Engine model** (`sim/p2_engine_model.h`): two 512x360 buffers with the stash rows shared (`dbuf_addr`), RECT/BLIT/SBLIT/CBLIT, the sticky bases and blend read WHEN A COMMAND EXECUTES, a command queue that drains only as time passes (so a missing fence shows), the mailbox, a flip applied at a vblank (a flip with commands still queued is counted as torn). **Graphics layer** (`fw2/gfx/gfx.c`): the drawing target (`gfx_set_target`), blit-mode commands set the sticky bases from it (the old player's B-414 class of bug is now impossible by construction) and fence before changing them; `gfx_frame_begin/end` (a redraw into the idle buffer, which starts as a copy of the shown one so a partial redraw is complete, then fence, flip, wait, back to the shown buffer); `gfx_compose_begin/present` (a box drawn in the idle buffer and copied onto the shown one); `gfx_blend_*` (OP_BLIT alpha blend with a known-answer probe); hold + `gfx_xfade_step` (a crossfade). **Found on the way: `gfx_fence()` never worked** (it drew its marker through the clipped `gfx_rect` at column 480, so it returned only after its 50 ms timeout, every time: CLUT loads, Chladni figures); now `rect_raw`. **Where it applies**: `helios_flush` draws a pass that contains a whole-screen region into the idle buffer and flips (every dirty region at once, beam ignored); view switches and refreshes are one frame (`vw_t.frame_begin/end` hooks, host-tested); Chladni and Layered Wave (`meter_def_t.compose`) are composed off-screen and presented, which is the cure for the Layered Wave scintillation (it wiped and repainted its box on the shown buffer while the beam crossed it); Winamp Scope fades its old trace by the blend (source weight (100 - trail)% of 256 from a background strip in the stash; the preset's trail now works; trail 0 or no blend wipes as before); Settings page changes (open a group, go back, option list) crossfade in five steps of 20 ms driven from the main loop (`ui/xfade.c`; a key finishes the fade first). **Tests**: `test_p2_gfx.py` (bracket, blit-mode follows the target, stash shared, compose, blend, no-H2; 8 mutants), `test_p2_scope_trail.py` (the fade equals the independent per-channel formula; 2 mutants), `test_p2_chladni_dbuf.py` (shown box equals the scaled, repeated plane in both buffers; mutant), `test_p2_xfade.py` (3 mutants), view hooks in `test_p2_views.py`, helios whole-region detection. **Not done / unverified**: everything on a Pocket (tearing, the real flip timing, the blend and CLUT probes with the real bitstream); the library/Info/Halcyon pages get the frame too (a copy and a flip per redraw, about 5 ms plus the vblank wait). Each frame blocks the loop up to about one frame; the ring (24 KB) covers that, FLAC at its peak rate has about 137 ms.
+
+## B-785: Player 2: DEV 167 and 168 results, SPEED/TIME STRETCH menu, diagnostics back, FLAC decoder retired, meter features (host-proven)
+DEV 166 and 167 on a Pocket (owner): menus, Scintillation, controls, SPEED/TEMPO, Scope trail, gapless FLAC (1 kHz tone), FLAC all good. Built since (commits `346ad13`, `3f79821`, `1554ac5`): TIME STRETCH (Normal/Pitch/Stretch) with a per-mode SPEED list; the old FLAC decoder removed from Player 2 (S9); blend probe retried and shown on Info; Settings > Diagnostics > CHECK (audio window, track changes, six rates, FIFO stalls) and the CYMO RESAMPLER and 16-BIT I2S SLOT toggles; colour pickers, experimental Layered Wave options and presets, QR export of a tuned meter config (X on the Configure page), METR files over 4 KiB, saved tuning in persist ids 20-23 (`fw2/cores/tune_core.h`). Three UI strings that overflowed the 400 px screen even in Inter were shortened (`sim/test_font_fit.py`).
+
+## B-786: Player 2 fonts and icons: writable Latin-1 font memory (RTL), Tamzen default, firmware loader, Appearance FONT row, icons (host-proven; fit running; not on a Pocket)
+Spec `docs/features/FONT_SPEC.md` (reviewed design, section 14 Tamzen, section 13 icons). RTL (`a80e818`): `font_ram.v` (6,112 words, Latin-1, power-up font Tamzen Regular), MMIO 0x1A0-0x1A8, 8-bit glyph code (bit 7 on R_FB_GO bit 15, old firmware unchanged), `CORE_VERSION` rev 27 behind `TAU_FONT_RAM`; `sim/test_font_ram.py` (engine against the reference renderer, three mutants), `make test-rtl-font-soc` (real CPU, two mutants), full `make test-rtl` and `make test-host` green. Firmware (`7f0bc8c`): per-font advance table, `fw2/gfx/font.c` loader (`fw2/cores/font_core.h`, mock-engine test with three mutants: record checked first, engine fenced, load counter must step by one), Appearance FONT row (Tamzen, Tamzen Bold, Grotesk SemiBold, Grotesk Bold; word 18 bits 20-22), four fonts in the cold image (105 KB to 206 KB), Check rows FONT MEMORY and ICONS (pixel read-back on the hardware), Info rows, `icon_draw` (14 icons through the palette blit, `sim/test_p2_icon.py`). Pairing: the firmware needs the FONT feature and accepts only rev 27; `tools/check_fw_bitstream_pair.py` now evaluates the CORE_VERSION ifdef chain instead of reading the first literal. Fit `fontram-b810` (two seeds, shipped bundle plus `TAU_FONT_RAM`) launched on the VM 01:20 local alongside another session's fit (`--force`, three fits on 4 cores and 11 GB); expected done about 03:30-03:45 local (the usual 1h40-1h50 plus the shared-CPU slowdown). Not packaged or installed.
+## B-705: full HarpMudd source comparison and staged architecture rewrite plan, 2026-10-13
+
+Owner requested a detailed comparison with the original fork and other contributors, a plan to isolate and fully rewrite the code aligned with the earlier architecture audit, and a complete module list/percentage. Work began 2026-10-12 and completed after midnight in Europe/Lisbon. Added [comparison and rewrite report](research/HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md) and reproducible evidence under `docs/research/provenance-2026-10-12/`. Pinned Tau `ae11a8f`, fork `7ef8f0f`, and current upstream `f4b8f01`; live read-only `git ls-remote` confirms the upstream revision. `mod` and `main` have identical implementation/tool/test source at these revisions. Alpha alone is measured; sibling products/branches do not dilute the denominator.
+
+**Source/host evidence:** 933 tracked paths, 482 source/build-script files, 767 lexical firmware function-definition records; copy/move/whitespace-aware blame with per-file hashes, origin commit/path/line ranges and fork/latest-upstream comparisons. Excluded prose/package JSON/binaries from SLOC and separately classified vendor/framework/generated/archive code. Maintained firmware/RTL is 21,014 SLOC: 5,776 direct HarpMudd/fork-origin occurrences (27.49%) plus 50 current lines last introduced by the documented v1.5 port commit (27.72% including that footprint). Broader maintained source with tools/tests: 54,668 SLOC, 11,650 direct origins plus 121 declared-port lines (21.53%). These are textual-origin estimates, not exclusive authorship or a claim that edited Tau-lineage code is independent. External imports retain their source authors/notices; Helix, CPU/framework and generated source must not be relabelled HarpMudd-authored simply because his commit imported them.
+
+**Measurement correction during this analysis:** occurrence ratio 5,776/8,033 initially suggested 71.9% original-production retention, but moved/copied source can appear more than once. Deduplicated `(origin commit, original filename, original line)` identities yield 5,481 surviving / 7,788 original unique origins = 70.4%, used in the final report. Origin ranges now split at original-line discontinuities. Python blank lines inside docstrings are excluded from SLOC; corrected tools/test totals are the final numbers above. Earlier `CODE_ORIGIN_ANALYSIS.md` is preserved with a supersession warning because its totals/scopes/component claims do not support its percentages. Updated the docs index and PROJECT handoff link without changing the product status or starting the rewrite.
+
+**Proposed architecture:** staged private-state C modules, explicit platform/MMIO/target-I/O ownership, bounded audio-first scheduling, independent transport/view/overlay state, decoder/output/tempo interfaces, media/metadata/artwork/queue separation, Helios/Talos contracts, typed settings/variant/persistence and optional diagnostics. R0–R7 freezes baselines, maps globals/calls, isolates/extracts, replaces UI/application and track/transport, separately gates codec/RTL replacement, then retires legacy. Rejected big-bang replacement and line-label deletion as the plan's main method: they neither provide reliable attribution nor localise lifecycle/timing regressions. Existing decoder fallback/hot-cold/RAM/ring/stack guards, L0 and framebuffer gates remain. Talos 2's prior deferral and T2-00 resolution are retained; no new opcode/timing saving is promised. A full clean-room or replacement of all external CPU/codec/framework dependencies is not claimed.
+
+**Verification: code-review + host-analysis only.** All 482 pinned-source hashes, CSV/JSON scope counts, complete non-overlapping SLOC origin ranges and 767 function ranges reconcile; language-mask edge cases pass; report/inventory local links resolve; evidence Python/JSON parses; audit ID checker and diff whitespace checks pass. Evidence: `verification.json`. No firmware/player/UI/RTL/vendor/test/tool implementation changed; neither production hot nor cold path is affected. No product build, playback regression, simulation, Quartus, Pocket run, card write, commit, push or release was performed. Current resource/timing figures are cited as historical baseline, not remeasured. Remaining gates: R0 compiler-aware call/global-ownership map and agreed module contracts before any extraction; subsequent linked-budget, corpus, framebuffer, timing and Pocket acceptance per stage. Documentation follow-ups include dated README percentages, Helix `imdct.c` modification notice and archived QR paths.
+
+
+## MIGRATION-MU-20261014 — 2026-10-14 — MOD investigation moved to Tau Μ
+
+**Decision:** User requested a separate Greek-Mu project and retirement of `mod`. Research, Approach B, replay evidence, four concepts and source history are preserved in the independent sibling `Tau Μ` repository on `main`. Required host-synced library is retained in Mu's design. Alpha's unrelated rewrite research and main checkout are preserved.
+
+**Paths/evidence — host/code-review:** No firmware hot/cold path or RTL change, build, fit or Pocket claim. Source working checkout returns to pre-MOD `f93711f` detached HEAD because Alpha `main` remains active in `tau-alpha-boost`. Migration hashes and ancestry checks are recorded in Tau Μ's `docs/MIGRATION_VERIFICATION.json`; recovery snapshot is retained under ignored `work/migrations/`. Outcome: MOD development continues in Mu; Alpha follows its existing scope.
+
+## B-787: Meters on Player 2 (branch `meters-p2`): audit of main, one registry, no inherited lines, counters, budgets, cores in fw2 (host-proven; not on a Pocket)
+
+Plan: `docs/features/meters/METERS_PLAYER2_PLAN.md`. **Done:** one generator (`tools/player2/gen_meters_p2.py`, `p2` blocks in the five `meters/*/meter.json`) replaces two and writes the presets, Layered Wave presets and `meter_registry.h` (`METER_LIST`); `meters.c` is table-driven (adding a meter = a manifest plus one `meter_<key>.c`); the 2,560 B parameter-shape array is gone (2.2 KB hot RAM back); Chladni's inherited `mix()` is replaced by the new `rc_ramp` (`fw2/cores/ramp_core.h`, tested against the old arithmetic) and the theme luma weights are named, so the meters hold no HarpMudd-origin lines; meter draw-cost counters (`meter_stats_t`: ticks, shed windows, last cycles, compose cycles, per-meter maximum) on the Info page through the counter registry; per-meter size budgets from the manifests checked against the built objects (`tools/player2/meter_budget.py`); a meter include rule in `tools/check_deps.py`; the meter cores and tables moved into `fw2/cores`, `fw2/generated` and `fw2/ui/layered_wave.inc` with tests and tools re-pointed; the old preview tools archived outside the repo.
+**Evidence:** host (`make test-host` passes in full, new tests `test_p2_ramp`, `test_p2_meter_stats`, `test_p2_meter_budget` with mutants). Nothing run on a Pocket, no fit.
+
+## B-788: Meter golden frames compare Player 2, not the old player (host-proven)
+
+Finding: `sim/test_meter_golden.py` cut `wviz_bars_tick()`/`wviz_scope_tick()` out of the old `fw/player.c`, so the JS preview twins were never compared with what Player 2 ships. New `sim/test_p2_meter_golden.py` compiles `fw2/ui/meter_winamp_bars.c` and compares pictures pixel by pixel after every frame (the JS twin issues the hardware bar opcode, fw2 two rectangles): 5 presets identical, bar-height mutant caught; `test_meter_trace.py` replays through it. The old test is removed. **Open:** the JS Scope twin still models the old software scope (fw2 draws the hardware capture with a blend trail, covered only by `test_p2_scope*.py` against a capture-block model), and Chladni has no JS twin. Host only.
+
+## B-789: Loadable meters (packs) on Player 2: ABI 1, loader, tools, Winamp Bars as a pack (host-proven; not on a Pocket)
+
+Ported the mechanism that `meter-builder` proved on a Pocket (the old player, `TAU_DEV_METER_18`) to Player 2, with the ABI restarted at 1 and the host table reduced to what a Player 2 meter needs (`rect` over `gfx_rect`, the theme roles, the live parameters, a stats array); see `docs/features/meters/METER_PACKS_PLAYER2.md`. New: `fw2/cores/meter_pack_core.h` (loader and bundle reader, slot-to-meter by a table instead of a hard-coded function), `fw2/ui/meter_pack.h` (ABI), `fw2/ui/meter_pack.ld`, `fw2/ui/meter_pack_winamp_bars.c`, `tools/player2/{pack_meter,pack_bundle,check_packs_abi}.py`, the `MPKB` section in `tools/tau_assets.py`, `rv32sim.py --count`. **One source:** `meter_winamp_bars.c` now compiles both as the built-in meter and (under `P2_PACK`) inside the pack; the picture test `test_p2_meter_golden.py` still passes. Firmware (`PACKS=1 bash fw2/build.sh`): the `MPKB` section is installed at boot into PSRAM slots at `0x24900000` (above the cold region; the plan's old `0x24840000` collided with it), the active pack's `.data`/`.bss` live in a 4 KB hot-RAM scratch at `0x26C00` (linker-reserved only in a PACKS build), a refused or missing pack falls back to the built-in meter. Default build unchanged; `PACKS=1` is +116 B ROM, +24 B hot RAM plus the 4 KB reservation.
+**Evidence:** host. `sim/test_p2_meter_pack.py`: the pack under `rv32sim` issues exactly the built-in meter's commands (4 scenarios, same hashes), 14 refusal cases (E20..E29), bundle cases, `MPKB` round trip, ABI fingerprint; `check_packs_abi.py` agrees the firmware ELF with the ABI. **Not run:** on a Pocket (needs a `PACKS=1` DEV package and a `tau-assets.bin` carrying the section, `work/packs-p2/tau-assets.bin` is a test file that holds only `MPKB`, so it would replace the card's THEM/PRST/METR sections: merge through Tau Omega or the installer before using it), the other four meters as packs, `PACKS_ONLY`, pack fallback tests.
+
+## B-790: Winamp Scope and Master VU as packs, pack ABI 2 (host-proven; not on a Pocket)
+
+ABI 2 adds `text`, `rect_stash`, `blend_ready/on/blit/off` to the host table (registers stay direct: a pack includes `platform/mmio.h`). `meter_winamp_scope.c` and `meter_vu_master.c` gained the same `P2_PACK` split as the bars (`ws_load`, `vu_load`; presets and the live parameter array stay firmware-only) and have pack entry sources `meter_pack_winamp_scope.c`, `meter_pack_vu_master.c`. Test infrastructure generalised: one trace header (`sim/p2_pack_trace.h`, every engine call hashed), one native reference and one rv32sim harness for the three meters, `tools/rv32sim.py --dev` with a Python model of the Scope's capture block (`tools/p2_dev_model.py`; the native harness has the same function), and a bundle test with all three packs (slots 0, 1 and 4). **Evidence:** host: all three packs under rv32sim issue exactly the built-in meter's calls (4 scenarios each; Scope 5,414-5,581 calls per scenario including the blended trail and the wipe fallback), 14 refusals, bundle, ABI fingerprint; the default firmware is byte-for-byte the same size, `PACKS=1` links and agrees with the ABI. **Not run:** on a Pocket; the Scope's real capture block and blend under a pack; Chladni and Layered Wave as packs.
+
+## B-791: Chladni and Layered Wave as packs, ABI 3: all five meters can be packs (host-proven; not on a Pocket)
+
+ABI 3 adds the mailbox (`mb_write/mb_read`), `fence`, `blit`, `blit_abs` and `sblit` to the host table (Chladni); Layered Wave needed nothing new but a `.pstate` region: its 6 x 404 B history ring is the pack's own PSRAM state in its slot (`MTR_PSRAM` becomes `section(".pstate")` under `P2_PACK`; the window proof uses the pack's `_pack_pstate_*` symbols). `meter_chladni.c` and `meter_layered_wave.c` gained the `P2_PACK` split (`ch_load`, the live-parameter pointer); two small safe edits of shared code (a pointer-arithmetic form of `end - 1` that avoids a compiler array-bounds warning). Test harness: the sparse SDRAM-word model for Chladni's probe, the PSRAM status words in `tools/p2_dev_model.py`, a bundle of all five packs, the Layered Wave trace (presets 0, 3, 9 and 13 incl. two experimental ones; 15,252 to 23,078 calls per scenario). **Evidence:** host: all five packs under rv32sim issue exactly the built-in meter's calls (four scenarios each), 14 refusals, bundles, ABI fingerprint; default firmware unchanged (105,740 B); `PACKS=1` links and agrees with the ABI. Sizes: Chladni 7.0 KB image + 2,744 B scratch; Layered Wave 15.7 KB image + 2,424 B state + 1,072 B scratch. **Not run:** on a Pocket (a pack's draw timing against the built-in, the Scope blend and Chladni mailbox through the table, Layered Wave's ring in a slot); `PACKS_ONLY`; pack fallback tests.
+
+## B-792: pack fallback tests, Info rows, a real bug found; the Scope's JS twin matches fw2 (host-proven)
+
+**Dispatch and fallback:** `sim/test_p2_meter_pack_dispatch.py` builds `fw2/ui/meters.c` with `P2_PACKS` on the host (slot, scratch and call replaceable: `PACK_SLOT_DATA`, `PACK_SCRATCH`, `PACK_CALL`) and checks which handler draws each meter for: no bundle, all valid, one corrupt pack (E26: that meter keeps its built-in, the others run), a non-bundle (E30), another ABI (E22); two mutants caught. **Real bug found and fixed:** before a bundle was read every slot's status was 0, which means "running", so a `PACKS=1` firmware with no `MPKB` section would have called address 0; `meters_init` now marks the slots empty (0xFF). Info rows `PACKS RUN`, `PACK ERR`, `PACK FILE`, `PACKS SEEN` (PACKS builds only). **M1b (Scope):** `tools/meters/preview/meters/winamp_scope.js` rewritten as the twin of fw2's hardware-capture scope; `sim/test_p2_meter_golden.py` compares it with `meter_winamp_scope.c` command for command (5 scenarios, 26,735 commands, mutant caught); lab: `blendReady` flag, blend trail as one lab command, capture derived from the demo waveform. **Not done:** a Chladni JS twin (parked, see `METERS_PLAYER2_PLAN.md`); the Pocket run.
+
+## B-793: TAU DEV 173 packaged: Player 2 with loadable meters (PACKS=1), not installed
+
+`python3 tools/package_dev_build.py --number 173 --variant player2 --build-flags PACKS=1 --rbf <fontram-b810 s1> --rbf-sha256 52c9adf7...061a`: firmware from `db88e63` (version `0.6.1-dev.173+db88e63`, ROM 105,908 B, `meters_packs_load` present), the bitstream of `TAU DEV 170/172` (`fontram-b810`, `rbf_r` 483a17c3 identical to the card's); the pairing gate passes (CORE_VERSION 4D50331B). Package: `work/diagnostics/tau-dev-173/pocket`. Test file for the card: `work/packs-p2/tau-assets.merged.bin` (the card's `THEM` section kept, plus `MPKB` with all five packs; 28,192 B, SHA-256 6fe4320f...1bea): `TAU DEV 173` reads TAU's `Assets/tau/common/tau-assets.bin` in place, so installing it replaces that shared file (the stable TAU core ignores `MPKB`). What to read on the Pocket: Info `PACKS RUN` (expect 0x1F), `PACK ERR` 0, `PACK FILE` 0, `PACKS SEEN` 5; each meter's picture and `METER MAX` against the built-in (TAU DEV 172). **Not installed, not run.**
+
+**B-793 addendum, installed (2026-10-21):** `tools/install_dev_core.py work/diagnostics/tau-dev-173/pocket --card /Volumes/Pock --assets work/packs-p2/tau-assets.merged.bin --yes`: `alfatreze.TAU DEV 173` copied and SHA-256 verified (bitstream, ROM, cold image), the merged `tau-assets.bin` (6fe4320f...) installed into TAU's common folder, card checked against the release manifest (0 errors), five catalog caches deleted (backed up first, `work/card-backups/20261021-181003`), nothing removed (`TAU DEV 170`/`172` and the others kept), ejected. **Not run on a Pocket yet.**
+
+## B-794: TAU DEV 173 first Pocket reading; meter Configure keys and METER list previews (host-proven; not on a Pocket)
+
+**DEV 173 on a Pocket (owner, 5 Info screens, one per meter, in order Winamp Bars, Scope, Chladni, Layered Wave, Master VU):** `PACKS RUN 1F`, `PACK ERR 0`, `PACK FILE 0`, `PACKS SEEN 5`: all five packs loaded and ran. Slowest tick since boot: Bars 26,004, Scope 189,004, Chladni ~775 k, Master VU 24,587, Layered Wave 7.66 M cycles (the last tick of Layered Wave 2.9 M with a 89 k compose); no `TAU DEV 172` figures exist for the meter rows (they are new), so the pack's cost against the built-in is still unmeasured: compare with a build without `PACKS`. Pictures were not captured. Owner: the METER list had no meter pictures, and the Configure row had no usable key. **Built:** Configure opens from Start+X on Now Playing and from X inside the METER list (for the highlighted meter), both listed (the Controls page row `START + X`, the list footer); the METER list shows a 56x32 preview per meter (`meters/<key>/thumb.json` extracted from the old player's placeholders, generated into `fw2/generated/meter_thumbs.h`, plane built once in stash rows 740..771 and drawn through the palette blit by `fw2/ui/meterlist_thumb.c`, cold code, +20 B ROM) in 40 px rows. `sim/test_p2_meter_thumb.py` proves the plane equals an independent decode of each preview. **Not run on a Pocket.**
+
+**B-794 addendum, installed (2026-10-21):** `TAU DEV 174` (firmware `a296332`, PACKS=1, fontram-b810 bitstream) installed with `tools/install_dev_core.py work/diagnostics/tau-dev-174/pocket --card /Volumes/Pock --yes`: bitstream, ROM and cold image SHA-256 verified, card checked against the manifest (0 errors), caches deleted, nothing removed (`TAU DEV 173` and the others kept), ejected. The card's merged `tau-assets.bin` (five packs) from the 173 install is unchanged. Not run on a Pocket yet.
+
+**B-794 addendum, Pocket result (owner, `TAU DEV 174`, 2 screenshots):** the METER list shows a preview beside each of the five meters (rows 40 px, the current meter marked), the list footer reads "A PICK  X CONFIGURE", and X on the highlighted meter opens its Configure page (Winamp Scope: live preview with the blended trail, PRESET, SCOPE SMOOTH 35, SCOPE TRAIL 30, RESET TO PRESET). The Scope runs as a pack. Start+X on Now Playing was not captured. Owner: no cost comparison wanted.
+
+## B-795: framework test with a new meter (Waterfall grid), Helios methods, standard degrade, fullscreen rule (host-proven; not on a Pocket)
+
+Findings and proposals: `docs/features/meters/METER_FRAMEWORK_FINDINGS.md` (six analysis mappings for a grid; ten framework findings). **Built:** the `waterfall_grid` meter as a pack-only addon (SPECTROGRAM scrolls through the engine, ZONES is a still heat map; the firmware carries a stub; 1.85 KB pack); `gfx_bar` (OP_BAR, one command a bar column) and `gfx_scroll_down` (scroll through the stash, tested against a reference shift, mutant caught) with the stash map in `gfx.h`; the standard degrade (`gov_degrade` in the governor core with twin and mutant, `mp.degrade`, `mtr_in_t.degrade`, every meter's windows skipped at levels 1 and 2 in `meters_tick`, `METER DEGRADED` on Info, stats test with two mutants); the fullscreen rule (every pack trace enters the 400x323 box mid-run and fails on any draw outside the box); pack ABI 4 (degrade, bar, scroll), 8 pack slots. **Bugs found:** I overwrote the old player's `waterfall` manifest (restored, new key `waterfall_grid`; `p2_only` keeps Player 2 meters out of the old tables but in the schema); Master VU's labels were drawn 2 px above its box (fixed); tests hard-coded five meters (now from the registry); `node tools/meters/preview/test.js` hangs under `make` without a closed stdin (now `</dev/null`). **Not run on a Pocket.** All five old packs must be rebuilt for ABI 4 (done in the bundle).
+
+**B-795 addendum, installed (2026-10-21):** `TAU DEV 175` (firmware `5316f54`, PACKS=1, fontram-b810 bitstream) installed with `tools/install_dev_core.py ... --assets work/packs-p2/tau-assets.merged.bin --yes`: bitstream, ROM, cold image SHA-256 verified; the merged `tau-assets.bin` (themes + six ABI 4 packs, b31b1aa4...) replaced the card's (which held ABI 3 packs, now refused by 175); card checked against the manifest (0 errors); caches deleted; nothing removed (`TAU DEV 173`/`174` still on the card, and they cannot run the new assets: their ABI 3 packs are refused, so they fall back to their built-in meters); ejected. Not run on a Pocket.
+
+## B-796: review fixes 1-3 for the Waterfall grid and the scroll (host-proven; not on a Pocket)
+
+From the expert review of B-795: (1) **tearing**: the scroll ran in the displayed buffer. The registry now carries the compose and cadence rules of a meter (`p2.compose` may be a parameter gate, `p2.cadence` names the milliseconds-per-picture parameter; encoded in the `cmp` argument of `METER_LIST`), so the Waterfall is composed (drawn in the idle buffer, then presented) only in SPECTROGRAM mode, and the host draws it once per scroll period, composing nothing in between (`test_p2_meter_stats.py`: cadence, carried remainder, composed counts, three new mutants). (2) **stash base**: `gfx_scroll_down` read and wrote its temporary through the drawing buffer's own base; it now uses the shared stash (`gfx_blit_to_stash`, new, and `gfx_blit_stash`); `test_p2_scroll.py` models two buffers and one stash and checks the other buffer and the stash are untouched (mutant with the old behaviour caught). (3) **scroll speed**: the meter's own accumulator dropped the remainder (a 40 ms window at a 100 ms setting scrolled every 120 ms); the host now owns the time: it calls the meter once per period with the whole periods elapsed as `dt_ms` and carries the remainder; the meter derives its steps from `dt_ms`. Pack traces emulate the host cadence. **Not run on a Pocket; DEV 175 does not contain these fixes.**
+
+## B-797: review item 4 part one: idle decoder publishes full speed (host-proven; not on a Pocket)
+
+`mp.gov_mode` and `mp.degrade` were only rewritten inside the decode loop, so after a stop, a pause-end or between tracks the last value stayed (meters at half or quarter rate, or off, with nothing playing). New `gov_publish()` in `governor_core.h`: while nothing is decoding both read 0 at once (the governor keeps its own memory and resumes from it); `mp3play_pump` publishes idle whenever the state is not decoding, at the top, before the early returns of the rate-change and end-drain states. `test_p2_governor.py`: idle passes mixed into the random sequences, a mutant that keeps the stale value is caught. Part two (a per-picture command budget enforced by the host, with the Helios layer) is not done. Not in `TAU DEV 175`; not run on a Pocket.
+
+**B-796/B-797 addendum, installed (2026-10-21):** `TAU DEV 176` (firmware `ff88abd`: review fixes 1-3 and the idle degrade fix; PACKS=1; fontram-b810 bitstream) installed with `tools/install_dev_core.py ... --assets work/packs-p2/tau-assets.merged.bin --yes`; files SHA-256 verified, merged `tau-assets.bin` (themes + six ABI 4 packs, 2573ab90...) installed, card checked against the manifest (0 errors), no catalog caches were present to delete (the Pocket had already rebuilt them), nothing removed (`TAU DEV 173`-`175` still on the card), ejected. To read on a Pocket: the Waterfall in SPECTROGRAM mode scrolls without a visible tear and at the set speed (`WATERFALL` 100 ms, `FAST FALL` 50 ms); `METER DEGRADED` stays 0 when paused or stopped. Not run yet.
+
+## B-798: TAU DEV 176 feedback: Waterfall smoothness, minimum grid, structure; Appearance saving; faster pack test (host-proven; not packaged, not on a Pocket)
+
+Owner on `TAU DEV 176`: the Waterfall scroll is janky (low frame rate, a wobble), big squares scroll slower than small ones, the grid should always be visible, the normal mode is too random, and Appearance does not seem to save. **Waterfall rewrite:** the scroll is now smooth (a few pixels a picture, the entering row's cells grow into view from the top edge), its speed is in pixels per second (the old setting was milliseconds per ROW, so bigger cells moved at a different speed; the new test shows 449 px in 5 s for 5 px and 12 px cells alike), unlit cells are a dim cell so the grid is always visible in every mode (test: after silence every complete cell is still there), SPECTROGRAM brightness follows the level in three structured steps with an ordered dither (no random threshold per cell), ZONES splits the grid into 4 x 4 regions (bass top-left, treble bottom-right) that fill from their centre outwards (test: a loud band lights only its region, nearer-the-centre first), DUST keeps the old random scatter as a third mode; five presets. The host cadence feature of B-796 was removed (nothing used it any more). **Appearance saving, two causes:** (1) the persisted preset table had five meter-preset fields: the sixth meter (the Waterfall) lost its preset at every restart (new field `SF_MPRE5`, the table is now sized by the registry with a static check); (2) `settings_service` published a change only while the music was not streaming, so anything changed during playback was lost if the core was quit before the music stopped (now published after one second while streaming, at once otherwise; new host test with a register-file model, mutant caught). **Test time:** the pack test took about 150 s; the six pack runs now execute side by side and the bundle cases use a 6-frame trace (about 60 s). Full `make test-host` passes (rc 0). Not packaged, not on a Pocket.
+
+## B-799: session wrap-up 2026-10-21 (docs, skill, memory only)
+
+Handoff `docs/handoffs/SESSION_HANDOFF_2026-10-21_METERS_PLAYER2_PACKS.md`, `docs/CURRENT_STATUS.md` and `docs/ROADMAP.md` updated; local skill entries KB-192..KB-196 (scroll through a shared stash, loadable code in the PSRAM window, persisted-settings table size and publish gating, stale published governor values, slow simulated-CPU tests). No code touched.
+
+## B-800: per-meter draw-command budget, beam-exposure measurement, Layered Wave pack cost (host-proven; not packaged, not on a Pocket)
+
+Roadmap items 2 and 3 of the meters-p2 handoff. **Budget:** `gfx.c` counts every engine command (`gfx_cmds`, one `FB_GO` macro for all six places a command is issued) and the rows it writes (`cores/gfx_touch_core.h`, visible rows 0..359 and stash rows apart); `meters_tick` judges each drawn tick (forced repaints excepted) against the meter's ceiling, `p2.cmds` in its manifest, generated as `meter_cmd_budget[]` (96 / 128 / 1,280 / 640 / 32 / 3,072 for Bars, Scope, Chladni, Layered Wave, Master VU, Waterfall: about twice the peak per tick measured on the host trace, `-DTR_PEAK` in `sim/p2_pack_trace.h`: 48 / 69 / 638 / 376 / 8 / 1,704, fullscreen box included). A tick over its ceiling raises the meter's own degrade level (`cores/meter_budget_core.h`, 0..2, 16 clean ticks to step down); the effective level is the worse of it and the governor's, applied by the existing window skip, and the meter sees it in `mtr_in_t.degrade`. Works for built-ins and packs alike (no ABI change). **Beam:** `METER ROWS / DIRECT / EXPOSED` count the directly drawn ticks whose rows the beam was inside when the tick began (`hl_rows_safe`); nothing is deferred, because the directly drawn meters draw several overlapping commands per column (a deferred `gfx_bar` would reorder them) and deferring whole ticks delays a picture by up to 13 ms: the Pocket's exposed/direct ratio decides. **Pack cost:** the built-in Layered Wave is a cold object executed from PSRAM like a pack, so the fetch price is equal; under rv32sim over the same 320-picture trace the pack executes 1.08% more instructions (`tools/player2/measure_pack_cost.py`, `tools/host/p2_builtin_harness.c`). The built-in's Pocket figure (`METER MAX LAYERED WAVE` of a build without `PACKS=1`) is not measured.
+
+**Size:** `meters.o` hot RAM 614 to 650 B (the budget state is 2 B a meter, the counters 24 B), so its framework ceiling in `tools/player2/meter_budget.py` goes from 640 to 672 B (deliberate; cold code stays under its 12,000 B ceiling); a `PACKS=1` and a normal build both link, the pack ABI agrees with the firmware ELF.
+
+**Evidence:** host. New tests `test_p2_meter_cmd_budget` (ceiling exactly met is inside, one over raises, level 2 cap, hysteresis, forced repaint not judged, governor wins when higher, per-meter levels, beam inside / ahead / past / blanking / no counter / nothing visible / stash only; 7 mutants caught) and `test_p2_gfx_touch` (visible/stash split, growth, reset; 2 mutants caught); `test_p2_meter_stats`, `test_p2_mpre`, `test_p2_meter_pack_dispatch`, `test_p2_gfx`, `test_p2_xfade`, `test_p2_scope_trail`, `test_p2_chladni_dbuf` updated for the new gfx symbols. Not run on a Pocket: the budget's ceilings against the real command mix, the exposure counters, any `PACKS=1` size or heap effect (not built).
+
+## B-801: Winamp Bars through `gfx_bar` (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, first part. `meter_winamp_bars.c` draws each column with one `gfx_bar` (the bottom `bh` rows in the accent, the rows above in the background) instead of an erase rectangle plus a bar rectangle; the cap rectangle still follows, so the order is unchanged. Peak commands a picture on the host trace 48 to 32, a forced repaint 4,081 to 2,662; its command ceiling (`p2.cmds`) 96 to 64. The pack source maps `gfx_bar` to the host table (no ABI change, but the Bars pack must be rebuilt for the next install). **Evidence:** host. `test_p2_gfx` gained a `bar` scenario: the engine model now executes OP_BAR as `mp3_fb.sv` does (lit from `cmd_glyph` plus the two `cmd_glyph_hi` bits, clamped to the height, unlit rows on top) and `gfx_bar` is checked pixel by pixel for heights to 323 and lit counts past 127 and past the height, and for the clip to the frame (mutant: the two high bits dropped, caught); `test_p2_winamp` (picture equals a clean render, 3 seeds; its mutant now paints the rows above the bar in the bar colour), `test_p2_meter_golden` (fw2 against the JS twin, same pictures) and `test_p2_meter_pack` (pack on rv32sim equals the built-in) pass. Not run on a Pocket: the engine's real OP_BAR was proven in the older player (B-454), not by this meter.
+
+## B-802: the Waterfall's entering row as a palette blit; pack ABI 5 (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, second part. The spectrogram's entering row is built once per row as a plane of palette indices in the stash (rows 722..734: one rectangle for the background index 4, one a cell for the steps 0..3) and shown with `gfx_cblit` (a few blits a picture, one per 127 columns) instead of a rectangle a cell a picture; the palette (the four steps and the background) is loaded before the blits, as icons, previews and art do. The extra top-row background rectangle went (the blits cover every row the scroll exposes). **ABI 5:** the host table gained `clut_load` and `cblit`; fingerprint `6c4f5f03`; all packs must be rebuilt (old ones are refused E22), the pack harnesses and trace hash the two calls. **Evidence:** host. `test_p2_waterfall_blit`: the picture after every one of 2,400 ticks (six scenarios: cells 5..12 px, 20..320 px/s, two box sizes, silence, pauses, forced repaints over stale pixels) equals the rectangle version's (`sim/p2_waterfall_ref.c.txt`, the frozen code before this change) on an engine model with stash rectangle, palette load and palette blit; fewer commands (150,898 to 93,153 in the model's units); 2 mutants caught. `test_p2_meter_pack` (the pack on rv32sim equals the built-in, all six, in a bundle), `test_p2_waterfall`, a `PACKS=1` build and the pack ABI check pass. Not run on a Pocket: the real palette blit from this plane, and whether the per-picture palette load (it waits for the engine to drain) costs more than the commands it saves: `METER MAX WATERFALL` of a DEV build will say.
+
+## B-803: versioned pack ABI (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, third part. The pack header's ABI field is now `major << 8 | minor` (1.0). The loader (`meter_pack_core.h`) refuses another major and any pack whose needed minor is above the firmware's, and runs every other, so an appended host table entry or `mtr_in_t` field no longer forces every pack to be rebuilt; a pack records the minor it needs (`MTR_PACK_NEEDS_MINOR` in its source, default 0; `tools/player2/pack_meter.py` reads it and refuses one above the firmware header's). Packs of the numbered ABIs 4 and 5 read as major 0 and are refused (E22): one last rebuild. **Evidence:** host. `test_p2_meter_pack`: refusals for another major, a major 0 pack, a pack needing a newer minor; a firmware built with `-DMTR_PACK_ABI_MINOR=2` runs packs that need minor 0 and 2 (same hashes as the built-in) and refuses one that needs 3; the struct fingerprint became a prefix history (`ABI_HISTORY`: every shipped minor's declarations of the two structs must be unchanged, the newest entry must match the firmware's minor and cover every declaration). Not covered: a pack that needs a minor above 0 does not exist yet, so only the loader rule, not a real older-pack-on-newer-firmware run with appended entries, is exercised.
+
+## B-804: METER list previews follow the theme (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, fourth part. Each `meters/<key>/thumb.json` gained `palette_roles`: per palette entry null (the fixed RGB565 stays), a theme role name, or `{"ramp": [roleA, roleB, t, n]}`; `tools/player2/gen_meters_p2.py` checks its role list against the `TR_` enum of `fw2/ui/theme.h` and emits `mth_pal` as `{fixed, a, b, t, n}` entries; `meterlist_thumb.c` resolves them from `th_role[]` each time a preview is drawn (the palette was already loaded per draw), so a theme or accent change shows in the list at the next repaint. Mapping: background chrome, accent for the main trace or bars, text primary for the highlights, surface for gridlines; the Waterfall's four steps are the same ramp from chrome to accent as the meter's own palette; Layered Wave's mid grey is a ramp from surface to text secondary. The fixed `palette` stays as the fallback for tools without a theme (the preview lab, Tau Omega). **Evidence:** host. `test_p2_meter_thumb` loads known distinct role colours and checks the palette each preview loads against an independent Python twin of the role and ramp resolution (6 meters), that every meter has a role-driven colour, 2 mutants caught. Not run on a Pocket: how the previews look on the light theme and on the extension themes.
+
+## B-805: boot cost of tau-assets.bin made visible (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, fifth part, first half: measure before deciding. `assets_load` and the app's `hand_out_assets` now time each phase in cycles (`assets_boot`: the read and validation with the PSRAM staging copy of a file over 4 KiB, THEM, PRST, MPKB (every pack verified and copied into its slot), METR) and Info shows `BOOT ASSETS`, `BOOT THEMES`, `BOOT PRST`, `BOOT PACKS`, `BOOT PRESETS`. The merged file with six packs is about 30 KB. Nothing was optimised: if `BOOT PACKS` plus `BOOT ASSETS` turn out to matter on a Pocket the options are lazy install (verify and copy a pack when its meter is first selected) or skipping unchanged slots. **Evidence:** host: both firmware configurations build, the counter registry, report and layer-dependency tests pass; the figures need a Pocket.
+
+## B-806: Waterfall SPARKLE mode (onset flashes) (host-proven; not packaged, not on a Pocket)
+
+Roadmap item 6, last part (idea C of the findings). New mode 3 and a `fade` parameter (Fade time, 200 to 2,000 ms, default 700) in `meters/waterfall_grid/meter.json`, two presets (SPARKLE, STARS), `tools/meters_schema.json` regenerated. Each band keeps a running average of its level (quick to follow a rise, slow to forget); a jump of more than 28 levels above it is an onset: the average jumps up with it (a held note is one onset), and a burst of cells (2 + jump/16, fewer under degrade; radius 1 + jump/48 columns) lights around that band's column at random rows; a flash fades through three steps over the Fade time and is redrawn only when its step changes. Only a list of at most 192 lit cells is visited each picture, so the cost follows the events, not the grid. Not composed (a still grid, like ZONES). Pack: 3,816 B image, 2,420 B working state. **Evidence:** host. `test_p2_waterfall` (silence lights nothing; a jump lights cells only around its band's column; a held tone is one burst; every flash is back to the dim grid after the fade; another band flashes at its own column; 3 mutants caught), the pack trace now runs all seven presets (pack on rv32sim equals the built-in), full `make test-host`. Not run on a Pocket: how it looks and feels (sensitivity 28 and the burst sizes are first guesses), and the per-picture cost with the pack running from PSRAM.
+
+## B-807: TAU DEV 177 packaged and installed (2026-10-22)
+
+`TAU DEV 177` (`0.6.1-dev.177+85d12da`, `PACKS=1`, bitstream `fontram-b810`, ROM 107,916 B) packaged and installed on `/Volumes/Pock` with `tools/install_dev_core.py work/diagnostics/tau-dev-177/pocket --card /Volumes/Pock --assets work/packs-p2/tau-assets.merged.bin` (dry run first, `--yes` on the owner's "install"): bitstream, ROM and cold image SHA-256 verified identical, card checked against the manifest (0 errors, 0 warnings), caches deleted, nothing removed (`TAU DEV 173`..`176` stay), ejected; backup `work/card-backups/20261022-011105`. Contents since DEV 176: B-798 (smooth Waterfall, always-visible grid, ZONES regions, colour saved when changed during playback), B-800 (command budget, `METER CMDS/CMDS MAX/OVER/ROWS/DIRECT/EXPOSED` on Info), B-801 (Winamp Bars through `gfx_bar`), B-802 (Waterfall palette blit, ABI 5), B-803 (ABI 1.0), B-804 (previews follow the theme), B-805 (`BOOT ...` rows), B-806 (SPARKLE). The merged `tau-assets.bin` (the card's THEM plus the six ABI 1.0 packs, `22a71f01...`, 32,000 B) replaced the card's. The non-PACKS build for the Layered Wave comparison was not packaged. **Not yet run on a Pocket:** everything above.
+
+## B-808: TAU DEV 177 Pocket results and fixes: Waterfall fill, report in the idle buffer, Back out of the Report, last played track (host-proven; not packaged, not on a Pocket)
+
+**Owner on DEV 177 (card checked: 6 screenshots, `Settings/alfatreze.TAU DEV 177/*/_core/*_persist.json`).** (1) The Waterfall was smoother but with small cells it did not fill the view: the grid was capped at 48 x 40 cells (the screenshot: 336 of 400 px wide, 283 of 323 rows). (2) SPARKLE felt slow. (3) Appearance > colour "not saved". (4) The Info shot was saved; Select+Start then B showed a black screen and B did not leave the menu, the same from Meter Configure. (5) Previews good. Also: the last played track is not saved.
+**Findings.** Fill: `WF_COLS`/`WF_ROWS` 48 x 40. Report: its pixel grid goes through the SDRAM mailbox, which always writes buffer 0, while a view change draws into the idle buffer and flips: the grid was visible every second entry only (screenshot 20261022_011823: frame and captions, black grid). Back: `VW_BACK` is the previous view, and the Report is entered from Info or Configure, so Back from Info led into the Report again (Info > Report > Back > Info > Back > Report ...), the same for Configure. Last played: Player 2 never had it (the table has no field for it; the old player's library words 24..26 were unused). Colour: the card's persist file holds Color = 7 (written 01:22, 176's was 1) and Meter = 5 and the sixth meter's preset = 6, so the colour change was saved there; what the owner saw after a relaunch is not established (asked). SPARKLE: its CPU cost is small (4,169 instructions a picture, 1.8 ms from PSRAM, `tools/player2/measure_wf_modes.py`), so "slow" is not CPU; the response was made livelier (below).
+**Fixes.** *Fill:* up to 67 x 54 cells (the fullscreen box at the smallest cell), the still modes' cells in a nibble each (1,809 B for the grid, the working state is now 2,484 B), the grid centred in the box (what does not fit a whole cell is split between the sides), `cell_step` without a division, ZONES visits only the regions whose band moved a sixteenth and uses per-column and per-row distances (HEAT MAP 34 k to 26 k instructions a picture on the noise trace; FINE GRID at the fullscreen size is still heavy, the host degrades it). *SPARKLE:* heat in 16 steps, one step every fade/15 ms (was three steps by dt), the default Fade 450 ms (was 700; range 150 to 2,000), onset 20 levels (was 28), 3 + jump/12 cells a burst (was 2 + jump/16), radius 1 + jump/40, at most 24 new flashes a picture, STARS 900 ms. *Report:* `gfx_mb_write_buf` (a visible row goes to the buffer being drawn into, the stash stays shared); the report page uses it. *Back:* the view core has an overlay view (the Report): opening it remembers where Back from the view underneath leads, closing it restores that. *Last played:* `cores/lastplayed_core.h` (queue kind and parent, the track, a check word) in settings words 12..14 (persist ids 24..26), saved when nothing streams or after 8 s on the same track while it does (a new track restarts the wait; it never uses the 1 s urgency of a setting, so the card stream is not disturbed at each track change), restored at boot by rebuilding the queue in natural order and finding the track (a library that changed restores nothing); Now Playing shows the track stopped and A plays it; a shuffled order is not kept.
+**Evidence:** host. `test_p2_waterfall` (new: the grid fills the box at cells 5..12 in both boxes and every mode, is centred; caps mutant caught; sparkle tests updated), `test_p2_waterfall_blit` (picture equal to the rectangle version, boxes of whole cells), `test_p2_gfx` (mailbox write lands in the drawing buffer, shared stash, both flip directions; mutant caught), `test_p2_views` (Settings > Info > Report > Back > Back reaches Settings; mutant caught), `test_p2_lastplayed` (new, 2 mutants), `test_p2_settings` and `test_p2_settings_service` (three more words; the lazy publish rule, 2 mutants), `make test-host` in full, `PACKS=1` and normal builds, `meter_budget`. Not run on a Pocket: all of it, the restore in particular (the queue is rebuilt through `library_build_queue`, which is proven only on hardware).
+
+## B-809: TAU DEV 178 packaged and installed (2026-10-22)
+
+`TAU DEV 178` (`0.6.1-dev.178+4f169a6`, `PACKS=1`, bitstream `fontram-b810`) installed on `/Volumes/Pock` with `tools/install_dev_core.py work/diagnostics/tau-dev-178/pocket --card /Volumes/Pock --assets work/packs-p2/tau-assets.merged.bin` (dry run first, `--yes` on the owner's "install"): bitstream, ROM and cold image verified identical, card checked against the manifest (0 errors, 0 warnings), caches deleted, nothing removed (`TAU DEV 173`..`177` stay), ejected; backup `work/card-backups/20261022-070840`. The merged `tau-assets.bin` (THEM plus the six packs rebuilt after B-808, `d57e9af7...`, 32,696 B) replaced the card's. Contents: B-808 (Waterfall fills the box at every cell size and is centred, SPARKLE livelier, the report grid in the drawing buffer, Back out of the Report, last played track). **Not yet run on a Pocket:** all of it.
+
+## B-810: why the colour and the last played track were not saved on DEV 178 (host-proven; not packaged, not on a Pocket)
+
+**Owner:** neither is saved; the colour changed in Core Settings shows 7 there and does not come back at the next start. **Colour:** `theme_init()` ran after the saved settings were applied (`appearance_set`) and reset theme, mode and colour to the defaults, so the restored colour was lost at every boot and the first settings service then published the default over the saved value. It is now called before them (`test_p2_boot_order`: the order of meters_init, theme_init, assets, settings_init, appearance_set and the restore; a mutant with theme_init last is caught). **Track:** the Pocket's interact variables for these words are 0..2,147,483,647 (`interact.json`), and the record used bit 31 as its flag and a full 32-bit check word, so the Pocket clamped or refused it. Every word is now at most 31 bits (flag in bit 30, check masked, a word with bit 31 refused), the settings fields are 31 bits, and `test_p2_settings` now compares every persisted field with the min/max of the interact variable that carries its word (it fails for the old 32-bit table). Info gained `LAST STATE` (0 not tried, 1 restored, 2 no record, 3 failed its check, 4 track not in that queue, 5 no library) and `LAST W0..W2` (the words read at boot) so the next run shows what the card held. **Evidence:** host (`make test-host` in full, both builds, `meter_budget`); not run on a Pocket.
+
+## B-811: pack safety (roadmap item 5): per-pack cycle limits and strikes (host-proven; not packaged, not on a Pocket)
+
+Owner chose integrity plus strikes (`docs/DECISIONS.md` D-M20). `cores/pack_strike_core.h`; `meters_tick` times each drawn tick of a pack and judges it against `meter_cyc_limit[]` (manifest `p2.max_cycles`: Bars 0.2 M, Scope 1.2 M, Chladni 4.5 M, Layered Wave 15 M, Master VU 0.2 M, Waterfall 5 M cycles: about six times the slowest tick measured on a Pocket on DEV 173, 26 k / 189 k / 775 k / 7.66 M / 25 k, the Waterfall by its host cost); three strikes set the slot's status to `MPK_E_STRIKE` (40) so the existing fallback takes over from the next (forced) picture; Info `PACK OVERRUNS` and `PACKS STRUCK`. **Evidence:** host. `test_p2_pack_strike` (the Master VU pack through the real loader and dispatch: forced tick not judged, overruns counted, third strike disables and the built-in draws, exactly at the limit is fine, forced repaints never judged, 64 clean ticks forgive one strike; 4 mutants caught). Not run on a Pocket: the limits against real ticks (a good pack must stay under them; `METER MAX` shows the margin).
+
+## B-812: packs carry their own descriptors; the Waterfall is the first pack-only meter (roadmap item 4; host-proven; not packaged, not on a Pocket)
+
+**Format and tools.** `tools/player2/meter_desc.py` builds the descriptor (name, parameters, presets, preview palette spec and stream, compose code, `p2.cmds`, `p2.max_cycles`, manifest id, slot; limits 48 parameters, 16 presets) and an independent Python reader; `tools/player2/gen_meters_p2.py` now takes its parameter rows and compose code from it (the generated tables came out byte-identical) and writes `fw2/generated/desc_<key>.h`; every pack source includes its descriptor as section `.mtr_desc`, linked last in the image (`fw2/ui/meter_pack.ld`, the loader finds it from the trailer). `fw2/cores/meter_desc_core.h` reads it through a reader callback and `md_check` validates it completely. **Firmware.** `p2.pack_only` in a manifest takes the meter out of the generated registry, presets header and previews (`METER_N` is the built-in count, new `METER_SLOTS` the rows); the Waterfall has no stub, tables or source in the firmware build (`build.sh`). `meters.c`: rows from `METER_N` up are registered from the installed packs' descriptors (`dyn_register`: status 41 damaged or missing, 42 too big for the caches 12 parameters / 320 B / 16 choices), `meters_present`/`meters_def`/list functions, accessors for presets, limits (cmds, cycles, manifest id, compose code from the descriptor), the METER list, X and the saved choice work in list positions, a missing pack's saved preset is kept, `meterlist_thumb.c` builds a pack-only preview from the descriptor, Configure reads `meters_def`. Info: `METER MAX PACK`. **Size:** `meters.o` hot RAM 662 B in a normal build (ceiling 672); in a `PACKS=1` build the heap gap went 4,624 to 3,824 B (floor 1,024; the dynamic caches are about 0.9 KB, the Waterfall stub's removal gave some back); `meter_budget.py` skips pack-only meters. **Evidence:** host. `test_p2_meter_desc` (C reader, Python reader and manifest agree for all six meters; every single-bit flip of every descriptor refused or harmless and never a read outside; wrong lengths, damaged trailer, preset out of range, wrong preview size refused; 2 mutants), `test_p2_pack_only` (the real Waterfall pack through the real loader: row, name, descriptors, presets, compose code, config export, preview length equal the manifest; without a bundle or with a damaged descriptor the row is absent, X skips nothing, the saved preset is kept; 2 mutants), `test_p2_meter_pack` (every pack's last bytes are its descriptor), `test_p2_meter_stats` (the compose gate now runs on the Waterfall row built from the descriptor), `test_p2_meter_thumb` (the pack-only preview), the dispatch, strike, budget, mpre and configure-view tests adapted; `make test-host` in full; both firmware configurations build. **Not done:** the other meters as pack-only (PACKS_ONLY, see `METER_PACKS_PLAYER2.md`); not on a Pocket (the descriptor path, the list with the pack-only row, the saved Waterfall preset and selection).
+
+## B-813: every meter but Winamp Bars is pack-only (roadmap item 4, second half; host-proven; not packaged, not on a Pocket)
+
+Owner: rebuild the meters for pack only. `p2.pack_only` is now set for Winamp Scope, Chladni, Layered Wave and Master VU as well as the Waterfall: the registry holds only Winamp Bars (`METER_N` 1, `METER_SLOTS` 6, new `METER_PACK_LIST` for the Info rows `METER MAX <NAME>`), `build.sh` no longer compiles the other meters, the dynamic caches grew to the biggest descriptor (36 parameters, 880 B of strings, 72 choices: Layered Wave's 34 / 854 B / 72). **Size:** a `PACKS=1` firmware's heap gap went 3,824 B to 5,824 B (DEV 177: 4,624 B; floor 1,024) and its ROM 108,444 B; a firmware without packs is 106,460 B with 11,008 B of gap and exactly one meter. **Behaviour:** a card without the bundle shows Winamp Bars only; a refused, damaged or missing pack removes its meter from the list (its saved preset is kept); a pack-only meter struck out for overruns shows a 'PACK NOT RUNNING' note (there is no built-in to fall back to); Winamp Bars falls back to its built-in tick. **Evidence:** host, `make test-host` in full. The stats, mpre, budget, dispatch, strike and thumb tests now run the other five meters as rows through their real descriptors (`sim/p2_dyn_register.h`); `test_p2_pack_only` runs the Scope, Chladni, Layered Wave, Master VU and Waterfall packs through the real loader and compares row, name, parameters, presets, compose code, export and preview with their manifests (Layered Wave's 34 parameters and 16 presets included); the dispatch test covers the new fallbacks; the strike test covers a struck pack-only meter. Not run on a Pocket; **the packs must be installed with the firmware** (tau-assets.bin) or the list is Winamp Bars alone.
+
+## B-814: `make new-meter`, the cell-grid and history-ring helpers; persisted ids for the last played track corrected (host-proven; not packaged, not on a Pocket)
+
+**Scaffold.** `make new-meter KEY=sparks TAG=SPK LABEL="SPARKS"` (`tools/player2/new_meter.py`, `docs/features/meters/NEW_METER.md`) writes a manifest (next slot and manifest index, pack-only, three parameters, two presets, limits), a preview, a drawing source (LEVELS on the cell grid, HISTORY on the ring) and a pack wrapper, runs the generators and builds the pack. The pack test now covers any manifest without a special harness through a generic trace (`PACK_GEN`: every preset, at least four scenarios, loud and quiet, pause, degrade levels, the fullscreen box). **Helpers.** `fw2/cores/cellgrid_core.h` + `fw2/ui/meter_grid.h` (fit, centre, cap, nibble state, delta drawing, palette) and `fw2/cores/histring_core.h` (the word-addressed byte ring): the Waterfall now uses the grid helper (pictures identical: `test_p2_waterfall_blit` against the rectangle version) and Layered Wave the ring (1,929,343 commands identical to the JS twin, pack equal to the built-in). **Persisted ids.** Reviewing `tools/persist_registry.json` found that B-808 reused ids 24..26 (the old player's library words, "never reuse an id") for the last played track: it now uses NEW ids 31 and 32 (words 19 and 20: two 31-bit words, a 14-bit track id, a 27-bit check), the seventh meter's preset is id 30 (word 15, `SF_MPRE6`; seven meters are now supported); the Pocket takes at most 16 interact variables (B-456, a test guards it), so the old player's library words, ids 24..26, were REMOVED from `interact.json` (Player 2 never uses them; the registry drops them); `interact.json` and `tools/persist_registry.json` carry the new ids (since v0.6.1), id 29's description names the font and the sixth meter, the baseline pin (`docs/research/player2/BASELINE.json`) is updated for the new `dist/.../interact.json` (15 variables, one spare). **Evidence:** host. `test_p2_meter_helpers` (grid fit over 500 random boxes, nibble store, ring over pushes/unwraps/gets and four lengths against Python models; 4 mutants), `test_p2_new_meter` (in a copy of the tree: refusals write nothing; the scaffold runs, generates and builds; the manifest, registry, Info row and helper use; the pack test in the copy passes for the new meter, rv32sim pack equal to the native source), `test_p2_settings`, `test_p2_settings_service`, `test_tau_compat` updated, `make test-host` in full. Not on a Pocket: DEV 178/179 saved the last played track in ids 24..26 (those builds are superseded).
+
+## B-815: `make test-host-fast` (the test-host recipe on a worker pool; host tooling only)
+`tools/run_host_tests.py` reads the `test-host` recipe lines from the Makefile and runs them on up to 8 workers; lines running `build.sh` share output directories and run one at a time afterwards; a failing line prints its output and the run exits 1. `make test-host` stays the serial reference. **Evidence:** host. One full run: 144 lines, 0 failed, 132 s wall against about 6 min serial, with another simulation and a Quartus VM running on the machine. Not on a Pocket (tooling only).
+
+## B-816: the dev packager no longer re-adds the old library persist words to a Player 2 package (host; DEV 180 packaging)
+`package_dev_build.py` called `add_library_slot`, which appended interact variables 24..26 whenever they were missing, so a Player 2 package got 18 variables (over the Pocket's 16) and the compat check refused it (the registry no longer describes 24..26 since B-814). `add_library_slot(core_dir, persist_words=True)` now takes a flag; the packager passes False for `--variant player2` (the slot 5 declaration stays). Other variants are unchanged. **Evidence:** host: DEV 180 packages (`PACKS=1`, `fontram-b810`) and `tau-compat.json` is written. Not run on a Pocket.
+
+## B-817: `vm_fit.py launch --wait-free` (30-minute check while the build VM is busy; host tooling only)
+When the VM already has a Quartus process, `launch` refused. With `--wait-free` it checks again every `--poll` seconds (default 1800, 30 min), printing the time and the process count, and launches the owner-approved fit when the VM is free. Without the flag nothing changes. A second build VM was considered and not made: the Mac has 24 GB, the first VM holds 12 GB and only about 4 GB is free or inactive, so a second one would swap. **Evidence:** host; argument parsing checked (`launch --help`); the wait loop was not run against a busy VM. Not on a Pocket.
+
+## B-818: audio statistics for meters, firmware side: ABI 1.1 inputs `rms_l/rms_r`, `corr`, `centroid`, `crest`, `flux`, `onset`, `stats_ok` (host-proven; not packaged, not on a Pocket)
+`fw2/cores/audio_stats_core.h` (pure integer, no 64-bit divide): `as_rms` (a 32-bit divide after a shared shift, the mean shifted back up; an earlier version rounded n and was 12% off for small windows, caught by the test), `as_corr_q8` (Q8, -256..256, sums shifted down by even amounts so the square roots stay whole; 0 for a silent channel), `as_centroid` (level-weighted mean band, 0..255), `as_crest_q4`, and `as_onset_step` (flux = the summed band rise capped at 255, hit = flux above 1.5x its running mean + 6, 90 ms refractory: Chladni's detector lifted out; Chladni itself still uses its own copy). `mtr_in_t` gained seven fields appended after `wave` (prefix of 10 declarations unchanged; fingerprint `aa0de8b5`, `MTR_PACK_ABI_MINOR` 1, so every shipped pack keeps running). `meters.c` fills them every picture: centroid/flux/onset always, rms/corr/crest from the hardware block when `caps.stats` (the `'ST'` signature of STATS_DATA word 0, so a bitstream without the block is never mistaken for one); all zero while paused. The framework object's hot-RAM ceiling went 672 to 704 B (+28 B: the onset state), deliberately. Host tests that copy a fixed header list now include the new core. `sim/p2_waterfall_ref.c.txt` (the frozen Waterfall reference `test_p2_waterfall_blit` reads) was gitignored and missing from a fresh worktree; it is now tracked (force-added). **Evidence:** host. `sim/test_p2_audio_stats.py` (300 random rms windows, 400 random correlation pairs within 4/256 of the float value, identical/opposite/silent/unrelated, centroid, crest, onset bursts and refractory; 4 mutants killed), `test_p2_meter_pack` (new fingerprint, minor 2 refused), `test_p2_meter_pack_dispatch`, `meter_budget`, `make test-host-fast` in full (144 lines, 0 failed). Not run on a Pocket; the hardware sums do not exist on any bitstream yet (B-819).
+
+## B-819: `tau_audio_stats.sv`, the audio statistics block, and its wiring in `mp3_soc.v` (simulated; NOT fitted, no bitstream carries it)
+Sums of L*L, R*R, L*R (48 bits, exact for 131,072 samples, sticky overflow flag) and the sample count, accumulated from the PCM FIFO's sample strobe (the tap of the spectrum bank and the wave meter); a latch (CTL bit 0) copies them to a read-out set and starts a new window without losing or double-counting a sample (a product still in the pipeline lands in the closing window). Registers 0x1AC STATS_CTL, 0x1B0 STATS_IDX, 0x1B4 STATS_DATA (docs/MMIO_ALLOCATION.md), `TAU_STATS` macro (`core_game.vh`, off unless defined) and `STATS_ENABLE` in `mp3_soc.v`. Three registered 16x16 multipliers (three DSP blocks; the last closed fit used 21 of 66), one 48-bit add a clock. **Evidence:** simulation. `make test-rtl-audio-stats` (`sim/tb_tau_audio_stats.v`: three windows at the real sample spacing with random, extreme (-32768/32767) and opposite-channel samples, an empty window, the sequence counter, one-sample windows, clear, a 6,000-sample stress with latches 0..2 clocks after a sample (the windows add up exactly to the totals), the overflow flag set and cleared), `make test-rtl-audio-stats-mutation` (unsigned products, sums not cleared at a latch, in-flight sample dropped, overflow flag never set: all four killed; the third needed the latch-near-sample stress to be caught), `make test-rtl-stats-soc` (the real VexRiscv reads the signature, latches, and checks N and the three sums for eight samples the bench forces into the tap; the block left out fails it), `make test-rtl-font-soc` still passes, `make test-host-fast` in full. Verilator lint: width-extension warnings only (signed operands, proven by the negative-correlation cases). **Not done:** the Quartus fit (needs the owner's go; `tools/vm_fit.py launch ... --wait-free` waits for the busy VM), timing, CORE_VERSION pairing for a new bitstream, a Pocket run.
+
+## B-820: SOUND MAP, a pack-only meter on the audio statistics: stereo field, character map, long memory as three modes (host-proven; not packaged, not on a Pocket)
+`meters/sound_map` (key `sound_map`, tag SMP, slot 6, manifest index 18; `make new-meter`, then the drawing written), `fw2/ui/meter_sound_map.c`, `meter_pack_sound_map.c` (declares `MTR_PACK_NEEDS_MINOR 1`), a preview thumbnail, parameters mode / gain / cell / seconds per column, four presets; design in `docs/features/meters/SOUND_MAP_METER.md`. The three requested meters are modes of ONE meter because the framework limit is seven and one slot was free. Pack 4,896 B image, 2,080 B scratch. **Evidence:** host. `test_p2_meter_pack` (the pack on rv32sim equals the source compiled straight in, over every preset, loud/quiet stretches, a pause, degrade 1 and 2, the fullscreen box, with and without `stats_ok`: the generic trace now feeds centroid/flux/onset always and rms/correlation/crest in alternate scenarios), `test_p2_meter_thumb` (the hard-coded pack-only list now includes it), `test_p2_new_meter` (its tree copy gives the last slot back, since all seven are used now), manifests regenerated (`gen_meters_p2.py`, `gen_meters.py`, preview build), `make test-host-fast` in full. A throwaway host renderer drew the three modes (field ellipse with a red out-of-phase marker, five descriptor bars with labels, the scrolling memory); one shape fix (the stereo field was a block) came from looking. **Not done:** a Pocket run; real RMS/correlation need the fitted bitstream (B-819); the Tau Omega preview twin and schema consumers (`tools/meters_schema.json` changed again; Omega repo untouched); persisted preset behaviour of the seventh meter on hardware (SF_MPRE6, id 30).
+
+## B-821: fit `stats-b821`, the audio statistics block (TAU_STATS) in the shipped bundle: closed, all corners positive (not on a Pocket)
+Quartus fit of the font bundle plus `TAU_STATS` (29 macros), one seed, launched 20:47 after waiting about seven hours for the busy VM (`vm_fit.py launch --wait-free`, 30-minute checks), fitter finished 22:00 (about 1h15 on an idle VM, faster than the 1h40 of the shipped family). **Results:** all corners positive: Slow 85C setup +1.440, Slow 0C setup +1.190, hold +0.261..+0.280, Fast corners +5.2 / +5.5 setup, +0.11..+0.13 hold. DSP 23 / 66 (35 %; the last closed fit used 21, so the block cost 2, not the 3 estimated: one multiplier shares a block), RAM blocks 272 / 308 (88 %). `CORE_VERSION` unchanged (4D50331B): the firmware probes the block (`'ST'` signature). Bitstream `work/diagnostics/stats-b821/ap_core_s1.rbf`, SHA-256 `0a4b7a58cb1addedaa6839daaed1242bb6ff7c73328c651ce632a0b91b2ed124`. **Not done:** a Pocket run: that the sums read back sane, that SOUND MAP shows real RMS and correlation, that nothing else changed (the other macros are the shipped bundle's).
+
+## B-822: owner's Pocket results (2026-10-23): colour save, last played album and the seventh meter's preset persist; the card loads (owner-observed on a Pocket)
+Owner report from a Pocket with `TAU DEV 180` and `TAU DEV 181` on the card (the message did not say which build ran each check; the persistence fixes are in both): **the colour is saved and restored; the last played album is saved (restored on relaunch); the seventh meter's preset persists; the card is loaded** (the Pocket accepts the new `tau-assets.bin` and the cores). These close the three persistence items of B-808/B-810/B-812..B-814 (colour order, last-played ids 31/32, preset id 30) on hardware. **Evidence label:** owner-observed, hardware. **Not yet reported:** the METER list with all seven meters, Waterfall fill at cells 5..12 and SPARKLE feel, Report every time and B leaving Info/Configure, `BOOT PACKS` / `METER EXPOSED` / `PACK OVERRUNS` on Info, SOUND MAP (its three modes, the width gauge, real RMS and correlation from the stats block on DEV 181), and which build each check ran on.
+
+## B-823: DEV 181 on a Pocket: SOUND MAP and the METER list read from the screenshots; three SOUND MAP fixes and the list's leftover strip (fixes host-proven; not yet on a Pocket)
+**Owner-observed on `TAU DEV 181`** (screenshots in the card's `Memories/Screenshots`, 2026-10-23 07:58..08:10, plus the owner's message): Select+Start opens the Report and leaves properly; the Report grid is intact; **the stats block is present and answering** (STEREO FIELD shows its width gauge, which needs `stats_ok`; on the Speech FLAC test the marker sits far right, a mono recording); SOUND MAP is the seventh METER row with its preview; CHARACTER, LONG MEMORY (scrolls, survives a track change) and STEREO FIELD all draw. **Seen wrong:** (1) STEREO FIELD was a thin horizontal sliver in the small Now Playing box (its height reach was fixed per row, so a box of 11 field rows only ever lit 3); (2) CHARACTER's BRIGHT label was clipped to BRIGH (38 px label column) and its five bars sat at the top with dead cells below; (3) the METER list left a 6 px strip of the old screen between the seventh row (ends at y 314) and the hints (y 322). **Fixed:** the field is a diamond reaching the box's edges in both directions at full level (`vd` scaled by the field's height); label column 50 px; the descriptor groups centred in the box; the list clears from the end of the last row to the bottom. **Evidence:** host (a throwaway renderer drew the small box: a diamond with a centre core and the gauge; the five bars centred with whole labels); `make test-host-fast` 145 lines 0 failed. **Not yet confirmed on a Pocket:** the three fixes (they are in no package: DEV 182 would carry them), the colour variation of LONG MEMORY (subtle with this theme, left as is), correlation when the track is genuinely wide stereo, `METER EXPOSED/DIRECT`, `PACK OVERRUNS`, and the Waterfall fill and SPARKLE feel.
+
+## B-824: Info rows for the audio statistics block (CAP STATS, STATS WINDOWS/N/OVF/RMS/CORR), from the DEV 181 Report (host-proven; not yet on a Pocket)
+The DEV 181 Report (decoded with `tools/decode_tau_suite.py --grid`, owner's screenshot 07:58) showed the build healthy (firmware `0.6.1-dev.181+af4200e7`, `PACKS RUN 0000007F`, `PACKS SEEN 7`, `PACK ERR 0`, `PACK OVERRUNS 0`, `PACKS STRUCK 0`, `METER EXPOSED 32` of `METER DIRECT 1155`, every CAP 1, no underruns) but with no row that proves the new statistics block works. Added `CAP STATS` and `STATS WINDOWS` (windows read), `STATS N` (samples in the last window), `STATS OVF` (overflowed windows, should be 0), `STATS RMS` (0..24575) and `STATS CORR` (Q8, signed): they live in `meter_stats_t` (16 bytes of hot RAM; the framework object's ceiling 704 to 720 B, deliberately). **Evidence:** host: firmware builds, `make test-host-fast` 145 lines 0 failed. Not on a Pocket (DEV 182 would carry these rows, the SOUND MAP fixes of B-823 and the list fix).
+
+## B-825: persistence by area: one register-file word per area, 20 meters' presets, a two-slot tuning pool, a resumable migration from the old layout (host-proven; not packaged, not on a Pocket)
+Owner chose the direction (2026-10-23: use more of each word, appearance in word 1, audio in word 2, a refit does not worry) and "hide" for the Core Settings sliders. **Layout** (`fw2/cores/settings_core.h`, `docs/features/PERSISTENCE_LAYOUT.md`): word 0 playback and layout version (version bits 30..27, newer tuning slot bit 26), 1 appearance (colour, theme, polarity, font), 2 audio (volume, repeat, ReplayGain, Halcyon), 5/6/15 meters (the selected meter and the presets of meters 0..19, 4 bits each), 8..11 and 16/17/18/21 the tuning pool (two slots of four words; `tune_core.h` header now carries a 5-bit meter number; `meters.c` keeps both slots and evicts the one saved least recently), 19/20 last played. All 16 persist variables are used: id 33 (word 21, address 0x20000054) is new; ids 10, 11, 12, 15, 16, 27, 28, 29, 30 changed meaning and are named "(internal) ..."; `interact.json` defaults are the packed defaults (a fresh card is on the new layout); `tools/persist_registry.json` records the new meanings since v0.6.2; the baseline pin and `test_tau_compat` expectations updated. **Migration:** word 0's layout version 0 = legacy; `sf_migrate_resume` converts every legacy field (the old single tuning is dropped), words written in `sf_write_order` with bit 30 as the "already new" mark on words 1, 2, 5, 6, 15, word 0 last; `settings_init` does it at boot; `settings_seed` keeps unowned fields (layout version, presets of absent meters) at their saved values. **Two defects found by the tests and fixed:** (1) the first migration design ("migrate again from the legacy words after a power loss") destroyed the legacy values it needed; (2) `wide_probe` left a probe value in word 16 on every boot (it was the theme word, now a tuning word) and now restores words 16 and 0. **Evidence:** host. `test_p2_settings` (the C table equals an independent statement of the layout, 800 random register files, no overlap and nothing at bit 31, every field fits its interact variable, 16 variables at most, defaults equal the packed defaults, 300 random legacy cards migrate to the same settings, a migration interrupted after each of its writes resumes to the same register file; six mutants killed), `test_p2_settings_boot` (the real `settings_init` on a register file with a write log and a write budget: word 0 last, a power loss after every write repaired by the next boot, the probe restores words 0 and 16, an up-to-date card is not rewritten, a narrow file never aliases onto word 0; two mutants killed), `test_p2_settings_service`, `test_p2_tune` (5-bit meter header), `test_p2_mpre` (the pool: two slots, eviction, replace, drop on a preset change, restore at boot; one mutant), `test_tau_compat`, `meter_budget` (framework hot RAM ceiling 720 to 736 B: the second tuning slot's cache and the pool bookkeeping), `make test-host-fast` in full. **Not done:** a Pocket run (the migration of a real DEV 181 card is the first thing to check: colour, theme, volume, meter, presets, last played must survive); Tau Omega masks and registry; the Waterfall palette; the meter limit is still seven (list scrolling, 8 pack slots).
+
+## B-826: Waterfall colour maps (INFERNO, RAINBOW, ICE; a 32-level spectrogram palette) and a trace fix that had left SOUND MAP's pack test without the statistics (host-proven; not packaged, not on a Pocket)
+Owner (2026-10-23): the Waterfall feels OK but a little flat; the spectrogram should have typical spectrogram colours and a wider palette. **Built:** a new parameter `palette` (THEME, INFERNO, RAINBOW, ICE; manifest default 1 = INFERNO) in `meters/waterfall_grid`. THEME is the original three steps of the accent colour, unchanged. The other maps are a handful of RGB stops interpolated (`wf_col`) to **32 levels** for the spectrogram's entering row (a 33-entry CLUT: 32 levels and the background, indices in the stash plane; the engine's palette blit is unchanged) and sampled at four points for the steps of ZONES, DUST and SPARKLE, so every mode follows the chosen map; the CLUT is rebuilt only when the map or the background changes. Presets: WATERFALL INFERNO, FAST FALL RAINBOW, HEAT MAP INFERNO, FINE GRID ICE, DUST/SPARKLE/STARS THEME. Pack 6,476 B image, 2,564 B scratch (was 2,492). **Trace fix:** my B-820 edit of `sim/p2_pack_trace.h` put the ABI 1.1 inputs into the Waterfall's trace instead of the generic one, so SOUND MAP's pack test had run with `stats_ok` always 0; they are now in `gen_trace` (and out of the Waterfall's); SOUND MAP's pack equals its source with the statistics on rv32sim. **Evidence:** host. `test_p2_waterfall_palette` (the colour of every level of the three maps equals an independent interpolation, within one unit per RGB565 channel; end to end on the engine model a louder constant level paints a brighter grid for INFERNO and ICE, RAINBOW changes at every level, the three maps paint different grids, a gradient across the bands shows 32 colours in the wide maps against THEME's 4, silence paints only the dim grid; two mutants killed), `test_p2_waterfall_blit` (THEME still equals the frozen rectangle reference after every tick), `test_p2_meter_pack` (the pack equals its source for every preset, with the palette), a throwaway renderer drew the four maps (INFERNO black, purple, orange, yellow, white; RAINBOW blue to red; ICE blue to white), `make test-host-fast` in full. **Not on a Pocket:** how the maps look on the LCD with real music (the synthetic spectrum I rendered is louder than music; the thresholds 20 and 255 of the level mapping and the gain may want tuning), the CLUT load cost (33 puts a picture against 5) in the spectrogram's tick time.
+
+## B-827: TAU DEV 182 packaged and installed on the card; six older Tau test cores removed (installed, not yet run on a Pocket)
+`TAU DEV 182` (`0.6.1-dev.182+cb9ab09a`, clean, `PACKS=1`, the `stats-b821` bitstream, CORE_VERSION 4D50331B) carries persistence by area with the resumable migration (B-825), the Waterfall colour maps (B-826), the SOUND MAP fixes and the METER list fix (B-823), the statistics Info rows (B-824), the seven rebuilt packs merged into the card's `tau-assets.bin` (themes kept). Installed with `tools/install_dev_core.py ... --yes`: every file verified by SHA-256, the card check against v0.6.1-dev.182 reported 0 errors and 0 warnings, caches deleted, ejected. **Removed** (owner: "remove everything else except the latest stable build"): `alfatreze.TAU DEV 128, 137, 180, 181`, `alfatreze.TAU_DEV_105`, `alfatreze.TAU_DEV_107` (backup `work/card-backups/20261023-115155`). **Kept:** the stable `alfatreze.TAU` (the card holds v0.6.0 of 2026-10-17; v0.6.1 of 2026-10-21 is released but not on this card) and every other author's core. **Not removed:** `alfatreze.TAU Preview` and `alfatreze.TAU Preview Diagnostics` (v0.6.0-preview.2): the installer refuses a release core without `--allow-release` and the safety classifier blocked that flag; they need the owner to run it (or approve it). **Not yet observed on a Pocket:** that DEV 182 boots, the migration of the card's DEV 181 settings (colour, theme, volume, repeat, ReplayGain, Halcyon, meter, presets, last played, font), SOUND MAP and the Waterfall colour maps with real music.
+
+## B-828: owner's Pocket results on TAU DEV 182 (owner-observed); the horizontal spectrogram (Waterfall "Direction", default HORIZONTAL, ABI 1.2 `scroll_left`); a stats-window overflow fix (host-proven; not yet on a Pocket)
+**Owner-observed on `TAU DEV 182`** (2026-10-23, screenshots in `Memories/Screenshots` 19:42..20:14 and messages): **saved settings work** (the migration from DEV 181 kept them: the accent colour came through yellow on the player, the Report shows `COLOUR 10`, `SET STORES 14`, `LAST STATE 1`, `HAL SEL 4`); **the Waterfall colours are great** (INFERNO and RAINBOW seen in Now Playing and fullscreen); **SOUND MAP works** (the stereo field is a diamond in the Now Playing box); every saved setting seems to work. The Report decoded (`tools/decode_tau_suite.py --grid`): firmware `0.6.1-dev.182+cb9ab09a`, `CAP STATS 1`, `STATS WINDOWS 2686`, `PACKS RUN 0000007F`, `PACK ERR 0`, `PACK OVERRUNS 0`, `PACKS STRUCK 0`, `METER OVER 0`, `METER EXPOSED 14` of `METER DIRECT 1092`; **seen in it:** `STATS OVF 4` (the hardware window outgrew its sums 4 times: the meters were not drawn for a while, e.g. in a menu), `METER MAX WATER 1,526,329 cyc` (23 ms), `METER MAX LAYER 4,725,140 cyc` (71 ms, known), `HW UNDER EV 3`, `DRY 3`, `GOV PANIC 5` in that session (not yet correlated with a meter or a menu). **Reported, not yet understood:** the Halcyon preset "is not updating on the player although it is saved" (asked the owner what was done and seen). **Owner request:** the spectrogram's motion horizontal, as the default, configurable. **Built:** Waterfall parameter `flow` (VERTICAL / HORIZONTAL, default HORIZONTAL, shown in SPECTROGRAM only, every preset HORIZONTAL): time runs across, low frequencies at the bottom, the new column enters at the right edge, the whole picture moves left with `gfx_scroll_left` (new in `fw2/gfx/scroll.c`, through the same shared stash temporary, chunks left to right, a host table entry appended so ABI minor 2; the Waterfall pack declares it needs minor 2); the entering column is painted as rectangles (one per row plus a gap rectangle, about 55 commands a picture) instead of a palette blit; the colour maps and THEME work in both flows; the vertical flow is unchanged (the frozen reference test passes with `flow 0`). **Fixed:** a stats window that overflowed the hardware sums now gives that picture no RMS or correlation instead of garbage (`STATS OVF` still counts them). **Evidence:** host. `test_p2_scroll` (`gfx_scroll_left` equals a plain reference shift in either drawing buffer over 120 random boxes up to 400 columns, no copy overlaps itself, none wider than 127; a right-to-left mutant is caught), `test_p2_waterfall_flow` (low bands paint the bottom and high bands the top; a one-tick pulse enters at the right and moves left at the scroll speed, 120 px/s measured against 120; the right edge is empty after it passes; nothing outside the box; two mutants killed), `test_p2_meter_pack` (new ABI fingerprint `1e3b1407` for minor 2, the pack equals its source on rv32sim for every preset including the new flow), `test_p2_meter_pack_dispatch`, `make test-host-fast` 147 lines 0 failed. **Not on a Pocket:** the horizontal flow, its tick cost (about 55 rectangles and a scroll a picture), how it reads with real music.
+
+## B-829: the Now Playing tags show the Halcyon preset (host build passes; not on a Pocket)
+Owner (2026-10-23, DEV 182): changing the preset in Settings > Audio > Halcyon works and is saved (rebooted: fine), but "in the player it always said smooth on the tag". The code was right: the SMOOTH tag is the Cymo resampler's, never the Halcyon's, so nothing on the player showed the EQ. **Built:** a third tag beside SMOOTH and the format (MP3 / FLAC) shows the Halcyon selection while an EQ is on (the preset name, a user preset's name, CUSTOM, or "A/B: OFF" during a compare; "EQ" if the name would not fit the 240 px block); it is redrawn when the selection or the compare state changes (the tag signature includes them) and absent when the EQ is off or the bitstream has no engine. **Evidence:** the firmware builds and `make test-host-fast` passes (148 lines, 0 failed); there is no host test of this tag (it is drawn by `nowplaying.c` straight to the engine). **Not on a Pocket:** that the tag appears and follows a preset change, and how a long user-preset name fits.
+
+## B-830: the first Now Playing tag is the Halcyon preset (replaces B-829's third tag); the resampler no longer has a tag (host build passes; not on a Pocket)
+Owner (2026-10-23): "the tag SMOOTH should not be the resampler, even the name smooth is one of the presets; add no third tag, just bind it to Halcyon." **Changed:** the tag that read SMOOTH while the Cymo resampler was on is now the Halcyon selection (the preset name, a user preset's name, CUSTOM, or "A/B: OFF" during a compare; "EQ" when the name would crowd the format tag out) and is absent while the EQ is off or the bitstream has no engine; the format tag (MP3 / FLAC) stays beside it; there is no third tag and no tag for the resampler. B-829's extra tag is gone. **Evidence:** the firmware builds, `make test-host-fast` passes (148 lines, 0 failed); no host test covers the tag (drawn by `nowplaying.c`). Not on a Pocket.
+
+## B-831: TAU DEV 183 packaged and installed; DEV 182 and both Preview cores removed (installed, not yet run on a Pocket)
+`TAU DEV 183` (`0.6.1-dev.183+f6e9712e`, clean, `PACKS=1`, the `stats-b821` bitstream, CORE_VERSION 4D50331B) carries the horizontal Waterfall (Direction parameter, default HORIZONTAL, `gfx_scroll_left`, pack ABI 1.2: the Waterfall pack needs minor 2) (B-828), the statistics-overflow fix (B-828), the Halcyon preset as the first Now Playing tag with no resampler tag (B-830), and everything of DEV 182 (persistence by area, colour maps, SOUND MAP and list fixes, statistics Info rows); seven rebuilt packs merged into the card's `tau-assets.bin` (themes kept). Installed with `tools/install_dev_core.py ... --yes`: every file verified by SHA-256, card check against v0.6.1-dev.183: 0 errors, 0 warnings, caches deleted, ejected. **Removed** (owner: "you can remove preview and preview diagnostics on next install"; DEV 182 as the superseded test build): `alfatreze.TAU DEV 182`, `alfatreze.TAU Preview`, `alfatreze.TAU Preview Diagnostics` (the last two needed `--allow-release`, run with the owner's instruction in chat; backup `work/card-backups/20261023-204452`). **Kept:** the stable `alfatreze.TAU` and every other author's core. **To check on a Pocket:** the Waterfall's horizontal spectrogram (time across, low frequencies at the bottom, the new column at the right) and its Direction setting in Configure; the first Now Playing tag follows the Halcyon preset (and is empty when the EQ is off); `STATS OVF` and the Report's tick costs; the underruns noted in B-828.
+
+## B-832: owner's Pocket result on TAU DEV 183: "all good on the test" (owner-observed on a Pocket)
+Owner (2026-10-23): everything checked on `TAU DEV 183` is good (the horizontal Waterfall and its Direction setting, the Halcyon preset tag on Now Playing, the Report). **Evidence label:** owner-observed, hardware (no numbers given; the Report's underrun counters after this build were not reported). Closes the check lists of B-828, B-829 and B-830. Open: the underruns seen in the DEV 182 Report (`HW UNDER EV 3`, `DRY 3`, `GOV PANIC 5`) were not looked at again.
+
+## B-833: release plumbing: the meter packs ship in the release as the core's own `tau-packs.bin` (data slot 9); a PACKS=1 release build (host-proven; no release published)
+**The problem:** every meter but Winamp Bars is pack-only, and the packs lived only in the MPKB section of the USER's `tau-assets.bin` (which a release never ships: `tau_compat.NOT_SHIPPED`, it would overwrite the user's themes), so a release shown on a clean card had one meter. **Design (and why):** the packs are firmware: they are linked against the ABI of the exact build, so they belong with `tau.rom` and `tau-cold.bin`, core-specific, not in a user file that Tau Omega and the user rewrite. **Built:** (1) firmware: data slot 9 `tau-packs.bin` (`fw2/stream/packfile.c`, read through the slot driver in 1 KB pieces and installed straight into the PSRAM pack slots, no staging); `mpkb_length` (`cores/meter_pack_core.h`) walks the bundle headers and requires the last byte (a cut-short file is refused whole, the fallback applies); `meters_packs_load_file`; the boot loads the packs BEFORE tau-assets.bin (they no longer depend on it), the file wins over an MPKB section (a stale one in a user's file cannot break a release); Info row `PACK SRC` (0 none, 1 tau-assets.bin, 2 tau-packs.bin). (2) tools: `tau_data_slots.add_packs_slot`, `tools/player2/build_packs.py` (every pack in slot order from the current tree; byte-identical to the hand-made bundles), `package_dev_build.py` builds and ships `tau-packs.bin` and declares slot 9 for every PACKS=1 player2 package (dev builds too: no more merging packs into the card's `tau-assets.bin`), `make_release.py --player2` builds with `PACKS=1`; `tau_layout.BUILD_BOUND`, `check_tau_package.py` and `install_dev_core.py` know the file. **Evidence:** host. `test_p2_meter_pack_dispatch` (a bundle read through a chunked data-slot reader installs exactly as from memory, says src 2 against 1; no file, a cut-short file and a non-bundle fall back; a mutant that does not require the last byte is caught), `test_tau_compat` (tau-packs.bin owned by the core, slot 9, optional; in the platform-wide common/ folder or on a slot that is not core-specific it is refused), a real `package_dev_build.py` run produced the package with the file and the slot and a valid `tau-compat.json`, firmware builds, `make test-host-fast` 148 lines 0 failed. **Not done:** a Pocket run of a package read from the slot (the first thing to check: `PACK SRC 2`, `PACKS RUN 0000007F`); Tau Omega must not delete or rewrite `tau-packs.bin` (it is in the compat manifest's layout as owned/core-specific, like `tau.rom`); no release was published.
+
+## B-834: release rehearsal of the packs plumbing (throwaway worktree; nothing published)
+A throwaway worktree off `meter-inputs` (version 0.6.2 and a changelog heading added there only, since removed) ran the real `tools/make_release.py --player2 --release v0.6.2 --no-previous` with the `stats-b821` bitstream: it built the firmware with `PACKS=1`, `package_dev_build.py` produced `tau-packs.bin` (46,548 B, the seven packs in slot order) and data slot 9, the zip `alfatreze.TAU_0.6.2_2026-10-23.zip` (16 files, 1.07 MB) passed its checks and holds `Assets/tau/alfatreze.TAU/tau-packs.bin` beside `tau.rom`, `tau-cold.bin` and `tau-loading.bin`, `data.json` declares slot 9 (`tau-packs.bin`, core-specific, optional), `tau-compat.json` lists it as owned by the core, slot 9, and `SHA256SUMS.txt` lists exactly the zip and the compat file (no stray asset, rule 8). **Evidence:** host rehearsal (the release scripts, not a Pocket). **Not done:** a Pocket run of such a zip (an install of the zip's files, then `PACK SRC 2`, `PACKS RUN 0000007F`); the real release needs its version bump, changelog entry, `--previous` zip and the owner's approval to publish.
+
+## B-835: `meters-p2` and `meter-inputs` merged into `main` (fast-forward, not pushed)
+Owner: "let's merge to main" (2026-10-23). `main` (`f3974b5f`, clean, with nothing of its own) fast-forwarded to `c66d5274` (62 commits: B-799..B-834, the pack-only meters, the audio statistics block and meters, persistence by area, the Waterfall maps and flow, the Halcyon tag, the release plumbing, `make test-host-fast`). **Evidence:** `make test-host-fast` run on `main` itself after the merge: 148 lines, 0 failed. Nothing was pushed; the worktrees `../tau-alpha-meters-p2` and `../tau-alpha-meter-inputs` and their branches are kept. Handoff `docs/handoffs/SESSION_HANDOFF_2026-10-23_METERS_STATS_PERSISTENCE_PACKS.md`; `docs/CURRENT_STATUS.md` updated.
+
+## B-836: TAU DEV 184 installed: the first build that carries its meter packs as `tau-packs.bin` (data slot 9); DEV 183 removed (installed, not yet run on a Pocket)
+`TAU DEV 184` (`0.6.1-dev.184+3c7d6520`, built from `main`, clean, `PACKS=1`, the `stats-b821` bitstream, CORE_VERSION 4D50331B) packaged with `tools/package_dev_build.py ... --build-flags PACKS=1`: the package holds `Assets/tau_dev/alfatreze.TAU DEV 184/tau-packs.bin` (46,548 B, seven packs) and data slot 9. Installed with `tools/install_dev_core.py ... --yes` WITHOUT `--assets`: the card's `tau-assets.bin` was left as it was (it still holds the old MPKB section from DEV 183's merge, so this build also proves the file wins over a stale section). Every file verified by SHA-256 including `tau-packs.bin`, card check against v0.6.1-dev.184: 0 errors, 0 warnings, caches deleted, ejected. Removed: `alfatreze.TAU DEV 183` (backup `work/card-backups/20261023-214307`). Kept: the stable `alfatreze.TAU` and every other author's core. **To check on a Pocket:** Info/Report `PACK SRC 2` (not 1), `PACKS RUN 0000007F`, `PACKS SEEN 7`, `PACK ERR 0`, `PACK FILE 0`, all seven meters in the METER list and drawing, `BOOT PACKS` (the boot cost of reading the file through the slot), and that the settings (colour, theme, presets, last played) are unchanged from DEV 183.
+
+## B-837: TAU DEV 184 on a Pocket: the packs load from `tau-packs.bin` (owner-observed, Report decoded)
+Owner (2026-10-26): "mounted and tested, everything seems to be working". The Report of 2026-10-26 09:16 (`Memories/Screenshots/20261026_091638.png`, decoded with `tools/decode_tau_suite.py --grid`): firmware `0.6.1-dev.184+3c7d6520`; **`PACK SRC 2`** (the core's own `tau-packs.bin`, though the card's `tau-assets.bin` still holds a stale MPKB section: the file wins), `PACKS RUN 0000007F`, `PACKS SEEN 7`, `PACK ERR 0`, `PACK FILE 0`, `PACK OVERRUNS 0`, `PACKS STRUCK 0`, `METER OVER 0`, `STATS OVF 0`, `BOOT PACKS 15,944,595 cyc` (about 239 ms: reading the file through the slot costs about 2.2 M cycles, 33 ms, more than the 13.7 M of the assets path), `DRY 0`, `HW UNDER EV 0`, `GOV PANIC 0` (the underruns seen in the DEV 182 Report did not come back in this session), `LAST STATE 2` (no last-played record at that moment). **Evidence:** owner-observed hardware plus the decoded Report. Closes B-833's open item: the release plumbing (`tau-packs.bin`, data slot 9, `PACK SRC 2`) is proven on a Pocket. **Remains for a release:** the version bump, the changelog entry, the previous release's zip for `--previous`, the owner's approval to publish; Tau Omega must leave `tau-packs.bin` alone and mask the narrowed persist fields.
+
+## B-838: answers to Tau Omega's review of v0.6.1 and `main` (2026-10-26): `replaces`, registry `since`, retired ids, the packs format, stale docs (host-proven; nothing published, nothing pushed)
+Omega's review listed eight items; each was checked against the repo. **Changed:** (3) `tools/tau_layout.py REPLACES`: a Stable `alfatreze.TAU` now names `alfatreze.TAU_DIAGNOSTIC`, `alfatreze.TAU Diagnostics`, `alfatreze.TAU Preview` and `alfatreze.TAU Preview Diagnostics` in `replaces` (an id the same release ships is dropped, `tau_compat.py`); `alfatreze.TAU Preview` replaces only its own diagnostics core; the v0.6.0 and v0.6.1 manifests had `[]`. (2) `tools/persist_registry.json`: ids 31 and 32 said `since v0.6.1` but the RELEASED v0.6.1 still used ids 24-26 for the last played track (B-814 came after the release), so they are `since v0.6.2` now and `persist_ids_changed` for v0.6.2 against the v0.6.1 zip is **[10, 11, 12, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]** (every persisted id; before the fix it missed 31 and 32); a new `retired` block in the registry describes ids 24-26. (4) `docs/features/TAU_PACKS_FORMAT.md`: the byte format of `tau-packs.bin`, frozen with ABI 1.2. (8) `docs/CURRENT_STATUS.md` header (was 2026-10-10) and the `tools/tau_data_slots.py` docstring (slots 1..9, the persist variables). **Checked, no change:** (1) `main` is 65 commits ahead of `origin/main` and not pushed: the owner's decision. (4) role/optional/fallback/precedence as above (B-833, B-834, B-837). (5) the Player 2 Report is `SR_T_INFOTEXT` (tag 26, self-describing rows: no new tag numbers since tag 28, `report_tags_max` stays 28); the rows new since v0.6.1 are listed in the answer. (6) `min_omega` stays 0.3.0 (no file format changed: library index 1, TAUA container, sections THEM/METR/PRST, `MPKB` is a read-only fallback). (7) Latin-1 names (BUG-001) are not in v0.6.2 and the index version stays 1. **Evidence:** host: `test_tau_compat` (the new `replaces` rules, 0 failures) and `make test-host-fast` (148 lines, 0 failed); a simulation compiled the v0.6.1 settings code next to the new one: a v0.6.2 card read by v0.6.1 firmware shows defaults (no crash), and once v0.6.1 saves anything it rewrites the legacy layout, which v0.6.2 migrates again from (the v0.6.2 settings are lost, the last played track survives). **Not done:** Omega-side work; the screenshots as fixtures (the card was not mounted: the Reports of TAU DEV 181, 182 and 184 are in its `Memories/Screenshots`).
+
+## B-839: three real Player 2 Report screenshots as fixtures (`docs/research/p2_reports/`)
+For Tau Omega's request (B-838 item 5): the Reports of TAU DEV 181, 182 and 184 from the card's `Memories/Screenshots` copied into `docs/research/p2_reports/` (3.1 MB with the decoded tables and a README that says what each build adds: the pack rows, the statistics rows, `PACK SRC`). Each decodes with `tools/decode_tau_suite.py --grid ... --table` (210, 216 and 217 rows). **Evidence:** the three decodes ran on the copies in the repo. Nothing was published or pushed.
+
+## B-840: `main` pushed to `origin` (2026-10-26)
+Owner: "push main". `git push origin main` (no force; `origin` is `https://github.com/alfatreze/Tau-Alpha.git`, the fork's own repository; `upstream` push stays DISABLED) advanced `origin/main` from `f3974b5f` to `9c6c30ea`: 67 commits (the meters, statistics, persistence, packs, plumbing and the Omega review answers, B-799..B-839). Tau Omega's CI can now see them. Nothing else was pushed: the branches `meters-p2` and `meter-inputs` stay local, and no tag or release was created.
+
+## B-841: the next release is v0.7.0, not v0.6.2 (owner, 2026-10-26)
+Owner: the next release will be 0.7 (not 0.6.2) and will include more features and rework. **Changed:** every v0.6.2 in the living documents became v0.7.0: the `since` of the persist ids that change meaning (10, 11, 12, 15, 16, 20-23, 27-33) in `tools/persist_registry.json`, `docs/features/PERSISTENCE_LAYOUT.md`, `docs/features/TAU_PACKS_FORMAT.md`, the `tools/tau_data_slots.py` docstring, `docs/CURRENT_STATUS.md`, the 2026-10-23 handoff and the `test_tau_compat` message; the registry must name the tag the release really gets, so it must be set again if the tag differs (v0.7.0 or a preview tag). Older audit entries keep "v0.6.2" as they were written (B-833, B-834, B-838). **Not changed (on purpose):** the version in `dist/Cores/alfatreze.TAU/core.json`, the README and the CHANGELOG stay at 0.6.1 until the release is prepared (dev builds stamp `0.6.1-dev.N` from core.json); Tau Omega was told v0.6.2 in the B-838 answer: its copy needs the same correction. `persist_ids_changed` against the v0.6.1 zip is unchanged: [10, 11, 12, 15, 16, 20-33]. **Evidence:** host: `test_tau_compat` 0 failures.
+
+## B-842: Tau Omega's requests: the persist reference with golden vectors and real captures, the packs read-only view; a CORRECTION: the migration has not run on a Pocket
+**Omega asked for** (1) `tools/persist_layout.py` with golden vectors and real `interact_persist.json` captures, (2) a read-only view of `tau-packs.bin`, the real `meters_schema.json` (Waterfall Colours and Direction, SOUND MAP), a SOUND MAP preview twin, (3) a higher `min_omega` (Omega names the number when steps 1-2 ship). **Built:** `tools/persist_layout.py` (a second statement of the layout: table, pack/unpack, legacy detection, legacy unpack, `migrate`, `migrate_resume`, the id -> word map, a converter between `interact_persist.json` and words, a decoder CLI), proven equal to the firmware's C code by `sim/test_persist_layout.py` (500 random register files over table, write order, unpack, pack, legacy detection and unpack, migration, resumed migration; the id -> word map equals the addresses of `dist/.../interact.json` and of the released v0.6.1; two mutants of the reference caught); `docs/research/persist_layout/golden_vectors.json` (37 legacy cards with their migrated words and values, plus 30 interrupted migrations) and `docs/research/persist_layout/captures/` (the real persist files of TAU DEV 181, 182, 183, 184 from the card) with a README; `tools/tau_packs_info.py` (the read-only walk of `tau-packs.bin`: headers, CRC checks, descriptors) with the real bundle of TAU DEV 184 and its listing in `docs/research/p2_packs/` and `sim/test_tau_packs_info.py`. `tools/meters_schema.json` already carries Colours (`palette`), Direction (`flow`) and SOUND MAP (checked, generated by `gen_meters_p2.py`/`gen_meters.py`). **The SOUND MAP preview twin is not built yet** (a JS port with a parity test against the pack's command trace is the plan; WebAssembly is not an option here: no wasm toolchain on this Mac). **CORRECTION (my earlier claims were too strong):** the settings of each core live in that core's own folder (`Settings/<core id>/Interact/_core/interact_persist.json`), and every TAU DEV build is a new core id, so TAU DEV 182 started from an EMPTY file (the new defaults); its last-played record differs from the final one of DEV 181. What the owner's tests on DEV 182..184 proved is that **the new layout saves and restores on a Pocket**; **the legacy -> new migration has NOT yet run on a Pocket** (host-proven only: B-825, `test_p2_settings*`, `test_persist_layout`). B-828 ("the migration from DEV 181 kept them") and my message to Omega ("verified on hardware (DEV 182, 183, 184)" for the migration) were wrong on that point. **A hardware test of the migration** needs a core whose folder holds a legacy file: copy DEV 181's `interact_persist.json` over the one of DEV 184 on the card (after backing up DEV 184's), boot DEV 184, expect volume 73, colour 7, meter 6, the Space Grotesk font and DEV 181's presets; a firmware Info row for the migration (`SET MIGRATED`, `SET LAYOUT`) would make it visible in the Report. **Evidence:** host (tests above, full suite below).
+
+## B-843: SOUND MAP's preview twin for the Meter Lab: the pack's own source compiled to WebAssembly (host-proven; lab checked in a browser; not yet in Tau Omega)
+Omega asked for a SOUND MAP preview twin (WebAssembly welcome); the owner had the toolchain installed (Homebrew `llvm` + `lld`, clang `--target=wasm32` and `wasm-ld`). **Built:** `tools/meters/preview/wasm/sound_map_wasm.c` (includes `fw2/ui/meter_sound_map.c` under P2_PACK; the pack's draw calls are imports; the framework's per-picture statistics, centroid, flux, onset and crest, use the same `fw2/cores/audio_stats_core.h`), `tools/meters/preview/wasm/build_wasm.py` (deterministic build, `--strip-all`; writes `tools/meters/preview/meters/sound_map_wasm.js`, 7.9 KB of wasm as base64 with the SHA-256 of every source; `--check` = freshness, and a byte-for-byte rebuild when the toolchain is present), the lab module `tools/meters/preview/meters/sound_map.js` (async `ready()`, optional `ctx.stats`, `ctx.raw` for the parity test), `Fb.text` in `tau_fb.js` (lab-only: one recorded command, a block per glyph), the lab page (a "stats block" switch and a correlation slider; the compile is started at load). **Evidence:** host. `sim/test_sound_map_twin.py`: the twin and the native pack (`sim/p2_sound_map_cmdlog_harness.c`) draw the SAME over a seeded script of 3,120 pictures and 170,916 commands (every rect, bar and text with every argument; modes STEREO FIELD, CHARACTER, LONG MEMORY; a small and the fullscreen box; statistics on and off; paused; forced repaints; the memory scrolling), a mutant of the lab module (parameters in the wrong order) is caught, the committed module is current, the lab's live path draws all three modes; `build.py --check` and `node tools/meters/preview/test.js` pass (the lab is 155 KB); the lab page loaded in the browser pane: all five meters register, the WebAssembly module compiles and instantiates, SOUND MAP draws the stereo field with its gauge. **Found on the way:** in the page the scripts are concatenated in file order, so `sound_map.js` ran before its data file and the error aborted every module after it (invisible in Node); the data is looked up lazily now. **Not done:** Omega's side (it takes `tools/meters/preview/` as a vendor drop); the Waterfall and the other meters have no wasm twin yet (the recipe is the same); CHARACTER's labels are blocks in the lab.

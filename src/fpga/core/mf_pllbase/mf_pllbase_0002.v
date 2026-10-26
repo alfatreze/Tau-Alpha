@@ -6,6 +6,15 @@
 // SDRAM outputs pin the VCO at 600 MHz, so clk_sys = 600/N MHz: 60 (N=10, today) or 66.667 (N=9,
 // TAU_CLK66, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Only outclk_0's frequency and this
 // comment differ between the two; outclk_1-3 (pixel/SDRAM) are untouched by the macro.
+//
+// B-457/B-460/B-462 (Cymo 44.1 kHz investigation): a 5th output at 12.288 MHz (the I2S MCLK) was tried
+// here and FAILED to synthesize -- Quartus rejected it as an illegal PLL output frequency. Root cause,
+// not a formatting issue: 12.000 MHz, 100.000 MHz and 12.288 MHz have no common VCO with legal integer
+// output counters below 38.4 GHz (LCM of the three in Hz), and a Cyclone V fPLL's VCO tops out around
+// 1.6 GHz. There is no way to add 12.288 MHz to THIS shared PLL at any clk_sys frequency -- clk_sys was
+// never the limiting constraint, the 12 MHz video clock and the 100 MHz SDRAM clock are. The MCLK now
+// has its own dedicated PLL instead (`mf_pllbase_mclk.v`), reference clk_74a, same fractional-N
+// synthesis technique, no shared-VCO conflict.
 `timescale 1ns/10ps
 module mf_pllbase_0002 (
     input  wire refclk,

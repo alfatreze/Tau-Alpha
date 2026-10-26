@@ -6,7 +6,7 @@
                 "name": "Firmware",
                 "id": 1,
                 "required": true,
-                "parameters": "0x108",
+                "parameters": "0x10A",
                 "filename": "tau.rom",
                 "address": "0x00000000"
             },
@@ -15,21 +15,10 @@
                 "id": 2,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "extensions": [
                     "mp3",
                     "flac"
-                ]
-            },
-            {
-                "name": "Playlist",
-                "id": 3,
-                "required": false,
-                "deferload": true,
-                "parameters": "0x1",
-                "filename": "playlist.m3u",
-                "extensions": [
-                    "m3u"
                 ]
             },
             {
@@ -37,7 +26,7 @@
                 "id": 4,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x2",
                 "filename": "tau-loading.bin"
             },
             {
@@ -45,7 +34,7 @@
                 "id": 5,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-library.tdb"
             },
             {
@@ -53,7 +42,7 @@
                 "id": 6,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x2",
                 "filename": "tau-cold.bin"
             },
             {
@@ -61,7 +50,7 @@
                 "id": 8,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-assets.bin"
             },
             {
@@ -69,7 +58,7 @@
                 "id": 7,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "extensions": [
                     "timg"
                 ]

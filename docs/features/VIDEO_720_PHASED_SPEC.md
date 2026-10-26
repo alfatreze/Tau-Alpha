@@ -1,7 +1,7 @@
 # 720: phased spec and implementation plan
 
-Status: **spec, nothing in it built yet** except T1 (the scanout doubler, B-410), which Phase 1 absorbs.
-Branch `test/720`. Written 2026-09-29 (B-412) after a full review of `VIDEO_720_TEST_PLAN.md`, which stays the
+Status: **spec, nothing in it built yet** except T1 (the scanout doubler, B-844), which Phase 1 absorbs.
+Branch `test/720`. Written 2026-09-29 (B-846) after a full review of `VIDEO_720_TEST_PLAN.md`, which stays the
 background document (platform limits, bandwidth and resource arithmetic). This file is the one to implement from.
 
 **Baseline for every build in this plan: the 192 KB stack with all current hardware features** -- the
@@ -17,7 +17,7 @@ MLAB). That is fixed on `main` (uncommitted there until this same pass, now comm
 (`gb_we`/`gb_addr`/`gb_data`) fanned out to two MLAB copies, fit-confirmed and hardware-confirmed. **Rebase or
 merge `main` into `test/720` before Group A3's own fit** -- the MLAB-inference work A3 describes below is already
 done upstream; redoing it here would be duplicate effort on the same bug, not a second fix.
-**Done 2026-09-29 (B-413):** `origin/main` `ce635b5` merged into `test/720` (merge `1062107`); T2-00's single write
+**Done 2026-09-29 (B-847):** `origin/main` `ce635b5` merged into `test/720` (merge `1062107`); T2-00's single write
 port and T1's `VID720` both survived the auto-merge of `mp3_fb.sv`, and every `mp3_fb` suite passes on the merged tree.
 
 Two test builds:
@@ -65,7 +65,7 @@ framebuffer. The user-visible default is unchanged.
   (T2-00's two MLAB copies behind one shared write port `gb_we`/`gb_addr`/`gb_data`) -- widen `gb_addr`
   and both arrays' declared size to 256, not a single renamed `glyphbuf` array. The one-write-port
   invariant T2-00 established must survive this widening unchanged (still exactly one `if (gb_we)` site).
-  **Full touch list (checked against the merged RTL, B-413):** the buffer is not the only 7-bit limit.
+  **Full touch list (checked against the merged RTL, B-847):** the buffer is not the only 7-bit limit.
   `FB_COPY_MAX 127` in `fw/player.c` exists because `char_w` (the row width every COPY/BLIT/CBLIT/SBLIT row
   uses) is 7 bits. A3 widens, behind a depth parameter so the default build is unchanged:
   `glyphbuf_a`/`glyphbuf_b` depth; `gb_addr`; the `glyph_q` read index (`wsrc_addr`); `bl_bg`'s read index and
@@ -74,7 +74,7 @@ framebuffer. The user-visible default is unchanged.
   Firmware raises `FB_COPY_MAX` to 255 only when `VID_CAPS` bit 1 is set. Cost: each MLAB copy grows from 4 to
   8 LABs (256 / 32-deep MLAB), +8 LABs total, and the read side gains one mux level over 8 MLABs.
   Mutation: `BUG_GB_NARROW` (end-of-row compare on 7 bits) must fail a 200-word COPY/BLIT test.
-  **Built 2026-09-29 (B-414), simulation only, no fit:** `mp3_fb` parameter `GB_WIDE` (macro `TAU_SCAN_A`, wired in
+  **Built 2026-09-29 (B-848), simulation only, no fit:** `mp3_fb` parameter `GB_WIDE` (macro `TAU_SCAN_A`, wired in
   `core_game.vh`) and `VID_CAPS` at 0x14C in `mp3_soc.v` (bit 1 only; bit 0 stays 0 until A1/A2 exist). Corrections
   to the list above found while building: there are **four** end-of-row compares, not three (COPY/BLIT read, the
   key/blend destination pre-read, SBLIT, CBLIT), and two more limits -- `sblit_ext`'s 127 clamp (now 127 or 255) and
@@ -108,7 +108,7 @@ group to drop first if a fit fails.
 | 0x150 | FB_DRAW_BASE | R/W | 25-bit word address added to FB-relative draw addresses (default 0) |
 | 0x154 | FB_DISP_BASE | R/W | 25-bit word address scanned out; applied at the next vblank (default 0) |
 
-**Question (flagged 2026-09-29) -- resolved below (B-413).** does `draw_base` cover the
+**Question (flagged 2026-09-29) -- resolved below (B-847).** does `draw_base` cover the
 BLIT-class opcodes' own sticky `SRC_BASE`/`DST_BASE` fields (`R_BLT_IDX` fields 0/2 -- used by
 BLIT/CBLIT/SBLIT and B-405's Settings crossfade), or only the RUN/RECT/BAR/RRECT/CHAR/COPY path through
 `cmd_addr`/`R_FB_ADDR`? This is not a wording nitpick -- it's the actual bug `TALOS2_REIMPLEMENTATION_PLAN.md`
@@ -125,7 +125,7 @@ other Talos change in this codebase already uses. `TALOS2_REIMPLEMENTATION_PLAN.
 own "target surface" design to whichever of these two implementations lands first; make sure this one
 actually earns that by covering blits.
 
-**C2 resolution (B-413, checked against the merged RTL -- this is the shared answer for Talos 2's target surface):**
+**C2 resolution (B-847, checked against the merged RTL -- this is the shared answer for Talos 2's target surface):**
 
 - **What H2 covers today, precisely.** `dbuf_addr()` is applied at the `p0_addr` issue points for fill, CHAR,
   COPY (source and destination) and RECT; the RECT site also serves **BAR and RRECT** (they reuse `rect_addr`).

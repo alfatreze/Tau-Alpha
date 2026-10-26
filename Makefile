@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-fb-vid720 test-rtl-fb-wide test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-fb-vid720 test-rtl-fb-wide new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -28,54 +28,174 @@ package:
 
 test: test-host test-rtl
 
+# a new Player 2 meter as a working pack-only meter (tools/player2/new_meter.py): make new-meter KEY=sparks [TAG=SPK] [LABEL="SPARKS"]
+new-meter:
+	@test -n "$(KEY)" || { echo 'usage: make new-meter KEY=sparks [TAG=SPK] [LABEL="SPARKS"]'; exit 2; }
+	$(PYTHON) tools/player2/new_meter.py $(KEY) $(if $(TAG),--tag $(TAG)) $(if $(LABEL),--label "$(LABEL)")
+
+# same recipe as test-host on a worker pool (about 2 min instead of 6); test-host stays the serial reference
+.PHONY: test-host-fast
+test-host-fast:
+	$(PYTHON) tools/run_host_tests.py
+
 test-host:
 	$(PYTHON) tools/triad/test_director.py
 	$(PYTHON) tools/check_splash_asset.py
 	$(PYTHON) tools/check_tau_package.py
-	$(PYTHON) tools/check_ui_snapshot_renderer.py
+	$(PYTHON) tools/check_claude_md.py
+	$(PYTHON) sim/test_check_claude_md.py
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
+	$(PYTHON) tools/gen_layered_wave_tables.py --check
 	$(PYTHON) tools/check_meter_deps.py
 	$(PYTHON) sim/test_meter_core.py --check
-	$(PYTHON) sim/test_meter_module.py
-	$(PYTHON) sim/test_chladni_params.py
-	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
+	$(PYTHON) sim/test_cymo_loopback.py
+	$(PYTHON) sim/test_cymo_isp.py
+	$(PYTHON) sim/test_cymo_crossfeed.py
+	$(PYTHON) sim/test_cymo_tplimit.py
+	$(PYTHON) sim/test_halcyon_assets.py
+	$(PYTHON) sim/test_assets_load.py
+	$(PYTHON) sim/test_halcyon_core.py
+	$(PYTHON) sim/test_halcyon_hw.py
+	$(PYTHON) sim/test_halcyon_prst.py
+	$(PYTHON) sim/test_halcyon_curve.py
+	$(PYTHON) tools/make_halcyon_test_assets.py selftest
+	$(PYTHON) sim/test_halcyon_lab.py
+	$(PYTHON) sim/test_cymo_out_model.py
+	$(PYTHON) sim/test_sound_i2s_full16.py
+	$(PYTHON) sim/test_halcyon_model.py
+	$(PYTHON) sim/test_eq_coeff_precision.py
+	$(PYTHON) sim/test_halcyon_generator.py
+	$(PYTHON) sim/test_cymo_gain_model.py
+	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js </dev/null && $(PYTHON) sim/test_p2_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py && $(PYTHON) sim/test_sound_map_twin.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) tools/gen_themes.py --check
-	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
+	$(PYTHON) sim/test_track_details.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
+	$(PYTHON) sim/test_tau_compat.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
-	$(PYTHON) sim/test_ram192k.py
-	$(PYTHON) sim/test_clk66.py
-	$(PYTHON) sim/test_helios_beam.py
-	$(PYTHON) sim/test_chladni_module.py
-	$(PYTHON) sim/test_tau_timg.py
+	$(PYTHON) sim/test_splash_asset.py
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
 	$(PYTHON) sim/test_chladni_core.py
 	$(PYTHON) sim/test_vu_master.py
-	$(PYTHON) sim/test_helios_rect.py
-	$(PYTHON) sim/test_theme.py
+	$(PYTHON) sim/test_pcm_push.py
+	$(PYTHON) sim/test_tpg.py
+	$(PYTHON) sim/test_tpg_fw.py
+	$(PYTHON) sim/test_pcm_burst.py
+	$(PYTHON) sim/test_p2_timeline.py
+	$(PYTHON) sim/test_p2_governor.py
+	$(PYTHON) sim/test_p2_counters.py
+	$(PYTHON) sim/test_p2_aout.py
+	$(PYTHON) sim/test_p2_monoclock.py
+	$(PYTHON) sim/test_p2_report.py
+	$(PYTHON) sim/test_p2_stream.py
+	$(PYTHON) sim/test_p2_stream_idle.py
+	$(PYTHON) sim/test_p2_winamp.py
+	$(PYTHON) sim/test_p2_scope.py
+	$(PYTHON) sim/test_p2_vu.py
+	$(PYTHON) sim/test_p2_chladni.py
+	$(PYTHON) sim/test_p2_lw.py
+	$(PYTHON) tools/player2/gen_meters_p2.py --check
+	$(PYTHON) sim/test_p2_mpre.py
+	$(PYTHON) sim/test_p2_ramp.py
+	$(PYTHON) sim/test_p2_meter_stats.py
+	$(PYTHON) sim/test_p2_meter_cmd_budget.py
+	$(PYTHON) sim/test_p2_gfx_touch.py
+	$(PYTHON) sim/test_p2_waterfall_blit.py
+	$(PYTHON) sim/test_p2_waterfall_palette.py
+	$(PYTHON) sim/test_p2_waterfall_flow.py
+	$(PYTHON) sim/test_p2_lastplayed.py
+	$(PYTHON) sim/test_p2_boot_order.py
+	$(PYTHON) sim/test_p2_pack_strike.py
+	$(PYTHON) sim/test_p2_meter_desc.py
+	$(PYTHON) sim/test_p2_pack_only.py
+	$(PYTHON) sim/test_p2_meter_helpers.py
+	$(PYTHON) sim/test_p2_audio_stats.py
+	$(PYTHON) sim/test_p2_new_meter.py
+	$(PYTHON) sim/test_p2_meter_pack.py
+	$(PYTHON) sim/test_p2_meter_pack_dispatch.py
+	$(PYTHON) sim/test_p2_meter_thumb.py
+	$(PYTHON) sim/test_p2_waterfall.py
+	$(PYTHON) sim/test_p2_settings_service.py
+	$(PYTHON) sim/test_p2_settings_boot.py
+	$(PYTHON) sim/test_persist_layout.py
+	$(PYTHON) sim/test_tau_packs_info.py
+	$(PYTHON) sim/test_p2_meter_budget.py
+	$(PYTHON) sim/test_p2_configure.py
+	$(PYTHON) sim/test_p2_configure_view.py
+	$(PYTHON) sim/test_p2_controls.py
+	$(PYTHON) sim/test_p2_help.py
+	$(PYTHON) sim/test_p2_metr.py
+	$(PYTHON) sim/test_p2_colour.py
+	$(PYTHON) sim/test_p2_tune.py
+	$(PYTHON) sim/test_font_atlases.py
+	$(PYTHON) sim/test_font_fit.py
+	$(PYTHON) sim/test_icons.py
+	$(PYTHON) sim/test_p2_font.py
+	$(PYTHON) sim/test_p2_icon.py
+	$(PYTHON) sim/test_latin1_text.py
+	$(PYTHON) sim/test_p2_blank.py
+	$(PYTHON) sim/test_p2_gfx.py
+	$(PYTHON) sim/test_p2_scope_trail.py
+	$(PYTHON) sim/test_p2_chladni_dbuf.py
+	$(PYTHON) sim/test_p2_xfade.py
+	$(PYTHON) sim/test_p2_art_probe.py
+	$(PYTHON) sim/test_p2_helios.py
+	$(PYTHON) sim/test_p2_views.py
+	$(PYTHON) sim/test_p2_menupages.py
+	$(PYTHON) sim/test_p2_halcyon_sel.py
+	$(PYTHON) sim/test_p2_theme.py
+	$(PYTHON) sim/test_p2_queue.py
+	$(PYTHON) sim/test_p2_mp3.py
+	$(PYTHON) sim/test_p2_gain.py
+	$(PYTHON) sim/test_p2_flac2.py
+	$(PYTHON) sim/test_p2_flac2_pred.py
+	$(PYTHON) sim/test_p2_flac2_hdr.py
+	FLAC2_DEC_N=10 FLAC2_DEC_REAL=0 $(PYTHON) sim/test_p2_flac2_dec.py
+	FLAC2_REC_N=12 $(PYTHON) sim/test_p2_flac2_rec.py
+	$(PYTHON) sim/test_p2_flac2_open.py
+	FLAC2_SEEK_REAL=0 $(PYTHON) sim/test_p2_flac2_seek.py
+	FLAC2_TRACK_QUICK=1 $(PYTHON) sim/test_p2_flac2_track.py
+	$(PYTHON) sim/test_p2_nowplaying.py
+	$(PYTHON) sim/test_p2_browse.py
+	$(PYTHON) sim/test_p2_spectrum.py
+	$(PYTHON) sim/test_p2_skiptab.py
+	$(PYTHON) sim/test_p2_settings.py
+	$(PYTHON) tools/player2/gen_sine.py --check
+	$(PYTHON) sim/test_check_deps.py
+	$(PYTHON) tools/check_deps.py
+	TAU_BUILD_OUT=work/heapcheck bash fw2/build.sh
+	$(PYTHON) tools/player2/meter_budget.py work/heapcheck/player2/obj
+	PACKS=1 TAU_BUILD_OUT=work/heapcheck/packs bash fw2/build.sh
+	$(PYTHON) tools/player2/check_packs_abi.py work/heapcheck/packs/player2/fw2.elf
+	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
+	$(PYTHON) sim/test_key_repeat.py
+	$(PYTHON) sim/test_wsola.py
+	$(PYTHON) sim/test_tempo_funnel.py
+	$(PYTHON) sim/test_tempo_funnel.py -DTEMPO_SLICE=1
+	$(PYTHON) sim/test_tempo_slice.py
+	$(PYTHON) sim/test_overlay_proto.py
+	$(PYTHON) tools/gen_diag_features.py --check
+	$(PYTHON) sim/test_diag_features.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py
-	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
-	$(PYTHON) tools/check_art_load_order.py --check
+	$(PYTHON) sim/test_ram_report.py
+	$(PYTHON) tools/fit_manifest.py check-bundles
+	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-fb-vid720 test-rtl-fb-wide test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
-
-rtl-vectors:
-	$(PYTHON) tools/gen_eq_vectors.py
+test-rtl: test-rtl-fb-vid720 test-rtl-fb-wide test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
 
-$(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v | $(RTL_BUILD_DIR)
+$(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
 test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
@@ -98,9 +218,9 @@ test-rtl-fb-vid720: | $(RTL_BUILD_DIR)
 # behaviour) and =0 (must reproduce today's addressing exactly, no matter what the flip-request/cpu_buf
 # ports are driven with -- DBUF_ENABLE gates the RTL itself, not just what a well-behaved caller wires up).
 test-rtl-helios-dbuf: | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp | grep -q "^PASSED"
-	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_helios_dbuf.DBUF_ENABLE=0 -o $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_helios_dbuf.DBUF_ENABLE=0 -o $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp | grep -q "^PASSED"
 
 # Phase F B1/B2: each mutant MUST fail this bench.
@@ -118,14 +238,15 @@ test-rtl-fb-wide: | $(RTL_BUILD_DIR)
 
 test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	@set -e; \
-	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v; \
+	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v; \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: $$1"; \
 	  else echo "MUTANT SURVIVED: $$1"; exit 1; fi; }; \
 	run -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1; \
 	run -Ptb_mp3_fb.BUG_IGNORE_KEY=1; \
 	run -Ptb_mp3_fb.BUG_SBLIT_NO_SCALE=1; \
 	run -Ptb_mp3_fb.BUG_BLEND_ALWAYS_SRC=1; \
-	run -Ptb_mp3_fb.BUG_IGNORE_RC_CUT=1
+	run -Ptb_mp3_fb.BUG_IGNORE_RC_CUT=1; \
+	run -Ptb_mp3_fb.BUG_IGNORE_BAR_HI=1
 
 # PHASE_F_SPEC.md section 12: software reference renderer + pixel-diff
 # fixtures, run the whole scene through the RTL sim and through
@@ -142,12 +263,6 @@ $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RT
 test-rtl-tgt: $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp
 	$(VVP) $<
 
-$(RTL_BUILD_DIR)/tb_eq_biquad.vvp: sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2005-sv -I src/fpga/core -o $@ $^
-
-test-rtl-eq: rtl-vectors $(RTL_BUILD_DIR)/tb_eq_biquad.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_biquad.vvp
-
 $(RTL_BUILD_DIR)/tb_pcm_decay.vvp: sim/tb_pcm_decay.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
@@ -162,11 +277,15 @@ $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp: sim/tb_pcm_fifo.v src/fpga/core/pcm_fifo.v | $
 test-rtl-pcm-prime: $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp
 	$(VVP) $<
 
-$(RTL_BUILD_DIR)/tb_eq_cycles.vvp: sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -I src/fpga/core -o $@ $^
+$(RTL_BUILD_DIR)/tb_pcm_under.vvp: sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
 
-test-rtl-eq-cycles: rtl-vectors $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
+test-rtl-pcm-under: $(RTL_BUILD_DIR)/tb_pcm_under.vvp
+	$(VVP) $< | tee /dev/stderr | grep -q PASSED
+
+# Mutation check: each mutant of the underrun statistics must fail the bench.
+test-rtl-pcm-under-mutation: sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
+	@for u in 1 2 3; do $(IVERILOG) -g2012 -Ptb_pcm_under.UB=$$u -o $(RTL_BUILD_DIR)/tb_pcm_under_m$$u.vvp sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v && if $(VVP) $(RTL_BUILD_DIR)/tb_pcm_under_m$$u.vvp | grep -q PASSED; then echo "mutant $$u NOT caught"; exit 1; else echo "mutant $$u caught"; fi; done
 
 $(RTL_BUILD_DIR)/tb_tau_sdram_arbiter.vvp: sim/tb_tau_sdram_arbiter.v src/fpga/core/tau_sdram_arbiter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
@@ -233,11 +352,176 @@ test-rtl-flac-lpc-mutation: $(RTL_BUILD_DIR)/flac_lpc_vectors.txt
 	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_flac_lpc.BUG=$$b -o $(RTL_BUILD_DIR)/flac_lpc_mut.vvp sim/tb_tau_flac_lpc.v src/fpga/core/tau_flac_lpc.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/flac_lpc_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 
+# Cymo polyphase FIR resampler, 44100:48000 only (docs/features/CYMO_AUDIO_ENGINE.md section 15, B-467+):
+# a new design, not a port -- sim/cymo_resamp_model.c IS the reference, independently cross-checked in
+# Python by sim/test_cymo_resamp_model.py (this project's own "prove it twice, differently" discipline).
+# Standalone unit, NOT yet wired into pcm_fifo.v/mp3_soc.v.
+CYMO_RESAMP_SRC = sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_resamp_rom.svh
+$(RTL_BUILD_DIR)/cymo_resamp_vectors.txt: sim/test_cymo_resamp_model.py sim/cymo_resamp_model.c tools/gen_cymo_resamp_rom.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_cymo_resamp_model.py
+
+$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt   # written by the same script run
+
+$(RTL_BUILD_DIR)/tb_cymo_resamp.vvp: $(CYMO_RESAMP_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv
+
+test-rtl-cymo-resamp: $(RTL_BUILD_DIR)/tb_cymo_resamp.vvp $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
+	$(VVP) $<
+	$(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.OUT_W=18 -o $(RTL_BUILD_DIR)/tb_cymo_resamp18.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv
+	$(VVP) $(RTL_BUILD_DIR)/tb_cymo_resamp18.vvp +VEC=$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt
+
+# each mutant MUST fail the bench (tap/history index reversed, no shift, sign-extension dropped, wrong phase step, pop_req never asserted)
+test-rtl-cymo-resamp-mutation: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
+	@set -e; for b in 1 2 3 4 5; do \
+	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.BUG=$$b -o $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+	@set -e; $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.BUG=6 -Ptb_tau_cymo_resamp.OUT_W=18 -o $(RTL_BUILD_DIR)/cymo_resamp_mut6.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/cymo_resamp_mut6.vvp +VEC=$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt | grep -q "^FAILED"; then echo "mutant killed: BUG=6 (18-bit output clipped at 16 bits)"; else echo "MUTANT SURVIVED: BUG=6"; exit 1; fi
+
+# B-527: the hand-off between the track-rate tick and the resampler, against the REAL resampler at the real clock ratio (a counting ramp, so a dropped or
+# repeated input sample is a break in the pushed sequence). The mutant is the old tick-gated hand-off, which must fail.
+CYMO_FEED_SRC = sim/tb_tau_cymo_feed.v src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_resamp_rom.svh
+$(RTL_BUILD_DIR)/tb_cymo_feed.vvp: $(CYMO_FEED_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_cymo_feed.v src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_cymo_resamp.sv
+
+# B-741: the hardware PCM ring reader (gapless): behavioural PSRAM and FIFO, five mutants.
+PCM_RING_SRC = sim/tb_tau_pcm_ring.v src/fpga/core/tau_pcm_ring.sv
+$(RTL_BUILD_DIR)/tb_pcm_ring.vvp: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $(PCM_RING_SRC)
+test-rtl-pcm-ring: $(RTL_BUILD_DIR)/tb_pcm_ring.vvp
+	$(VVP) $< | tee $(RTL_BUILD_DIR)/pcm_ring.out; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring.out
+test-rtl-pcm-ring-mutation: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5 6; do \
+	  $(IVERILOG) -g2012 -Ptb_tau_pcm_ring.BUG=$$b -o $(RTL_BUILD_DIR)/pcm_ring_mut.vvp $(PCM_RING_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/pcm_ring_mut.vvp | grep -q "^FAILED\|^the FIFO never\|MISMATCH"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+
+test-rtl-cymo-feed: $(RTL_BUILD_DIR)/tb_cymo_feed.vvp
+	$(VVP) $<
+
+test-rtl-cymo-feed-mutation: $(CYMO_FEED_SRC) | $(RTL_BUILD_DIR)
+	@set -e; $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_feed.BUG=1 -o $(RTL_BUILD_DIR)/cymo_feed_mut.vvp sim/tb_tau_cymo_feed.v src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_cymo_resamp.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/cymo_feed_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=1 (the old tick-gated hand-off)"; else echo "MUTANT SURVIVED: BUG=1"; exit 1; fi
+
+# B-615: the hardware gain stage, replayed against the host model (which is itself proved equal to the shipped firmware gain), plus nine mutants.
+GAIN_SRC = sim/tb_tau_gain_stage.v src/fpga/core/tau_gain_stage.sv
+$(RTL_BUILD_DIR)/gain_vectors.txt: sim/test_cymo_gain_model.py tools/lab/cymo_gain_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_cymo_gain_model.py --vectors $@ >/dev/null
+$(RTL_BUILD_DIR)/tb_gain_stage.vvp: $(GAIN_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -DBUGV=0 -o $@ $(GAIN_SRC)
+test-rtl-gain-stage: $(RTL_BUILD_DIR)/tb_gain_stage.vvp $(RTL_BUILD_DIR)/gain_vectors.txt
+	$(VVP) $< | grep -q "^PASS" && echo "PASSED: tb_tau_gain_stage"
+test-rtl-gain-stage-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_vectors.txt | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5 6 7 8 9; do $(IVERILOG) -g2012 -DBUGV=$$b -o $(RTL_BUILD_DIR)/gain_mut.vvp $(GAIN_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/gain_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_gain_stage BUG=$$b"; else echo "MUTANT SURVIVED: tau_gain_stage BUG=$$b"; exit 1; fi; done
+
+# B-720: the gain stage with BOOST=1 (target up to 65535, saturating product), replayed against the model with boost, plus two boost-only mutants and the unity regression on BOOST=1.
+$(RTL_BUILD_DIR)/gain_boost_vectors.txt: sim/test_cymo_gain_model.py tools/lab/cymo_gain_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_cymo_gain_model.py --boost-vectors $@ >/dev/null
+test-rtl-gain-boost: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_boost_vectors.txt $(RTL_BUILD_DIR)/gain_vectors.txt | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -DBUGV=0 -DBOOSTV=1 -DVECF='"$(RTL_BUILD_DIR)/gain_boost_vectors.txt"' -o $(RTL_BUILD_DIR)/gain_boost.vvp $(GAIN_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/gain_boost.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_gain_stage BOOST=1 (boost vectors)"
+	$(IVERILOG) -g2012 -DBUGV=0 -DBOOSTV=1 -o $(RTL_BUILD_DIR)/gain_boost_u.vvp $(GAIN_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/gain_boost_u.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_gain_stage BOOST=1 equals the shipped stage below unity (the shipped vectors)"
+test-rtl-gain-boost-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_boost_vectors.txt | $(RTL_BUILD_DIR)
+	@set -e; for b in 10 11; do $(IVERILOG) -g2012 -DBUGV=$$b -DBOOSTV=1 -DVECF='"$(RTL_BUILD_DIR)/gain_boost_vectors.txt"' -o $(RTL_BUILD_DIR)/gain_bmut.vvp $(GAIN_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/gain_bmut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_gain_stage BOOST=1 BUG=$$b"; else echo "MUTANT SURVIVED: tau_gain_stage BOOST=1 BUG=$$b"; exit 1; fi; done
+
+# B-635: the Halcyon engine (tau_halcyon.sv), replayed against tools/lab/halcyon_engine_model.py at 16 and 24 bits, plus eight mutants.
+HALCYON_SRC = sim/tb_tau_halcyon.v src/fpga/core/tau_halcyon.sv
+$(RTL_BUILD_DIR)/halcyon_vectors_w%.txt: tools/lab/halcyon_engine_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) tools/lab/halcyon_engine_model.py --vectors $@ --w $*
+$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt: tools/lab/halcyon_engine_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) tools/lab/halcyon_engine_model.py --vectors $@ --w 18 --wo 16 --ifb 0 --ofb 0
+test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_w24.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
+	@set -e; for w in 16 24; do $(IVERILOG) -g2012 -DHW=$$w -o $(RTL_BUILD_DIR)/halcyon$$w.vvp $(HALCYON_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/halcyon$$w.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon W=$$w"; done
+	@set -e; $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon18.vvp $(HALCYON_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/halcyon18.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon WI=18 (headroom) WO=16"
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/halcyon_tick.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv; \
+	  $(VVP) $(RTL_BUILD_DIR)/halcyon_tick.vvp | grep -q "^PASS" && echo "PASSED: tb_halcyon_tick (48 kHz tick on the 66.667 MHz clock)"
+test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5 6 7 9; do $(IVERILOG) -g2012 -DHW=16 -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
+	@set -e; for b in 11 12; do $(IVERILOG) -g2012 -Isrc/fpga/core -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b (11 integer tick divider, 12 per-channel output update)"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
+	@set -e; for b in 6 10; do $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 -DHBUG=$$b '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
+
+# B-639: the Halcyon MMIO glue in mp3_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
+HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv
+test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_halcyon/main.c -o $(RTL_BUILD_DIR)/fw_halcyon.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
+	@set -e; for wide in 0 1; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_halcyon_soc.WIDE=$$wide -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_halcyon.bin | tee $(RTL_BUILD_DIR)/halcyon_soc.log | tail -13; grep -q "^PASSED" $(RTL_BUILD_DIR)/halcyon_soc.log; done
+
+# The writable Latin-1 font memory (sim/tb_font_ram.v through the real mp3_fb, compared with tools/host/blit_reference.py; three mutation hooks must make it differ)
+test-rtl-font-ram:
+	$(PYTHON) sim/test_font_ram.py
+
+# The font memory registers in mp3_soc.v (FONT_CTRL/IDX/DATA) with the real CPU driving them (firmware sim/fw_font/main.c, sim/tb_font_soc.v checks the verdicts and the write port); two mutation hooks must fail it.
+FONT_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_font_soc.v,$(HALCYON_SOC_SRC))
+test-rtl-font-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_font/main.c -o $(RTL_BUILD_DIR)/fw_font.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_font.elf $(RTL_BUILD_DIR)/fw_font.bin
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_font_soc.vvp $(FONT_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_font_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_font.bin | tee $(RTL_BUILD_DIR)/font_soc.log | tail -14; grep -q "^PASSED" $(RTL_BUILD_DIR)/font_soc.log
+	@set -e; for b in BUG_FONT_NO_INC BUG_FONT_NO_GEN; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_font_soc.$$b=1 -o $(RTL_BUILD_DIR)/tb_font_soc_mut.vvp $(FONT_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_font_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_font.bin | grep -q "^FAIL"; then echo "mutant killed: $$b"; else echo "MUTANT SURVIVED: $$b"; exit 1; fi; done
+
+# The audio statistics registers in mp3_soc.v (STATS_CTL/IDX/DATA) with the real CPU driving them (firmware sim/fw_stats/main.c; sim/tb_stats_soc.v forces eight known samples into the block's tap); the block left out (ENABLE=0) must fail it.
+STATS_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_stats_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_audio_stats.sv
+test-rtl-stats-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_stats/main.c -o $(RTL_BUILD_DIR)/fw_stats.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_stats.elf $(RTL_BUILD_DIR)/fw_stats.bin
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_stats_soc.vvp $(STATS_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_stats_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_stats.bin | tee $(RTL_BUILD_DIR)/stats_soc.log | tail -16; grep -q "^PASSED" $(RTL_BUILD_DIR)/stats_soc.log
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_stats_soc.ENABLE=0 -o $(RTL_BUILD_DIR)/tb_stats_soc_mut.vvp $(STATS_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_stats_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_stats.bin | grep -q "^FAIL"; then echo "mutant killed: block not built"; else echo "MUTANT SURVIVED: block not built"; exit 1; fi
+
+# B-653: the stereo pair invariant through the real mp3_soc audio path and the real sound_i2s writer (sim/tb_audio_pair.v, firmware sim/fw_audiopair/main.c), in six configurations; the
+# bench's own mutant (-DTORN=1, the right channel a clock late) must FAIL.
+AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
+# Icarus rejects sound_i2s.v's unused negative-repeat branch ({(15 - CHANNEL_WIDTH){1'b0}} with a 16-bit channel); the copy changes nothing for CHANNEL_WIDTH 16 (as sim/test_cymo_i2s_rate.py).
+$(RTL_BUILD_DIR)/sound_i2s_sim.v: src/fpga/core/sound_i2s.v | $(RTL_BUILD_DIR)
+	$(PYTHON) -c "import sys;s=open(sys.argv[1]).read();open(sys.argv[2],'w').write(s.replace(\"{(15 - CHANNEL_WIDTH){1'b0}}\",\"{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}\"))" $< $@
+test-rtl-audio-pair: $(RTL_BUILD_DIR)/mp3_soc_sim.v $(RTL_BUILD_DIR)/sound_i2s_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_audiopair/main.c -o $(RTL_BUILD_DIR)/fw_audiopair.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_audiopair.elf $(RTL_BUILD_DIR)/fw_audiopair.bin
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Isim -o $(RTL_BUILD_DIR)/tb_audio_pair.vvp $(AUDIO_PAIR_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_audio_pair.vvp +ROM=$(RTL_BUILD_DIR)/fw_audiopair.bin | tee $(RTL_BUILD_DIR)/audio_pair.log | tail -9; grep -q "^PASSED" $(RTL_BUILD_DIR)/audio_pair.log
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Isim -Ptb_audio_pair.TORN=1 -o $(RTL_BUILD_DIR)/tb_audio_pair_torn.vvp $(AUDIO_PAIR_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_audio_pair_torn.vvp +ROM=$(RTL_BUILD_DIR)/fw_audiopair.bin | grep -q "^FAILED"; then echo "mutant killed: a right channel one clock late is caught"; else echo "MUTANT SURVIVED: tb_audio_pair TORN=1"; exit 1; fi
+
+test-rtl-audio-stats: $(RTL_BUILD_DIR)/tb_tau_audio_stats.vvp
+	$(VVP) $< | tee $(RTL_BUILD_DIR)/audio_stats.log | grep -q "^PASSED" || { cat $(RTL_BUILD_DIR)/audio_stats.log; exit 1; }
+	@echo "tau_audio_stats: PASSED"
+
+$(RTL_BUILD_DIR)/tb_tau_audio_stats.vvp: sim/tb_tau_audio_stats.v src/fpga/core/tau_audio_stats.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
+
+test-rtl-audio-stats-mutation: sim/tb_tau_audio_stats.v src/fpga/core/tau_audio_stats.sv | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4; do $(IVERILOG) -g2012 -Ptb_tau_audio_stats.BUGP=$$b -o $(RTL_BUILD_DIR)/audio_stats_mut.vvp $^; \
+	  if $(VVP) $(RTL_BUILD_DIR)/audio_stats_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_audio_stats BUG=$$b"; else echo "MUTANT SURVIVED: tau_audio_stats BUG=$$b"; exit 1; fi; done
+
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<
 
 $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp: sim/tb_tau_wave_meter.v src/fpga/core/tau_wave_meter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
+
+# B-575: the CLUT write port (R_CLUT_IDX / R_CLUT_DATA) as a testable module; the mutant (the old inline behaviour) must FAIL.
+$(RTL_BUILD_DIR)/tb_tau_clut_wr.vvp: sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv
+
+$(RTL_BUILD_DIR)/tb_tau_clut_wr_mut.vvp: sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -Ptb_tau_clut_wr.BUG=1 -o $@ sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv
+
+test-rtl-clut-wr: $(RTL_BUILD_DIR)/tb_tau_clut_wr.vvp
+	$(VVP) $< | tee $(RTL_BUILD_DIR)/clut_wr.log; grep -q '^PASSED' $(RTL_BUILD_DIR)/clut_wr.log
+
+test-rtl-clut-wr-mutation: $(RTL_BUILD_DIR)/tb_tau_clut_wr_mut.vvp
+	@$(VVP) $< > $(RTL_BUILD_DIR)/clut_wr_mut.log; if grep -q '^FAILED' $(RTL_BUILD_DIR)/clut_wr_mut.log; then echo "mutant (old inline CLUT address) caught"; else echo "MUTANT NOT CAUGHT"; cat $(RTL_BUILD_DIR)/clut_wr_mut.log; exit 1; fi
 
 test-rtl-vs-counter: $(RTL_BUILD_DIR)/tb_tau_vs_counter.vvp
 	$(VVP) $<
@@ -322,7 +606,7 @@ test-rtl-sdram-wb-return: $(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp
 	$(VVP) $<
 
 # ---- PSRAM (P0/P1): idle-pin static check, controller, bus regression, mutations
-PSRAM_SRC = src/fpga/core/tau_psram_async.sv src/fpga/core/tau_psram_bus.sv sim/psram_chip_model.v
+PSRAM_SRC = src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_psram_async.sv src/fpga/core/tau_psram_bus.sv sim/psram_chip_model.v
 
 test-rtl-psram-idle:
 	$(PYTHON) tools/check_psram_idle.py
@@ -365,7 +649,7 @@ test-rtl-psram-probe: $(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp
 	$(IVERILOG) -g2012 -Ptb_tau_psram_probe.WD=8 -o $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe_wd8.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe_wd8.log
 
-PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 
 $(RTL_BUILD_DIR)/mp3_soc_sim.v: src/fpga/core/mp3_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/make_soc_sim.py $< $@
@@ -384,7 +668,16 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 
 # Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
 # Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
-PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+# B-741: the PCM ring reader end to end (real CPU, mp3_soc, arbiter, PSRAM controller and chip model).
+PCM_RING_SOC_SRC = sim/tb_pcm_ring_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_pcm_ring.sv $(PSRAM_SRC)
+test-rtl-pcm-ring-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_pcmring/main.c -o $(RTL_BUILD_DIR)/fw_pcmring.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_pcmring.elf $(RTL_BUILD_DIR)/fw_pcmring.bin
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp $(PCM_RING_SOC_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tee $(RTL_BUILD_DIR)/pcm_ring_soc.log | tail -12; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc.log
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_pcm_ring_soc.RING=0 -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp $(PCM_RING_SOC_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tail -4 | tee $(RTL_BUILD_DIR)/pcm_ring_soc_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc_off.log
 test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
@@ -400,18 +693,23 @@ test-rtl-sdram-controller-probe:
 	/tmp/tau_sdram_fb_controller_probe/Vtb_sdram_fb_controller_probe
 
 rtl-lint:
-	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module mp3_fb src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module mp3_fb src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tgt_cmd src/fpga/core/tgt_cmd.v
-	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module eq_biquad -Isrc/fpga/core src/fpga/core/eq_biquad.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_arbiter src/fpga/core/tau_sdram_arbiter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_resamp -Isrc/fpga/core src/fpga/core/tau_cymo_resamp.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_feed src/fpga/core/tau_cymo_feed.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_pcm_ring src/fpga/core/tau_pcm_ring.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gain_stage src/fpga/core/tau_gain_stage.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_halcyon src/fpga/core/tau_halcyon.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_cpu_bridge src/fpga/core/tau_sdram_cpu_bridge.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_addr_decode src/fpga/core/tau_sdram_addr_decode.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_wb_adapter src/fpga/core/tau_sdram_wb_adapter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_bridge_mux src/fpga/core/tau_sdram_bridge_mux.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_ctr src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_sync1 src/fpga/core/tau_cdc_sync1.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_clut_wr src/fpga/core/tau_clut_wr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_bus src/fpga/core/tau_cdc_gray_bus.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_spec_bank src/fpga/core/tau_spec_bank.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_wave_meter src/fpga/core/tau_wave_meter.sv
@@ -427,9 +725,7 @@ card-check:
 visual-review:
 	$(PYTHON) tools/visual_review.py
 
-# QR encoder vs segno (needs work/venv-qr; about 3 min, so not part of test-host)
-test-qr:
-	work/venv-qr/bin/python sim/test_qr.py
+# (test-qr removed: the QR encoder and its test are archived in archive/qr_encoder/)
 
 # B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
 test-ram192k:

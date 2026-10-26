@@ -22,9 +22,9 @@ with tempfile.TemporaryDirectory() as td:
     shutil.copy(ROOT / "sim/mp3_poly_model_core.h", td / "mp3_poly_model_core.h")
     shutil.copy(ROOT / "fw/mp3_poly_hw.h", td / "mp3_poly_hw.h")
     (td / "tables.h").write_text(G.render_h(taps, cf))
-    def build(name, fw):
+    def build(name, fw, req=0):
         exe = td / name
-        r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DTABLES_H=\"tables.h\"", f"-DTAU_POLY_FW={fw}", "-I", str(td), "-I", str(H / "pub"), "-I", str(H / "real"),
+        r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DTABLES_H=\"tables.h\"", f"-DTAU_POLY_FW={fw}", f"-DTAU_POLY_REQUIRED={req}", "-I", str(td), "-I", str(H / "pub"), "-I", str(H / "real"),
                             "-o", str(exe), str(ROOT / "sim/mp3_poly_subband_harness.c"), str(td / "dct32.c"), str(td / "polyphase.c"), str(td / "trigtabs.c"),
                             str(td / "subband.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)
@@ -50,5 +50,51 @@ with tempfile.TemporaryDirectory() as td:
         o = subprocess.run([str(hw), str(fs)], capture_output=True, text=True).stdout.splitlines()
         check(f"unit fails at slot {fs}: the rest of the track finishes in software, PCM still identical", o[:-1] == ref[:-1] and int(o[-1].split()[1]) == fs,
               o[-1])
+    # B-587 (pipelined handoff): a slot that never COMPLETES (unit disabled at finish) after the next slot's FDCT32 already ran cannot be recomputed in
+    # software; it is output as silence (64 zero samples) and the rest of the track is software. Inside the verify window (synchronous) it is still exact.
+    def zeroed(ref, s):
+        out = [l.split() for l in ref[:-1]]
+        t = out[s // 18]; o = 1 + (s % 18) * 64
+        t[o:o + 64] = ["0000"] * 64
+        return [" ".join(l) for l in out] + ref[-1:]
+    for ff in (0, 7, 8, 18, 100, 431, 435, 864 + 3, 900):
+        o = subprocess.run([str(hw), "-1", "-1", str(ff)], capture_output=True, text=True)
+        o_lines = o.stdout.splitlines()
+        if o.returncode: check(f"unit fails to complete slot {ff}: protocol respected", False, o.stderr.strip()); continue
+        in_verify = ff % 864 < 8
+        want = ref[:-1] if in_verify else zeroed(ref, ff)[:-1]
+        check(f"unit never completes slot {ff} ({'verify window: software slot, PCM identical' if in_verify else 'one slot of silence, everything else identical'})",
+              o_lines[:-1] == want, next((f"granule {i}" for i, (a, b) in enumerate(zip(o_lines, want)) if a != b), "length differs"))
+    o = subprocess.run([str(hw)], capture_output=True, text=True)
+    check("pipelined handoff respects the unit's protocol (no push while busy, no read without a slot in flight)", o.returncode == 0, o.stderr.strip())
+    # Player 2: the unit is REQUIRED (no software stereo window). A healthy unit is exact; a missing or failed one gives SILENCE for the stereo slots from the failure on, counted, and
+    # mono (software window) is untouched.
+    rq = build("rq", 1, 1)
+    def run(*a):
+        r = subprocess.run([str(rq), *a], capture_output=True, text=True)
+        sil = int(r.stderr.split("SILENT")[1].split()[0]) if "SILENT" in r.stderr else -1
+        return r.stdout.splitlines(), sil, r.returncode
+    o, sil, rc = run()
+    check("REQUIRED, healthy unit: PCM identical to the shipped decoder, nothing silent", rc == 0 and o[:-1] == ref[:-1] and sil == 0, str(sil))
+    o, sil, rc = run("-1", "-1", "-1", "1")
+    stereo_lines = 2 * 48
+    want = [(" ".join(["PCM"] + ["0000"] * (2 * 32 * 18)) if i < stereo_lines else ref[i]) for i in range(len(ref) - 1)]
+    check("REQUIRED, unit absent from the start: every stereo slot is silent and counted, mono still correct", rc == 0 and o[:-1] == want and sil == total_stereo_slots, str(sil))
+    for fs in (0, 5, 100, 431):
+        o, sil, rc = run(str(fs))
+        n_ok = fs
+        gran_ok = n_ok // 18
+        sub = []
+        for i, l in enumerate(o[:-1]):
+            if i >= stereo_lines: sub.append(l == ref[i]); continue
+            f = l.split()[1:]
+            if i < gran_ok: sub.append(l == ref[i])
+            elif i == gran_ok:
+                cut = (n_ok % 18) * 64
+                sub.append(f[:cut] == ref[i].split()[1:][:cut] and all(x == "0000" for x in f[cut:]))
+            else: sub.append(all(x == "0000" for x in f))
+        check(f"REQUIRED, unit fails at slot {fs}: slots before are exact, the rest of the stereo slots are silent and counted, mono untouched", rc == 0 and all(sub) and sil == total_stereo_slots - fs, f"silent {sil}")
+    o, sil, rc = run("-1", "-1", "100")
+    check("REQUIRED, a slot that never completes is silent, the following ones too, and it is counted", rc == 0 and sil == total_stereo_slots - 100, str(sil))
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)

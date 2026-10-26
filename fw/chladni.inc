@@ -170,7 +170,15 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
 {
     const uint32_t x0 = in->x, y0 = in->y, w = in->w, h = in->h, force = in->force;
     const uint16_t ground = in->bg;
-    if (chl_ok == 2u || UI_OVERLAY_UP) return 0;
+    /* B-453 (owner-reported: after B-452's meters_publish() fix, Bars/Scope/VU Master animate correctly
+     * in the Configure preview, but Chladni STILL doesn't render at all): this raw `UI_OVERLAY_UP` check
+     * is stricter than every other draw primitive's `FB_HELD()` and, unlike them, never defers to the
+     * caller's `ov_draw` signal -- so `wvcfg_preview_tick()`'s own `ov_draw=1` bracket (the exact
+     * mechanism B-415 already relies on to let Bars/Scope/VU Master draw here) never reaches this check
+     * at all. The comment two lines above this function ("Callers decide WHEN it is safe to draw...")
+     * already states the intended contract; this line just never implemented it. `FB_HELD()` is the
+     * established macro for exactly this test (`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`). */
+    if (chl_ok == 2u || FB_HELD()) return 0;
     chl_sync();
     const uint32_t now = chl_now_ms();
     if (!force && (uint32_t)(now - chl_last_draw) < CHL_PERIOD_MS) return 0;
@@ -217,8 +225,36 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
      * ~16 rows of noise under the meter. */
     const uint32_t sw = (rx * cell > 127u) ? 127u / cell : rx, sh = (ry * cell > h) ? h / cell : ry;
     const uint32_t tw = sw * cell, th = sh * cell;
+    /* B-414 (owner-reported: Chladni's visibility flips on/off, exactly two toggles per state, on
+     * every fullscreen/menu cycle): fb_sblit()/fb_blit() are true blit-mode opcodes, addressed
+     * through the firmware-programmable sticky SRC_BASE/DST_BASE fields, NOT through H2's automatic
+     * per-buffer offsetting (docs/features/HELIOS_SPEC.md section 5: "Blit-mode opcodes... already
+     * address through the sticky blt_*_base fields and is unaffected [by DBUF_CPU]... a caller
+     * wanting one of them to target the back buffer sets blt_dst_base itself") -- this codebase's
+     * OWN documented contract, never actually followed here. Chladni always drew into whichever
+     * buffer DST_BASE defaulted to (0), regardless of which buffer H2 was actually displaying, so
+     * visibility depended purely on which buffer happened to be shown -- flipping only on exit-type
+     * transitions (fullscreen exit, menu close; entry never flips while FB_HELD() blocks it),
+     * exactly the observed "same state across an open/close pair, flips on the second transition"
+     * cadence. Fixed: track the CURRENTLY DISPLAYED buffer and set it explicitly. `fb_sblit()`'s
+     * SOURCE (the plane at CHL_PLANE_Y) is off-screen scratch, unaffected by buffer selection, so its
+     * own SRC_BASE stays 0; `chl_replicate()`'s fb_blit() calls copy WITHIN the visible area (the
+     * already-drawn tile to elsewhere in the same box), so both its source and destination must use
+     * the SAME buffer. A `fb_fence()` between the two stages ensures the sblit has genuinely executed
+     * before the bases change for replication, not merely been queued (this session's own repeated
+     * lesson, docs/TALOS.md). */
+    /* Which buffer to draw into is helios_meter()'s decision (fw/player.c, B-521): `hs_base` is the word base of the displayed buffer for a direct draw,
+     * or of the idle back buffer when helios_meter composes the figure there and presents the finished box (around any exclusion rect) afterwards.
+     * Blit-mode commands follow the sticky bases, not R_DBUF_CPU, so the bases are set here from hs_base; the plane (the SBLIT source) is off-screen
+     * scratch and always read from base 0. */
+    const uint32_t tgt_base = hs_base;
+    fb_set_bases(0u, tgt_base);
     fb_sblit(0u, CHL_PLANE_Y, x0, y0, sw, sh, cell == 3u ? 3u : cell == 2u ? 2u : 0u, cell == 3u ? 3u : cell == 2u ? 2u : 0u);
+    fb_fence();
+    fb_set_bases(tgt_base, tgt_base);
     chl_replicate(x0, y0, tw, th, w, h);
+    fb_fence();
+    fb_set_bases(0u, 0u);
     chl_drawn_n++;
     return 1;
 }

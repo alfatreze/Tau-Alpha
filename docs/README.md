@@ -37,6 +37,7 @@ The project README is [../README.md](../README.md).
 | [REUSABLE_LOCAL_AGENT_HDL_GUIDE.md](REUSABLE_LOCAL_AGENT_HDL_GUIDE.md) | A reusable local agent workflow for HDL projects |
 | [QA_PLAN.md](QA_PLAN.md) | QA plan for the speed-1.2x branch |
 | [FULL_AUDIT_2026-09-23.md](FULL_AUDIT_2026-09-23.md) | Full audit and review of RTL, plan and risks |
+| [HarpMudd comparison and rewrite plan](research/HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md) | Pinned code-origin analysis, all source modules and staged architecture rebuild (completed 2026-10-13) |
 | [TAU_TECHNICAL_SPIKE.md](TAU_TECHNICAL_SPIKE.md) | The original technical spike |
 
 ## Specifications and designs
@@ -134,3 +135,6 @@ The full list is 001 to 021 in that folder.
 
 `screenshot.png` (used by the README and the user guide), and preview renders: `font_preview.png`, `font_preview_body.png`, `gradient_preview.png`, `gradient_preview_4x.png`, `idle_preview.png`,
 `idle_preview_err.png`, `splash_preview.png`. `docs/vendor/` holds a vendor datasheet PDF used for the PSRAM timing contract.
+
+
+The MOD investigation and dedicated player design now live in [Tau Μ](../../Tau%20Μ/README.md). See its [Approach B](../../Tau%20Μ/docs/features/MOD_APPROACH_B.md) and [concept gallery](../../Tau%20Μ/docs/concepts/README.md).

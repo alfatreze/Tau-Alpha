@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build core firmware -> dist/Assets/tau/common/tau.rom
+# Build core firmware -> dist/Assets/tau/alfatreze.TAU/tau.rom (core-specific since 2026-10-08, tools/tau_layout.py)
 #
 #   ./build.sh            # the full product build (same as `release`)  [default]
 #   ./build.sh psram-diag # B-004 PSRAM mailbox diagnostic (needs a TAU_PSRAM_PROBE RBF)
@@ -34,7 +34,7 @@ SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"
 NM="${NM_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}nm}"
 PYTHON="${PYTHON:-python3}"
 HELIX="$ROOT/third_party/libhelix-mp3"
-OUT="$ROOT/dist/Assets/tau/common"
+OUT="$ROOT/dist/Assets/tau/alfatreze.TAU"
 
 for tool in "$GCC" "$OBJCOPY" "$SIZE" "$PYTHON"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -72,7 +72,7 @@ release)
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_G4=${G4:-3}"
     COLD_PACK=1
-    HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
+    HEAP_MIN=6144        # policy margin (B-565: the gap is unused RAM, malloc is the static arena); the hard link minimum is 1 KiB
     ;;
 player-library-diagnostic)
     SRCS=(
@@ -89,7 +89,7 @@ player-library-diagnostic)
     OUT="$ROOT/work/diagnostics/library-diagnostic"
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
-    HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
+    HEAP_MIN=2048        # B-565: the gap is unused RAM (malloc is the static arena in alloc.c, nothing calls _sbrk), so this is a policy margin, not a need; 2 KiB, twice the link minimum
     ;;
 player-library-diagnostic-profile)
     # B-088/B-089 (docs/TEST_SUITE_SPEC.md section 11): the Diagnostic Build
@@ -117,7 +117,11 @@ player-library-diagnostic-profile)
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
-    HEAP_MIN=4096
+    HEAP_MIN=2048        # B-565, as player-library-diagnostic
+    # B-653: a decode-cost measurement build. With the Halcyon EQ (on in every other build) and the tempo stretcher (on in the Diagnostic Build) it is 3,120 B over the 192 KB link, and
+    # neither is what it measures, so both default off here (an explicit HALCYON_FW=1 / TEMPO=1 still overrides).
+    HALCYON_FW="${HALCYON_FW:-0}"
+    TEMPO="${TEMPO:-0}"
     ;;
 psram-diag-sim)
     SRCS=("$FW/start.S" "$FW/psram_diag.c")
@@ -144,19 +148,40 @@ CFLAGS="$CFLAGS $STRESS_CFLAGS"
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
+# B-746 (gapless G1): PCM_RING_FW=1 builds the CPU side of the hardware PCM ring (fw/pcm_ring_fw.inc); inert unless the bitstream has the unit (TAU_PCM_RING) and the gain stage. Default 0 until proven on a Pocket.
+CFLAGS="$CFLAGS -DTAU_PCM_RING_FW=${PCM_RING_FW:-0}"
+# B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
+# ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
+[ "$TARGET" = "release" ] && TEMPO="${TEMPO:-1}"
+CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
+# Diagnostic-Build features on demand (fw/diag_features.json, docs/features/DIAG_FEATURES.md): DIAG_DROP=a,b removes converted features from a build that has
+# TAU_DIAGNOSTIC; FEATURES_ON=a puts a converted 'fx' feature into any build (graduation). Unknown, unconverted or inconsistent names stop the build.
+# DIAG_PRESET=perf|slim|release-like drops a named set (fw/diag_features.json "presets"); it combines with DIAG_DROP.
+if [ -n "${DIAG_DROP:-}" ] || [ -n "${FEATURES_ON:-}" ] || [ -n "${DIAG_PRESET:-}" ]; then
+    DIAG_FLAGS="$(python3 "$ROOT/tools/gen_diag_features.py" --cflags "${DIAG_DROP:-}" "${FEATURES_ON:-}" "${DIAG_PRESET:-}")" || exit 1
+    CFLAGS="$CFLAGS $DIAG_FLAGS"
+fi
+# RAM diet A/B switches for the tempo state (both default off = the build is unchanged): TEMPO_SLICE=1 produces the output hop in 64-sample slices (about 1.75 KB less state),
+# TEMPO_RING=512 halves the stage-2 ring (1 KB less; the largest span the stretcher ever needs is 320 entries, measured over speeds 0.5-3.0x and rates 8-48 kHz).
+[ "${TEMPO_SLICE:-0}" = "1" ] && CFLAGS="$CFLAGS -DTEMPO_SLICE=1"
+[ -n "${TEMPO_RING:-}" ] && CFLAGS="$CFLAGS -DWS2_RING=${TEMPO_RING}u"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
 # a TAU_LPC bitstream; permanently falls back to software for the rest of the session on any real
-# hardware anomaly, same per-unit-failure convention as POLY_FW). Default 0 EVERYWHERE -- unlike
-# POLY_FW, this has had NO Quartus fit and NO hardware test yet
-# (docs/research/FLAC_LPC_KERNEL_DESIGN.md section 7 item 5); it stays opt-in only until a real
-# hardware result exists, the same caution POLY_FW itself observed before B-309's alpha.30
-# confirmation. Must reach flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c
-# is compiled outside $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via
-# their own directory (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
-FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
+# hardware anomaly, same per-unit-failure convention as POLY_FW). B-386: hardware-confirmed on real
+# tracks (worst-case call 11ms software vs 5-6ms hardware, no correctness failures across B-355/B-360/
+# B-363's repeated real-hardware runs) -- default 1 for the diagnostic builds and for the release
+# target from v0.6.0-alpha.1 (the bitstream ships TAU_LPC), same POLY_FW precedent from v0.5.0/B-309.
+# On a bitstream without TAU_LPC the boot probe fails and every call falls back to software. Must reach
+# flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c is compiled outside
+# $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via their own directory
+# (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
+[ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md) are the only report view; the QR encoder was archived (archive/qr_encoder/)
+FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
 # _ram_limit) -- the RAM-shrink RTL's own real benefit, timing-closed B-235, not yet card-tested.
@@ -180,11 +205,21 @@ if [[ "${CLK66:-0}" == "1" ]]; then
 fi
 
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
-if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
+if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/alfatreze.TAU" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
+
+# B-585: TAU_BUILD_OUT=<dir> sends the ROM and cold image of ANY target to <dir>/<target>/ instead of dist/ or work/diagnostics/. For measurement-only
+# builds (tools/check_heap_gap.py): its unflagged rebuilds used to overwrite dist/ and the flagged work/diagnostics/ ROMs (the B-448 clobber hazard).
+if [[ -n "${TAU_BUILD_OUT:-}" ]]; then OUT="$TAU_BUILD_OUT/$TARGET"; fi
 
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
 # directory (the first sdram-diag build exposed the old ordering).
+# HEAP_MIN_OVERRIDE=<bytes> replaces the per-target policy floor above (B-601): the gap is unused RAM (B-565), so an experimental build that is a little under the policy margin
+# (a Diagnostic Build with the tempo stretcher, 1.9 KB against the 2 KB floor) can be packaged on purpose. The hard link minimum still applies. Never used by release builds.
+# alpha.4: the Diagnostic Build carries the tempo stretcher by default; its gap is about 1.2 KB, under the 2 KB policy margin (the same situation DEV 94/95 ran on a Pocket with).
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) if [ "${TEMPO:-0}" = "1" ]; then HEAP_MIN_OVERRIDE="${HEAP_MIN_OVERRIDE:-1024}"; fi ;; esac
+HEAP_MIN="${HEAP_MIN_OVERRIDE:-$HEAP_MIN}"
+
 mkdir -p "$OUT"
 
 # Compile status is checked EXPLICITLY. This used to be
@@ -213,7 +248,11 @@ fi
 # has already been flushed. Nothing it does is on the audio path, so trading
 # its speed for size costs a few ms of a load that is already hundreds.
 rm -f "$FW/picojpeg.o"
-if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
+# B-567: -fdata-sections gives each static its own .bss.<name> input section, so fw/link.ld can place picojpeg's low-traffic
+# work buffers (input, Huffman, quant tables) in PSRAM without editing the vendored source. Only when the PSRAM art path is on
+# (it proves the window before any decode); otherwise they stay in hot .bss.
+PJ_DS=""; [[ "${ART_PSRAM:-1}" == "1" ]] && PJ_DS="-fdata-sections"
+if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding $PJ_DS         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
     cat "$FW/build.log" >&2
     echo "*** picojpeg.c FAILED TO COMPILE ***" >&2
     exit 1
@@ -253,7 +292,7 @@ if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -l
             ts=$("$NM" "$FW/fw_probe.elf" 2>/dev/null | awk '$3=="_tag_start"{print "0x"$1}')
             "$PYTHON" -c "
 hs, ts, hm = int('$hs',16), int('$ts',16), ${HEAP_MIN:-1024}
-ts192 = ts - 65536 + 8192
+ts192 = ts - 65536 + (0x4000 - 0x1800)   # the 192 KB link also shrinks the stack from 16 KB to 6 KB (fw/link.ld); this said 8192 after B-506 moved it from 8 KB to 6 KB
 print('*** 192 KB link: image ends at %d, DMA buffers start at %d, so the image is %+d B over; %d B short of the %d B heap floor ***' % (hs, ts192, hs - ts192, hs + hm - ts192, hm))
 " >&2
         fi
@@ -298,7 +337,9 @@ if [ -z "$APP_VER" ] || [ -z "$JSON_VER" ]; then
   echo "*** VERSION CHECK BROKE: could not read a version from either file ***" >&2
   exit 1
 fi
-if [ "$APP_VER" != "$JSON_VER" ]; then
+# core.json may carry the full pre-release version a release or package stamped (0.6.0-preview.1, tools/tau_version.py); APP_VER is
+# the X.Y.Z it starts with.
+if [ "$APP_VER" != "${JSON_VER%%-*}" ]; then
   echo "*** VERSION MISMATCH: player.c says $APP_VER, core.json says $JSON_VER ***" >&2
   echo "    both must match before release; core.json also carries date_release" >&2
   exit 1
@@ -328,6 +369,10 @@ import sys
 s = {l.split()[2]: int(l.split()[0], 16) for l in sys.stdin if len(l.split()) == 3}
 print(s['_heap_end'] - s['_heap_start'])")
     echo "heap gap: $GAP B (minimum for $TARGET: $HEAP_MIN B)"
-    if [ "$GAP" -lt "$HEAP_MIN" ]; then echo "*** heap gap below the $TARGET minimum ***" >&2; exit 1; fi
+    if [ "$GAP" -lt "$HEAP_MIN" ]; then
+        echo "*** heap gap below the $TARGET minimum ***" >&2
+        case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) python3 "$ROOT/tools/gen_diag_features.py" --hint $((HEAP_MIN - GAP)) >&2 || true ;; esac
+        exit 1
+    fi
 fi
 echo "built [$TARGET] -> $OUT/$ROM"
