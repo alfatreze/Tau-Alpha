@@ -1,0 +1,27 @@
+{
+  "about": "The off-screen SDRAM rows Player 2 uses (T0 of the Talos plan, D-T05). Engine word addresses are row * 512 + column; rows 0..359 are the visible framebuffer (columns 400..511 of every row are the engine's own markers, never pixels), rows 360..1023 are the stash, shared by both display buffers. A new user of the stash adds its rows here and in fw2/gfx/gfx.h; sim/test_sdram_map_fw2.py reads the C constants named below and refuses an overlap or a constant that drifted from this file.",
+  "stride": 512, "visible_rows": 360, "total_rows": 1024, "pixel_cols": 400,
+  "double_buffer": {"base_words": 1048576, "rtl": "src/fpga/core/mp3_fb.sv DBUF_BASE1", "c": "fw2/gfx/gfx.c DBUF_BASE1_W", "note": "2 MiB, inside the CPU's uncached window (starts at 1 MiB); fw2 never touches SDRAM through that window, so nothing writes it but the engine and the mailbox"},
+  "bands": [
+    {"name": "album art plane", "rows": [400, 528], "cols": [0, 400], "const": ["fw2/art/art.c", "PLANE_Y", 400]},
+    {"name": "check-page font self-test", "rows": [540, 556], "cols": [0, 400], "const": ["fw2/diagnostics/check_page.c", "literal 540", null]},
+    {"name": "icon planes", "rows": [560, 588], "cols": [0, 263], "const": ["fw2/gfx/icon.h", "ICON_PLANE_Y", 560]},
+    {"name": "scope background strip", "rows": [600, 722], "cols": [0, 112], "const": ["fw2/ui/meter_winamp_scope.c", "STRIP_Y", 600]},
+    {"name": "waterfall entering-row plane", "rows": [722, 735], "cols": [0, 400], "const": ["fw2/ui/meter_waterfall_grid.c", "WF_PLANE_Y", 722]},
+    {"name": "meter previews", "rows": [740, 772], "cols": [0, 280], "const": ["fw2/ui/meterlist_thumb.c", "THUMB_PLANE_Y", 740]},
+    {"name": "scroll temporary", "rows": [780, 980], "cols": [0, 400], "const": ["fw2/gfx/scroll.c", "SCROLL_TEMP_Y", 780]},
+    {"name": "chladni tile plane", "rows": [984, 1022], "cols": [0, 128], "const": ["fw2/ui/meter_chladni.c", "CHL_PLANE_Y", 984]}
+  ],
+  "cells": [
+    {"name": "fence cell", "row": 1021, "col": 480, "file": "fw2/gfx/gfx.c", "users": "gfx_fence"},
+    {"name": "art probe source", "row": 1022, "col": 480, "file": "fw2/art/art.c", "users": "probe"},
+    {"name": "art probe destination", "row": 1021, "col": 480, "file": "fw2/art/art.c", "users": "probe"},
+    {"name": "blend probe source", "row": 1019, "col": 508, "file": "fw2/gfx/gfx.c", "users": "blend probe"},
+    {"name": "blend probe destination", "row": 1020, "col": 508, "file": "fw2/gfx/gfx.c", "users": "blend probe"},
+    {"name": "chladni probe source", "row": 1023, "col": 0, "file": "fw2/ui/meter_chladni.c", "users": "chladni probe"},
+    {"name": "chladni probe destination", "row": 2, "col": 496, "file": "fw2/ui/meter_chladni.c", "users": "chladni probe"}
+  ],
+  "known_collisions": [
+    {"a": "fence cell", "b": "art probe destination", "why": "found 2026-10-26 by reading (B-859): the art probe writes a sentinel to (1021,480), but its next call gfx_clut_begin() runs gfx_fence(), which overwrites that very cell; the sentinel is gone, so the 'poll until it changes' loop breaks at once and the probe relies on the one-pixel palette blit having landed within its 512-cycle delay. Benign today (the fence drained the queue, the blit lands in tens of cycles, covers work on hardware) but fragile. Fix in T1 with a Pocket check: move the probe destination to its own cell (for example row 1022, column 484)."}
+  ]
+}
