@@ -7,7 +7,7 @@ identical wherever a core declares them.
 The slots a Tau core declares (data.json), by id: 1 tau.rom (firmware, core-specific), 2 audio (by extension, the music), 4 tau-loading.bin (splash, core-specific), 5 tau-library.tdb (library index,
 read from the media platform), 6 tau-cold.bin (cold image, core-specific), 7 cover images (by extension, `.timg`), 8 tau-assets.bin (the user's themes, presets, meter presets: the one user file,
 never shipped), 9 tau-packs.bin (the meter packs of a PACKS=1 Player 2 core, core-specific, optional: add_packs_slot; format docs/features/TAU_PACKS_FORMAT.md). Persist variables (interact.json,
-16 at most, the Pocket's limit): ids 10, 11, 12, 15, 16, 30 and 20..23, 27..29, 33 are the Player 2 words regrouped by area since v0.6.2, 31 and 32 the last played track (docs/features/PERSISTENCE_LAYOUT.md,
+16 at most, the Pocket's limit): ids 10, 11, 12, 15, 16, 30 and 20..23, 27..29, 33 are the Player 2 words regrouped by area since v0.7.0, 31 and 32 the last played track (docs/features/PERSISTENCE_LAYOUT.md,
 tools/persist_registry.json); ids 24..26 (the old library words) are retired. The old player's declarations (add_library_slot's persist words) are only added for a variant that is not Player 2."""
 import json
 from pathlib import Path
