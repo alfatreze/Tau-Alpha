@@ -18,8 +18,8 @@ flowchart LR
     F1 --> F2["subframe() / subframe_stream()<br/>LPC reconstruct"]
     F2 --> F3[Stereo decorrelation]
   end
-  POLY{{"POLY_READY()<br/>boot probe"}}
-  LPC{{"LPC_READY()<br/>boot probe"}}
+  POLY{{"POLY_READY<br/>boot probe: POLY_ST bit 0"}}
+  LPC{{"LPC_READY<br/>boot probe: LPC_STATUS bit 0"}}
   M3 --> POLY
   F2 --> LPC
   POLY -- "yes: MMIO 0x100-0x110" --> HP["tau_mp3_poly<br/>(TAU_POLY)"]
@@ -68,7 +68,7 @@ flowchart LR
 | Flag | Where | Default |
 |------|-------|---------|
 | `POLY_FW`, `LPC_FW` | firmware, use the hardware kernel when its probe passes | 0; on for diagnostic targets |
-| `TAU_POLY`, `TAU_LPC`, `TAU_VBLANK`, `TAU_BEAM`, `TAU_DBUF` | bitstream; a missing unit reads as 0 and the probe fails to the software path | per fit bundle |
+| `TAU_POLY`, `TAU_LPC`, `TAU_VBLANK`, `TAU_BEAM`, `TAU_DBUF` | bitstream; a missing unit reads 0 and the boot probe selects the software path; a hardware timeout disables the unit for the session | per fit bundle |
 
 ## 5. Timing evidence (what is and is not claimed)
 
