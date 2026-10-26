@@ -41,6 +41,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   <label>Preview size <select id="zoom"><option value="1" selected>1× (400 px, the real size)</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
   <label>Trace file <input type="file" id="tracefile" accept=".json"></label>
   <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
+  <label title="SOUND MAP: what the hardware statistics block would report (RMS and L/R correlation); off = a bitstream without it">stats block <input type="checkbox" id="statsok" checked></label> <label>correlation <input type="range" id="corr" min="-256" max="256" value="120"></label>
   <div id="controls"></div>
  </div>
 </div>
@@ -52,6 +53,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  const $=id=>document.getElementById(id);
  document.getElementById('tag').textContent='registry v'+S.registry_version+' · model estimates, not measured';
  const modules=Object.keys(TauMeters);
+ modules.forEach(k=>{if(TauMeters[k].ready)TauMeters[k].ready()});          /* a WebAssembly twin (SOUND MAP) compiles asynchronously: it draws once it is ready */
  S.meters.filter(m=>modules.includes(m.key)).forEach(m=>{const o=document.createElement('option');o.value=m.key;o.textContent=m.name;$('meter').appendChild(o)});
  D.themes.forEach((t,i)=>{const o=document.createElement('option');o.value=i;o.textContent=t.name;$('theme').appendChild(o)});
  D.palette.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('accent').appendChild(o)});$('accent').value=1;
@@ -79,7 +81,8 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   if(key!=='layered_wave'){st=null;return;}   // other meters keep change caches the lab cannot invalidate: they restart as before
   for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));infoSoon();}
  function step(){if(!st)setup();fb.barReady=$('barready').checked;const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds,p0=fb.pix;
-  mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0});
+  const mean=lvl.reduce((a,v)=>a+v,0)/16,rms=Math.trunc(Math.min(24575,mean*24575/255*0.55)),stats=$('statsok').checked?{rms_l:rms,rms_r:Math.trunc(rms*(1-Math.abs(+$('corr').value)/700)),corr:+$('corr').value,peak_l:Math.min(24575,rms*2),peak_r:Math.min(24575,rms*2)}:null;
+  mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0,stats,dt_ms:26});
   costs.push(fb.cmds-c0);works.push(st.work||0);pixs.push(fb.pix-p0);if(costs.length>120){costs.shift();works.shift();pixs.shift();}frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
   splitMap();
