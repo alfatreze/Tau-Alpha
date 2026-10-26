@@ -205,6 +205,13 @@ with tempfile.TemporaryDirectory() as t:
     rom.write_bytes(good)
     opt = [e for pk in doc["packages"] if pk["core_id"] == "alfatreze.TAU" for e in pk["layout"] if e["role"] == "owned" and not e["required"] and (card / e["path"]).is_file()]
     check(bool(opt), "the test package has an optional owned file")
+    ess = [e for pk in doc["packages"] if pk["core_id"] == "alfatreze.TAU" for e in pk["layout"] if e["role"] == "owned" and e["slot"] is None and (card / e["path"]).is_file()]
+    check(bool(ess) and all(e["required"] for e in ess), "every owned file with no data slot (core.json, data.json, the bitstream...) is required (R-011)")
+    for e in ess:
+        if e["path"].endswith("core.json"):
+            cj = card / e["path"]; cb = cj.read_bytes(); cj.unlink()
+            check(any(l == "error" and "core.json is missing" in m for l, m in tc.check_card(doc, card)), "card: a missing core.json is an ERROR, not an optional warning (R-011, Omega's F-008)")
+            cj.write_bytes(cb)
     if opt:
         of = card / opt[0]["path"]; ob = of.read_bytes(); of.unlink()
         check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a missing OPTIONAL owned file is a warning, not an error (Q-001)")
