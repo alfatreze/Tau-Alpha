@@ -9,6 +9,7 @@
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
+extern uint32_t report_rows, report_len;   /* fw2/diagnostics/report_page.c */
 extern uint32_t gfx_fence_n[7], gfx_fence_c[7]; extern uint32_t gfx_bench[4], blit_check_mask; uint32_t blit_check_bad_px(void);   /* fw2/diagnostics/check_page.c */
 extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
 #include "../stream/cold.h"
@@ -129,6 +130,8 @@ const cnt_t counters_table[] = {
     { "FNC COMP2 CYC", CK_U32, CU_NONE, &gfx_fence_c[5] },
     { "FNC BLEND N", CK_U32, CU_NONE, &gfx_fence_n[6] },
     { "FNC BLEND CYC", CK_U32, CU_NONE, &gfx_fence_c[6] },
+    { "REPORT ROWS",  CK_U32, CU_NONE,   &report_rows },            /* the last report: counters in it */
+    { "REPORT BYTES", CK_U32, CU_NONE,   &report_len },             /* and the bytes of its record (0 = it did not fit the buffer) */
     { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
     { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
