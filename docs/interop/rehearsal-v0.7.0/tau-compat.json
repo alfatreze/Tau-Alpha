@@ -6,7 +6,7 @@
   "packages": [
     {
       "zip": "alfatreze.TAU_0.7.0_2026-10-26.zip",
-      "zip_sha256": "5850e0b23c35d74aeda624c1acde68d7d660711bf8029cface08e66b95ba6447",
+      "zip_sha256": "7a98d6bd5e960a2fd27a1181d65f1a5f6d550815879fce77c5acba4ef15bd35c",
       "core_id": "alfatreze.TAU",
       "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
       "bitstream_core_version": "4D50331B",
@@ -17,15 +17,15 @@
         "POLY",
         "SDRAM_BUSY"
       ],
-      "rom_sha256": "a3fa77ee447d5d8b8dda279ba037324a33e362d0052be945faaff406bc8b97bf",
-      "cold_sha256": "8e906eac625c5b08b4bf75e07d6630da14d8e8143d702566ab893d4114367dfc",
+      "rom_sha256": "788f508f4d80291175bebd905ee6d4b4e2eec70a91ee95c1340f944cd320de51",
+      "cold_sha256": "6600b19247a4df636c1acb2d15120cb14c8e24ae3e5c1bc4309b69bedeeaabee",
       "rom_accepts": [
         "4D50331B"
       ],
       "rom_needs": [
         "FONT"
       ],
-      "rom_version": "0.7.0+1f667418",
+      "rom_version": "0.7.0+67254983",
       "replaces": [
         "alfatreze.TAU_DIAGNOSTIC",
         "alfatreze.TAU Diagnostics",
@@ -42,7 +42,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau-cold.bin",
           "role": "owned",
-          "sha256": "8e906eac625c5b08b4bf75e07d6630da14d8e8143d702566ab893d4114367dfc",
+          "sha256": "6600b19247a4df636c1acb2d15120cb14c8e24ae3e5c1bc4309b69bedeeaabee",
           "slot": 6,
           "required": false
         },
@@ -63,7 +63,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau.rom",
           "role": "owned",
-          "sha256": "a3fa77ee447d5d8b8dda279ba037324a33e362d0052be945faaff406bc8b97bf",
+          "sha256": "788f508f4d80291175bebd905ee6d4b4e2eec70a91ee95c1340f944cd320de51",
           "slot": 1,
           "required": true
         },
@@ -136,84 +136,84 @@
           "role": "owned",
           "sha256": "64993a5e54ccec690f8ef50234a4a2e575f09ea69fd996fbd3852af3776b30da",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/bitstream.rbf_r",
           "role": "owned",
           "sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/core.json",
           "role": "owned",
           "sha256": "e38c50310ad5c7ee688a3dee541d6f60b4d802d9f611449267ee621175a21826",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/data.json",
           "role": "owned",
           "sha256": "dab0149f8a5fcd968417d6017427993186f21a9b61598bc0ea2398fab4aa896d",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/icon.bin",
           "role": "owned",
           "sha256": "2221cf05ab14b9cca0c48b93a2e6176903a6a17e9ccdeacc03d2f3992540ce91",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/info.txt",
           "role": "owned",
           "sha256": "688815e8993928139ef10507024c7af765fb8e1d80610bf271d0732f7ccc8f75",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/input.json",
           "role": "owned",
           "sha256": "1f026a73eacbe9565f855af60387dbc9e3f179061bf274e797f22578a405675c",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/interact.json",
           "role": "owned",
           "sha256": "0ad46b7db6da8b23fd1f2ba7c6ceb1c674f75225e806c315662800ea4d152949",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/variants.json",
           "role": "owned",
           "sha256": "93bedfd28d1160474d79025a1bcaa10cdee8396699851d3ea3d747746a41e3ed",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/video.json",
           "role": "owned",
           "sha256": "45c1074326f53fe1ffa6fa121f4c9cac8ab248ce7acf448a779e6e379d7ae351",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Platforms/_images/tau.bin",
           "role": "shared",
           "sha256": "f686014bb95aa2b57a26035bd2ed74529cedd3eb0a4f77e1ddda582d010e2fe7",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Platforms/tau.json",
           "role": "shared",
           "sha256": "7220f696ede0d71229b18aebc09b100dd4bfd8383f5e0e7b752bf732fdd68cb1",
           "slot": null,
-          "required": false
+          "required": true
         },
         {
           "path": "Settings/alfatreze.TAU/Interact/interact_persist.json",
@@ -264,7 +264,7 @@
   },
   "notes": "",
   "source": {
-    "commit": "1f667418",
+    "commit": "67254983",
     "dirty": false
   },
   "previous_release": "v0.6.1",
