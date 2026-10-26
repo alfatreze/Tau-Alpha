@@ -3,7 +3,7 @@
 // on both the CPU write-address path and the scanout read-address path, and
 // the vblank-gated flip. Same SDRAM-stub/push() pattern as tb_mp3_fb.v.
 //
-//   iverilog -g2012 -o tb.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv \
+//   iverilog -g2012 -o tb.vvp sim/tb_helios_dbuf.v src/fpga/core/tau_{gfx,talos,scanout}.sv \
 //            src/fpga/core/font_rom.v && vvp tb.vvp
 // ============================================================================
 `timescale 1ns/1ps
@@ -59,7 +59,7 @@ module tb_helios_dbuf;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb #(.BLIT_BLEND_ENABLE(1), .DBUF_ENABLE(DBUF_ENABLE)) dut (
+    tau_gfx #(.BLIT_BLEND_ENABLE(1), .DBUF_ENABLE(DBUF_ENABLE)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),

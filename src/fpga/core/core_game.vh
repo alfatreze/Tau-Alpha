@@ -26,7 +26,7 @@
 //            Pocket's native 1600x1440 panel (confirmed via Analogue's own
 //            spec: the panel is built around integer scaling).
 // outclk_2 = 12 MHz shifted 90 degrees (APF requires both edges).
-// outclk_3 = 100 MHz SDRAM framebuffer controller (mp3_fb.sv / sdram_fb.sv).
+// outclk_3 = 100 MHz SDRAM framebuffer controller (tau_gfx.sv / sdram_fb.sv).
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
@@ -142,7 +142,7 @@ wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
 wire [1:0]  soc_fb_cmd_glyph_hi;   // B12 (B-454): BAR's lit-row count, high 2 bits
 wire        soc_fb_cmd_full;
 wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
-// Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
+// Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> tau_gfx.
 wire [24:0] soc_blt_src_base, soc_blt_dst_base;
 wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
 // Phase F B2: colour-key transparency, sticky field 4.
@@ -154,11 +154,11 @@ wire [2:0]  soc_blt_blend_mode;
 wire [7:0]  soc_blt_blend_alpha;
 // Phase F B9 (Tier 2): palette re-index offset, sticky field 6.
 wire [7:0]  soc_blt_reindex;
-// Phase F B8 ("B8 detailed design"): CLUT load, mp3_soc -> mp3_fb.
+// Phase F B8 ("B8 detailed design"): CLUT load, mp3_soc -> tau_gfx.
 wire        soc_clut_wr;
 wire [7:0]  soc_clut_waddr;
 wire [15:0] soc_clut_wdata;
-// B11 (section 5): corner-cut LUT, mp3_soc -> mp3_fb.
+// B11 (section 5): corner-cut LUT, mp3_soc -> tau_gfx.
 wire [79:0] soc_rc_cut_lut;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
@@ -905,7 +905,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
 tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_fb (
+tau_gfx #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),

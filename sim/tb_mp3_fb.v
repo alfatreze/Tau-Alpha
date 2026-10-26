@@ -12,7 +12,7 @@
 //     of each beat (BRAM read latency 1)
 //   * p0_ready pulses once when the burst has fully retired
 //
-//   iverilog -g2012 -o tb.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv \
+//   iverilog -g2012 -o tb.vvp sim/tb_mp3_fb.v src/fpga/core/tau_{gfx,talos,scanout}.sv \
 //            src/fpga/core/font_rom.v && vvp tb.vvp
 // ============================================================================
 `timescale 1ns/1ps
@@ -73,7 +73,7 @@ module tb_mp3_fb;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
+    tau_gfx #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
              .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
              .BUG_IGNORE_RC_CUT(BUG_IGNORE_RC_CUT),

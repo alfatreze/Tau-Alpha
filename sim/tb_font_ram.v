@@ -5,7 +5,7 @@
 // glyphs, and CHAR again. Every word the engine writes is dumped for sim/test_font_ram.py to diff against
 // tools/host/blit_reference.py using the same atlas (font_ram.v's power-up contents plus the patches).
 // Harness adapted from sim/tb_blit_scene.v. Mutation hooks: BUG_FONT_NO_HI, BUG_FONT_RANGE, BUG_FONT_NO_WRITE.
-//   iverilog -g2012 -o tb.vvp sim/tb_font_ram.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+//   iverilog -g2012 -o tb.vvp sim/tb_font_ram.v src/fpga/core/tau_{gfx,talos,scanout}.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 // ============================================================================
 `timescale 1ns/1ps
 `default_nettype none
@@ -67,7 +67,7 @@ module tb_font_ram;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
+    tau_gfx #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
              .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
              .BUG_CBLIT_NO_LOOKUP(BUG_CBLIT_NO_LOOKUP),

@@ -781,7 +781,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_ram_probe_a.sv
 set_global_assignment -name VERILOG_FILE core/tgt_cmd.v
 set_global_assignment -name VERILOG_FILE core/pcm_fifo.v
 set_global_assignment -name SEARCH_PATH core
-set_global_assignment -name SYSTEMVERILOG_FILE core/mp3_fb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_gfx.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_talos.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_scanout.sv
 set_global_assignment -name VERILOG_FILE core/font_rom.v
 set_global_assignment -name VERILOG_FILE core/font_ram.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/sdram_fb.sv
