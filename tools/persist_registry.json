@@ -96,15 +96,15 @@
       "name": "(internal) last played 1",
       "word": "SW_LAST0",
       "meaning": 1,
-      "since": "v0.6.1",
-      "what": "(Player 2) the last played track (fw2/cores/lastplayed_core.h), word 0 of 2: record flag, queue kind, queue parent and the low ten bits of the track; 31 bits a word (an interact variable is 0..2147483647). The old player's library words (ids 24..26) are retired from interact.json (the Pocket takes at most 16 variables)."
+      "since": "v0.6.2",
+      "what": "(Player 2) the last played track (fw2/cores/lastplayed_core.h), word 0 of 2: record flag, queue kind, queue parent and the low ten bits of the track; 31 bits a word (an interact variable is 0..2147483647). The old player's library words (ids 24..26) are retired from interact.json (the Pocket takes at most 16 variables). First shipped in v0.6.2: the released v0.6.1 still used ids 24-26 (the old library words) for this."
     },
     "32": {
       "name": "(internal) last played 2",
       "word": "SW_LAST1",
       "meaning": 1,
-      "since": "v0.6.1",
-      "what": "(Player 2) the last played track, word 1 of 2: a 27-bit check over word 0 and the high four bits of the track; a record that fails the check restores nothing."
+      "since": "v0.6.2",
+      "what": "(Player 2) the last played track, word 1 of 2: a 27-bit check over word 0 and the high four bits of the track; a record that fails the check restores nothing. First shipped in v0.6.2: the released v0.6.1 still used ids 24-26 (the old library words) for this."
     },
     "33": {
       "name": "(internal) tuning B 4",
@@ -112,6 +112,23 @@
       "meaning": 1,
       "since": "v0.6.2",
       "what": "(Player 2) tuning slot B, word 4 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.6.2 id 33 was not declared"
+    }
+  },
+  "retired": {
+    "24": {
+      "name": "(internal) library 1",
+      "last_in": "v0.6.1",
+      "what": "the old player's library state, word 1 of 3; not persisted since v0.6.2 (Player 2 keeps the last played track in ids 31 and 32). An old value must be ignored."
+    },
+    "25": {
+      "name": "(internal) library 2",
+      "last_in": "v0.6.1",
+      "what": "word 2 of 3, as id 24"
+    },
+    "26": {
+      "name": "(internal) library 3",
+      "last_in": "v0.6.1",
+      "what": "word 3 of 3, as id 24"
     }
   }
 }

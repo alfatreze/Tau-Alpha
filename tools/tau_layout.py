@@ -72,7 +72,11 @@ CHANNELS = {
     "dev":     {"platform": DEV_PLATFORM, "name": DEV_PLATFORM_NAME, "platforms": [DEV_PLATFORM, MEDIA_PLATFORM]},
 }
 # Cores a channel core supersedes on a card (named in tau-compat.json `replaces`, so installers can offer to remove them).
-REPLACES = {"alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC"]}
+# A Stable TAU supersedes the Diagnostics core (Player 2 includes the diagnostics), the old TAU_DIAGNOSTIC and every Preview core; TAU Preview (Player 2: one core) supersedes only its own diagnostics core.
+# tools/tau_compat.py drops an id the same release ships, so a release that still ships a Diagnostics core does not tell installers to remove it. An installer compares versions before it offers a removal (a Preview newer than the Stable is not obsolete).
+REPLACES = {"alfatreze.TAU": ["alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU Diagnostics", "alfatreze.TAU Preview", "alfatreze.TAU Preview Diagnostics"],
+            "alfatreze.TAU Preview": ["alfatreze.TAU Preview Diagnostics"],
+            "alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC"]}
 
 
 def channel_of(version):
