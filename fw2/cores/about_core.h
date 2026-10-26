@@ -108,13 +108,13 @@ static inline void ab_fill(const about_in_t *in, uint32_t r, about_row_t *o)
         break;
     case AR_CRED_H: HEAD("CREDITS AND LICENCES"); break;
     case AR_C1: TEXT("MP3 DECODER: HELIX (RPSL 1.0)"); break;
-    case AR_C2: TEXT("FONTS: TAMZEN, SPACE GROTESK (OPEN LICENCES)"); break;
+    case AR_C2: TEXT("FONTS: TAMZEN, SPACE GROTESK (OPEN)"); break;
     case AR_C3: TEXT("PLAYER BASE: HARPMUDD (MIT)"); break;
     case AR_C4: TEXT("PLATFORM: ANALOGUE POCKET"); break;
     case AR_HELP_H: HEAD("HELP"); break;
-    case AR_H1: TEXT("SETTINGS > HELP: THE BUTTONS AND HOW TO USE THEM"); break;
-    case AR_H2: TEXT("SELECT+START ON THIS PAGE: A SUPPORT REPORT"); break;
-    case AR_H3: TEXT("SEND IT WITH A BUG REPORT TO THE WEBSITE ABOVE"); break;
+    case AR_H1: TEXT("SETTINGS > HELP EXPLAINS THE BUTTONS"); break;
+    case AR_H2: TEXT("SELECT+START: A SUPPORT REPORT"); break;
+    case AR_H3: TEXT("SEND IT WITH A BUG REPORT"); break;
     default: break;
     }
 #undef LBL
