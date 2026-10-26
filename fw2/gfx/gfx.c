@@ -15,7 +15,12 @@ uint32_t gfx_touch_rows(void) { return gt_visible(&gfx_touch) ? ((uint32_t)gfx_t
 uint32_t gfx_cmds;                                         /* engine commands issued since boot (every R_FB_GO write): the host's per-meter command budget reads the difference around a tick */
 #define FB_GO(v) do { gfx_cmds++; REG_WR(R_FB_GO, (v)); } while (0)
 static uint32_t color_shadow = 0xFFFFFFFFu;
-static inline void wait_fifo(void) { while (REG_RD(R_FB_GO) & 1u) { } }
+uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
+static inline void wait_fifo(void)
+{
+    gfx_polls++;                                                        /* one command-FIFO "full" read per call, whether it waits or not */
+    if (REG_RD(R_FB_GO) & 1u) { gfx_stalls++; const uint32_t t = cycles(); while (REG_RD(R_FB_GO) & 1u) { } gfx_stall_cyc += (uint32_t)(cycles() - t); }
+}
 static void set_colors(uint16_t fg, uint16_t bg)
 {
     uint32_t v = ((uint32_t)bg << 16) | fg;
@@ -117,7 +122,10 @@ void gfx_fence(void)
     if (gfx_mb_write(a, 0xDEADBEEFu)) return;
     rect_raw(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);        /* the engine runs in order: when this lands, everything before it has (a stash row: shared by both buffers) */
     const uint32_t t0 = cycles();
+    gfx_fences++;
     do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+    gfx_fence_cyc += (uint32_t)(cycles() - t0);
+    if (r == 0xDEADBEEFu) gfx_fence_tmo++;                               /* gave up after 50 ms: the marker never landed (KB-188) */
 }
 void gfx_clut_begin(uint32_t start) { wait_fifo(); gfx_fence(); REG_WR(R_CLUT_IDX_A, start); }
 void gfx_clut_put(uint16_t v) { REG_WR(R_CLUT_DATA_A, v); }
