@@ -19,15 +19,27 @@ def define(path, name):
 bands = m["bands"]
 for b in bands:
     f, n, v = b["const"]
+    if n == "icon_check y0":                                              # a literal in a function, not a #define
+        mm = re.search(r"const uint32_t x0 = (\d+)u, y0 = (\d+)u;", (ROOT / f).read_text())
+        got = int(mm.group(2)) if mm else None
+        check(got == v == b["rows"][0] and int(mm.group(1)) == b["cols"][0], f"{b['name']}: the icon test draws at ({mm.group(1) if mm else '?'}, {got}), the register says ({b['cols'][0]}, {v})")
+        continue
     if v is not None:
         got = define(f, n)
         check(got == v == b["rows"][0], f"{b['name']}: {n} in {f} is {got}, the register says {v} and its rows start at {b['rows'][0]}")
 for i, a in enumerate(bands):
     check(m["visible_rows"] <= a["rows"][0] < a["rows"][1] <= m["total_rows"], f"{a['name']} rows {a['rows']} lie in the stash ({m['visible_rows']}..{m['total_rows']})")
-    check(0 <= a["cols"][0] < a["cols"][1] <= m["pixel_cols"], f"{a['name']} columns {a['cols']} stay out of the marker columns (>= {m['pixel_cols']})")
+    check(0 <= a["cols"][0] < a["cols"][1] <= (512 if a.get("marker_cols_ok") else m["pixel_cols"]), f"{a['name']} columns {a['cols']} stay out of the marker columns (>= {m['pixel_cols']}) unless the register says they may enter them")
     for b in bands[i + 1:]:
         ov = a["rows"][0] < b["rows"][1] and b["rows"][0] < a["rows"][1] and a["cols"][0] < b["cols"][1] and b["cols"][0] < a["cols"][1]
         check(not ov, f"{a['name']} and {b['name']} do not overlap")
+ic = (ROOT / "fw2/generated/icon_data.c").read_text()                      # the icon planes sit side by side, one per icon, as wide as the icon: the register must say how wide
+rec = bytes(int(x) for x in re.findall(r"\b\d+\b", ic.split("= {", 1)[1].split("};")[0]))
+off, total = 16, 0
+for _ in range(rec[12]):
+    total += rec[off + 1]; off += 18 + (rec[off + 16] | (rec[off + 17] << 8))
+iconband = next(b for b in bands if b["name"] == "icon planes")
+check(iconband["cols"][1] == total, f"the icon planes are {total} columns wide (icon record), the register says {iconband['cols'][1]}")
 known = {frozenset((k["a"], k["b"])) for k in m["known_collisions"]}
 cells = m["cells"]
 for i, a in enumerate(cells):

@@ -68,7 +68,7 @@ static uint32_t icon_check(void)
     uint32_t bad = 0;
     for (uint32_t k = 0; k < 3u; k++) {
         ti_icon_t ic; if (ti_find(icon_rec, icon_rec_len, ids[k], &ic)) return 0xFFFFu;
-        const uint32_t x0 = 300u, y0 = 560u + 0u;
+        const uint32_t x0 = 200u, y0 = 600u;                         /* off the live icon planes (stash rows 560..587, columns 0..488): until B-870 this drew over the Select and Start planes at (300, 560) and left them as colours, so every icon drawn after a Check showed garbage */
         if (k) gfx_rect_stash(x0, y0, 32, 28, 0x0001u);                                 /* a known background: nothing stale can pass */
         if (icon_draw_stash(ids[k], x0, y0, 0xFFFFu, 0x0000u)) return 0xFFFFu;
         gfx_fence();
