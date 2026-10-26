@@ -117,7 +117,7 @@ static void next_test(void) { publish(); if (cur + 1u >= T_N) finish(2u); else b
 static uint32_t secs(void) { return (uint32_t)(cycles() - t0) / CLK_HZ; }
 
 void check_page_repaint(void) { dirty = 1; gfx_rect(0, 0, GFX_W, GFX_H, BG); }
-void check_page_enter(void) { for (uint32_t i = 0; i < T_N; i++) { res[i] = 0; val[i] = 0; } state = 0; dirty = 1; publish(); gfx_rect(0, 0, GFX_W, GFX_H, BG); }
+void check_page_enter(void) { dirty = 1; gfx_rect(0, 0, GFX_W, GFX_H, BG); }   /* the results of the last run stay (page, Info CHECK MASK, BLIT BAD) until the next run starts: DEV 187 wiped them on entry (B-867) */
 void check_page_exit(void) { if (state == 1u) finish(2u); }
 int check_page_key(uint32_t edge)
 {
