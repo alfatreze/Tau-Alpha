@@ -13,7 +13,7 @@ def check(name, ok, extra=""):
     if not ok: fails += 1
 def build(d, bug):
     exe = d / f"s{bug}"
-    r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", f"-DBUG={bug}", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_stream_harness.c")], capture_output=True, text=True)
+    r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-DP2_STREAM_LAT=1", f"-DBUG={bug}", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_stream_harness.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return exe
 def run(exe, known=1, size=200000, rate=40000, frame=1152, lat=6000, jit=2000, outl=-1, outl_ms=0, settle=0, seek_ms=-1, seek_to=0, maxms=20000, cap=24576, seed=1):

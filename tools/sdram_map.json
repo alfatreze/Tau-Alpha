@@ -175,8 +175,8 @@
     },
     {
       "name": "art probe destination",
-      "row": 1021,
-      "col": 480,
+      "row": 1022,
+      "col": 484,
       "file": "fw2/art/art.c",
       "users": "probe"
     },
@@ -209,11 +209,5 @@
       "users": "chladni probe"
     }
   ],
-  "known_collisions": [
-    {
-      "a": "fence cell",
-      "b": "art probe destination",
-      "why": "found 2026-10-26 by reading (B-859): the art probe writes a sentinel to (1021,480), but its next call gfx_clut_begin() runs gfx_fence(), which overwrites that very cell; the sentinel is gone, so the 'poll until it changes' loop breaks at once and the probe relies on the one-pixel palette blit having landed within its 512-cycle delay. Benign today (the fence drained the queue, the blit lands in tens of cycles, covers work on hardware) but fragile. Fix in T1 with a Pocket check: move the probe destination to its own cell (for example row 1022, column 484)."
-    }
-  ]
+  "known_collisions": []
 }

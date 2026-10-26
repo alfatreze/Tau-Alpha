@@ -17,6 +17,9 @@
 #define BUG 0
 #endif
 
+#ifndef P2_STREAM_LAT
+#define P2_STREAM_LAT 0     /* 1 = keep the read latency histogram (B-879, answered: the slow reads were screenshots); off in the firmware to save hot bytes, on in sim/test_p2_stream.py */
+#endif
 #ifndef CLK_HZ_ST
 #define CLK_HZ_ST 66666667u      /* the core clock, for the latency buckets (a host test may override it) */
 #endif
@@ -46,10 +49,12 @@ typedef struct {
     uint32_t reads, bytes, fails_total, retries, timeouts, stale, starved, opens, seeks, min_avail, max_lat;
     uint32_t chunk;                /* bytes per read (0 = ST_CHUNK); kept across open/seek, set by the transport per codec */
     uint32_t to_off, to_len;       /* the request that last timed out */
+#if P2_STREAM_LAT
     /* read latency (B-879, the 4 s read after a skip): how long each finished read took, by bucket, and the slowest one's circumstances */
     uint32_t lat_hist[7];          /* reads that took < 5 ms, < 20 ms, < 50 ms, < 200 ms, < 1 s, < 3 s, 3 s or more (a stale read counts too) */
     uint32_t max_lat_fresh, max_lat_stale;   /* the slowest read of the current generation, and the slowest whose generation had moved on (issued before a skip or an open) */
     uint32_t slow_off, slow_len, slow_stale; /* the slowest read overall: its file offset, its length, 1 when it was stale */
+#endif
 } stream_t;
 
 static inline void stream_init(stream_t *s, uint32_t cap, uint32_t timeout_cycles)
@@ -91,6 +96,7 @@ static inline int stream_pump(stream_t *s, uint32_t now, io_result_t res, io_req
             return 0;
         }
         io_req_t r = s->fl.r; int orphan = s->fl.orphan; (void)orphan; s->fl.active = 0; s->fl.orphan = 0;
+#if P2_STREAM_LAT
         {
             const uint32_t ms = lat / (CLK_HZ_ST / 1000u); const int stale_rd = orphan || r.gen != s->gen;
             s->lat_hist[ms < 5u ? 0 : ms < 20u ? 1 : ms < 50u ? 2 : ms < 200u ? 3 : ms < 1000u ? 4 : ms < 3000u ? 5 : 6]++;
@@ -101,6 +107,9 @@ static inline int stream_pump(stream_t *s, uint32_t now, io_result_t res, io_req
 #endif
             if (lat > s->max_lat) { s->max_lat = lat; s->slow_off = r.off; s->slow_len = r.len; s->slow_stale = stale_rd ? 1u : 0u; }
         }
+#else
+        if (lat > s->max_lat) s->max_lat = lat;
+#endif
 #if BUG == 1
         if (0) { s->stale++; }                                        /* the generation check is missing */
 #else
