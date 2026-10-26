@@ -150,6 +150,7 @@ test-host:
 	$(PYTHON) sim/test_latin1_text.py
 	$(PYTHON) sim/test_p2_blank.py
 	$(PYTHON) sim/test_p2_gfx.py
+	$(PYTHON) sim/test_p2_hwfence.py
 	$(PYTHON) sim/test_p2_scope_trail.py
 	$(PYTHON) sim/test_p2_chladni_dbuf.py
 	$(PYTHON) sim/test_p2_xfade.py

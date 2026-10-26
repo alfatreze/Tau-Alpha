@@ -8,6 +8,7 @@
 #define OP_RECT 1u
 #define OP_CHAR 2u
 #define OP_BAR 5u
+#define OP_FENCE 0x4001u                    /* Talos T3: op 9 = bit 14 + 1 on R_FB_GO; retires when everything queued before it has; not a draw, so it is not counted in gfx_cmds */
 
 static gt_t gfx_touch = { 0xFFFFu, 0, 0xFFFFu, 0 };                      /* the rows the commands since gfx_touch_reset() wrote (cores/gfx_touch_core.h) */
 void gfx_touch_reset(void) { gt_reset(&gfx_touch); }
@@ -21,6 +22,7 @@ static uint32_t color_shadow = 0xFFFFFFFFu;
 #if P2_DIAG
 uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;
 uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max;                    /* the wait for the flip to land at a vblank after a frame ends (the second spin of a frame, after the fence): count, cycles, the longest */
+uint32_t gfx_hw_ovf, gfx_hw_uf;                                         /* Talos T3: queue pushes dropped / scanout lines late (R_GFX_COUNTS), read after each hardware fence; 0 on a healthy build */
 uint32_t gfx_fence_n[7], gfx_fence_c[7];                              /* the same, by reason: 0 other (public gfx_fence), 1 frame end, 2 palette load, 3 bases, 4 compose before, 5 compose after, 6 blend off */   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
 static inline void wait_fifo(void)
 {
@@ -124,19 +126,29 @@ static int mb_wait(uint32_t t)
     while (REG_RD(R_SDR_STATUS) & 1u) if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
     return 0;
 }
-int gfx_mb_write(uint32_t a, uint32_t d) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_DATA, d); REG_WR(R_SDR_CTRL, 0x3Fu); return mb_wait(cycles()); }
-int gfx_mb_read(uint32_t a, uint32_t *o) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_CTRL, 0x3Du); if (mb_wait(cycles())) return -1; *o = REG_RD(R_SDR_RDATA_A); return 0; }
+/* noinline on the two mailbox accessors: fence_why carried a second inlined copy of each (about 250 bytes of hot RAM, which the Diagnostic Build's 16-byte margin could not pay for T3's hardware fence); they are not on the draw path */
+__attribute__((noinline)) int gfx_mb_write(uint32_t a, uint32_t d) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_DATA, d); REG_WR(R_SDR_CTRL, 0x3Fu); return mb_wait(cycles()); }
+__attribute__((noinline)) int gfx_mb_read(uint32_t a, uint32_t *o) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_CTRL, 0x3Du); if (mb_wait(cycles())) return -1; *o = REG_RD(R_SDR_RDATA_A); return 0; }
+static int8_t hw_fence = -1;                                            /* -1 not probed, 0 the old mailbox fence, 1 the T3 FENCE command */
+static uint32_t hw_fence_issued;
 static void fence_why(uint32_t why)
 {
+    if (hw_fence < 0) { hw_fence = (REG_RD(R_GFX_STATUS) >> 31) ? 1 : 0; if (hw_fence) hw_fence_issued = REG_RD(R_GFX_FENCE); }
     const uint32_t a = 1021u * GFX_STRIDE + GFX_CELL_X;
+    const int hw = hw_fence > 0;
     uint32_t r = 0;
-    if (gfx_mb_write(a, 0xDEADBEEFu)) return;
-    rect_raw(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);        /* the engine runs in order: when this lands, everything before it has (a stash row: shared by both buffers) */
+    if (hw) { while (REG_RD(R_FB_GO) & 1u) { } REG_WR(R_FB_GO, OP_FENCE); hw_fence_issued++; }     /* the bitstream retires a FENCE command after everything queued before it: no marker, no mailbox polling */
+    else {
+        if (gfx_mb_write(a, 0xDEADBEEFu)) return;
+        rect_raw(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);    /* the engine runs in order: when this lands, everything before it has (a stash row: shared by both buffers) */
+    }
     const uint32_t t0 = cycles();
     GD(gfx_fences++; gfx_fence_n[why]++;)
-    do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+    if (hw) { while ((int32_t)(REG_RD(R_GFX_FENCE) - hw_fence_issued) < 0) if ((uint32_t)(cycles() - t0) > CLK_HZ / 20u) { r = 0xDEADBEEFu; hw_fence = 0; break; } }   /* 50 ms without it: the mailbox fence from now on */
+    else do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
     GD(gfx_fence_cyc += (uint32_t)(cycles() - t0); gfx_fence_c[why] += (uint32_t)(cycles() - t0);)
-    GD(if (r == 0xDEADBEEFu) gfx_fence_tmo++;)                               /* gave up after 50 ms: the marker never landed (KB-188) */
+    GD(if (r == 0xDEADBEEFu) gfx_fence_tmo++;)                               /* gave up after 50 ms: the marker (or the counter) never landed (KB-188) */
+    GD(if (hw) { const uint32_t c = REG_RD(R_GFX_COUNTS); gfx_hw_ovf = c & 0xFFFFu; gfx_hw_uf = c >> 16; })
 }
 void gfx_fence(void) { fence_why(0u); }
 void gfx_clut_begin(uint32_t start) { wait_fifo(); fence_why(2u); REG_WR(R_CLUT_IDX_A, start); }
