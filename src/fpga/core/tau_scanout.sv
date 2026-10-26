@@ -24,6 +24,13 @@ module tau_scanout (
     input  wire [9:0]  lb_waddr,
     input  wire [15:0] lb_wdata,
 
+    // Talos 2 T3, from tau_talos (clk_sdram): which line the last finished fill was for, and that one has finished
+    input  wire        fill_done_inc,
+    input  wire [9:0]  fill_done_line,
+    input  wire        fill_seen,
+    // Scanout underflow: lines whose fill had not finished when their display started (clk_sys, saturating)
+    output wire [15:0] underflow_cnt,
+
     // To tau_talos (clk_vid toggles, sampled in clk_sdram there)
     output reg         fill_req_tgl = 0,
     output reg  [9:0]  fill_line_req = 0,
@@ -146,6 +153,30 @@ module tau_scanout (
         video_vs     <= vs_p1;
     end
 
+
+    // ======================================================================
+    // Talos 2 T3: underflow detection (the instrument the central claim "scanout always wins" was missing).
+    // Line n is displayed during scanline n + VOFF; its fill was requested one scanline earlier and must have
+    // finished by hc == HOFF, when the display starts. At that instant the last finished fill is line n (its own),
+    // or line n + 1 if the next line's fill (requested at hc == 0) is already done too. Anything else means line n's
+    // buffer half was not filled in time. fill_done_line steps by +1 per fill, so it crosses with tau_cdc_gray_bus
+    // (the 359 -> 0 wrap happens in vertical blanking, where no line is being checked). Armed after the first fill.
+    // ======================================================================
+    wire [9:0] done_line_vid;
+    tau_cdc_gray_bus #(.W(10), .STAGES(3)) u_done_line (.clk_src(clk_sdram), .d_src(fill_done_line), .clk_dst(clk_vid), .q_dst(done_line_vid));
+    reg [2:0] seen_vid = 3'b0;
+    always @(posedge clk_vid) seen_vid <= {seen_vid[1:0], fill_seen};
+    reg uf_pulse = 1'b0;
+    wire [10:0] vsub_chk = vc - VOFF;
+    wire        in_active_line = (vc >= VOFF) && (vc < VOFF + V_ACT);
+    always @(posedge clk_vid) begin
+        uf_pulse <= 1'b0;
+        if (hc == HOFF && in_active_line && seen_vid[2]) begin
+            if (!(done_line_vid == vsub_chk[9:0] || (do_fill && done_line_vid == vsub_chk[9:0] + 10'd1))) uf_pulse <= 1'b1;
+        end
+    end
+    tau_cdc_gray_ctr #(.WIDTH(16)) u_underflow (.clk_src(clk_vid), .rst_src(reset), .inc(uf_pulse),
+                                                 .clk_dst(clk_sys), .rst_dst(reset), .count_dst(underflow_cnt));
 
 endmodule
 

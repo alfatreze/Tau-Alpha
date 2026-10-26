@@ -1,0 +1,24 @@
+# Talos 2, T3: the graphics status block (idle, fence, free slots, overflow, scanout underflow)
+
+Status: **RTL built and host-proven (branch `talos-t3`), not fitted, not on a Pocket.** Plan: `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` (T3), decisions D-T03..D-T05. Measured motive: T0 found the CPU issue path, not the engine, is the limit; the one thing the CPU could not observe was whether the engine had finished (the old fence is a 50 ms mailbox poll through the SDRAM window) and whether scanout ever starved.
+
+## What it adds (all additive: an old firmware sees nothing new, and a new firmware probes the present bit)
+| Item | Where | Meaning |
+|---|---|---|
+| `OP_FENCE` = command op 9 (`R_FB_GO` value `0x4001`) | `tau_talos.sv` | draws nothing; it is queued like any command, so it is dispatched only after every earlier command has been dispatched, and it **retires** only when the engine is at `A_IDLE` with nothing chained or in flight. Retiring bumps the fence counter. Ops 10-15 are still the default RUN: do not send them. |
+| `R_GFX_FENCE` `0x1B8` (read) | `tau_soc.v` | the number of FENCE commands retired, a 32-bit Gray-synchronised counter (`tau_cdc_gray_ctr`), wraps at 2^32. Firmware counts the fences it issued and waits for `(int32)(counter - issued) >= 0`. Reads 0 on a bitstream without T3. |
+| `R_GFX_STATUS` `0x1BC` (read) | `tau_soc.v` | `[31]` present (1 on a T3 bitstream: the probe), `[16]` idle, `[8:0]` free queue slots (0..255, the queue holds 255). |
+| `R_FB_GO` bit 1 (read) | `tau_soc.v` | idle: every accepted command has retired. Bit 0 (queue full) is unchanged. |
+| `R_GFX_COUNTS` `0x1C0` (read) | `tau_soc.v` | `[15:0]` pushes dropped because the queue was full (saturating; the firmware's poll of bit 0 normally makes this 0), `[31:16]` scanout lines whose fill had not finished when their display started (a 16-bit Gray counter, wraps). |
+
+## How idle is defined (and why it is robust)
+Idle is **not** "queue empty": a pushed command is invisible in the engine's domain for two clocks, and the engine's own flags overlap. Idle is `accepted pushes == retired commands`: the `clk_sys` side counts accepted pushes, the `clk_sdram` side counts retirements (`inflight` set at dispatch, cleared at the first `A_IDLE` cycle with no rect, glyph row, blend drain or chained bar/rounded-rect work left), and the retirement count crosses with `tau_cdc_gray_ctr`. A push followed by an idle read one cycle later therefore reads busy. Dispatch now also waits for the chain to be idle (`chain_idle`); for ops 0-8 this changed no cycle (the old-vs-new differential test, `make test-rtl-gfx-diff`, is unchanged: 4,055,236 cycles, 0 differences).
+
+## Scanout underflow
+`tau_talos` reports each finished scanout fill (`fill_done_line`, a `tau_cdc_gray_bus` into `clk_vid`, `fill_seen`). At `hc == HOFF` of every active line `tau_scanout` checks that the last finished fill is that line, or the next one (already done). Anything else counts one underflow. Armed after the first fill. This is the instrument for the claim "scanout always wins": on today's engine it should read 0 for ever; if it does not, the SDRAM controller changes of T5 are judged by it.
+
+## Tests
+`make test-rtl-gfx-t3` (`sim/tb_tau_gfx_t3.v`: idle low one cycle after a push; FENCE after RECT, BAR, CHAR and RRECT retires only after every row of every earlier command was written and nothing lands later; six fences monotonic, no skip, whole-run monitor; 300 pushes into a stalled queue: 45 counted, 0 free, drain, idle; underflow 0 over about 120 scanlines, then counted when the SDRAM is unavailable for about 80 scanlines; four mutants: fence bumped by every command, overflow not counted, idle ignoring in-flight work, underflow check disabled) and `make test-rtl-gfx-status-soc` (the real VexRiscv reads the four registers; swapped inputs fail it).
+
+## Not built, on purpose
+The in-queue `SET_FIELD` / `CLUT_WR` / `RC_WR` opcodes of the plan (section 5.4). They would let a sticky field change mid-stream without a wait, but T0 measured fences at about 2% of the CPU (B-888), the CLUT RAM's write port is in `clk_sys` (moving it to `clk_sdram` risks the M10K inference that B-576 fixed), and the fence is now cheap. Revisit only if a profile shows fence-bound drawing.

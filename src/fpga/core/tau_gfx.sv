@@ -72,7 +72,8 @@ module tau_gfx #(
     parameter FONT_RAM_ENABLE = 0,
     parameter BUG_FONT_NO_HI = 0,        // 1: glyph bit 7 (cmd_glyph_hi[0]) ignored -> 0x80.. codes read the ASCII range
     parameter BUG_FONT_RANGE = 0,        // 1: the 0xA0.. range starts one glyph too high
-    parameter BUG_FONT_NO_WRITE = 0      // 1: the CPU write port is ignored
+    parameter BUG_FONT_NO_WRITE = 0,     // 1: the CPU write port is ignored
+    parameter BUG_FENCE_ANY = 0        // mutation hook (sim/tb_tau_gfx_t3.v): see tau_talos.sv
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -206,11 +207,20 @@ module tau_gfx #(
     output wire         video_vs,
     // Helios beam position (B-267): the video line counter, 0..V_TOT-1 (V_TOT is 400, so 9 bits). The row being scanned
     // is vc - VOFF while VOFF <= vc < VOFF + V_ACT. Carried to the CPU by tau_cdc_gray_bus (it steps by +1 per line).
-    output wire [8:0]  scan_vc
+    output wire [8:0]  scan_vc,
+
+    // Talos 2 T3 status (all clk_sys), read by tau_soc: see docs/features/TALOS_T3_SPEC.md
+    output wire        gfx_idle,        // every accepted command has retired
+    output wire [31:0] gfx_fence,       // FENCE commands retired (monotonic, wraps at 2^32)
+    output wire [8:0]  gfx_free,        // free command-queue slots
+    output wire [15:0] gfx_ovf,         // pushes dropped because the queue was full (saturating)
+    output wire [15:0] gfx_underflow    // scanout lines whose fill was late (saturating counter of the Gray count, wraps at 2^16)
 );
 
     wire        fill_req_tgl, vblank_tgl;
     wire [9:0]  fill_line_req;
+    wire        fill_done_inc, fill_seen;
+    wire [9:0]  fill_done_line;
     wire        lb_we;
     wire [9:0]  lb_waddr;
     wire [15:0] lb_wdata;
@@ -230,7 +240,8 @@ module tau_gfx #(
         .FONT_RAM_ENABLE(FONT_RAM_ENABLE),
         .BUG_FONT_NO_HI(BUG_FONT_NO_HI),
         .BUG_FONT_RANGE(BUG_FONT_RANGE),
-        .BUG_FONT_NO_WRITE(BUG_FONT_NO_WRITE)
+        .BUG_FONT_NO_WRITE(BUG_FONT_NO_WRITE),
+        .BUG_FENCE_ANY(BUG_FENCE_ANY)
     ) u_talos (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push),
@@ -283,13 +294,17 @@ module tau_gfx #(
         .wsrc_addr(wsrc_addr),
         .wsrc_q(wsrc_q),
         .fill_req_tgl(fill_req_tgl), .fill_line_req(fill_line_req), .vblank_tgl(vblank_tgl),
-        .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata)
+        .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
+        .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
+        .gfx_idle(gfx_idle), .gfx_fence(gfx_fence), .gfx_free(gfx_free), .gfx_ovf(gfx_ovf)
     );
 
     tau_scanout u_scanout (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push),
         .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
+        .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
+        .underflow_cnt(gfx_underflow),
         .fill_req_tgl(fill_req_tgl), .fill_line_req(fill_line_req), .vblank_tgl(vblank_tgl),
         .video_rgb(video_rgb), .video_de(video_de), .video_hs(video_hs), .video_vs(video_vs),
         .scan_vc(scan_vc)
