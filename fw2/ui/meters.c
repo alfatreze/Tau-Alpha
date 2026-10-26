@@ -394,6 +394,10 @@ uint32_t meters_list_count(void) { uint32_t n = 0; for (uint32_t m = 0; m < METE
 uint32_t meters_list_row(uint32_t i) { for (uint32_t m = 0; m < METER_SLOTS; m++) if (meters_present(m) && i-- == 0u) return m; return 0u; }       /* the i-th meter that is there -> its row (the saved meter index) */
 uint32_t meters_list_index(uint32_t row) { uint32_t n = 0; for (uint32_t m = 0; m < row && m < METER_SLOTS; m++) n += (uint32_t)meters_present(m); return n; }       /* the other way */
 meter_stats_t meter_stats;
+/* The per-meter cost measurement (Talos 2 T4 gate, cores/meter_cost_core.h) lives in the Diagnostic Build's fw2/diagnostics/info_counters.c, so this module's hot RAM ceiling (tools/player2/meter_budget.py) does not
+ * carry it; these two hooks are no-ops (weak) wherever that file is not linked (the normal build, the host tests). */
+__attribute__((weak)) void meter_cost_mark(void) { }
+__attribute__((weak)) void meter_cost_note(uint32_t meter, uint32_t cmds) { (void)meter; (void)cmds; }
 /* cmp: the compose code of the registry (tools/player2/gen_meters_p2.py cmp_code). A gate is bit 15, the gating parameter in bits 14..10 and a mask of the values that enable it in bits 9..6. */
 static int cmp_gate(const uint16_t *mv, uint32_t c) { if (!(c & 0x8000u)) return 1; const uint32_t v = mv[(c >> 10) & 31u]; return v < 4u && ((c >> (6u + v)) & 1u); }
 static int composed(const meter_def_t *d) { const uint32_t c = d->cmp & 0xFFFFu; return c == 1u || (c > 1u && cmp_gate(d->mv, c)); }
@@ -429,6 +433,7 @@ void meters_tick(int allowed)
     force_next = 0;
     const int comp = composed(mdef(cur)) && gfx_compose_begin(bx, by, bw, bh);
     const uint32_t cmd0 = gfx_cmds, scan0 = REG_RD(R_SCAN);
+    meter_cost_mark();
     gfx_touch_reset();
 #ifdef P2_PACKS
     if (pack_ok(cur)) {
@@ -451,6 +456,7 @@ void meters_tick(int allowed)
     if (!in.force) { mb_judge(&budget[cur], meter_stats.cmds_last, cmd_limit_of(cur)); meter_stats.over += (uint32_t)mb_over(meter_stats.cmds_last, cmd_limit_of(cur)); }      /* a forced repaint is the costliest picture by design: not judged */
     if (meter_stats.cmds_last > meter_stats.cmds_max) meter_stats.cmds_max = meter_stats.cmds_last;
     meter_stats.compose_cyc = 0;
+    if (!in.force) meter_cost_note(cur, meter_stats.cmds_last);                       /* before the compose copy: the tick's own cost */
     if (comp) { const uint32_t c0 = cycles(); gfx_compose_present(bx, by, bw, bh); meter_stats.compose_cyc = cycles() - c0; }
     const uint32_t spent = cycles() - t;
     meter_stats.ticks++; meter_stats.last_cyc = spent;

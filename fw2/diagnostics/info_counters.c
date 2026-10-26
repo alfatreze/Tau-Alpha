@@ -17,7 +17,15 @@ extern uint32_t bt_n, bt_wait_n, bt_wait_max, bt_max;   /* fw2/transport/mp3play
 #endif
 extern uint32_t report_rows, report_len;   /* fw2/diagnostics/report_page.c */
 extern uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max; extern uint32_t gfx_fence_n[7], gfx_fence_c[7]; extern uint32_t gfx_bench[4], blit_check_mask; uint32_t blit_check_bad_px(void);   /* fw2/diagnostics/check_page.c */
-extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo; extern uint32_t gfx_hw_ovf, gfx_hw_uf;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
+extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo; extern uint32_t gfx_hw_ovf, gfx_hw_uf;
+#if P2_DIAG
+#include "../cores/meter_cost_core.h"
+mcost_t meter_cost[8];           /* per meter (the index of meter_stats.max_cyc): the cost of its ordinary ticks, forced repaints left out; rows "M ..." */
+extern uint32_t gfx_stall_cyc, gfx_fence_cyc;   /* fw2/gfx/gfx.c, T0 counters */
+static uint32_t mc_t0, mc_stall0, mc_fence0;
+void meter_cost_mark(void) { mc_t0 = cycles(); mc_stall0 = gfx_stall_cyc; mc_fence0 = gfx_fence_cyc; }                       /* strong: overrides the weak no-op in fw2/ui/meters.c */
+void meter_cost_note(uint32_t meter, uint32_t cmds) { if (meter < 8u) mcost_add(&meter_cost[meter], cmds, cycles() - mc_t0, gfx_stall_cyc - mc_stall0, gfx_fence_cyc - mc_fence0); }   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
+#endif
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
@@ -349,8 +357,16 @@ const cnt_t counters_table[] = {
     { "STATS CORR",   CK_I32,   CU_NONE,  &meter_stats.stats_corr },   /* last L/R correlation, Q8: 256 mono, 0 unrelated, -256 opposite phase */
     U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */
 #define METER_PACK_MAX_ROW(row, nm) U32("METER MAX " nm, CU_CYC, &meter_stats.max_cyc[row]),
+#define MCOST_ROWS(row, nm) \
+    { "M CMD MAX " nm,   CK_U16, CU_NONE, &meter_cost[row].cmd_max }, { "M CMD AVG16 " nm, CK_U16, CU_NONE, &meter_cost[row].cmd_avg16 }, \
+    U32("M CYC AVG " nm, CU_CYC, &meter_cost[row].cyc_avg), U32("M STALL AVG " nm, CU_CYC, &meter_cost[row].stall_avg), U32("M FENCE AVG " nm, CU_CYC, &meter_cost[row].fence_avg),
+#define MCOST_X(key, nm, id, lc, UC, np, cmp) MCOST_ROWS(mtr_idx_##key, #UC)
     METER_PACK_LIST(METER_PACK_MAX_ROW)                       /* the same for every pack-only meter, by name */
     METER_LIST(METER_MAX_ROW)                                 /* the slowest tick of each meter since boot, one row per registry entry */
+    /* Talos 2 T4 gate: the cost of each meter's ordinary ticks (forced repaints left out) -- commands (max, average x 16), CPU cycles, and of those the cycles spent waiting for a queue slot and in fences. Read in the
+     * window and fullscreen: a meter whose commands x 132 cycles (GFX B1 ISSUE) is most of M CYC AVG is limited by command issue; one with a small share is limited by its own arithmetic or by reads. */
+    METER_PACK_LIST(MCOST_ROWS)
+    METER_LIST(MCOST_X)
 #endif
 #ifdef P2_PACKS
     { "PACKS RUN",     CK_HEX32, CU_NONE, &v.pack_run },      /* bit per meter (table order): 1 = the meter runs from its pack */
