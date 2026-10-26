@@ -9,6 +9,7 @@
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
+extern uint32_t gfx_bench[4];   /* fw2/diagnostics/check_page.c */
 extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
@@ -108,6 +109,10 @@ const cnt_t counters_table[] = {
     { "GFX FENCES",   CK_U32, CU_NONE,   &gfx_fences },
     { "GFX FENCE CYC", CK_U32, CU_NONE,  &gfx_fence_cyc },          /* CPU cycles spent in fences (the marker round trip, 256-cycle polls) */
     { "GFX FENCE TMO", CK_U32, CU_NONE,  &gfx_fence_tmo },          /* fences that gave up after 50 ms */
+    { "GFX B1 ISSUE", CK_U32, CU_NONE,   &gfx_bench[0] },           /* Check > GFX ISSUE: CPU cycles per command to issue 1,000 one-pixel rectangles (the CPU's cost per command) */
+    { "GFX B1 DRAIN", CK_U32, CU_NONE,   &gfx_bench[1] },           /* cycles per command still queued when the issue loop ended, drained by the fence */
+    { "GFX B100 ISSUE", CK_U32, CU_NONE, &gfx_bench[2] },           /* the same with 100-pixel rectangles: higher means the engine, not the CPU, is the limit */
+    { "GFX B100 DRAIN", CK_U32, CU_NONE, &gfx_bench[3] },
     { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
     { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
