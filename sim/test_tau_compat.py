@@ -124,7 +124,7 @@ with tempfile.TemporaryDirectory() as t:
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
     check(r["report_tags_max"] == 28, f"last report tag {r['report_tags_max']} (SR_T_TRACKINFO = 28)")
-    check(r["persist_ids_changed"] == [10, 11, 12, 15, 16, 18, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], f"persist ids changed (12 range), removed (18), re-meant per the registry (every word is regrouped by area since v0.6.2: 10, 11, 12, 15, 16, 20-23, 27-30), new (31 and 32 the last played track, 33 tuning slot B; the old library words 24-26 are retired from interact.json) vs alpha.4: {r['persist_ids_changed']}")
+    check(r["persist_ids_changed"] == [10, 11, 12, 15, 16, 18, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], f"persist ids changed (12 range), removed (18), re-meant per the registry (every word is regrouped by area since v0.7.0: 10, 11, 12, 15, 16, 20-23, 27-30), new (31 and 32 the last played track, 33 tuning slot B; the old library words 24-26 are retired from interact.json) vs alpha.4: {r['persist_ids_changed']}")
     check(doc["previous_release"] == "v0.6.0-alpha.4", "previous_release recorded")
     check(doc["persist_registry"]["16"] == {"name": "(internal) meters 2", "meaning": 3, "since": "v0.6.0-preview.1"}
           and set(doc["persist_registry"]) == {str(v["id"]) for v in REAL_INTERACT["interact"]["variables"] if v.get("persist")},

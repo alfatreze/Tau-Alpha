@@ -1,4 +1,4 @@
-# `tau-packs.bin`: the meter-pack bundle a Player 2 core ships (format v1, frozen with ABI 1.2, v0.6.2)
+# `tau-packs.bin`: the meter-pack bundle a Player 2 core ships (format v1, frozen with ABI 1.2, v0.7.0)
 
 **Who writes it:** the build (`tools/player2/build_packs.py`, called by `tools/package_dev_build.py` for every `PACKS=1` Player 2 package and so by `tools/make_release.py --player2`). **Who reads it:** the firmware (data slot 9, `fw2/stream/packfile.c`, `fw2/cores/meter_pack_core.h`). **Tau Omega reads it, never writes it.** It is core-specific (parameter bit 1 of the slot: `Assets/<platform>/<core id>/tau-packs.bin`), optional (a card without it runs: the firmware falls back to the `MPKB` section of `tau-assets.bin` if there is one, else shows Winamp Bars alone), and always wins over an `MPKB` section (hardware-confirmed on TAU DEV 184, B-837: `PACK SRC 2` with a stale section on the card). In `tau-compat.json` it is a `layout` entry `role: owned`, `slot: 9`, `required: false`.
 
