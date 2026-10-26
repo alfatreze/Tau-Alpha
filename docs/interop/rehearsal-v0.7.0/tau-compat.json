@@ -6,7 +6,7 @@
   "packages": [
     {
       "zip": "alfatreze.TAU_0.7.0_2026-10-26.zip",
-      "zip_sha256": "ae22b789e0b655b6f973d26e640bc3c20dbfc4bfe032f30de8b6de95d6da11a2",
+      "zip_sha256": "5850e0b23c35d74aeda624c1acde68d7d660711bf8029cface08e66b95ba6447",
       "core_id": "alfatreze.TAU",
       "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
       "bitstream_core_version": "4D50331B",
@@ -17,7 +17,7 @@
         "POLY",
         "SDRAM_BUSY"
       ],
-      "rom_sha256": "87aa151a25ea244fafad9982e23e51c2e552aac5d6cf473c61d89c823d6028dc",
+      "rom_sha256": "a3fa77ee447d5d8b8dda279ba037324a33e362d0052be945faaff406bc8b97bf",
       "cold_sha256": "8e906eac625c5b08b4bf75e07d6630da14d8e8143d702566ab893d4114367dfc",
       "rom_accepts": [
         "4D50331B"
@@ -25,7 +25,7 @@
       "rom_needs": [
         "FONT"
       ],
-      "rom_version": "0.7.0+840257d7",
+      "rom_version": "0.7.0+1f667418",
       "replaces": [
         "alfatreze.TAU_DIAGNOSTIC",
         "alfatreze.TAU Diagnostics",
@@ -63,7 +63,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau.rom",
           "role": "owned",
-          "sha256": "87aa151a25ea244fafad9982e23e51c2e552aac5d6cf473c61d89c823d6028dc",
+          "sha256": "a3fa77ee447d5d8b8dda279ba037324a33e362d0052be945faaff406bc8b97bf",
           "slot": 1,
           "required": true
         },
@@ -237,6 +237,8 @@
     ],
     "assets_read_limit_bytes": 65536,
     "report_tags_max": 28,
+    "persist_layout": 1,
+    "packs_abi": 1,
     "persist_ids_changed": [
       10,
       11,
@@ -262,7 +264,7 @@
   },
   "notes": "",
   "source": {
-    "commit": "840257d7",
+    "commit": "1f667418",
     "dirty": false
   },
   "previous_release": "v0.6.1",
