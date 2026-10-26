@@ -12,6 +12,8 @@
 > 8. **Budgets in section 3 are stale**: re-measure free ALM/M10K/DSP from the `stats-b821` fit report in T0 before promising "0 extra M10K".
 > 9. **Verification adds** differential fuzzing (random command streams, Talos 1 vs the new module, pixel-exact), an SDRAM timing model, a scanout-underflow assertion under a blit storm; `TAU_TALOS1` stays until hardware confirmation, then the old code is deleted.
 >
+> **Superseded in detail by the exhaustive review of 2026-10-26 (`docs/research/TALOS2_PLAN_REVIEW_2026-10-26_EXHAUSTIVE.md`, decisions D-T04..D-T07): T0 is a hard gate; T2 gets its own baseline fit; a new T3b (in-place performance fixes: burst-gather SBLIT/CBLIT, DQM keying, 400-word fill) precedes any row-job rewrite; the controller is last and optional (one unit only); a burst-abort signal must precede any change of the refresh policy; the fence is a Gray counter. Its phase list replaces the table below.**
+>
 > | Phase | Content | Fit |
 > |---|---|---|
 > | T0 | Measure: per frame commands issued, CPU cycles issuing, FIFO-full stalls, fence wait, engine busy split SDRAM-busy/idle (counters on the shipped build); re-measure free resources | no |
