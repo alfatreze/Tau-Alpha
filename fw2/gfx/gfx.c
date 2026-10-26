@@ -15,7 +15,8 @@ uint32_t gfx_touch_rows(void) { return gt_visible(&gfx_touch) ? ((uint32_t)gfx_t
 uint32_t gfx_cmds;                                         /* engine commands issued since boot (every R_FB_GO write): the host's per-meter command budget reads the difference around a tick */
 #define FB_GO(v) do { gfx_cmds++; REG_WR(R_FB_GO, (v)); } while (0)
 static uint32_t color_shadow = 0xFFFFFFFFu;
-uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
+uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;
+uint32_t gfx_fence_n[7], gfx_fence_c[7];                              /* the same, by reason: 0 other (public gfx_fence), 1 frame end, 2 palette load, 3 bases, 4 compose before, 5 compose after, 6 blend off */   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
 static inline void wait_fifo(void)
 {
     gfx_polls++;                                                        /* one command-FIFO "full" read per call, whether it waits or not */
@@ -115,19 +116,20 @@ static int mb_wait(uint32_t t)
 }
 int gfx_mb_write(uint32_t a, uint32_t d) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_DATA, d); REG_WR(R_SDR_CTRL, 0x3Fu); return mb_wait(cycles()); }
 int gfx_mb_read(uint32_t a, uint32_t *o) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_CTRL, 0x3Du); if (mb_wait(cycles())) return -1; *o = REG_RD(R_SDR_RDATA_A); return 0; }
-void gfx_fence(void)
+static void fence_why(uint32_t why)
 {
     const uint32_t a = 1021u * GFX_STRIDE + GFX_CELL_X;
     uint32_t r = 0;
     if (gfx_mb_write(a, 0xDEADBEEFu)) return;
     rect_raw(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);        /* the engine runs in order: when this lands, everything before it has (a stash row: shared by both buffers) */
     const uint32_t t0 = cycles();
-    gfx_fences++;
+    gfx_fences++; gfx_fence_n[why]++;
     do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
-    gfx_fence_cyc += (uint32_t)(cycles() - t0);
+    gfx_fence_cyc += (uint32_t)(cycles() - t0); gfx_fence_c[why] += (uint32_t)(cycles() - t0);
     if (r == 0xDEADBEEFu) gfx_fence_tmo++;                               /* gave up after 50 ms: the marker never landed (KB-188) */
 }
-void gfx_clut_begin(uint32_t start) { wait_fifo(); gfx_fence(); REG_WR(R_CLUT_IDX_A, start); }
+void gfx_fence(void) { fence_why(0u); }
+void gfx_clut_begin(uint32_t start) { wait_fifo(); fence_why(2u); REG_WR(R_CLUT_IDX_A, start); }
 void gfx_clut_put(uint16_t v) { REG_WR(R_CLUT_DATA_A, v); }
 void gfx_clut_load(uint32_t start, const uint16_t *c, uint32_t n) { gfx_clut_begin(start); for (uint32_t i = 0; i < n; i++) gfx_clut_put(c[i]); }
 
@@ -142,7 +144,7 @@ static uint32_t buf_base(uint32_t b) { return b ? DBUF_BASE1_W : 0u; }
 static void set_bases(uint32_t src, uint32_t dst)
 {
     if (src == base_src && dst == base_dst) return;
-    gfx_fence();                                       /* the fields are read when a command EXECUTES: whatever is queued must run against the old pair first */
+    fence_why(3u);                                     /* the fields are read when a command EXECUTES: whatever is queued must run against the old pair first */
     wait_fifo();
     REG_WR(R_BLT_IDX, 0u); REG_WR(R_BLT_DATA, src);
     REG_WR(R_BLT_IDX, 2u); REG_WR(R_BLT_DATA, dst);
@@ -199,7 +201,7 @@ int gfx_frame_begin(void)
 void gfx_frame_end(int active)
 {
     if (!active) return;
-    gfx_fence();
+    fence_why(1u);
     if (hold_next) { hold_next = 0; held = 1; gfx_set_target(REG_RD(R_DBUF_DISP) & 1u); return; }      /* the picture stays in the idle buffer for a crossfade (gfx_xfade_step) */
     REG_WR(R_DBUF_DISP, 1u);
     const uint32_t t0 = cycles();
@@ -218,10 +220,10 @@ int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 }
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-    gfx_fence();                                                  /* everything drawn into the idle buffer has executed */
+    fence_why(4u);                                                /* everything drawn into the idle buffer has executed */
     const uint32_t back = cpu_buf, front = back ^ 1u;
     for (uint32_t cx = 0; cx < w; cx += 120u) { const uint32_t c = w - cx < 120u ? w - cx : 120u; blit_op(x + cx, y, x + cx, y, c, h, OP_BLIT, buf_base(back), buf_base(front)); }
-    gfx_fence();
+    fence_why(5u);
     gfx_set_target(front);
 }
 
@@ -230,7 +232,7 @@ void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 uint32_t gfx_blend_state;                     /* 0 not probed, 1 ready, 2 not in this bitstream (a wrong answer), 3 the mailbox did not answer (retried) */
 uint32_t gfx_blend_tries;
 void gfx_blend_on(uint32_t a) { wait_fifo(); REG_WR(R_BLT_IDX, 5u); REG_WR(R_BLT_DATA, ((a & 0xFFu) << 8) | 1u); }
-void gfx_blend_off(void) { gfx_fence(); REG_WR(R_BLT_IDX, 5u); REG_WR(R_BLT_DATA, 0u); }
+void gfx_blend_off(void) { fence_why(6u); REG_WR(R_BLT_IDX, 5u); REG_WR(R_BLT_DATA, 0u); }
 int gfx_blend_ready(void)
 {
     if (gfx_blend_state == 1u || gfx_blend_state == 2u) return gfx_blend_state == 1u;

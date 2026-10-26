@@ -9,7 +9,7 @@
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
-extern uint32_t gfx_bench[4];   /* fw2/diagnostics/check_page.c */
+extern uint32_t gfx_fence_n[7], gfx_fence_c[7]; extern uint32_t gfx_bench[4], blit_check_mask; uint32_t blit_check_bad_px(void);   /* fw2/diagnostics/check_page.c */
 extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
@@ -113,6 +113,22 @@ const cnt_t counters_table[] = {
     { "GFX B1 DRAIN", CK_U32, CU_NONE,   &gfx_bench[1] },           /* cycles per command still queued when the issue loop ended, drained by the fence */
     { "GFX B100 ISSUE", CK_U32, CU_NONE, &gfx_bench[2] },           /* the same with 100-pixel rectangles: higher means the engine, not the CPU, is the limit */
     { "GFX B100 DRAIN", CK_U32, CU_NONE, &gfx_bench[3] },
+    { "BLIT BAD",     CK_HEX32, CU_NONE, &blit_check_mask },        /* Check > BLIT OPS: the engine tests that failed, as bits: 0 RECT 1 BAR 2 COPY 3 PALETTE 4 SCALED 5 BLEND 6 CLUT ORDER 7 WIDE COPY (0 = all pass) */
+    /* fences by reason (count, CPU cycles): OTHER = callers of the public gfx_fence (meters, the checks, the font hook), FRAME = end of a double-buffered frame, CLUT = a palette load, BASES = a change of the blit base pair, COMP1/COMP2 = before/after an off-screen compose is copied on, BLEND = blend turned off */
+    { "FNC OTHER N", CK_U32, CU_NONE, &gfx_fence_n[0] },
+    { "FNC OTHER CYC", CK_U32, CU_NONE, &gfx_fence_c[0] },
+    { "FNC FRAME N", CK_U32, CU_NONE, &gfx_fence_n[1] },
+    { "FNC FRAME CYC", CK_U32, CU_NONE, &gfx_fence_c[1] },
+    { "FNC CLUT N", CK_U32, CU_NONE, &gfx_fence_n[2] },
+    { "FNC CLUT CYC", CK_U32, CU_NONE, &gfx_fence_c[2] },
+    { "FNC BASES N", CK_U32, CU_NONE, &gfx_fence_n[3] },
+    { "FNC BASES CYC", CK_U32, CU_NONE, &gfx_fence_c[3] },
+    { "FNC COMP1 N", CK_U32, CU_NONE, &gfx_fence_n[4] },
+    { "FNC COMP1 CYC", CK_U32, CU_NONE, &gfx_fence_c[4] },
+    { "FNC COMP2 N", CK_U32, CU_NONE, &gfx_fence_n[5] },
+    { "FNC COMP2 CYC", CK_U32, CU_NONE, &gfx_fence_c[5] },
+    { "FNC BLEND N", CK_U32, CU_NONE, &gfx_fence_n[6] },
+    { "FNC BLEND CYC", CK_U32, CU_NONE, &gfx_fence_c[6] },
     { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
     { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
