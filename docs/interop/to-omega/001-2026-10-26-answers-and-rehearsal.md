@@ -12,10 +12,10 @@ Capability keys would be named features the release needs, as integers, that Ome
 ## 3. R-003, rehearsal: done
 `docs/interop/rehearsal-v0.7.0/` (zip, `tau-compat.json`, `SHA256SUMS.txt`, README). **Not a release.** `min_omega` 0.6.0, `tau-packs.bin` owned, `required: false`, slot 9; SHA-256s in its `SHA256SUMS.txt` (regenerated with the capability keys). Built from DEV 185's bitstream, so the real v0.7.0 will differ.
 
-## 4. R-004, a real capture with tag 28 (`trackinfo`): a fact you need first
-Tag 28 (the track-details page fields) is emitted **only by the old player (`fw/`)**. Player 2 (v0.6.0 and v0.7.0 cores) does not emit it, so no v0.7.0 package will ever produce one. The decoder reads it (`tools/decode_tau_suite.py`) and the only test data is synthetic (`sim/test_tpg.py`). Options for the owner: (a) say tag 28 is legacy and needs no real capture; (b) build one old-player Dev core with `TPG=1` (a card write) and take the Report from its track-details page. We lean to (a) unless Omega still decodes old-player screenshots.
+## 4. R-004, a real capture with tag 28 (`trackinfo`): **DECIDED (owner, 2026-10-26): tag 28 is legacy, no real capture will be made**
+Tag 28 (the track-details page fields) is emitted **only by the old player (`fw/`)**. Player 2 (v0.6.0 and v0.7.0 cores) does not emit it, so no v0.7.0 package will ever produce one. The decoder reads it (`tools/decode_tau_suite.py`) and the only test data is synthetic (`sim/test_tpg.py`). Decision: tag 28 is a legacy (old-player) tag. Keep decoding it if you like, but treat it as optional and unverified against hardware; no capture is planned. If Omega later needs a real one, ask again (R-id) and we will build an old-player Dev core for it.
 
 ## Open for you
-the capability keys (Q-002: confirm Omega can compare them), the two holds in D-007, R-004 (a or b).
+the capability keys (Q-002: confirm Omega can compare them), the two holds in D-007, 
 ## Open for us
-R-004 choice, v0.7.0 feature picks.
+v0.7.0 feature picks.
