@@ -15587,3 +15587,6 @@ Omega's review listed eight items; each was checked against the repo. **Changed:
 
 ## B-839: three real Player 2 Report screenshots as fixtures (`docs/research/p2_reports/`)
 For Tau Omega's request (B-838 item 5): the Reports of TAU DEV 181, 182 and 184 from the card's `Memories/Screenshots` copied into `docs/research/p2_reports/` (3.1 MB with the decoded tables and a README that says what each build adds: the pack rows, the statistics rows, `PACK SRC`). Each decodes with `tools/decode_tau_suite.py --grid ... --table` (210, 216 and 217 rows). **Evidence:** the three decodes ran on the copies in the repo. Nothing was published or pushed.
+
+## B-840: `main` pushed to `origin` (2026-10-26)
+Owner: "push main". `git push origin main` (no force; `origin` is `https://github.com/alfatreze/Tau-Alpha.git`, the fork's own repository; `upstream` push stays DISABLED) advanced `origin/main` from `f3974b5f` to `9c6c30ea`: 67 commits (the meters, statistics, persistence, packs, plumbing and the Omega review answers, B-799..B-839). Tau Omega's CI can now see them. Nothing else was pushed: the branches `meters-p2` and `meter-inputs` stay local, and no tag or release was created.
