@@ -73,6 +73,7 @@ test-host:
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
 	$(PYTHON) sim/test_track_details.py
+	$(PYTHON) sim/test_sdram_map_fw2.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
