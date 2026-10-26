@@ -1,5 +1,7 @@
 # FLAC decoder for Player 2: audit of spec 8.2, revised spec, and reuse feasibility
 
+**Status note 2026-10-26:** the "open" items of section 11 are done in the tree: the LPC unit is wired (`fw2/decode/flac2_unit.c`, `lpc_hw.c`), the Info rows exist (`F2 *`, `LPC *`), the old decoder is retired (S9) and FLAC plays on hardware (B-780, B-785). What remains: an independent review of the transport glue and a hardware A/B of the LPC unit against software.
+
 Date 2026-10-16. Audit of `docs/features/PLAYER_V2_SPEC.md` section 8.2 (and the places that lean on it: 7.3, 9, 11 governor text, 15, 16 D3). Evidence labels: [HW] measured on a Pocket, [READ] read in source today, [HOST] host-proven, [EST] estimate, [EXT] external fact fetched today, [MEM] from memory, to verify. Nothing here is built or installed.
 
 ## 1. Verdict in five lines
