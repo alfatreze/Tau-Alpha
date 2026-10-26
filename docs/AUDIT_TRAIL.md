@@ -15689,3 +15689,7 @@ Photos `docs/research/p2_reports/p2_nowplaying_dev189_after_check_*`, `p2_check_
 
 ## B-873: session saved: handoff 2026-10-26 (Talos T0 and the Omega mailbox), status updated
 `docs/handoffs/SESSION_HANDOFF_2026-10-26_TALOS_T0_INTEROP.md`, `docs/CURRENT_STATUS.md` (a 2026-10-26 evening section). **Evidence:** documentation only (`tools/check_audit_trail.py`, `tools/check_claude_md.py`).
+
+## B-874: issue 020 marquee on Now Playing; owner decisions D-U01/D-U02 for the Info/Diagnostics split (host-proven; not on a Pocket)
+The title, artist and album scroll when wider than their box (rest 1.8 s, one character per 120 ms, hold 1.8 s, restart; `fw2/cores/marquee_core.h`, `put_scroll` in `fw2/ui/nowplaying.c`); `np_info_t` text buffers 64 characters (+88 bytes RAM); `sim/test_p2_marquee.py` (timing and a new string restarting; mutants no-initial-pause and never-restarts caught); `make test-host-fast` 154 lines, 0 failed. Owner decisions recorded in `docs/DECISIONS.md`: D-U01 About as large as needed for useful user information, D-U02 no Check in the normal build (Check, Diagnostics group and the raw Info table only in the Diagnostic Build). **Evidence:** host.
+

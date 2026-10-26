@@ -518,7 +518,7 @@ static void dip_poll(void) { if (dip_slow && (uint32_t)(cycles() - dip_t0) > CLK
 static void np_copy(char *d, const char *s, uint32_t cap) { uint32_t i = 0; for (; s[i] && i + 1u < cap; i++) d[i] = s[i]; d[i] = 0; }
 SMALL static void np_refresh(const tl_seg_t *g, uint32_t id)
 {
-    char t[48], a[40], b[40], q[32]; uint32_t cod = 0, ch = 0, kb = 0, hz = 0;
+    char t[64], a[64], b[64], q[32]; uint32_t cod = 0, ch = 0, kb = 0, hz = 0;
     library_meta(id, t, sizeof t, a, sizeof a, b, sizeof b);
     np_copy(np.title, t, sizeof np.title); np_copy(np.artist, a, sizeof np.artist); np_copy(np.album, b, sizeof np.album);
     uint32_t n = 0; q[0] = 0;

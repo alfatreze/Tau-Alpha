@@ -26,7 +26,7 @@ void mp3play_pump(void);
 void mp3play_heard(void);
 /* What the Now Playing view shows, refreshed by mp3play_heard() (text only when the heard track changes). */
 typedef struct {
-    char title[48], artist[40], album[40], quality[32], cover[120];
+    char title[64], artist[64], album[64], quality[32], cover[120];   /* 64: the index keeps up to 63 characters; the Now Playing text scrolls when it is wider than its box (issue 020) */
     uint32_t gen, id, pos, total, rate;          /* pos/total in source pairs of the HEARD track; total 0 = unknown; gen changes with the track */
     uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, varispeed, valid, gov, degrade, fault;       /* fault: the required MP3 window unit is missing or failed (stereo MP3 would be silent) */
 } np_info_t;
