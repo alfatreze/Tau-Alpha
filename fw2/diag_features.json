@@ -1,0 +1,9 @@
+{
+  "about": "The pieces of Player 2 that only the Diagnostic Build carries (fw2/build.sh DIAG=1, the default; DIAG=0 is the normal build). Rule 5 of docs/PROJECT_RULES.md for fw2 (the register of fw/diag_features.json covers the old player): new diagnostic-only code is listed here and checked by sim/test_p2_diag_split.py, never a bare #if.",
+  "flag": "P2_DIAG",
+  "sources_left_out_when_off": ["fw2/diagnostics/check_page.c", "fw2/diagnostics/blit_check.c", "fw2/diagnostics/info_page.c"],
+  "settings_rows_left_out_when_off": ["DIAGNOSTICS", "INFO"],
+  "counters": "fw2/diagnostics/info_counters.c: rows inside '#if P2_DIAG' are the Diagnostic Build's; every other row is the support set (the normal build's Report and the support fields of the About page)",
+  "symbols_absent_when_off": ["check_page_draw", "check_page_enter", "blit_check_run", "info_page_draw", "info_page_key"],
+  "symbols_present_when_off": ["about_page_draw", "report_page_draw", "counters_refresh"]
+}

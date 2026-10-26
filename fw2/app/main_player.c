@@ -4,9 +4,13 @@
 #include "../stream/cold.h"
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
+#if P2_DIAG
 #include "../diagnostics/info_page.h"
+#endif
 #include "../diagnostics/about_page.h"
+#if P2_DIAG
 #include "../diagnostics/check_page.h"
+#endif
 #include "../diagnostics/report_page.h"
 #include "../aout/aout.h"
 #include "../settings/settings.h"
@@ -51,8 +55,17 @@ static void hand_out_assets(void)
     if (assets_section("METR", &p, &n) && (!assets_in_psram() || assets_psram_ok())) meters_metr_load(p, n);       /* a file over 4 KiB sits in the PSRAM staging area: proven first, as for PRST */                              /* user presets replace the built-in ones of the meters the file carries */
     assets_boot.presets = cycles() - t0;
 }
+#if P2_DIAG
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
 static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint, report_page_set_payload, about_page_init, about_page_key, about_page_draw };
+#else
+/* The normal build: no Check and no raw Info page (they are not linked); the Report is the support Report (the support set of counters), About is the page for people. */
+static void nodiag_void(void) { }
+static int  nodiag_key(uint32_t e) { (void)e; return 1; }
+static uint32_t nodiag_dirty(void) { return 0; }
+static void nodiag_keys(uint32_t k) { (void)k; }
+static const views_diag_t diag_pages = { about_page_init, nodiag_keys, about_page_draw, report_page_draw, nodiag_void, nodiag_key, nodiag_void, nodiag_void, nodiag_dirty, nodiag_void, nodiag_void, report_page_set_payload, about_page_init, about_page_key, about_page_draw };
+#endif
 
 int main(void)
 {
@@ -113,7 +126,7 @@ int main(void)
         else if ((rel & KEY_SELECT) && !sel_used) {                                           /* Select: the library (back a level inside it) */
             if (cur == V_LIBRARY) views_input(KEY_B); else views_switch(np_like ? (nowplaying_fallback() ? V_HELP : V_LIBRARY) : V_NOWPLAYING);
         }
-        else if ((keys & KEY_SELECT) && (edge & KEY_B)) views_switch(np_like ? V_INFO : V_NOWPLAYING);
+        else if ((keys & KEY_SELECT) && (edge & KEY_B)) views_switch(np_like ? (P2_DIAG ? V_INFO : V_ABOUT) : V_NOWPLAYING);
         else if (np_like) {
             if ((keys & KEY_START) && (edge & KEY_X)) views_switch(V_CONFIGURE);                  /* Start+X: the Configure page of the current meter */
             else if (keys & KEY_SELECT) {                                                     /* Select + ... */
