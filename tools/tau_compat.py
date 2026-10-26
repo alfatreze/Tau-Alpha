@@ -341,7 +341,7 @@ def layout(pkg, root=ROOT, obsolete=()):
         else:
             raise CompatError(f"{pkg['zip']}: {path} has no layout role (not the core's folders, not a data-slot file, not Platforms/)")
         e = {"path": path, "role": role, "sha256": h, "slot": slot["id"] if slot else None,
-             "required": bool(slot and slot.get("required"))}
+             "required": slot is None or bool(slot.get("required"))}      # a file with no data slot (core.json, data.json, the bitstream...) is essential; only a data-slot file the core can run without (tau-cold.bin, tau-loading.bin, tau-packs.bin) is optional (R-011, B-876)
         out.append(e)
     shipped = {e["path"] for e in out}
     # Where each slot's file lives on the card: parameter bit 1 (core folder) and bits [25:24] (which of platform_ids). Dev builds read
