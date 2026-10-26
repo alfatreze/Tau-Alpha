@@ -123,7 +123,10 @@ module tau_talos #(
     parameter FONT_RAM_ENABLE = 0,
     parameter BUG_FONT_NO_HI = 0,        // 1: glyph bit 7 (cmd_glyph_hi[0]) ignored -> 0x80.. codes read the ASCII range
     parameter BUG_FONT_RANGE = 0,        // 1: the 0xA0.. range starts one glyph too high
-    parameter BUG_FONT_NO_WRITE = 0      // 1: the CPU write port is ignored
+    parameter BUG_FONT_NO_WRITE = 0,     // 1: the CPU write port is ignored
+    // Mutation-test hook only (sim/tb_tau_gfx_t3.v MUT=1): 1 bumps the fence counter when ANY command retires, not
+    // only FENCE. Never set outside that test.
+    parameter BUG_FENCE_ANY = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -258,7 +261,18 @@ module tau_talos #(
     input  wire        vblank_tgl,
     output reg         lb_we,
     output reg  [9:0]  lb_waddr,
-    output reg  [15:0] lb_wdata
+    output reg  [15:0] lb_wdata,
+    // Talos 2 T3: the completion of each scanout fill (for tau_scanout's underflow check) ...
+    output reg         fill_done_inc,        // clk_sdram pulse: one fill finished
+    output reg  [9:0]  fill_done_line = 10'd0,       // clk_sdram: the line of the last finished fill
+    output reg         fill_seen = 1'b0,            // clk_sdram, sticky: at least one fill has finished
+    // ... and the status the CPU reads (all clk_sys): idle = every pushed command has retired,
+    // fence = FENCE commands retired (monotonic), free = queue slots left, ovf = pushes dropped
+    // because the queue was full (saturating), see docs/features/TALOS_T3_SPEC.md
+    output wire        gfx_idle,
+    output wire [31:0] gfx_fence,
+    output reg  [8:0]  gfx_free,
+    output reg  [15:0] gfx_ovf
 );
 
     // ---- Geometry ----------------------------------------------------------
@@ -282,6 +296,7 @@ module tau_talos #(
     endfunction
 
 
+    localparam [3:0] OP_FENCE = 4'd9;   // Talos 2 T3: retires when every earlier command has; bumps the fence counter
     localparam [3:0] OP_RUN = 4'd0, OP_RECT = 4'd1, OP_CHAR = 4'd2, OP_COPY = 4'd3,
                      OP_BLIT = 4'd4, OP_BAR = 4'd5, OP_SBLIT = 4'd6, OP_CBLIT = 4'd7,
                      OP_RRECT = 4'd8;
@@ -440,11 +455,23 @@ module tau_talos #(
     wire [FAW:0] rd_ptr_bin = g2b(rd_ptr_g_s2);
     wire [FAW:0] fifo_fill  = wr_ptr - rd_ptr_bin;
     assign cmd_full = (fifo_fill >= {1'b0, {FAW{1'b1}}});
+    // T3 status (clk_sys). A push while full is dropped by the FIFO; count those so firmware that forgets
+    // its poll is visible. gfx_free registered, so a status read is a flop, not a Gray-to-binary decode.
+    always @(posedge clk_sys) begin
+        if (reset) begin gfx_ovf <= 16'd0; gfx_free <= 9'd255; end
+        else begin
+            if (cmd_push && cmd_full && gfx_ovf != 16'hFFFF) gfx_ovf <= gfx_ovf + 1'b1;
+            gfx_free <= (fifo_fill >= {1'b0, {FAW{1'b1}}}) ? 9'd0 : (9'd255 - fifo_fill);
+        end
+    end
 
+    reg [15:0] push_cnt = 0;
     always @(posedge clk_sys) begin
         if (reset) begin
+            push_cnt <= 0;
             wr_ptr <= 0; wr_ptr_g <= 0;
         end else if (cmd_push && !cmd_full) begin
+            push_cnt <= push_cnt + 1'b1;   // T3: accepted pushes (idle = retired count has caught up)
             // B11: cmd_op widened 3->4 bits, taking one of the FIFO word's own 5 padding bits
             // (now 4) -- every other field shifts down by exactly 1 bit, purely mechanical, no
             // width changes to any of them.
@@ -993,6 +1020,18 @@ module tau_talos #(
     // has fully retired, and any SDRAM work needs the controller idle.
     wire engine_busy = rect_active || char_rows_left_nz || char_row_ready || bl_drain;
     wire can_sdram   = p0_available && sdram_init_complete;
+    // T3: a command is RETIRED when the engine is back at A_IDLE with nothing chained or in flight. One
+    // command is in flight at a time (dispatch below requires chain_idle), so the retire pulse and the
+    // dispatch of the next command may fall in the same cycle.
+    wire chain_idle  = !engine_busy && !bar2_pending && !rrect_pending && !rrect_active;
+    reg  inflight = 1'b0, cur_is_fence = 1'b0, retire_inc = 1'b0, fence_inc = 1'b0;
+    wire retire_now  = (astate == A_IDLE) && inflight && chain_idle;
+    wire [15:0] retired_sys;
+    tau_cdc_gray_ctr #(.WIDTH(16)) u_retired (.clk_src(clk_sdram), .rst_src(reset), .inc(retire_inc),
+                                               .clk_dst(clk_sys), .rst_dst(reset), .count_dst(retired_sys));
+    assign gfx_idle = (push_cnt == retired_sys);
+    tau_cdc_gray_ctr #(.WIDTH(32)) u_fence (.clk_src(clk_sdram), .rst_src(reset), .inc(fence_inc),
+                                             .clk_dst(clk_sys), .rst_dst(reset), .count_dst(gfx_fence));
 
     always @(posedge clk_sdram) begin
         p0_wr_req        <= 1'b0;
@@ -1000,6 +1039,10 @@ module tau_talos #(
         p0_end_burst_req <= 1'b0;
         p0_wr_stream     <= 1'b0;
         lb_we            <= 1'b0;
+        fill_done_inc    <= 1'b0;
+        retire_inc       <= retire_now;
+        fence_inc        <= retire_now && (cur_is_fence || BUG_FENCE_ANY != 0);
+        if (retire_now) inflight <= 1'b0;
 
         fill_req_s <= {fill_req_s[1:0], fill_req_tgl};
         if (fill_req_edge) begin
@@ -1041,6 +1084,7 @@ module tau_talos #(
             sblit_mode   <= 1'b0;
             cblit_mode   <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
+            inflight <= 1'b0; cur_is_fence <= 1'b0;
         end else begin
             // T2-00: exactly one glyphbuf write port for the whole module (see the comment above
             // glyphbuf_a/glyphbuf_b's declaration). Default "no write"; every site below that used
@@ -1165,11 +1209,14 @@ module tau_talos #(
                         rowf_cnt <= 2'd0;
                         astate   <= A_ROWFETCH;
 
-                    end else if (!fifo_empty && !engine_busy && can_sdram) begin
+                    end else if (!fifo_empty && chain_idle && can_sdram) begin
                         rd_ptr   <= rd_ptr + 1'b1;
                         rd_ptr_g <= b2g(rd_ptr + 1'b1);
                         char_fg  <= q_fg;
+                        inflight     <= 1'b1;
+                        cur_is_fence <= (q_op == OP_FENCE);
                         case (q_op)
+                            OP_FENCE: begin end   // T3: nothing to draw; retires like any command, bumping the fence counter
                             OP_CHAR: begin
                                 char_addr <= q_addr;
                                 char_bg   <= q_bg;
@@ -1376,6 +1423,7 @@ module tau_talos #(
                 end
                 A_FILL_END: begin
                     fill_pending <= 1'b0;
+                    if (fill_pending) begin fill_done_inc <= 1'b1; fill_done_line <= fill_line; fill_seen <= 1'b1; end
                     if (p0_available) astate <= A_IDLE;
                 end
 

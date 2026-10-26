@@ -192,6 +192,12 @@ module tau_soc #(
     output reg  [12:0]  fb_font_waddr,
     output reg  [31:0]  fb_font_wdata,
     input  wire         fb_cmd_full,
+    // Talos 2 T3 status from tau_gfx (clk_sys): R_GFX_FENCE/R_GFX_STATUS/R_GFX_COUNTS and R_FB_GO bit 1 (docs/features/TALOS_T3_SPEC.md)
+    input  wire         fb_gfx_idle,
+    input  wire [31:0]  fb_gfx_fence,
+    input  wire [8:0]   fb_gfx_free,
+    input  wire [15:0]  fb_gfx_ovf,
+    input  wire [15:0]  fb_gfx_underflow,
 
     // core_bridge_cmd's datatable: a dual-port BRAM whose OTHER port APF can
     // read and write over the bridge at 0xF8xx2xxx. That is what makes the
@@ -1139,6 +1145,7 @@ module tau_soc #(
 
     // ---- audio statistics for the meters (tau_audio_stats.sv): sums of L*L, R*R, L*R over the window since the last latch --------------------------
     // 0x1AC STATS_CTL W: bit 0 latch + new window, bit 1 clear. 0x1B0 STATS_IDX W: read-out word 0..7. 0x1B4 STATS_DATA R (word 0 = status, 'ST' signature in 31:16, 0 when not built).
+    localparam [8:0] R_GFX_FENCE = 9'h1B8, R_GFX_STATUS = 9'h1BC, R_GFX_COUNTS = 9'h1C0;   // Talos 2 T3 (read only)
     localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
     reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
     reg  [1:0]  stats_ctl_d  = 2'd0;
@@ -1529,7 +1536,10 @@ module tau_soc #(
             /* BRAM read is registered: firmware writes R_DT_ADDR, then reads
              * R_DT_DATA as a separate MMIO transaction, so q_a has settled. */
             R_DT_DATA: mmio_rdata = dt_q;
-            R_FB_GO:   mmio_rdata = {31'd0, fb_cmd_full};
+            R_FB_GO:   mmio_rdata = {30'd0, fb_gfx_idle, fb_cmd_full};   // bit 1 (T3): every accepted command has retired (reads 0 on a bitstream without T3)
+            R_GFX_FENCE:   mmio_rdata = fb_gfx_fence;
+            R_GFX_STATUS:  mmio_rdata = {1'b1, 14'd0, fb_gfx_idle, 7'd0, fb_gfx_free};   // [31] present, [16] idle, [8:0] free queue slots
+            R_GFX_COUNTS:  mmio_rdata = {fb_gfx_underflow, fb_gfx_ovf};                  // [31:16] scanout lines whose fill was late, [15:0] pushes dropped while full
             R_FB_STALL: mmio_rdata = fb_stall_ctr;
             R_SET_DAT: mmio_rdata = set_rdata;
             R_SDR_RDATA: mmio_rdata = sdram_rdata;

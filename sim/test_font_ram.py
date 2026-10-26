@@ -32,7 +32,7 @@ def reference():
 def run(mut=None):
     BUILD.mkdir(parents=True, exist_ok=True)
     vvp = BUILD / ("tb_font_ram_mut.vvp" if mut else "tb_font_ram.vvp"); dump = BUILD / ("font_ram_mut.txt" if mut else "font_ram.txt")
-    cmd = ["iverilog", "-g2012"] + ([f"-Ptb_font_ram.{mut}=1"] if mut else []) + ["-o", str(vvp), str(ROOT / "sim/tb_font_ram.v"), *[str(ROOT / f"src/fpga/core/tau_{n}.sv") for n in ("gfx", "talos", "scanout")], str(ROOT / "src/fpga/core/font_rom.v"), str(RAM_V)]
+    cmd = ["iverilog", "-g2012"] + ([f"-Ptb_font_ram.{mut}=1"] if mut else []) + ["-o", str(vvp), str(ROOT / "sim/tb_font_ram.v"), *[str(ROOT / f"src/fpga/core/tau_{n}.sv") for n in ("gfx", "talos", "scanout", "cdc_gray_ctr", "cdc_gray_bus")], str(ROOT / "src/fpga/core/font_rom.v"), str(RAM_V)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode: raise RuntimeError(r.stdout + r.stderr)
     r = subprocess.run(["vvp", str(vvp), f"+DUMP={dump}"], capture_output=True, text=True)

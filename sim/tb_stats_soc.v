@@ -23,7 +23,7 @@ module tb_stats_soc;
         .dataslot_update(1'b0), .dataslot_update_id(16'd0), .dataslot_update_size(32'd0),
         .dataslot_allcomplete(1'b0),
         .tgt_busy(1'b0), .tgt_done(1'b0), .tgt_seq(8'd0), .tgt_err(3'd0),
-        .fb_cmd_full(1'b0), .dt_q(32'd0),
+        .fb_cmd_full(1'b0), .fb_gfx_idle(1'b0), .fb_gfx_fence(32'd0), .fb_gfx_free(9'd0), .fb_gfx_ovf(16'd0), .fb_gfx_underflow(16'd0), .dt_q(32'd0),
         .set_idx(set_idx), .set_wr(set_wr), .set_wdata(set_wdata), .set_rdata(32'd0),
         .sdram_busy(1'b0), .sdram_done(1'b0), .sdram_rdata(32'd0),
         .sdram_wb_accept(1'b0), .sdram_wb_done(1'b0), .sdram_wb_rdata(32'd0),

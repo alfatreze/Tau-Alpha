@@ -141,6 +141,7 @@ wire [6:0]  soc_fb_cmd_glyph;
 wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
 wire [1:0]  soc_fb_cmd_glyph_hi;   // B12 (B-454): BAR's lit-row count, high 2 bits
 wire        soc_fb_cmd_full;
+wire        soc_gfx_idle;   wire [31:0] soc_gfx_fence;   wire [8:0] soc_gfx_free;   wire [15:0] soc_gfx_ovf, soc_gfx_underflow;   // Talos 2 T3 status, tau_gfx -> tau_soc
 wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
 // Phase F B1 (section 9): sticky blit addressing state, tau_soc -> tau_gfx.
 wire [24:0] soc_blt_src_base, soc_blt_dst_base;
@@ -483,6 +484,7 @@ tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .fb_font_waddr(soc_font_waddr),
     .fb_font_wdata(soc_font_wdata),
     .fb_cmd_full  (soc_fb_cmd_full),
+    .fb_gfx_idle(soc_gfx_idle), .fb_gfx_fence(soc_gfx_fence), .fb_gfx_free(soc_gfx_free), .fb_gfx_ovf(soc_gfx_ovf), .fb_gfx_underflow(soc_gfx_underflow),
 
     .dt_addr  (soc_dt_addr),
     .dt_wren  (soc_dt_wren),
@@ -966,7 +968,8 @@ tau_gfx #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .F
     .p0_wr_req(fb_p0_wr_req), .p0_rd_req(fb_p0_rd_req), .p0_end_burst_req(fb_p0_end_burst_req),
     .p0_available(fb_p0_available), .p0_ready(fb_p0_ready), .p0_data_available(fb_p0_data_available),
 
-    .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w), .scan_vc(vid_vc_w)
+    .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w), .scan_vc(vid_vc_w),
+    .gfx_idle(soc_gfx_idle), .gfx_fence(soc_gfx_fence), .gfx_free(soc_gfx_free), .gfx_ovf(soc_gfx_ovf), .gfx_underflow(soc_gfx_underflow)
 );
 
 `ifdef TAU_PHASE2_PROBE

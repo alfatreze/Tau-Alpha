@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "tools" / "host"))
 from blit_reference import Renderer, load_font_words  # noqa: E402
 
 TB = ROOT / "sim" / "tb_blit_scene.v"
-MP3_FB = [ROOT / "src" / "fpga" / "core" / f"tau_{n}.sv" for n in ("gfx", "talos", "scanout")]
+MP3_FB = [ROOT / "src" / "fpga" / "core" / f"tau_{n}.sv" for n in ("gfx", "talos", "scanout", "cdc_gray_ctr", "cdc_gray_bus")]
 FONT_ROM = ROOT / "src" / "fpga" / "core" / "font_rom.v"
 FONT_RAM = ROOT / "src" / "fpga" / "core" / "font_ram.v"      # tau_talos.sv instantiates it in an unused generate branch
 BUILD = ROOT / "build" / "rtl"
