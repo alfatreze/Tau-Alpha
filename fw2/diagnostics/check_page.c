@@ -20,9 +20,9 @@
 #define TOP_Y 40u
 
 /* The tests. Steady ones (AUDIO, the six rates) fail on any FIFO stall; TRACKS fails when a skip does not land or the reader falls behind data it holds. Rates are MP3 only (skipped on FLAC). */
-enum { T_FONT = 0, T_ICONS, T_AUDIO, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_N };
-static const char *const names[T_N] = { "FONT MEMORY", "ICONS", "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X" };
-static const uint8_t mode_of[T_N] = { 0, 0, 0, 0, 2, 2, 2, 1, 1, 1 }, sel_of[T_N] = { 0, 0, 0, 0, 0, 2, 4, 2, 5, 7 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
+enum { T_FONT = 0, T_ICONS, T_AUDIO, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_GFX, T_N };   /* T_GFX last: the bits of the others in CHECK MASK keep their places */
+static const char *const names[T_N] = { "FONT MEMORY", "ICONS", "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X", "GFX ISSUE" };
+static const uint8_t mode_of[T_N] = { 0, 0, 0, 0, 2, 2, 2, 1, 1, 1, 0 }, sel_of[T_N] = { 0, 0, 0, 0, 0, 2, 4, 2, 5, 7, 0 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
 uint32_t check_mask, check_under;
 static uint8_t res[T_N]; static uint32_t val[T_N];
 static uint8_t state, cur, step, dirty = 1;               /* state 0 ready, 1 running, 2 done, 3 refused */
@@ -83,8 +83,26 @@ static uint32_t icon_check(void)
     }
     return bad;
 }
+/* The GFX ISSUE test (T0 of the Talos plan, needs no audio): how the CPU spends its time feeding the draw engine. Issues N one-row rectangles into the stash (a free stretch of the font test's rows, never
+ * visible) and times (a) the issue loop, which includes every wait for a free FIFO slot, and (b) the fence that drains what is left. Two widths: 1 pixel (the engine does almost nothing, so the issue time is the CPU's
+ * cost per command: MMIO writes and the FIFO-full poll) and 100 pixels (a 100-word burst per command: if the cycles per command rise the engine, not the CPU, is the limit). Cycles per command go to Info
+ * (GFX B1 ISSUE / DRAIN, GFX B100 ISSUE / DRAIN); the row itself always passes: it measures. */
+uint32_t gfx_bench[4];
+static void gfx_issue_bench(void)
+{
+    static const uint8_t wd[2] = { 1u, 100u };
+    for (uint32_t k = 0; k < 2u; k++) {
+        gfx_fence();
+        const uint32_t N = 1000u, t = cycles();
+        for (uint32_t i = 0; i < N; i++) gfx_rect_stash(120u, 548u, wd[k], 1u, 0x0001u);
+        const uint32_t t1 = cycles();
+        gfx_fence();
+        gfx_bench[2u * k] = (uint32_t)(t1 - t) / N; gfx_bench[2u * k + 1u] = (uint32_t)(cycles() - t1) / N;
+    }
+}
 static void begin_test(uint32_t i)
 {
+    if (i == T_GFX) { gfx_issue_bench(); res[i] = 1u; val[i] = 0; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     if (i == T_ICONS) { val[i] = icon_check(); res[i] = val[i] ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     if (i == T_FONT) { val[i] = font_check(); res[i] = val[i] ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     cur = (uint8_t)i; step = 0; t0 = cycles(); u0 = stalls(); gen0 = mp.gen; dirty = 1;
@@ -112,7 +130,7 @@ int check_page_key(uint32_t edge)
 void check_page_tick(void)
 {
     if (state != 1u) return;
-    if (cur == T_FONT || cur == T_ICONS) { next_test(); return; }                          /* the font memory test ran in begin_test and needs no audio */
+    if (cur == T_FONT || cur == T_ICONS || cur == T_GFX) { next_test(); return; }                          /* the font memory test ran in begin_test and needs no audio */
     if (!mp.playing || mp.held) { res[cur] = 2; val[cur] = 0xFFFFu; next_test(); return; }      /* playback stopped or paused: the test did not run to its end */
     if (cur >= T_ST110 && res[cur] == 3u) { next_test(); return; }
     switch (cur) {
@@ -146,7 +164,7 @@ void check_page_draw(void)
         gfx_text(GFX_W - 10 - gfx_text_width(v), y + 4, v, res[i] == 2u ? ACC : FG, BG);
     }
     gfx_rect(0, GFX_H - 44, GFX_W, 44, BG);
-    gfx_text(10, GFX_H - 40, "FONT, ICONS, FIFO STALLS PER TEST", DIM, BG);
+    gfx_text(10, GFX_H - 40, "FONT, ICONS, FIFO STALLS, GFX ISSUE", DIM, BG);
     gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  B BACK", DIM, BG);
     dirty = 0;
 }
