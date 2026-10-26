@@ -140,3 +140,5 @@ uint32_t library_cover_path(uint32_t id, char *out, uint32_t cap)
     for (uint32_t i = 0; i < sizeof tail; i++) out[last + i] = tail[i];
     return last + (uint32_t)sizeof tail - 1u;
 }
+uint32_t library_albums(void) { return lib_state == 1u ? lib.n_albums : 0u; }
+uint32_t library_artists(void) { return lib_state == 1u ? lib.n_artists : 0u; }
