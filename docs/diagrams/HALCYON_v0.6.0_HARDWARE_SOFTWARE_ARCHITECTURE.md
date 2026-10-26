@@ -8,8 +8,8 @@ Scope: RTL kernels, the MMIO window and the firmware that drives them. Not the U
 flowchart TB
   subgraph FW["Firmware (fw/)"]
     direction LR
-    A["Subband()<br/>MP3"] --> WP["mp3_poly_hw.h<br/>POLY_READY()"]
-    B["subframe() /<br/>subframe_stream()<br/>FLAC"] --> WL["flac_lpc_hw.h/.inc<br/>LPC_READY()"]
+    A["Subband()<br/>MP3"] --> WP["mp3_poly_hw.h<br/>POLY_READY probe"]
+    B["subframe() /<br/>subframe_stream()<br/>FLAC"] --> WL["flac_lpc_hw.h/.inc<br/>LPC_READY probe"]
     C["helios_flush()<br/>helios_rows_safe()<br/>helios_meter()"] --> WH["Helios MMIO wrappers"]
     D["blit_probe.inc<br/>RRECT/BLIT/BLEND/DBUF_READY()"] --> WT["Talos command writes"]
   end
