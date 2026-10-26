@@ -8,6 +8,8 @@
 #include "check_page.h"
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
+#include "../gfx/gfx.h"
+extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
@@ -99,6 +101,13 @@ const cnt_t counters_table[] = {
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
+    { "GFX CMDS",     CK_U32, CU_NONE,   &gfx_cmds },               /* draw-engine commands issued since boot */
+    { "GFX POLLS",    CK_U32, CU_NONE,   &gfx_polls },              /* command-FIFO "full" reads (one per command, plus the waits) */
+    { "GFX STALLS",   CK_U32, CU_NONE,   &gfx_stalls },             /* of those, the times the FIFO was full and the CPU had to wait */
+    { "GFX STALL CYC", CK_U32, CU_NONE,  &gfx_stall_cyc },          /* CPU cycles spent waiting for a free FIFO slot */
+    { "GFX FENCES",   CK_U32, CU_NONE,   &gfx_fences },
+    { "GFX FENCE CYC", CK_U32, CU_NONE,  &gfx_fence_cyc },          /* CPU cycles spent in fences (the marker round trip, 256-cycle polls) */
+    { "GFX FENCE TMO", CK_U32, CU_NONE,  &gfx_fence_tmo },          /* fences that gave up after 50 ms */
     { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
     { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
