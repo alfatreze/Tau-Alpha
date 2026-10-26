@@ -1,6 +1,6 @@
 {
-  "min_omega": "0.3.0",
-  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read.",
+  "min_omega": "0.6.0",
+  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read. 0.6.0 named by Tau Omega 2026-10-26 (persist layout decoding, tau-packs.bin left alone, min_omega/capability check before an install); Omega 0.6.0 is NOT released yet (Omega is at 0.5.2): if v0.7.0 would publish first, set this back to 0.3.0 for that release.",
   "obsolete": [
     {
       "core_id": "alfatreze.TAU",
