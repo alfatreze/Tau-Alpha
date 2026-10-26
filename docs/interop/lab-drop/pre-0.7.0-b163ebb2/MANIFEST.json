@@ -1,0 +1,166 @@
+{
+ "format": 1,
+ "tau_alpha_commit": "b163ebb2d2e7710e6151b0aba90f2c29e3682737",
+ "source_dir": "tools/meters/preview",
+ "files": [
+  {
+   "path": "preview/build.py",
+   "sha256": "05048fe2ff6dff9773eed7e809a36d89608518946effea4f44fbc5b5e6093350",
+   "bytes": 4427
+  },
+  {
+   "path": "preview/fixtures/core_vectors.json",
+   "sha256": "92b53813e40ed41d15bffff11c3bc44088786cee652038830fd13244e84c359b",
+   "bytes": 58563
+  },
+  {
+   "path": "preview/fixtures/theme_vectors.json",
+   "sha256": "2cc22e46cb509c663203e04f319e5807346e58dc25943c14e26205390970929f",
+   "bytes": 4955
+  },
+  {
+   "path": "preview/golden.js",
+   "sha256": "28f93fb6efbda207ae4971f9d6b3543f45898fe3e7650cc425f2b3672ba54611",
+   "bytes": 2500
+  },
+  {
+   "path": "preview/golden_lw.js",
+   "sha256": "c3212b045e982b21281bc36cceda369dcae87fbda73098484ff3b70a436ecd35",
+   "bytes": 7329
+  },
+  {
+   "path": "preview/index.html",
+   "sha256": "75ff88fbfabc665225f3eb074ea0f86aae5ecbca12d6996c7ef504741f73ac72",
+   "bytes": 19608
+  },
+  {
+   "path": "preview/lw_tables.js",
+   "sha256": "56301a478f3e9aa78059ab787c0f21c0644e2055387100fa2112d7711e97333e",
+   "bytes": 13338
+  },
+  {
+   "path": "preview/meters/layered_wave.js",
+   "sha256": "7b9a0376c7f7aa83bf677d59c05f9a0ca6987adf2bcd15f7dfa3b6c370f03053",
+   "bytes": 25913
+  },
+  {
+   "path": "preview/meters/sound_map.js",
+   "sha256": "69f0fb32dcd3984c47f245951bc0c73d276341a6a000ad3cdbf2c73dd0fedfa0",
+   "bytes": 5614
+  },
+  {
+   "path": "preview/meters/sound_map_wasm.js",
+   "sha256": "b65a042b2cb5aac77396b562e8de932be15db7103f73ec0437b06d701cd7aaca",
+   "bytes": 12172
+  },
+  {
+   "path": "preview/meters/vu_master.js",
+   "sha256": "39206358270465566455850b57ade8de347119490a1433d8bade0a2bd1decece",
+   "bytes": 9407
+  },
+  {
+   "path": "preview/meters/winamp_bars.js",
+   "sha256": "76ea86a21e11873680b4eca8aa1e0dc6527fcee77249e820b33c4925d0d96dbc",
+   "bytes": 1974
+  },
+  {
+   "path": "preview/meters/winamp_scope.js",
+   "sha256": "3ed3514f4d280f2d0e60a2b857b9b3d37a30d7e6d8048177969cb64d516c15ba",
+   "bytes": 3552
+  },
+  {
+   "path": "preview/render.js",
+   "sha256": "0d0e3607ae307e64a26443ac3a2e98c7558708fcf1e8bd636009afe8122d229c",
+   "bytes": 2620
+  },
+  {
+   "path": "preview/tau_audio.js",
+   "sha256": "2d81d8e9c1ecf3923fbc38a2c1c2209c7f81103710ac0d9139a8dbdd913a9f9c",
+   "bytes": 2438
+  },
+  {
+   "path": "preview/tau_ballistics.js",
+   "sha256": "3df18cd5e39439d0f63a8d7b91d909aba804b372b518fdfb2a71fc11886b9894",
+   "bytes": 675
+  },
+  {
+   "path": "preview/tau_controls.js",
+   "sha256": "c2023a96dbebe8bfe14dc50f0b7d218051885ec6f73ca94677bc6ee6f147ae49",
+   "bytes": 7753
+  },
+  {
+   "path": "preview/tau_core.js",
+   "sha256": "f1b0ad9e1764c8513c2d986002a8c8ccd9f362748f51b5e59be61d51d3d8c528",
+   "bytes": 2437
+  },
+  {
+   "path": "preview/tau_cost.js",
+   "sha256": "42c733348637af1c0db2eb8f48fa584d65ab918ddcfac0553a425854702413f1",
+   "bytes": 1571
+  },
+  {
+   "path": "preview/tau_fb.js",
+   "sha256": "b9ad7eb5440ffc21391c48145c0f37d13c4549a7bc58351d556616eba7b46950",
+   "bytes": 4863
+  },
+  {
+   "path": "preview/tau_live.js",
+   "sha256": "b5b6865873cf242048174912736881ef143638e87f13f445a0e3e29fa13177d7",
+   "bytes": 3291
+  },
+  {
+   "path": "preview/tau_run.js",
+   "sha256": "5d3d86c4bc71c95abb136a2fb2f9d1b1e0f6c91cb4dd6f31d6a57353aabdcc35",
+   "bytes": 2230
+  },
+  {
+   "path": "preview/tau_tags.js",
+   "sha256": "397863823e1e6d0c42d47f450f46fd617847864085db445b1f776ea4d646e8e9",
+   "bytes": 10840
+  },
+  {
+   "path": "preview/tau_theme.js",
+   "sha256": "50181617b2b405502da9c72fe40778b80c2b52f9cdc3fb9aad1f39dc7230ff16",
+   "bytes": 3325
+  },
+  {
+   "path": "preview/test.js",
+   "sha256": "660820c90b071818c652848a9ad01909079efaaf0212916ca77b10ac529af6d8",
+   "bytes": 9140
+  },
+  {
+   "path": "preview/wasm/build_wasm.py",
+   "sha256": "a7cb414db445427cd4d253ad6ce1bfee9f497563aa07585165ac1a2e428f10ee",
+   "bytes": 3957
+  },
+  {
+   "path": "preview/wasm/parity.js",
+   "sha256": "fd5d25e22ec5dd96f41799ee827010e1014645200fa780ed4c586a5ea997fd29",
+   "bytes": 1775
+  },
+  {
+   "path": "preview/wasm/sound_map_wasm.c",
+   "sha256": "19997f66a2279f19c117bb0a06d1f36f3bb56467f9518e99799d3ad0579f4319",
+   "bytes": 4449
+  }
+ ],
+ "wasm": {
+  "module": "preview/meters/sound_map_wasm.js",
+  "wasm_sha256": "91dfbb6918c0a2d932bbe1b3fa8c42ac23dabffae26a045e472d3ddf4a22a74a",
+  "wasm_bytes": 7878,
+  "built_from": {
+   "tools/meters/preview/wasm/sound_map_wasm.c": "19997f66a2279f19c117bb0a06d1f36f3bb56467f9518e99799d3ad0579f4319",
+   "fw2/ui/meter_sound_map.c": "15452530925b54e38224fcd8f49843889e273fd0053087c4ab6dfe4d9274a105",
+   "fw2/ui/meter_grid.h": "7ace1452e7c2ed5deaeb02b58bbd2a4d8844738bfe511002d8e04e0adb94cabd",
+   "fw2/ui/meter.h": "012490b6ceaf76e484172fbb921c9b98e9ada78797b23c93b10d180d7eb77e93",
+   "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+   "fw2/generated/meter_presets.h": "eba443a43bc24ae429d9c56a4f30859fd92d983de19ea4fd2b84015325df1f44",
+   "fw2/cores/audio_stats_core.h": "d7347d3ff9ce0f6f9e1e8c61cc4b13c1b1e6ef6a1c4dd17b9bc22932490576fa",
+   "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
+   "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
+   "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7"
+  }
+ },
+ "note": "Generated by tools/make_lab_drop.py. Pinned copy for Tau Omega (D-007). Never edit; ask Tau-Alpha for a new drop."
+}
