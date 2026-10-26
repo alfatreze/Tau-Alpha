@@ -15599,3 +15599,83 @@ Owner: the next release will be 0.7 (not 0.6.2) and will include more features a
 
 ## B-843: SOUND MAP's preview twin for the Meter Lab: the pack's own source compiled to WebAssembly (host-proven; lab checked in a browser; not yet in Tau Omega)
 Omega asked for a SOUND MAP preview twin (WebAssembly welcome); the owner had the toolchain installed (Homebrew `llvm` + `lld`, clang `--target=wasm32` and `wasm-ld`). **Built:** `tools/meters/preview/wasm/sound_map_wasm.c` (includes `fw2/ui/meter_sound_map.c` under P2_PACK; the pack's draw calls are imports; the framework's per-picture statistics, centroid, flux, onset and crest, use the same `fw2/cores/audio_stats_core.h`), `tools/meters/preview/wasm/build_wasm.py` (deterministic build, `--strip-all`; writes `tools/meters/preview/meters/sound_map_wasm.js`, 7.9 KB of wasm as base64 with the SHA-256 of every source; `--check` = freshness, and a byte-for-byte rebuild when the toolchain is present), the lab module `tools/meters/preview/meters/sound_map.js` (async `ready()`, optional `ctx.stats`, `ctx.raw` for the parity test), `Fb.text` in `tau_fb.js` (lab-only: one recorded command, a block per glyph), the lab page (a "stats block" switch and a correlation slider; the compile is started at load). **Evidence:** host. `sim/test_sound_map_twin.py`: the twin and the native pack (`sim/p2_sound_map_cmdlog_harness.c`) draw the SAME over a seeded script of 3,120 pictures and 170,916 commands (every rect, bar and text with every argument; modes STEREO FIELD, CHARACTER, LONG MEMORY; a small and the fullscreen box; statistics on and off; paused; forced repaints; the memory scrolling), a mutant of the lab module (parameters in the wrong order) is caught, the committed module is current, the lab's live path draws all three modes; `build.py --check` and `node tools/meters/preview/test.js` pass (the lab is 155 KB); the lab page loaded in the browser pane: all five meters register, the WebAssembly module compiles and instantiates, SOUND MAP draws the stereo field with its gauge. **Found on the way:** in the page the scripts are concatenated in file order, so `sound_map.js` ran before its data file and the error aborted every module after it (invisible in Node); the data is looked up lazily now. **Not done:** Omega's side (it takes `tools/meters/preview/` as a vendor drop); the Waterfall and the other meters have no wasm twin yet (the recipe is the same); CHARACTER's labels are blocks in the lab.
+- 2026-09-29 (Claude): RTL/sim/docs (B-844), branch `test/720` (from `main` `4fd4b8d`), no fit, no card.
+Owner asked for a dedicated branch to test 720, with dependencies, risks and useful hardware features, using
+the `analogue-pocket-dev` skill. Skill facts used (docs-verified): Pocket video is 16x16..**800x720**, 47-~61 Hz,
+pixel clock 1-~50 MHz; the scaler slot can be switched at runtime with end-of-line bits; bus rules and the
+scaler-wedge report (KB-014); PLL reconfiguration unreliable (KB-015). Found that 600 MHz / 16 = **37.5 MHz** is a
+clean divider of the existing shared VCO, so 850x735 @ 60.02 Hz needs no change to clk_sys/clk_sdram.
+Built **T1**: `mp3_fb.sv` parameter `VID720` (default 0, shipped timing unchanged) outputs 800x720 while the
+400x360 framebuffer is fetched once per row and shown on two lines, each pixel twice; `scan_vc = vc>>1` keeps
+the 360-mode numbering `fw/helios.inc` relies on; PLL outclk_1/2 37.5 MHz and `TAU_VID720` macro;
+`tools/vid720/video.json` (800x720) and `tools/vid720/t1_qsf_append.txt` (all6-combined + `TAU_VID720`, so the
+fit pairs with alpha.15's ROM unchanged). No firmware change, no new M10K. New `sim/tb_mp3_fb_vid720.v` /
+`make test-rtl-fb-vid720` (in `make test-rtl`): every output pixel checked against its framebuffer word,
+frame period, active lines/pixels, fills per frame, `scan_vc`, and the APF bus rules, for VID720=0 and 1:
+VID720=0 200,000 clocks/frame, 360 lines, 360 fills, scan_vc 4..399 -- PASS; VID720=1 624,750 clocks/frame,
+720 lines x 800, **360 fills** (SDRAM load unchanged), scan_vc 4..367 -- PASS. Mutants: checker
+BUG_NO_DOUBLE killed (1,150,560 pixel failures); RTL "fetch every line" killed only by the fill count (720/frame,
+pixels still correct -- the reason that check exists); RTL "no column doubling" killed (pixel failures).
+Wrote `docs/features/VIDEO_720_TEST_PLAN.md`: T1..T4 ladder, bandwidth table (native 720 ~35% of SDRAM cycles
+with active-only fill vs ~11-12% today **[EST]**), the memory-map collision (a 720-line framebuffer at stride
+1024 overlaps the CPU window at byte 1 MiB, every stash row and the column-400..511 probe cells), field widths
+(20-bit address, 10-bit w/h, 11-bit stride; `cmd_mem` stays 3 M10K; line buffer +2 M10K, so native 720
+depends on the RAM shrink), firmware scope, and a hardware-feature table (runtime scaler-slot switch, active-only
+fill, framebuffer origin register, fill-late counter, 8 bpp scanout CLUT, doubled base + hi-res overlay plane).
+Not done: Quartus fit (needs the VM), any hardware run.
+
+- 2026-09-29 (Claude): docs (B-845), branch `test/720`. Owner asked what base 720 plus every tagged
+hardware feature costs in M10K, ALMs, DSP and other resources. Added `docs/features/VIDEO_720_TEST_PLAN.md`
+section 7. Baselines from recorded fits: 256 KB stack 304/308 M10K, DSP 17/66; 192 KB stack ~240/308,
+DSP 17 (+1 with TAU_LPC); ALMs last measured 7,725 (B-246), current stack not logged (estimated 8-9.5k of
+18,480). M10K from native shapes (firm): T1/T2/active fill/origin/fill-late/H2/atlas 0; native 16 bpp line
+buffer +2; 8 bpp scanout CLUT +1 (line buffer stays 2); 2 bpp overlay line buffer +1 (corrected from +2 in
+section 6); `cmd_mem` widening 0 (91 bits still 3 blocks); on-chip 2x font ~40-60 (rejected). DSP 0 for every
+item. ALMs estimated only (~+350-650 native route, ~+650-1,200 overlay route, ~+1,100-2,100 everything); a
+synthesis-only quartus_map would measure them. Conclusion: capacity fits on the 192 KB stack; the 256 KB
+stack is full if everything is added, so native 720 in practice needs the RAM shrink; timing (hold +0.037 ns
+on all6-combined, clk_sdram dispatch paths) and SDRAM bandwidth are the real limits. No code change.
+
+- 2026-09-29 (Claude): docs (B-846), branch `test/720`. Owner asked for a full review of the 720 plan, more
+techniques, and a staggered spec: Phase 1 cross-resolution (both 400x360 and 800x720, including 720-enabling items
+with little effect alone and a 360/720 switch behind a Diagnostics flag), Phase 2 720-specific, so each is a separate
+test build. Owner also set the baseline: always the 192 KB stack with all current hardware features. Wrote
+`docs/features/VIDEO_720_PHASED_SPEC.md`. Review findings (skill + source): 360 timing reproducible at 37.5 MHz
+(1562x400, 41.65 us lines, same 40-line vblank), so one pixel clock serves both modes; scaler slot changes apply
+next frame and an all-zero end-of-line word may itself be a slot-0 request, so the target slot is sent on every line;
+our HS/VS are multi-cycle while the docs say one-cycle (kept, as a parameter); mode never persisted and a 10 s
+auto-revert guards against a blank screen; field widening (addr 20, w/h 10, stride 11) can be ABI-compatible in unused
+high bits, and a `VID_CAPS` register replaces interlocks; stride 1024 = one SDRAM page per line but bursts must stay
+<=512 words, so native fills are two 400-word chunks; optional triple line buffer for deadline margin. Phase 1 = groups
+A (visible-only fetch, fill-latency counters, 256-word copy buffer), C (widening, draw/display base registers,
+10-bit `scan_vc`), B (37.5 MHz, two geometries, frame-wrap switch, slot word), each under its own macro for fit
+bisection; ~0 M10K, ~450-800 ALMs [EST]. Phase 2 = native 800x720 mode, 2x1024 line buffer (+2 M10K, +3 with triple),
+framebuffer at 16 MiB, test-pattern page and a 720 STORM Check. MMIO 0x140-0x154 proposed. No code change.
+- 2026-09-29 (Claude): git/docs (B-847), branch `test/720`. Merged `origin/main` `ce635b5` into `test/720`
+(merge `1062107`); main had used B-374..B-409, so this branch's B-374/375/376 were renumbered B-844/411/412 in
+this file and `CLAUDE.md` (older pushed commit messages keep the old numbers; the mapping is in the merge commit).
+T2-00 (glyphbuf single write port, two MLAB copies) and T1 (`VID720`) both survived the auto-merge; `rtl-lint`,
+`test-rtl-fb`, `test-rtl-fb-mutation`, `test-rtl-helios-dbuf`, `test-rtl-blit-reference` and `test-rtl-fb-vid720`
+passed on the merged tree. Resolved the C2 question from the RTL itself (commit `dcc95ce`): today H2's
+`dbuf_addr()` covers fill, CHAR, COPY and RECT (incl. BAR/RRECT) but not BLIT/CBLIT/SBLIT, which address through
+the sticky `SRC_BASE`/`DST_BASE`. Decision, written as the shared answer with Talos 2 section 5.1: `FB_DRAW_BASE`
+relocates every SDRAM transaction of every opcode (source, destination, key/blend pre-read) whose address falls in
+the visible window (< 184,320 words), decided per row/segment, computed one cycle ahead; `FB_DISP_BASE` latched at
+vblank; DBUF becomes a view onto the two. Mutations named: `BUG_RELOC_NONBLIT_ONLY`, `BUG_RELOC_NO_WINDOW`,
+`BUG_RELOC_NO_KEYDST`, `BUG_DISP_IMMEDIATE`. Also corrected `MMIO_ALLOCATION.md`'s DBUF_CPU row (BAR/RRECT are
+offset). Docs only; no RTL in this step.
+- 2026-09-29 (Claude): RTL/sim (B-848), branch `test/720`. 720 phased spec A3 built: 256-word row buffer.
+`mp3_fb.sv` gains `GB_WIDE` (default 0) and a `BUG_GB_NARROW` mutation hook; `glyphbuf_a`/`glyphbuf_b`, `gb_addr`,
+the `glyph_q` read index, `bl_bg`/`bl_i0`/`bl_i1`, `char_w` and its five loads, `p0_wr_len`, the four end-of-row
+compares and `sblit_ext`'s clamp follow `GBAW` (7 or 8). Still exactly one `if (gb_we)` site (T2-00's invariant).
+With `GB_WIDE=0` every compare is the old 8-bit `char_w[6:0] - 1` (char_w==0 wrap included), so the default
+netlist is functionally unchanged. `core_game.vh`: `TAU_SCAN_A` -> `GB_WIDE`; `mp3_soc.v`: read-only `VID_CAPS` at
+0x14C, bit 1 = wide buffer (bit 0 left 0 until A1/A2 exist). New `sim/tb_mp3_fb_wide.v` / `make test-rtl-fb-wide`
+(in `test-rtl`): COPY, custom-stride BLIT, keyed BLIT, blended BLIT, SBLIT 2x and CBLIT at 127 words with
+`GB_WIDE=0` and 200 words (plus a 255-word COPY) with `GB_WIDE=1`, each word checked against its source/dest
+address; `BUG_GB_NARROW` fails 9/9. `test-rtl-fb`, `-fb-mutation`, `-helios-dbuf`, `-blit-reference`, `-fb-vid720`
+pass; Verilator warnings for `mp3_fb` are a subset of the pre-change set in both modes; the PSRAM real-CPU bench
+elaborates against the regenerated `mp3_soc_sim.v` (not run: no RISC-V toolchain here). Corrected the spec's touch
+list (four compares, not three; `sblit_ext` and CHAR's `ox` compare were missing). Not done: firmware
+`FB_COPY_MAX` 255 gated on `VID_CAPS` bit 1, any fit (+8 MLAB LABs expected).
+- 2026-10-26 (Claude): git/docs (B-849), branch `test/720`. Merged `origin/main` `92a86a8` (714 commits: v0.6.x, Player 2 `fw2/`, meter packs, audio statistics, writable font memory, Cymo, Halcyon, PCM ring) into `test/720` (`da075b2`) and re-reviewed the 720 plan against it (`docs/features/VIDEO_720_PHASED_SPEC.md` section 0). Conflicts: `mp3_fb.sv`/`core_game.vh`/`mp3_soc.v` additive (kept both sides); `CLAUDE.md` took main's restructured file (its execution log is gone by main's rule); this branch's audit ids B-410..B-414 collided with main's range and are now **B-844..B-848**; Makefile and ROADMAP merged. **Findings that change the plan:** (1) main took MMIO 0x140-0x1B4, so the planned 720 registers moved: `VID_CAPS` 0x1B8 (built), `SCAN_LAT` 0x1BC, `VID_MODE` 0x1C0, `FB_DRAW_BASE` 0x1C4, `FB_DISP_BASE` 0x1C8, 13 slots left in the 9-bit page; (2) the shipped baseline is the `..._font_stats` bundle (`stats-b821`: RAM 272/308, DSP 23/66, setup +1.19 / hold +0.26 ns), healthier on timing than the +0.037 ns the spec assumed, ALMs still unread; (3) Player 2's graphics layer already makes H2 double buffering cover BLIT/CBLIT/SBLIT from firmware (hardware-confirmed), so the RTL base registers (C2) are not needed in Phase 1 and move to the start of Phase 2, which shrinks Phase 1 to about 280-500 ALMs [EST]; (4) firmware work is in `fw2/` (typed `caps_t`, counter registry, Report), the `SR_T_SCAN` tag is dropped; (5) A3 is the lowest-value item (4 chunks become 2), first to drop if the fit is tight; (6) `tools/package_dev_build.py` cannot ship a two-mode `video.json` yet. **Evidence:** host/simulation only. `make test-rtl -k` has the same failure set on pristine `origin/main` and on the branch (RISC-V toolchain absent, Tamzen font check); `rtl-lint`, `test-rtl-fb`, `-fb-mutation`, `-fb-wide`, `-fb-vid720`, `-helios-dbuf`, `-blit-reference` pass on the merged tree. Not run: any real-CPU simulation or firmware test (no toolchain here), any Quartus fit, any Pocket.

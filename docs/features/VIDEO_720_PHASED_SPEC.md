@@ -1,14 +1,44 @@
 # 720: phased spec and implementation plan
 
-Status: **spec, nothing in it built yet** except T1 (the scanout doubler, B-844), which Phase 1 absorbs.
+Status: **T1 (the scanout doubler, B-844) and A3 (the 256-word row buffer, B-848) are built and simulation-verified; nothing is fitted
+and nothing has run on a Pocket.** Re-reviewed against `main` `92a86a8` on 2026-10-26 (B-849): see the section right below, which
+supersedes any older statement in this file that it contradicts.
 Branch `test/720`. Written 2026-09-29 (B-846) after a full review of `VIDEO_720_TEST_PLAN.md`, which stays the
 background document (platform limits, bandwidth and resource arithmetic). This file is the one to implement from.
+
+## 0. Post-merge review (2026-10-26, B-849): what changed in `main` and what it does to this plan
+
+`main` moved by 714 commits (v0.6.0 and v0.6.1, the Player 2 firmware `fw2/`, the meter packs, the audio statistics block, the
+writable font memory, Cymo, Halcyon, the hardware PCM ring). Merged into `test/720` as `da075b2`. Verdict: **the plan still
+makes sense, with these changes.**
+
+| # | What `main` did | Effect on the plan | Action |
+|---|---|---|---|
+| M1 | **MMIO page is nearly full.** Main took 0x140-0x1B4 (I2S diagnostic, Cymo, gain, Halcyon, PCM ring, font memory, statistics). My proposed 0x140-0x154 collided with live registers (0x14C was `I2S_DIAG_ST`). | Registers moved. The page is `mmio_reg = {dADR[6:0],2'b00}`, so 0x1B8-0x1FC (18 slots) is the last free run. | New map: `VID_CAPS` 0x1B8 (built), `SCAN_LAT` 0x1BC, `VID_MODE` 0x1C0, `FB_DRAW_BASE` 0x1C4, `FB_DISP_BASE` 0x1C8. 0x1CC-0x1FC stays free (13 slots). Anything after 720 needs the decode widened again. |
+| M2 | **The shipped baseline is not what I assumed.** The bundle is now `..._halcyon_wide_ring_font_stats` (29 macros, 192 KB RAM, clk66, H2, LPC). Last fit `stats-b821`: **RAM 272/308 (36 free), DSP 23/66, setup +1.19 / hold +0.26 ns** (my text said ~240 M10K and hold +0.037). | Block RAM and timing headroom are better than planned; ALMs are the open number (LAB use was 93% in the B-606 ledger and has grown since). Phase 1's M10K cost is 0, Phase 2's +2 to +4 fits. | Before any fit: read `ap_core.fit.summary` of `stats-b821` on the VM and record ALMs/LABs here. Phase 1 fit bundle = the `..._font_stats` bundle + `TAU_SCAN_A` + `TAU_VIDMODE` (+ `TAU_FB_WIDE`). |
+| M3 | **Double buffering is live in firmware, and the BLIT-class gap is already closed in software.** Player 2's graphics layer (`fw2/gfx/gfx.c`) sets the sticky `SRC_BASE`/`DST_BASE` from `buf_base(cpu_buf)` for every BLIT/CBLIT/SBLIT, hardware-confirmed (DEV 165 onward; the Chladni bug that motivated it is `sim/test_p2_chladni_dbuf.py`). My earlier line "no firmware writes `DBUF_*`" is wrong. | **C2 as a Phase 1 item is redundant for 400x360 and is the riskiest item in the plan** (new depth on the most-retimed issue paths, four mutants). Phase 1 gets H2 coverage from what already ships. C2 is still required by Phase 2 (stride 1024, 737,280-word window, framebuffer at 16 MiB). | **Recommended: C2 moves from Phase 1 to the start of Phase 2** (its design below is unchanged and stays the shared answer for Talos 2 section 5.1). C1 (field widening) and C3 (`scan_vc` 10 bits) stay in Phase 1 as the cheap, ABI-compatible preparation you asked for, under their own macro `TAU_FB_WIDE`, with C2 under `TAU_FB_BASES` so it can be added or dropped alone. Owner may overrule. |
+| M4 | **Firmware is Player 2 (`fw2/`) now, not `fw/player.c`.** Capabilities are one typed `caps_t` probed once; Info and the Report are generated from a counter registry (`fw2/diagnostics/info_counters.c`); reports are pixel grids, not QR tags. Copies are chunked by constants in `gfx.c` (120 and 112 columns), not `FB_COPY_MAX`. | Section 2.4 is rewritten in spirit: add `caps.vid` (the `VID_CAPS` word) to `caps_t`; VIDEO and SCANOUT are registry rows (they reach Info and the Report for free); no new report tag (`SR_T_SCAN` is dropped); the mode switch is a Diagnostics page in `fw2/settings`. | Implement the firmware half in `fw2/`, with its host tests. |
+| M5 | **A3 is the weakest item.** Full-buffer copies are 4 chunks of 120 today; 255-word rows make that 2. Native 800-wide rows exceed 255 anyway (4 chunks instead of 7). | Small gain for a +8 MLAB-LAB cost on a design whose LABs were already at 93%. | Keep A3 (built, tested, default off). It is the **first thing to drop** if the Phase 1 fit is tight, and no firmware uses it until a measurement says it is worth it. |
+| M6 | **Packaging has no way to ship a two-mode `video.json`.** `tools/package_dev_build.py` always copies the shipped single-mode file (400x360). | A 720 test core cannot be built yet. | Add `--video-json` to the packager (and its test) before the first 720 package; `tools/vid720/video.json` is the starting point. |
+| M7 | **Process rules changed** (`docs/PROJECT_RULES.md`): log only in `docs/AUDIT_TRAIL.md` (the `CLAUDE.md` execution log is gone); audit ids are now in the B-8xx range (this branch is B-844..B-849); say the expected finish time when launching a Quartus fit (`tools/vm_fit.py launch`, the shipped family lands near 1h40-1h45, `--wait-free` when the VM is busy); measure against the shipped 192 KB link; card installs only through `tools/install_dev_core.py`. | None on the design. | Follow them. |
+| M8 | **`CORE_VERSION` is rev 27** (font memory). | Phase 1 features are additive and probe-gated by `VID_CAPS`, so no rev bump is needed. A hardware-visible contract change (for example the 360 mode's pixel clock moving to 37.5 MHz) must be re-checked at fit time. | Decide at the fit. |
+
+**Not verifiable in this container:** the RISC-V toolchain is absent, so the real-CPU simulations and the firmware host tests cannot run
+here. `make test-rtl` fails identically on pristine `origin/main` and on this branch (toolchain-dependent targets, plus a
+Tamzen-font check); every `mp3_fb` suite, including the two this branch adds, passes on the merged tree. The VM (Quartus) is not
+reachable from here either, so no fit has been launched.
+
+**The plan, restated (after the review).**
+1. **Phase 1 (cross-resolution build, default stays 400x360):** group A (visible-only fetch of 400 words instead of 512, fill-latency counters, 256-word copy buffer *built*), group C reduced to C1 + C3 (ABI-compatible field widening, 10-bit `scan_vc`), group B (37.5 MHz clock, two geometries, frame-wrap mode switch, slot word) behind a Diagnostics page with a 10 s auto-revert, `VID_CAPS` at 0x1B8. T1 (the doubler) is already built and is the heart of B. Fit on the shipped bundle; hardware gates unchanged.
+2. **Phase 2 (native 800x720 test build):** C2 first (`FB_DRAW_BASE`/`FB_DISP_BASE`, the shared Talos 2 rule), then the native mode, a 2x1024 line buffer, a test pattern page and a 720 STORM Check, judged on its own.
+3. **Why the reorder:** it spends the scarce resource, timing risk on the clk_sdram dispatch paths, only where it buys something, and it reuses what the shipped firmware already proves.
 
 **Baseline for every build in this plan: the 192 KB stack with all current hardware features** -- the
 `all6-combined` bundle (poly + wave + spectrum + beam + pipelined blend + 192 KB RAM + clk66 + H2), plus `TAU_LPC`
 once `lpc-b372` closes. The 256 KB stack is not a target (owner decision, 2026-09-29).
-Baseline resources: ~240/308 M10K, 17-18/66 DSP, ALMs not logged (~9k [EST] of 18,480). Timing is the tight part:
-`all6-combined` closes hold by **+0.037 ns** (B-371).
+Baseline resources (**updated 2026-10-26, see section 0**): the shipped `..._font_stats` bundle, RAM 272/308, DSP 23/66, setup +1.19 /
+hold +0.26 ns (`stats-b821`, B-821); ALMs still to be read from that fit's report. (The earlier figures, ~240/308 and hold +0.037 ns,
+were the 2026-09-28 `all6-combined` build.)
 
 **Correction (2026-09-29, `main`): `glyphbuf`'s MLAB fallback is already fixed (T2-00), just not on this branch
 yet.** This branch forked from `main` before T2-00 landed, so the paragraph above and Group A3 below were written
@@ -86,10 +116,12 @@ MMIO (from the free 0x140-0x1FC range):
 
 | Offset | Name | Access | Meaning |
 |---|---|---|---|
-| 0x140 | SCAN_LAT | R/W | R: `{over_cnt[15:0], max_lat[15:0]}`; any write clears both |
-| 0x14C | VID_CAPS | R | bit 0 scan health (A), bit 1 wide copy buffer (A3), bit 2 video mode switch (B), bit 3 wide addressing (C), bit 4 framebuffer bases (C), bit 5 native 720 (Phase 2). 0 on older bitstreams |
+| 0x1BC | SCAN_LAT | R/W | R: `{over_cnt[15:0], max_lat[15:0]}`; any write clears both |
+| 0x1B8 | VID_CAPS | R | bit 0 scan health (A), bit 1 wide copy buffer (A3), bit 2 video mode switch (B), bit 3 wide addressing (C), bit 4 framebuffer bases (C), bit 5 native 720 (Phase 2). 0 on older bitstreams |
 
 ### 2.2 Group C -- addressing prep (macro `TAU_FB_WIDE`)
+
+**Review 2026-10-26 (section 0, M3): C1 and C3 stay in Phase 1 under `TAU_FB_WIDE`; C2 moves to the start of Phase 2 under its own macro `TAU_FB_BASES`** (Player 2's graphics layer already makes double buffering cover the BLIT class from firmware, so Phase 1 does not need it). The C2 text below is unchanged and remains the shared design for Talos 2.
 
 - **C1 Widened command fields, ABI-compatible.** `cmd_addr` 19 -> 20 bits (`R_FB_ADDR[19:0]`); `cmd_w`/`cmd_h` 9 -> 10
   bits, with `w[9]` in `R_FB_SIZE[18]` and `h[9]` in `R_FB_SIZE[19]` (the old `{h[17:9], w[8:0]}` layout is
@@ -105,8 +137,8 @@ group to drop first if a fit fails.
 
 | Offset | Name | Access | Meaning |
 |---|---|---|---|
-| 0x150 | FB_DRAW_BASE | R/W | 25-bit word address added to FB-relative draw addresses (default 0) |
-| 0x154 | FB_DISP_BASE | R/W | 25-bit word address scanned out; applied at the next vblank (default 0) |
+| 0x1C4 | FB_DRAW_BASE | R/W | 25-bit word address added to FB-relative draw addresses (default 0). Phase 2 (section 0, M3). |
+| 0x1C8 | FB_DISP_BASE | R/W | 25-bit word address scanned out; applied at the next vblank (default 0). Phase 2. |
 
 **Question (flagged 2026-09-29) -- resolved below (B-847).** does `draw_base` cover the
 BLIT-class opcodes' own sticky `SRC_BASE`/`DST_BASE` fields (`R_BLT_IDX` fields 0/2 -- used by
@@ -191,9 +223,11 @@ actually earns that by covering blits.
 
 | Offset | Name | Access | Meaning |
 |---|---|---|---|
-| 0x148 | VID_MODE | R/W | W bit 0: requested mode. R: bit 0 current, bit 1 pending, bits 31:16 count of completed switches |
+| 0x1C0 | VID_MODE | R/W | W bit 0: requested mode. R: bit 0 current, bit 1 pending, bits 31:16 count of completed switches |
 
 ### 2.4 Firmware (Phase 1)
+
+**Rewritten by the 2026-10-26 review (section 0, M4): the firmware half lives in `fw2/` (Player 2). Read these bullets with these substitutions:** `fw/vidmode.h` -> a core in `fw2/cores/` with its host test; "Info rows" and "Check" -> rows in the counter registry (`fw2/diagnostics/info_counters.c`), which feed Info and the Report; the new `SR_T_SCAN` tag is dropped; capabilities are a field in `caps_t` (`fw2/platform/platform.c`); the copy chunk constants are in `fw2/gfx/gfx.c`.
 
 - **Probe once at boot:** read `VID_CAPS`; every Phase 1 feature is gated on its bit.
 - **Diagnostics > VIDEO MODE:** a 360 / 720 (doubled) choice, shown only when caps bit 2 is set, not persisted.
@@ -228,9 +262,8 @@ actually earns that by covering blits.
 
 ### 2.6 Fit, package and hardware test
 
-1. **Fit:** `tools/vid720/phase1_qsf_append.txt` = `all6-combined` (+ `TAU_LPC` if closed) + `TAU_SCAN_A` +
-   `TAU_FB_WIDE` + `TAU_VIDMODE`, seeds 1 and 2. If timing fails: bisect by dropping `TAU_FB_WIDE`, then
-   `TAU_VIDMODE`.
+1. **Fit:** `tools/vid720/phase1_qsf_append.txt` = the shipped `..._halcyon_wide_ring_font_stats` bundle + `TAU_SCAN_A` +
+   `TAU_FB_WIDE` + `TAU_VIDMODE` (C2 is not in this fit), seeds 1 and 2; read the baseline ALMs/LABs from `stats-b821` first and say the expected finish time when launching (about 1h40-1h45; `vm_fit.py launch --wait-free` if the VM is busy). If timing fails: bisect by dropping `TAU_SCAN_A`'s A3 first (the lowest-value item), then `TAU_FB_WIDE`, then `TAU_VIDMODE`.
 2. **Package** the current diagnostic-profile firmware (RAM_192K, CLK66, the caps-gated code) with the two-slot
    `video.json`, copying the RBF directly (B-353).
 3. **Hardware, 360 against alpha.15:**
@@ -251,9 +284,9 @@ actually earns that by covering blits.
 | Group | M10K | ALMs | DSP |
 |---|---|---|---|
 | A (visible-only fetch, latency, 256-word copy buffer) | 0 | ~80-150 | 0 |
-| C (widening, bases, `scan_vc`) | 0 | ~250-450 | 0 |
+| C (widening, `scan_vc`; the bases moved to Phase 2, review M3) | 0 | ~80-150 | 0 |
 | B (clock, two geometries, switch, slot word) | 0 | ~120-200 | 0 |
-| **Phase 1 total** | **0** | **~450-800** | **0** |
+| **Phase 1 total** | **0** | **~280-500** (was ~450-800 before C2 moved) | **0** |
 
 ## 3. Phase 2 -- native 800x720 (test build 2)
 
