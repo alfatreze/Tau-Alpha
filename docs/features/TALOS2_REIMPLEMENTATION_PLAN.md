@@ -1,5 +1,27 @@
 # Talos 2: reimplementation plan for the 2D draw engine
 
+> **REVISION 2026-10-26 (owner decisions D-T01..D-T03 in `docs/DECISIONS.md`; reasoning in `docs/research/TALOS2_EXPERT_REVIEW_2026-10-26.md`). Read this before the rest of the file.**
+> Talos 2 is revived, and its scope now includes retiring the inherited graphics RTL. What changes against the text below:
+> 1. **Phases are replaced by T0-T6** (below). The old P0..P4 table in section 9 stays as history; P2 becomes T3, P3 becomes T5, P0 and P4 fold into T1.
+> 2. **The scanout is in scope** (it is HarpMudd-lineage; section 4's "kept as they are" no longer holds for the retirement): a new `tau_scanout` with its own video-timing and underflow testbench, same behaviour (line buffer, fill-request CDC, `painted` blanking, `scan_vc`, vblank toggle, H2 flip logic).
+> 3. **The SDRAM controller is in scope, last** (`tau_sdram_ctrl`; section 7's refresh and mask changes are its own commit, own testbench, A-094 before/after, never bundled with the engine fit).
+> 4. **Section 5.4's fence token becomes a monotonic Gray-coded fence COUNTER** (`tau_cdc_gray_ctr.sv`), compared by firmware; only the idle bit uses a two-flop synchroniser.
+> 5. **FONT source kind** is defined on the writable font memory (`font_ram.v`: four faces, Latin-1, `text_light`), not the Inter ROM; the clip rectangle must be able to start inside a glyph. **Reserve a `GLYPH_PSRAM` src_kind** for Extended Latin and CJK (owner scope).
+> 6. **New primitive: the column-list command** (T4): one command draws N `(x, y0, y1)` entries from a small RAM the CPU fills; revives the hardware wave/scope path (roadmap item 2) and serves the Waterfall and Layered Wave.
+> 7. **Names:** `mp3_fb` -> `tau_gfx` (top), `tau_scanout`, `tau_talos` (+ `_front`/`_back`), `sdram_fb` -> `tau_sdram_ctrl`, `mp3_soc` -> `tau_soc`, renamed once inside the v0.7 RTL fit bundle (`git mv`).
+> 8. **Budgets in section 3 are stale**: re-measure free ALM/M10K/DSP from the `stats-b821` fit report in T0 before promising "0 extra M10K".
+> 9. **Verification adds** differential fuzzing (random command streams, Talos 1 vs the new module, pixel-exact), an SDRAM timing model, a scanout-underflow assertion under a blit storm; `TAU_TALOS1` stays until hardware confirmation, then the old code is deleted.
+>
+> | Phase | Content | Fit |
+> |---|---|---|
+> | T0 | Measure: per frame commands issued, CPU cycles issuing, FIFO-full stalls, fence wait, engine busy split SDRAM-busy/idle (counters on the shipped build); re-measure free resources | no |
+> | T1 | Firmware only: stacked-bar split (old P0), clipping in `fw2/gfx/gfx.c`, width/page guards | no |
+> | T2 | Split `mp3_fb.sv` into `tau_gfx` / `tau_scanout` / `tau_talos` with a differential test (no behaviour change), then the renames | v0.7 bundle |
+> | T3 | In-queue control opcodes, idle bit, Gray fence counter, 9-bit bar; firmware `gfx_fence()` (old P2) | v0.7 bundle |
+> | T4 | Column-list primitive, lab twin, wave/scope path re-enabled | v0.7 bundle if small, else its own |
+> | T5 | New scanout; then the row-job engine (old P3) if T0 shows the engine is the bottleneck; then the SDRAM controller; each hardware-confirmed before its old code is deleted | own fits |
+> | T6 | Command ring, gradient and pattern src_kinds, `GLYPH_PSRAM` for Extended/CJK | after T5 |
+
 **Status (updated 2026-09-29, owner decision): P1 shipped as T2-00 (below); the rest (P2-P4, the actual
 "Talos 2" front-end/row-job rewrite) is DECLINED for now, revisit only when a genuinely new opcode is
 needed** -- the review this plan comes from already recommended this order (`TALOS_REVIEW_2026-09-28.md`

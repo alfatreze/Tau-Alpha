@@ -44,7 +44,7 @@ Open design questions for the owner: is "About" one page or two (user facts / he
 ## 5. Proposed order
 **A. Now, firmware and data only (no fit; can run in parallel sessions):** (1) issue 025 + recheck 020; (2) the Info/Diagnostics split (design review with the owner, then the registry tag, About page, `P2_DIAG`, two packages); (3) Halcyon: Pocket run with a PRST file, Omega's writer, D-S05 decision; (4) BUG-001 names: run the card test matrix first, decide byte-transparent vs NFC vs ASCII, then `sync_media`, firmware path and Omega in step; (5) gapless loopback acceptance + sidecar sizes; (6) TPG context items; (7) FLAC glue review + A/B; (8) preset work (Chladni, per-channel waveform), more than seven meters, font polish.
 **B. The v0.7 RTL fit** (cosmetics, wall-clock, watchdog, Talos P2), launched as early as its list is frozen, because it is the longest pole (about 3 h 30 for two seeds); blits only if Talos P2 lands.
-**C. Large and risky, owner to confirm:** Extended-A / CJK (glyph source fit), Talos P3, the blit opcodes, the gallery (hosting), Reed-Solomon, pack signing.
+**Update 2026-10-26 (owner):** Talos 2 is revived with the whole graphics path in scope (D-T01..D-T03): its T2+T3+T4 join the v0.7 RTL bundle in B; T5/T6 are v0.7.x or later unless the owner holds the release. **C. Large and risky, owner to confirm:** Extended-A / CJK (glyph source fit), Talos P3, the blit opcodes, the gallery (hosting), Reed-Solomon, pack signing.
 **Gate:** the release Pocket run, Omega 0.6.0, the owner's approval (section 2 of `docs/V0_7_0_REVIEW.md`).
 
 ## 6. Honest risk
