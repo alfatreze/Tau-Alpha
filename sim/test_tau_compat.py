@@ -120,7 +120,8 @@ with tempfile.TemporaryDirectory() as t:
                   and p["bitstream_core_version"] == "4D50331A" and p["bitstream_core_version"] in p["rom_accepts"])
         check(ok, f"{core}: every hash and marker matches the zip")
     r = doc["requires_omega"]
-    check(list(r) == ["library_index_version", "assets_sections", "assets_read_limit_bytes", "report_tags_max", "persist_ids_changed", "min_omega"], "requires_omega keys in schema order")
+    check(list(r) == ["library_index_version", "assets_sections", "assets_read_limit_bytes", "report_tags_max", "persist_layout", "packs_abi", "persist_ids_changed", "min_omega"], "requires_omega keys in schema order")
+    check(r["persist_layout"] == 1 and r["packs_abi"] == 1, "capability keys from fw2 (persist layout 1, pack ABI 1)")
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
     check(r["report_tags_max"] == 28, f"last report tag {r['report_tags_max']} (SR_T_TRACKINFO = 28)")
