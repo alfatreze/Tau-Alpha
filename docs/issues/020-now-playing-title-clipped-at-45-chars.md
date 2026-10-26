@@ -1,6 +1,6 @@
 # BUG-002: long track titles are clipped on the now-playing screen (about 45 characters)
 
-**Status:** Confirmed on hardware (owner report, B-033 run, 2026-09-21); not fixed. Found while testing phase 0 with the longest title on the test card.
+**Status (2026-10-26, B-874): MARQUEE built for Player 2 (owner chose it), host-proven, not yet on a Pocket.** Earlier status:  Confirmed on hardware (owner report, B-033 run, 2026-09-21); not fixed. Found while testing phase 0 with the longest title on the test card.
 
 ## Observed
 Track 3 of the phase 0 playlist (`04. Giant Warrior ~ Torumekian Army ~ Her Royal Highness Princess Kushana.mp3`, tag title 69 characters) showed on the now-playing screen as `... Her Royal H` and the marquee scrolled only that clipped text. The playlist screen showed the full name.
@@ -18,3 +18,6 @@ The library list rows draw titles from the index (own buffer, up to 63), so it i
 
 ## Recheck on Player 2, 2026-10-26 (B-854, by reading the code; not run on a Pocket)
 Still applies, in a different form. Player 2 holds the now-playing text in `mp3_info_t` (`fw2/transport/mp3play.h`: `title[48]`, `artist[40]`, `album[40]`), so a title is cut at 47 characters, an artist or album at 39, even though the index stores up to 63. Then `put()` in `fw2/ui/nowplaying.c` cuts the text to the pixel width of its box (`MW`) by measuring; **there is no marquee in Player 2**, so a long title is simply cut off. Options for the owner: (1) a marquee on the title/artist/album (the old player had one), (2) an ellipsis, (3) both with the buffers raised to 64. To confirm on a Pocket: a track with a title of about 70 characters (the old `04. Giant Warrior ~ ...` file).
+
+## Marquee, 2026-10-26 (B-874)
+Owner chose the marquee. `fw2/cores/marquee_core.h` (pure; `sim/test_p2_marquee.py`, two mutants caught) and `put_scroll` in `fw2/ui/nowplaying.c`: title, artist and album that are wider than their box rest 1.8 s, drop one character every 120 ms until the end fits, hold 1.8 s and start over; a new string starts at its first character. The text buffers of `np_info_t` and the refresh temporaries are 64 characters (the index keeps up to 63), +88 bytes of RAM.

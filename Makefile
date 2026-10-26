@@ -76,6 +76,7 @@ test-host:
 	$(PYTHON) sim/test_sdram_map_fw2.py
 	$(PYTHON) sim/test_p2_blit_check.py
 	$(PYTHON) sim/test_report_capacity.py
+	$(PYTHON) sim/test_p2_marquee.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py

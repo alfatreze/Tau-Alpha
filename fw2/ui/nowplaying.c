@@ -5,6 +5,7 @@
 #include "../platform/mmio.h"
 #include "../transport/mp3play.h"
 #include "../cores/nowplaying_core.h"
+#include "../cores/marquee_core.h"
 #include "meter.h"
 #include "../art/art.h"
 #include "helios.h"
@@ -43,6 +44,9 @@
 #define BAR_H 28u
 
 typedef struct { char s[40]; } field_t;
+/* A string wider than its box scrolls (cores/marquee_core.h): the same text, dropping characters from the left, drawn through put() like any other change. Slots 1..3 = title, artist, album. */
+static mq_t mq[4];
+static void put_scroll(uint32_t slot, uint32_t x, uint32_t y, const char *s, uint16_t fg, uint32_t max_w, uint16_t bg);
 uint8_t np_art_on = 1;                       /* Settings > Appearance > Album art (not persisted) */
 static field_t cache[12]; static uint32_t bar_px = 0xFFFFFFFFu, last_gen = 0xFFFFFFFFu, art_gen = 0xFFFFFFFFu, art_state = 0xFFu, pill_sig = 0xFFFFFFFFu, bar_sig = 0xFFFFFFFFu, st_sig = 0xFFFFFFFFu;
 
@@ -60,6 +64,16 @@ static void put(uint32_t slot, uint32_t x, uint32_t y, const char *s, uint16_t f
     const uint32_t w = gfx_text_width(buf), rx = mode == 1 ? x - max_w : mode == 2 ? x - max_w / 2u : x;
     gfx_rect(rx, y, max_w, GFX_CELL_H, bg);
     gfx_text(mode == 1 ? x - w : mode == 2 ? x - w / 2u : x, y, buf, fg, bg);
+}
+static void put_scroll(uint32_t slot, uint32_t x, uint32_t y, const char *s, uint16_t fg, uint32_t max_w, uint16_t bg)
+{
+    if (gfx_text_width(s) <= max_w) { mq_reset(&mq[slot]); put(slot, x, y, s, fg, max_w, 0, bg); return; }
+    const uint32_t sig = mq_sig(s), ms = (uint32_t)(cycles() / (CLK_HZ / 1000u));
+    uint32_t k = mq[slot].sig == sig ? mq[slot].k : 0u;
+    const char *p = s; for (uint32_t i = 0; i < k && *p; i++) p++;
+    k = mq_update(&mq[slot], sig, ms, gfx_text_width(p) <= max_w);
+    p = s; for (uint32_t i = 0; i < k && *p; i++) p++;
+    put(slot, x, y, p, fg, max_w, 0, bg);
 }
 static uint32_t pill(uint32_t x, const char *s)             /* a rounded-ish tag: surface background, accent text; returns its width */
 {
@@ -171,9 +185,9 @@ void nowplaying_draw_head(void)
         if (p->cover[0] && np_art_on) { mp3play_io_quiesce(); if (art_load(p->cover) == TIMG_OK) art_draw(COV_X, COV_Y); else cover_placeholder(); }
         else cover_placeholder();
     }
-    put(1, MX, TITLE_Y, p->title, FG, MW, 0, BG);
-    put(2, MX, ARTIST_Y, p->artist, ACC, MW, 0, BG);
-    put(3, MX, ALBUM_Y, p->album, DIM, MW, 0, BG);
+    put_scroll(1, MX, TITLE_Y, p->title, FG, MW, BG);
+    put_scroll(2, MX, ARTIST_Y, p->artist, ACC, MW, BG);
+    put_scroll(3, MX, ALBUM_Y, p->album, DIM, MW, BG);
     if (p->fault) put(9, MX, 130, "MP3 UNIT FAILED", ACC, MW, 0, BG); else put(9, MX, 130, "", ACC, MW, 0, BG);
 }
 
