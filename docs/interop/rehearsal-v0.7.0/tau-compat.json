@@ -6,7 +6,7 @@
   "packages": [
     {
       "zip": "alfatreze.TAU_0.7.0_2026-10-26.zip",
-      "zip_sha256": "7a98d6bd5e960a2fd27a1181d65f1a5f6d550815879fce77c5acba4ef15bd35c",
+      "zip_sha256": "10937d018ed371135607477a964a99b752134fc7511e61cfa551880a9e7d3c78",
       "core_id": "alfatreze.TAU",
       "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
       "bitstream_core_version": "4D50331B",
@@ -17,18 +17,17 @@
         "POLY",
         "SDRAM_BUSY"
       ],
-      "rom_sha256": "788f508f4d80291175bebd905ee6d4b4e2eec70a91ee95c1340f944cd320de51",
-      "cold_sha256": "6600b19247a4df636c1acb2d15120cb14c8e24ae3e5c1bc4309b69bedeeaabee",
+      "rom_sha256": "79e9de5872c8813d39324c424fbac7ca18b3ccae09d626a4f7a5aa0afdaa9ac6",
+      "cold_sha256": "ea3f45d32a9a0e954ff109e686fe3f5f983a0344641185b6c8767107cb6e9a94",
       "rom_accepts": [
         "4D50331B"
       ],
       "rom_needs": [
         "FONT"
       ],
-      "rom_version": "0.7.0+67254983",
+      "rom_version": "0.7.0+7805ed42",
       "replaces": [
         "alfatreze.TAU_DIAGNOSTIC",
-        "alfatreze.TAU Diagnostics",
         "alfatreze.TAU Preview",
         "alfatreze.TAU Preview Diagnostics"
       ],
@@ -42,7 +41,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau-cold.bin",
           "role": "owned",
-          "sha256": "6600b19247a4df636c1acb2d15120cb14c8e24ae3e5c1bc4309b69bedeeaabee",
+          "sha256": "ea3f45d32a9a0e954ff109e686fe3f5f983a0344641185b6c8767107cb6e9a94",
           "slot": 6,
           "required": false
         },
@@ -63,7 +62,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau.rom",
           "role": "owned",
-          "sha256": "788f508f4d80291175bebd905ee6d4b4e2eec70a91ee95c1340f944cd320de51",
+          "sha256": "79e9de5872c8813d39324c424fbac7ca18b3ccae09d626a4f7a5aa0afdaa9ac6",
           "slot": 1,
           "required": true
         },
@@ -226,6 +225,202 @@
           }
         }
       ]
+    },
+    {
+      "zip": "alfatreze.TAU_Diagnostics_0.7.0_2026-10-26.zip",
+      "zip_sha256": "6866547a2bb80f55ab72cab3442a1e6c4d2c12e0995f46070033ba44149b3335",
+      "core_id": "alfatreze.TAU Diagnostics",
+      "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+      "bitstream_core_version": "4D50331B",
+      "bitstream_features": [
+        "FONT",
+        "HALCYON",
+        "LPC",
+        "POLY",
+        "SDRAM_BUSY"
+      ],
+      "rom_sha256": "52157008cbe9218b5292730dbe96d7f798c9eb8946bb526c66d1eff585892724",
+      "cold_sha256": "d4c1c2ea1b9c21922999b963ca4ff0fd8124cfe2186720eed8ab1f0b482ffc52",
+      "rom_accepts": [
+        "4D50331B"
+      ],
+      "rom_needs": [
+        "FONT"
+      ],
+      "rom_version": "0.7.0+7805ed42",
+      "replaces": [
+        "alfatreze.TAU_DIAGNOSTIC"
+      ],
+      "layout": [
+        {
+          "path": "Assets/tau/alfatreze.TAU Diagnostics/tau-cold.bin",
+          "role": "owned",
+          "sha256": "d4c1c2ea1b9c21922999b963ca4ff0fd8124cfe2186720eed8ab1f0b482ffc52",
+          "slot": 6,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/alfatreze.TAU Diagnostics/tau-loading.bin",
+          "role": "owned",
+          "sha256": "85bd29278b0ba0518bb46fecdbdd6786003407c3ee8e8e9abfcccf2d783fb2ec",
+          "slot": 4,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/alfatreze.TAU Diagnostics/tau-packs.bin",
+          "role": "owned",
+          "sha256": "f945b9ed079155963df15fb910e4a0f5040235c61c1b3d9db608463ef88de23c",
+          "slot": 9,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/alfatreze.TAU Diagnostics/tau.rom",
+          "role": "owned",
+          "sha256": "52157008cbe9218b5292730dbe96d7f798c9eb8946bb526c66d1eff585892724",
+          "slot": 1,
+          "required": true
+        },
+        {
+          "path": "Assets/tau/common/**/*.{flac,mp3}",
+          "pattern": true,
+          "role": "user",
+          "slot": 2,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/**/tau-art/cover_128.pal256.timg",
+          "pattern": true,
+          "role": "generated",
+          "slot": 7,
+          "required": false,
+          "format": {
+            "name": "TIM1",
+            "version": 1
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-assets.bin",
+          "role": "user",
+          "slot": 8,
+          "required": false,
+          "format": {
+            "name": "TAUA",
+            "version": 1,
+            "sections": [
+              "METR",
+              "PRST",
+              "THEM"
+            ],
+            "max_bytes": 65536,
+            "preserve_unknown_sections": true
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-library.tdb",
+          "role": "generated",
+          "slot": 5,
+          "required": false,
+          "format": {
+            "name": "tau-library",
+            "version": 1,
+            "root": "/Assets/tau/common/"
+          }
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/audio.json",
+          "role": "owned",
+          "sha256": "64993a5e54ccec690f8ef50234a4a2e575f09ea69fd996fbd3852af3776b30da",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/bitstream.rbf_r",
+          "role": "owned",
+          "sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/core.json",
+          "role": "owned",
+          "sha256": "e27c6d21026c1d989ef2e3f68fb601e3c81fbffbae04de31d341874484175b6a",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/data.json",
+          "role": "owned",
+          "sha256": "dab0149f8a5fcd968417d6017427993186f21a9b61598bc0ea2398fab4aa896d",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/icon.bin",
+          "role": "owned",
+          "sha256": "2221cf05ab14b9cca0c48b93a2e6176903a6a17e9ccdeacc03d2f3992540ce91",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/info.txt",
+          "role": "owned",
+          "sha256": "688815e8993928139ef10507024c7af765fb8e1d80610bf271d0732f7ccc8f75",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/input.json",
+          "role": "owned",
+          "sha256": "1f026a73eacbe9565f855af60387dbc9e3f179061bf274e797f22578a405675c",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/interact.json",
+          "role": "owned",
+          "sha256": "0ad46b7db6da8b23fd1f2ba7c6ceb1c674f75225e806c315662800ea4d152949",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/variants.json",
+          "role": "owned",
+          "sha256": "93bedfd28d1160474d79025a1bcaa10cdee8396699851d3ea3d747746a41e3ed",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Cores/alfatreze.TAU Diagnostics/video.json",
+          "role": "owned",
+          "sha256": "45c1074326f53fe1ffa6fa121f4c9cac8ab248ce7acf448a779e6e379d7ae351",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Platforms/_images/tau.bin",
+          "role": "shared",
+          "sha256": "f686014bb95aa2b57a26035bd2ed74529cedd3eb0a4f77e1ddda582d010e2fe7",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Platforms/tau.json",
+          "role": "shared",
+          "sha256": "7220f696ede0d71229b18aebc09b100dd4bfd8383f5e0e7b752bf732fdd68cb1",
+          "slot": null,
+          "required": true
+        },
+        {
+          "path": "Settings/alfatreze.TAU Diagnostics/Interact/interact_persist.json",
+          "role": "user",
+          "slot": null,
+          "required": false,
+          "format": {
+            "name": "interact_persist",
+            "version": 1
+          }
+        }
+      ]
     }
   ],
   "requires_omega": {
@@ -264,7 +459,7 @@
   },
   "notes": "",
   "source": {
-    "commit": "67254983",
+    "commit": "7805ed42",
     "dirty": false
   },
   "previous_release": "v0.6.1",
