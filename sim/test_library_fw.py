@@ -71,6 +71,12 @@ def expected(data):
     ab = b""
     for a in ix.albums:
         ab += ix.str(a[0]).encode() + b"\n" + ix.str(a[1]).encode() + b"\n" + le16(a[2]) + le16(a[3]) + le16(a[4]) + le16(a[5])
+    if ix.details:
+        db = b""
+        for d in ix.details:
+            db += bytes([d["codec"], d["ch"], d["bits"], d["flags"]]) + struct.pack("<IIHHhhHHHH", d["rate"], d["size"], d["kbps"], d["cover_kib"], d["tg"], d["ag"], d["tp"], d["ap"], d["delay"], d["pad"])
+            db += (ix.str(d["enc_off"]).encode() + b"\n") if d["enc_off"] else b"-"
+        exp["DETAILS"] = "DETAILS 0x%08X" % fnv(db)
     exp["ALBUMS"] = "ALBUMS 0x%08X" % fnv(ab)
     rb = b""
     for a in ix.artists:
@@ -129,7 +135,7 @@ def compare(name, data, elf, tmp):
     exp = expected(data)
     got = {}
     for ln in out:
-        for k in ("LOAD", "HEADER", "PATHS", "TRACKS", "ALBUMS", "ARTISTS", "ORDER", "LETTERS", "JUMPS", "LISTS", "QLIST", "SHUF 1 ", "SHUF 12345", "QALB"):
+        for k in ("LOAD", "HEADER", "PATHS", "TRACKS", "DETAILS", "ALBUMS", "ARTISTS", "ORDER", "LETTERS", "JUMPS", "LISTS", "QLIST", "SHUF 1 ", "SHUF 12345", "QALB"):
             if ln.startswith(k):
                 got[k.strip() if not k.startswith("SHUF") else k.strip()] = ln
     okall = True
@@ -207,6 +213,44 @@ def main():
         big_idx = L.build_index(L.synth(400, 40, 20), mixes)
         check("synthetic 400-track index verifies", L.verify(big_idx) == [])
         compare("400-track synthetic: readbacks match", syn, big, td)
+        # B-727: the optional track details section
+        dsyn = L.build_index(L.synth(400, 40, 20, details=True), mixes)
+        check("synthetic index with details verifies and carries 400 records", L.verify(dsyn) == [] and L.parse(dsyn).details and len(L.parse(dsyn).details) == 400)
+        compare("400 tracks with details: every record and encoder string read back equals the reference (DETAILS hash included)", dsyn, big, td)
+        dix = L.parse(dsyn)
+        dso = struct.unpack_from("<I", dsyn, 112)[0]
+        out = run(big, dsyn, td)
+        check("firmware sees the details section (DETAILS line printed)", any(ln.startswith("DETAILS") for ln in out), out[:3])
+        out = run(big, big_idx, td)
+        check("an index without details prints no DETAILS line and still loads", out and out[0].startswith("LOAD OK") and not any(ln.startswith("DETAILS") for ln in out))
+        bad_count = seal_all(T._set32(dsyn, dso + 8, 399))
+        out = run(big, bad_count, td)
+        check("details with a wrong record count: the library still loads, details are ignored", out and out[0].startswith("LOAD OK") and not any(ln.startswith("DETAILS") for ln in out), out[:2])
+        bad_magic = seal_all(T._set32(dsyn, dso, 0x12345678))
+        out = run(big, bad_magic, td)
+        check("details with a wrong magic: the library still loads, details are ignored", out and out[0].startswith("LOAD OK") and not any(ln.startswith("DETAILS") for ln in out), out[:2])
+        bad_len = seal_hdr(T._set32(dsyn, 116, struct.unpack_from("<I", dsyn, 116)[0] + 32))
+        out = run(big, bad_len, td)
+        check("details length not matching the track count: loads, details ignored", out and out[0].startswith("LOAD OK") and not any(ln.startswith("DETAILS") for ln in out), out[:2])
+        # the committed (version 1) loader must accept the new index unchanged: build the harness against the header as it was before B-727
+        old_hdr = subprocess.run(["git", "show", "HEAD:fw/library_core.h"], cwd=ROOT, capture_output=True, text=True)
+        if old_hdr.returncode == 0 and "det_off" not in old_hdr.stdout:
+            oroot = Path(td) / "old"; (oroot / "fw").mkdir(parents=True); (oroot / "tools/host").mkdir(parents=True)
+            (oroot / "fw/library_core.h").write_text(old_hdr.stdout)
+            for f in ("hostio.h", "link.ld", "start.S"):
+                (oroot / "tools/host" / f).write_text((ROOT / "tools/host" / f).read_text())
+            h = (ROOT / "tools/host/library_harness.c").read_text()
+            a, b2 = h.index("    if (l.det_off) {"), h.index('        out("DETAILS");\n    }\n') + len('        out("DETAILS");\n    }\n')
+            (oroot / "tools/host/library_harness.c").write_text(h[:a] + h[b2:])
+            oelf = Path(td) / "old.elf"
+            cmd = [str(GCC), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-Wall", "-Wextra", "-Wno-unused-function",
+                   f"-DHMEM={3 << 19}", "-Wl,--no-warn-rwx-segments", "-T", str(oroot / "tools/host/link.ld"), str(oroot / "tools/host/start.S"), str(oroot / "tools/host/library_harness.c"), "-o", str(oelf)]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            check("the pre-B-727 harness builds", r.returncode == 0, r.stderr[:200])
+            if r.returncode == 0:
+                new_out = [ln for ln in run(big, dsyn, td) if not ln.startswith("DETAILS")]
+                old_out = run(oelf, dsyn, td)
+                check("the version 1 loader (before B-727) loads the index WITH details and reads back identical tracks, albums, artists, order and queues", old_out == new_out and old_out and old_out[0].startswith("LOAD OK"), old_out[:2])
         toobig = L.build_index(L.synth(16384, 2048, 1024))
         out = run(small, toobig, td)
         check("index larger than the memory given -> E14 (cannot be held)", out and out[0] == "LOAD E14", out[:1])

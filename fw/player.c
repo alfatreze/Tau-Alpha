@@ -59,6 +59,7 @@
 #if MP3_PROFILE
 #include "mp3_profile.h"
 #endif
+#include "headroom.h"       /* Cymo C0a (B-538): worst-second idle and projected maximum speed (pure, host-tested) */
 
 #define REG(a)      (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -86,7 +87,6 @@
 #define R_SLOT_SZ   0x8000005Cu   /* R: size of the file APF reported at reload */
 #define R_DT_ADDR   0x80000060u   /* W: datatable word address                  */
 #define R_DT_DATA   0x80000064u   /* R/W: datatable word at that address        */
-#define R_EQ        0x80000068u   /* R/W: EQ preset index, 0 = FLAT (bypass)    */
 #define R_SET_IDX   0x8000006Cu   /* W:   persistent settings word index, 0..7  */
 #define R_SET_DAT   0x80000070u   /* R: value APF wrote  W: value we publish    */
 #define R_SDR_ADDR  0x80000074u
@@ -100,6 +100,16 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+/* B-570/B-575: bitstreams up to cymo-feed-b527 store a CLUT entry one slot ABOVE the index it was issued at (mp3_soc.v raised the write
+ * pulse and advanced clut_idx on the same edge while clut_waddr followed clut_idx), so a load starting at R_CLUT_IDX = 0 landed entry n in
+ * slot n + 1 and every TIM1 cover and meter preview was drawn with its palette shifted by one (B-569). Starting at 255 compensates. From
+ * B-575 the RTL registers the address with the pulse (tau_clut_wr.sv) and the start must be 0. The two cannot be told apart by a version
+ * number without pairing mistakes black-screening a core (B-130, B-353), and a wrong guess here only shifts colours, so the firmware PROBES
+ * once (clut_probe(), fw/blit_probe.inc, run from blit_probe_ensure()): load a known CLUT, CLUT-blit one pixel, read it back. Until the
+ * probe has run, and if it cannot tell, the legacy 255 is used. sim/test_clut_contract.py and the two host models (CLUT_SKEW 0 and 1) hold
+ * the pieces together. */
+static uint8_t clut_start_idx_v = 255u;
+#define CLUT_START_IDX ((uint32_t)clut_start_idx_v)
 #define R_RC_IDX    0x800000D4u   /* B11: corner-cut LUT entry select (W), 0-15 -- see fw/rc_lut.h */
 #define R_RC_DATA   0x800000D8u   /* B11: corner-cut LUT entry value (W), 0-31 (5 bits) at the index above */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
@@ -135,6 +145,24 @@
 #define R_LPC_RESIDUAL  0x80000134u   /* write: next residual, starts one reconstruction */
 #define R_LPC_SAMPLE    0x80000138u   /* read: the reconstructed sample -- this read is itself the ack that clears STATUS bit 2 */
 #define R_LPC_STATUS    0x8000013Cu   /* read: bit 0 = built in, bit 1 = busy, bit 2 = done */
+#define R_I2S_DIAG_MINMAX 0x80000140u /* B-467: [15:0] min / [31:16] max interval ever (clk_sys cycles) between real I2S DAC-domain sample updates, free-running since reset */
+#define R_I2S_DIAG_CNT    0x80000144u /* count of update events since reset */
+#define R_I2S_DIAG_SUM    0x80000148u /* sum of measured intervals since reset (average via delta / delta-count) */
+#define R_I2S_DIAG_ST     0x8000014Cu /* bit 0 = built in (I2S_DIAG_ENABLE) */
+#define R_AUDIO_CFG   0x80000164u /* B-602 (Cymo C3, F2): bit 1 (read) = bitstream has the switch, bit 0 = 16-bit I2S slot (STICKY; 0 = the original 15-bit mapping) */
+#define R_GAIN_CTRL   0x80000168u /* B-615 hardware gain stage: write bit0 ENABLE (sticky), bit1 SNAP (pulse), bit2 FADE_NOW (pulse), [5:4] fade length 256<<n (sticky); read bit31 = present */
+#define R_GAIN_TARGET 0x8000016Cu /* Q15 gain, 32768 = unity (capped there): the stage ramps to it */
+#define R_GAIN_CUR    0x80000170u /* read: the gain in force */
+#define R_GAIN_STEP   0x80000174u /* max gain change per output sample (reset 149 = 5 ms for full scale) */
+#define R_HAL_CTRL    0x80000178u /* B-639/B-640 Halcyon engine: write bit0 ENABLE, bit1 BYPASS, bit2 COMMIT, bit3 CLEAR, [13:8] nact; read bit31 = present */
+#define R_HAL_IDX     0x8000017Cu
+#define R_HAL_DATA    0x80000180u
+#define GAIN_CTRL_BASE (1u | (3u << 4))   /* enabled, fade length 2048 samples (FADE_SAMPLES) */
+#define R_CYMO_CTRL   0x80000150u /* B-471/B-476: write: bit0 clear (pulse), bit1 start (pulse, test-only), bit2 LIVE_ENABLE (STICKY -- hands the real audio path to the resampler) */
+#define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
+#define R_CYMO_OUT    0x80000158u /* read: {out_r[31:16],out_l[15:0]} -- this read is itself the ack that clears STATUS bit 2 (self-test only) */
+#define R_CYMO_STATUS 0x8000015Cu /* read: bit0 built in, bit1 busy, bit2 done, bit3 pop_req, bit4 live_en, [7:5] hand-off queue level (B-527) */
+#define R_CYMO_DIAG   0x80000160u /* read: [15:0] saturating count of consumes with no pushed sample (a repeat), [31:16] saturating count of ticks dropped because the hand-off queue was full (B-527); both clear on live engage */
 /* Redirect fw/flac.c's LPC reconstruction to the hardware unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md).
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
@@ -148,6 +176,8 @@
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
+#define R_DBUF_CPU  0x80000118u   /* Helios/Talos H2 (B-340): write bit 0 = which buffer plain RECT/CHAR/COPY commands target; read bit 31 = built in, bit 0 = echo */
+#define R_DBUF_DISP 0x8000011Cu   /* write bit 0 = 1 requests a flip (applied at the next vblank); read bit 31 = built in, bit 1 = flip still pending, bit 0 = buffer currently displayed */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
@@ -278,26 +308,52 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #define EXPECT_VERSION_192K_CLK66 0x4D50331Au
 #if TAU_RAM_192K_FW && TAU_CLK66_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION_192K_CLK66)
+#define FW_ACCEPTS "4D50331A"
 #elif TAU_RAM_192K_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)
+#define FW_ACCEPTS "4D503317,4D503318"
 #elif TAU_CLK66_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_CLK66)
+#define FW_ACCEPTS "4D503317,4D503319"
 #else
 #define VERSION_OK(v) ((v) == EXPECT_VERSION)
+#define FW_ACCEPTS "4D503317"
 #endif
+/* B-581: the CORE_VERSION list this image accepts, as plain text inside the ROM, so tools/check_fw_bitstream_pair.py can
+ * refuse a firmware/bitstream pairing at package and install time instead of on the Pocket (a build made without the
+ * RAM_192K/CLK66 flags is refused by the 192 KB bitstream and shows only a black screen: B-394, B-448, B-563, B-580). Keep
+ * this beside VERSION_OK; sim/test_fw_pair_check.py checks the two agree. */
+static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAIR:" FW_ACCEPTS ";";
 
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "0.5.0"
+#define APP_VER "0.6.0"
+
+/* The FULL version shown on the splash and Info > FIRMWARE (owner, 2026-10-08). Built as the plain APP_VER; the packagers stamp the exact
+ * build into this field after the build (tools/tau_version.py: "0.6.0-preview.1+f2d3373", "0.6.0-dev.385+f2d3373.dirty"), so a ROM always
+ * says which build it is, whatever flags it was built with. Read through a volatile pointer so the compiler cannot fold in APP_VER.
+ * 48 bytes: "TAUVER:" + up to 40 characters + NUL. */
+static const char tau_ver_field[48] __attribute__((used, retain)) = "TAUVER:" APP_VER;
+
+static inline const char *app_version(void)
+{
+    const char *p = tau_ver_field + 7;
+    __asm__ volatile ("" : "+r"(p));        /* hide the address from the optimiser: the bytes are patched after the build */
+    return p;                               /* NUL-terminated: tools/tau_version.py keeps the last byte of the field zero */
+}
 
 /* The Diagnostic Build switch. One macro for everything that must not be in the shipped release: the
- * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
+ * Check and its report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
  * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
-#ifndef TAU_DIAGNOSTIC
-#define TAU_DIAGNOSTIC 0
+#ifndef TAU_HALCYON_FW
+#define TAU_HALCYON_FW 0   /* B-640: the Halcyon engine selector (fw/halcyon.inc, Diagnostics > HALCYON); needs a TAU_HALCYON bitstream, reads NO UNIT elsewhere */
 #endif
+#ifndef TAU_TEMPO
+#define TAU_TEMPO 0      /* Cymo C7 T2 (B-558): pitch-preserving tempo for MP3 (fw/tempo_core.h); off by default so every default build is byte-identical */
+#endif
+#include "diag_features.h"   /* TAU_DIAGNOSTIC (default 0) and the per-feature TAU_DX_/TAU_FX_ switches, fw/diag_features.json */
 
 /* Developer-only: drive the Phase 2 CPU-window (uncached alias 0xA0100000) from
  * the stress pump instead of the Phase 1 MMIO mailbox. Requires an RBF built
@@ -311,6 +367,30 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_SDRAM_BUSY
 #define TAU_SDRAM_BUSY 0
 #endif
+/* B-653: the bitstream FEATURES this image uses, as plain text inside the ROM (next to TAUFWPAIR), so tools/check_fw_bitstream_pair.py can compare them with the macros a bitstream was
+ * built with (the bitstream manifest tools/vm_fit.py records) at package and install time. Every one degrades gracefully when missing (a boot probe reads NO UNIT), which is exactly
+ * why a mismatch would otherwise go unnoticed: the Halcyon EQ simply does nothing. */
+#if TAU_HALCYON_FW
+#define FW_NEED_HAL "HALCYON,"
+#else
+#define FW_NEED_HAL ""
+#endif
+#if TAU_LPC_FW
+#define FW_NEED_LPC "LPC,"
+#else
+#define FW_NEED_LPC ""
+#endif
+#if TAU_POLY_FW
+#define FW_NEED_POLY "POLY,"
+#else
+#define FW_NEED_POLY ""
+#endif
+#if TAU_SDRAM_BUSY
+#define FW_NEED_BUSY "SDRAM_BUSY,"
+#else
+#define FW_NEED_BUSY ""
+#endif
+static const char tau_fw_need_marker[] __attribute__((used, retain)) = "TAUFWNEED:" FW_NEED_HAL FW_NEED_LPC FW_NEED_POLY FW_NEED_BUSY ";";
 /* P5: place the album-art accumulator (art_acc, 11,040 B) in PSRAM behind the uncached CPU
  * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
  * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
@@ -528,15 +608,15 @@ static void fb_copy(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
 }
 
 /* Phase F B8: load N palette entries into the 256-entry CLUT, starting at
- * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=0 resets
- * it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
+ * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=CLUT_START_IDX
+ * resets it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
  * single shared table the draw engine reads asynchronously, so it must not be
  * reloaded while an earlier OP_CBLIT command is still draining the FIFO,
  * exactly the same reasoning fb_rect/fb_char already apply to fg/bg. */
 static void fb_clut_load(const uint16_t *pal, uint32_t n)
 {
     fb_wait();
-    REG(R_CLUT_IDX) = 0u;
+    REG(R_CLUT_IDX) = CLUT_START_IDX;
     for (uint32_t i = 0; i < n; i++) REG(R_CLUT_DATA) = pal[i];
 }
 
@@ -599,18 +679,69 @@ static void fb_blit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
     REG(R_FB_GO)    = FB_OP_BLIT;
 }
 
+/* Helios H2's buffer 1, in the same word units fb_blit()'s own addressing uses -- matches
+ * mp3_fb.sv's DBUF_BASE1 localparam exactly (1,048,576 words = 2 MiB above buffer 0). Only real use
+ * so far: the Settings crossfade below, which uses buffer 1 purely as scratch render space (never
+ * flips display to it) -- safe because dbuf_redraw_begin() itself already refuses to engage while
+ * FB_HELD() (B-402), so H2's own front/back usage is guaranteed idle whenever Settings holds the
+ * screen. */
+#define DBUF_BASE1_W 1048576u
+
+/* Sticky SRC_BASE(field 0)/DST_BASE(field 2) (docs/MMIO_ALLOCATION.md 0xC0/0xC4). Callers today:
+ * Chladni's H2 buffer tracking (fw/chladni.inc, B-414) and the Settings crossfade (fw/settingsui.inc,
+ * B-405/B-410); everything else (fb_blit()/fb_cblit()/fb_bar()/etc., including ui_bg_blend()'s own
+ * trail blit) relies on whatever these two last left behind, since both fields are WRITE-ONLY in
+ * hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- there is no MMIO read to check the sticky state
+ * directly, only this shadow. Sets both together since every real use wants a matched pair. Not
+ * fenced on entry (matching fb_blend_on()'s own precedent, B-334/B-396's own reasoning: this
+ * cooperative single-threaded design has no concurrent caller who could have commands still queued
+ * expecting the OLD sticky state at the moment this changes) -- the caller IS responsible for
+ * fb_fence()-ing before restoring back to (0,0), so no LATER unrelated caller ever inherits a nonzero
+ * base; see set_xfade_step_draw()'s own use for the concrete pattern.
+ * B-434: dbg_base_src/dst mirror the last values WRITTEN here (the only writer), so a caller that
+ * forgets to restore (0,0) before returning -- the exact bug class B-410/B-414 both found real
+ * instances of -- is visible without JTAG: if these read nonzero right when wviz_scope_tick() issues
+ * its trail blit, that blit (and ui_bg_blend()'s own destination pre-read) executes against the wrong
+ * SDRAM region, which reads exactly like "the trail never fades" even though the strip itself (B-433)
+ * is provably correct. */
+static uint32_t dbg_base_src, dbg_base_dst;
+static void fb_set_bases(uint32_t src_base, uint32_t dst_base)
+{
+    fb_wait();
+    REG(R_BLT_IDX) = 0u; REG(R_BLT_DATA) = src_base;
+    REG(R_BLT_IDX) = 2u; REG(R_BLT_DATA) = dst_base;
+    dbg_base_src = src_base; dbg_base_dst = dst_base;
+}
+
 /* OP_BAR: (x, base_y) top-left, w wide, h rows total, `lit` of them lit (fg)
  * at the bottom, the rest unlit (bg) at the top -- mp3_fb.sv's own B6 field
- * convention (cmd_glyph reused as the lit-row count, clamped to h in RTL). */
+ * convention (cmd_glyph reused as the lit-row count, clamped to h in RTL).
+ *
+ * B-406: RTL's own clamp (pre_bar_lit vs. pre_bar_h, mp3_fb.sv) only ever sees the value AFTER it has
+ * already been truncated to 7 bits below -- `lit & 0x7Fu` WRAPS modulo 128, it does not saturate, so
+ * any caller passing lit >= 128 (a real case: fullscreen visualisers' bars are up to FS_FIG_H = 323
+ * rows tall) got a near-empty bar instead of a clamped-tall one every time the true value crossed a
+ * multiple of 128 -- the reported "some bars flicker, particularly at fullscreen." Firmware clamped to
+ * 127 as an immediate mitigation at the time (a bar this tall visibly stopped growing there instead of
+ * intermittently collapsing), but that still left tall bars capped short of their real height.
+ *
+ * B12 (B-454): the real fix -- the field itself widened 7->9 bits in RTL (cmd_glyph_hi, a NEW field
+ * claiming 2 previously-unused FIFO padding bits and 2 previously-unused R_FB_GO bits, src/fpga/core/
+ * mp3_fb.sv/mp3_soc.v), enough for FS_FIG_H=323. No hardware-capability probe here (unlike
+ * BLIT_READY()/RRECT_READY()/etc.): at this project's current alpha stage every firmware build is
+ * already paired one-to-one with a specific fit bitstream (B-448's own --build-flags discipline), so
+ * an old-bitstream fallback is unneeded complexity -- worth revisiting once betas/a real release start
+ * shipping firmware that has to run against bitstreams it wasn't built alongside. */
 static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
                    uint16_t fg, uint16_t bg)
 {
     if (!w || !h || FB_HELD()) return;
+    if (lit > 511u) lit = 511u;   /* the widened field's own ceiling */
     fb_wait();
     REG(R_FB_ADDR) = y * FB_STRIDE + x;
     REG(R_FB_SIZE) = (h << 9) | w;
     fb_set_color(fg, bg);
-    REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3);
+    REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3) | (((lit >> 7) & 0x3u) << 15);   /* cmd_glyph : cmd_glyph_hi */
 }
 
 /* OP_RRECT (B11, Helios/Talos H1): (x, y) top-left, w x h the full rect,
@@ -829,17 +960,63 @@ static uint8_t speed_idx = SPEED_1X;
  * distances are all derived from FILE POSITION, not wall clock, so they stay
  * correct by construction. The FIFO drain is the only wall-clock-domain thing
  * here. */
+enum { FMT_MP3 = 0, FMT_FLAC };
+static uint8_t  track_fmt;
+/* B-554: speed changes are MP3-only for now (owner decision, 2026-10-03: FLAC audiobooks are doubtful, and stereo FLAC music has no decode headroom even at 1.00x, B-553).
+ * `speed_idx` keeps what the owner chose, so it applies again on the next MP3; this is the speed that actually applies: always 1.00x for a FLAC. Every user of the speed
+ * (the FIFO drain, the Cymo guard, the on-screen marker, the Info headroom row) goes through it. */
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): tempo = faster or slower speech WITHOUT the pitch change, MP3 only. The setting is separate from the speed list (that one is varispeed) and
+ * exclusive with it. While it is on the FIFO drains at the native rate and fw/tempo_core.h's stretcher consumes the decoded audio faster than it plays it. */
+#define TEMPO_N 6u
+static uint8_t  tempo_idx;                /* 0 = off */
+static uint32_t tempo_cfg_key;            /* what the stretcher was started for; 0 = start it again at the next frame (every flush clears it) */
+static const uint16_t tempo_q8[TEMPO_N] = { 256u, 282u, 320u, 384u, 448u, 512u };
+static const char *const tempo_txt[TEMPO_N] = { "OFF", "1.10x", "1.25x", "1.50x", "1.75x", "2.00x" };
+#endif
+static inline uint8_t speed_eff(void)
+{
+    if (track_fmt == FMT_FLAC) return (uint8_t)SPEED_1X;
+#if TAU_TEMPO
+    if (tempo_idx) return (uint8_t)SPEED_1X;          /* tempo plays at the native rate; the stretcher makes it faster */
+#endif
+    return speed_idx;
+}
+/* the multiplier the decoder has to keep up with, as a fraction: the varispeed speed or the tempo ratio */
+static inline void speed_ratio(uint32_t *n, uint32_t *d)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) { *n = tempo_q8[tempo_idx]; *d = 256u; return; }
+#endif
+    *n = speed_num[speed_eff()]; *d = speed_den[speed_eff()];
+}
+/* the text of the on-screen speed marker, or 0 when the audio plays at 1.00x */
+static inline const char *speed_marker(void)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) return tempo_txt[tempo_idx];
+#endif
+    return speed_eff() != SPEED_1X ? speed_txt[speed_eff()] : (const char *)0;
+}
+#if TAU_FX_CYMO_TOGGLE
+static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
+#endif
+static hr_t hr;   /* B-538: worst idle second since the track or speed last changed (Info > HEADROOM) */
+static uint32_t pcm_tick_hz;   /* B-719: the output tick rate now (file rate x speed): how long the FIFO output register's glide to zero takes (fw/gain_handover.h) */
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
+    hr_reset(&hr);   /* a new track or a new speed starts a fresh measurement */
+#if TAU_FX_CYMO_TOGGLE
+    cymo_guard_apply(hz);
+#endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
-    if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
+    if (speed_eff() != SPEED_1X) inc = DIV64(inc * speed_num[speed_eff()], speed_den[speed_eff()]);
     REG(R_PCM_RATE) = (uint32_t)inc;
+    pcm_tick_hz = speed_eff() != SPEED_1X ? (uint32_t)((uint64_t)hz * speed_num[speed_eff()] / speed_den[speed_eff()]) : hz;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
 static uint32_t fl_first_frame;   /* absolute offset of the first audio frame */
-enum { FMT_MP3 = 0, FMT_FLAC };
-static uint8_t  track_fmt;
 static uint8_t  size_suspect;     /* directory disagrees with the file itself   */
 static uint8_t  ui_size_warned;
 /* Load timing, in milliseconds, for the phases between pcm_flush() and
@@ -847,7 +1024,7 @@ static uint8_t  ui_size_warned;
  * dominates it is the hiccup. Measured rather than reasoned about: four
  * attempts at this were aimed by theory and three of them made it worse. */
 static uint16_t ld_head, ld_size, ld_art, ld_pre, ld_total;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
 static uint16_t chk_loads;              /* completed track loads (the Check's track-change test waits on it) */
 #endif
 static uint8_t  ui_ld_shown;
@@ -879,12 +1056,8 @@ static uint32_t ui_info_y;            /* where chrome left room for the format l
 static uint32_t ui_last_info, ui_last_prog, ui_pause_next, ui_breath, ui_icon_next;
 static uint32_t ui_arr_t, ui_wave_force, ui_accent_changed;
 
-/* ---- preset EQ ----
- * The curve table and the names are GENERATED from the same quantised
- * coefficients the RTL filters with (tools/gen_eq_coeffs.py --curves), so
- * the shape on screen cannot drift from the shape being applied. */
-#include "eq_curve.h"
-static uint8_t  eq_idx;              /* 0 = FLAT = RTL bypass          */
+static uint8_t  hal_saved;           /* the last preset selection that was saved (CUSTOM is not a saved state, so tweaking sliders keeps the previous preset on file) */
+static uint8_t  hal_sel;             /* the Halcyon EQ selection (fw/halcyon.inc): 0 = off, 1.. = built-in presets then user presets, HAL_SEL_CUSTOM = the page's own controls */
 static uint32_t ui_sec, ui_sec_acc, ui_last_frames, ui_prog_sec;
 static int      ui_was_paused;
 static uint32_t peak_amp;         /* max |sample| in the most recently decoded frame, 0..32767 */
@@ -950,6 +1123,10 @@ static char track_trk[8];
  * and every file with a bare Xing header. */
 static char    track_encoder[12];
 static uint8_t track_vbr_method;      /* 0 = unknown / absent */
+/* B-737 (gapless trim): decoded frames that were discarded in the load-time warm-up (so the decoded-stream index of the first frame of the main loop), 0xFF = no trim
+ * (a seek happened, or the cold image is not loaded). The decode counter `frames` plus this is the frame index mt_range() needs. */
+static uint8_t  mt_wu = 0xFFu;
+static uint16_t track_enc_delay, track_enc_padding;   /* B-624 gapless groundwork: the LAME tag's encoder delay and end padding in samples (0 = absent); read by nothing yet */
 
 /* Transport state. Declared up here with the other UI-visible globals rather
  * than down with poll_input(): ui_draw_dynamic() shows the play/pause state,
@@ -959,8 +1136,8 @@ static uint8_t track_vbr_method;      /* 0 = unknown / absent */
  * recomputed once per change, because a divide per sample would be 2304
  * software divides every frame inside the decode budget. */
 #define VOL_MAX   100u
-#define VOL_STEP  5u
-static uint32_t paused, volume = 65u;    /* overridden by the saved setting     */
+#define VOL_STEP  3u
+static uint32_t paused, volume = 94u;    /* overridden by the saved setting     */
 
 /* Fade-in after ANY audio discontinuity, in samples (~46 ms at 44.1 kHz).
  *
@@ -976,9 +1153,29 @@ static uint32_t paused, volume = 65u;    /* overridden by the saved setting     
 #define FADE_SAMPLES 2048u
 static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
+#if TAU_DX_GAP_TIMING
+static uint32_t gap_t0, gap_last_ms, gap_max_ms, gap_n, gap_buf_ms;   /* B-633: natural-track-end gap timing (functions below, next to cymo_push) */
+#if TAU_DX_GAP_TIMING
+/* B-725 (gapless G0, docs/features/GAPLESS_SPEC.md): the DISTRIBUTION behind the ring size. gap_hist = natural-end gaps in buckets (<150, <300, <600, <1000, <2000 ms, longer); gset_* = the slot-open
+ * settle loop of read_track_head() (time, tries), the suspected source of the 1.1 s outlier. */
+static uint16_t gap_hist[6];
+/* B-731 (gapless G0b): the longest the CPU stays away from poll_input(). A firmware ring drain can only run where the code runs, so a stall longer than the FIFO (46 ms) is
+ * exactly where a ring would NOT help. pg_b = stalls of 20-46, 46-300, 300-1000 and 1000+ ms; pg_max_ms the worst. */
+static uint8_t  pg_b[4];            /* saturating at 255 */
+static uint16_t pg_max_ms;
+static uint32_t pg_ra, pg_ra_max, pg_rb_max;   /* poll_input() return address before / after the worst stall */   /* B-738: the return address of the poll_input() call BEFORE the stall (where the CPU went after it) and of the worst one: resolve with nm */
+static uint32_t pg_t;
+static uint16_t gset_last, gset_max, gset_n, gset_tries_max;
+static uint32_t gap_sum, gset_sum;
+#endif
+static uint8_t  gap_armed;
+#endif
+#if TAU_DX_UNDERRUN_LOG
+static ur_t     ur_all;          /* B-546: EVERY underrun (the shadow above and the hardware flag give at most one per flush) -- Info > UNDERRUNS, ALL n */
+#endif
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #include "stress_defs.inc"
 #endif
 
@@ -1049,16 +1246,131 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
  * Cycles, not iterations: a wait iteration and a decode iteration are not the
  * same size, and comparing counts of them would prove nothing. */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
+#if TAU_DX_LOAD_STATS
+/* Cymo C0 follow-up (B-589): where the non-decode CPU goes, MP3 main loop. Monotonic cycle totals (never reset; the Check window takes deltas, wrap-safe in u32
+ * for a 15 s window): MP3Decode, meters_feed, the whole push loop, ui_draw_dynamic, and the part of the push loop spent blocked on a full FIFO (= idle). */
+static uint32_t ld_t_dec, ld_t_feed, ld_t_push, ld_t_ui, ld_t_wait;
+#define LD_MARK(v)    uint32_t v = cycles()
+#define LD_ACC(v, A)  ((A) += cycles() - (v))
+#define LD_WAIT(d)    (ld_t_wait += (d))
+#else
+#define LD_MARK(v)    do {} while (0)
+#define LD_ACC(v, A)  do {} while (0)
+#define LD_WAIT(d)    do {} while (0)
+#endif
 static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
 static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- vu_master.inc's overlay needs it before fl exists */
 static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
-static int32_t  vol_gain = 256;          /* Q8: 256 == unity */
+#include "pcm_push.h"       /* the type below (the include further down stays harmless: it has a guard) */
+#if TAU_HALCYON_FW
+static uint8_t  hw_hal;                  /* B-640: the bitstream has the Halcyon engine (probed once at boot) */
+#endif
+static uint8_t  hw_gain_boost;           /* B-720: ...and its target register reaches above unity (+6 dB, R_GAIN_CTRL bit 30), so ReplayGain may boost against a peak tag */
+static uint8_t  hw_gain;                 /* B-615: the bitstream has the hardware gain stage (probed once at boot; 0 on any other bitstream) */
+static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
-static void vol_apply(void)
+/* ReplayGain (Cymo C6, B-599, fw/replaygain.h): the tags of the track being played, the user's mode (Off / Track / Album) and the resulting Q15 factor, folded into the
+ * volume target and never above unity (attenuate-only). rg_update() runs whenever either changes: after a track's tags are read and when the setting is changed. */
+#define RG_COLD COLD_FN3
+#include "replaygain.h"
+#include "lame_tag.h"
+#include "mp3_trim.h"
+#if TAU_PCM_RING_FW
+#include "pcm_ring_hw.h"
+#endif
+#if TAU_PCM_RING_FW
+#include "pcm_ring_state.h"
+#else
+#define rg_und_note() ((void)0)
+#endif
+
+static rg_t     rg_cur;
+static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
+static uint32_t rg_factor = RG_UNITY;
+static uint32_t rg_cap_hw;                                 /* B-720: the largest total gain this track may have while the hardware stage owns the gain; 0 = unity (kept zero so it lives in .bss, not .data) */
+#define RG_CAP() ((vol_st.hw && rg_cap_hw) ? rg_cap_hw : RG_UNITY)         /* the firmware path can never exceed unity (its 32-bit product would overflow above 2.0) */
+static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
+static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
+/* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
+static inline void fade_restart(void) { fade_left = vol_st.hw ? 0u : FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
+/* B-615: at boot, hand the gain (volume, ramp, fade-in) to the hardware stage. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so the gain is never
+ * applied twice. A no-op on a bitstream without the stage (hw_gain 0). Runtime changes of owner go through gain_handover() below (B-653): this one is only safe while the FIFO is empty. */
+static void gain_hw_adopt(void)
 {
-    vol_gain = (int32_t)(volume * 256u / 100u);
+    if (!hw_gain) return;
+    vol_st.hw = 1u;
+    REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
+    REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u;              /* enable, and the stage's gain = target now: no ramp from a stale value */
 }
+/* B-620 (parallel plan A2): dip the HARDWARE gain around a change that alters the output abruptly, so the listener never gets a step: the 16-bit slot adds 6 dB in one sample, and the
+ * live resampler swaps the signal. gain_dip_begin() ramps the gain to zero (5 ms by the stage's ramp, 8 ms waited), the caller makes the change, gain_dip_end() ramps back up to the
+ * volume target. Hardware stage only: the firmware gain acts on samples that sit up to 46 ms ahead of the DAC, so it cannot dip in time (the step remains there, documented). A no-op
+ * unless the stage owns the gain. The wait is short against the FIFO's 46 ms, so playback does not underrun. */
+/* B-681: the dip is a fade, not a switch. The stage's reset ramp (149 per sample, about 5 ms for full scale) was short enough to click on a preset change; the dip now uses
+ * 43 per sample (32768 / 43 = 762 samples, about 16 ms) down and up, and the normal rate is put back once the ramp up has finished (gain_step_poll(), from the main loop: the
+ * volume ramp and every other user of R_GAIN_STEP keep the 5 ms they had). The wait is 17 ms, still well under the FIFO's 46 ms. */
+#define GAIN_STEP_NORMAL 149u
+#define GAIN_STEP_DIP    43u
+#define GAIN_DIP_WAIT_CYC (CLK_HZ / 1000u * 17u)
+#define GAIN_STEP_RESTORE_CYC (CLK_HZ / 1000u * 18u)
+static uint8_t  gain_step_slow;          /* 1 = R_GAIN_STEP holds the dip rate and must go back to normal */
+static uint32_t gain_step_t0;            /* cycles() when the dip's ramp up was started */
+/* B-653: the runtime hand-over of the gain between the firmware and the hardware stage (Diagnostics > HW GAIN): muted at the FIFO output, FIFO flushed, then flipped (fw/gain_handover.h).
+ * gain_hw_adopt() above stays the boot-time adoption (no audio is playing then, so nothing is in the FIFO). */
+#include "gain_handover.h"
+static inline void pcm_flush(void);
+static void gh_ctrl(uint32_t v)   { REG(R_GAIN_CTRL) = v; }
+static void gh_target(uint32_t v) { REG(R_GAIN_TARGET) = v; }
+static void gh_wait_ms(uint32_t ms) { const uint32_t t0 = cycles(); while ((uint32_t)(cycles() - t0) < (CLK_HZ / 1000u) * ms) { } }
+static void gh_flush(void)        { pcm_flush(); }
+COLD_FN2 static void gain_handover(uint8_t on)
+{
+    if (!hw_gain) return;
+    static const gh_ops_t ops = { gh_ctrl, gh_target, gh_wait_ms, gh_flush };
+    gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on, pcm_tick_hz);
+#if TAU_PCM_RING_FW
+    if (!vol_st.hw) rg_off();   /* B-746: the ring carries raw samples, so it needs the hardware gain stage */
+#endif
+    vol_apply();   /* B-720: the cap depends on the owner (a boost only exists in the hardware stage): software gets unity again, hardware may ramp up to its cap */
+    if (!vol_st.hw) vol_st.cur = vol_st.target;
+}
+COLD_FN2 static void gain_dip_begin(void)
+{
+    if (!vol_st.hw) return;
+    REG(R_GAIN_STEP) = GAIN_STEP_DIP;
+    gain_step_slow = 1u;
+    gain_step_t0 = cycles();
+    REG(R_GAIN_TARGET) = 0u;
+    const uint32_t t0 = cycles();
+    while ((uint32_t)(cycles() - t0) < GAIN_DIP_WAIT_CYC) { }
+}
+COLD_FN2 static void gain_dip_end(void)
+{
+    if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; gain_step_t0 = cycles(); }
+}
+/* Puts the normal ramp rate back once a dip's ramp up has finished (see GAIN_STEP_DIP). One compare per main-loop pass while idle. */
+static inline void gain_step_poll(void)
+{
+    if (gain_step_slow && (uint32_t)(cycles() - gain_step_t0) >= GAIN_STEP_RESTORE_CYC) { REG(R_GAIN_STEP) = GAIN_STEP_NORMAL; gain_step_slow = 0u; }
+}
+/* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
+ * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
+COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); { const uint32_t cap = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); rg_cap_hw = cap > RG_UNITY ? cap : 0u; }
+#if TAU_PCM_RING_FW
+    if (!gp_mode)
+#endif
+    vol_apply(); }
+COLD_FN3 static void rg_scan_cold(const uint8_t *tag, uint32_t avail, uint32_t len) { rg_id3_scan(&rg_cur, tag, avail, len); }
+COLD_FN3 static void rg_txxx_cold(const uint8_t *b, uint32_t n)                       { rg_txxx_body(&rg_cur, b, n); }
+COLD_FN3 static void rg_flac_cold(const char txt[4][16], uint8_t have)
+{
+    if (have & 1u) rg_note(&rg_cur, "REPLAYGAIN_TRACK_GAIN", 21u, txt[0], 15u);
+    if (have & 2u) rg_note(&rg_cur, "REPLAYGAIN_ALBUM_GAIN", 21u, txt[1], 15u);
+    if (have & 4u) rg_note(&rg_cur, "REPLAYGAIN_TRACK_PEAK", 21u, txt[2], 15u);
+    if (have & 8u) rg_note(&rg_cur, "REPLAYGAIN_ALBUM_PEAK", 21u, txt[3], 15u);
+}
+static void rg_update(void) { if (cold_code_ok) rg_update_cold(); }
 /* ------------------------------------------------------------- playlist ----
  * The legacy .m3u-playlist-file playback mode (state + logic in playlist.inc)
  * has been removed: the media library (fw/library.inc) is now the only way to
@@ -1077,6 +1389,7 @@ static int  set_input(uint32_t edge, uint32_t keys);
 #endif
 static void set_draw(void);
 static void set_close(void);
+static void set_open_wvizcfg_direct(void);   /* Start+Y chord in poll_input(), defined in settingsui.inc */
 
 enum { REP_OFF = 0, REP_ALL, REP_ONE };
 static uint8_t  rep_mode;                /* cycles off -> all -> one -> off */
@@ -1115,6 +1428,13 @@ static uint8_t  hold_paused;             /* stay paused across a track change  *
  * waiting for room in the PCM FIFO. The decode loop blocks there when it is ahead of the DAC, so the blocked time is the
  * idle time (fl_idle_pct, latched once a second, capped at 99). Nothing is decoding while stopped or paused, so 0. */
 static uint8_t fl_idle_pct;
+#if TAU_DX_LOAD_STATS
+/* Cymo C0 (2026-10-04): CPU load over one Check audio window (fw/suite.inc CT_AUD), summed from the once-a-second latch below. secs counts latch periods
+ * (at least a second each). Counts every second while armed, including the Check page's own redraws: this is what the Check run itself costs. */
+static uint8_t  ld_win_on, ld_win_worst;
+static uint16_t ld_win_secs;
+static uint32_t ld_win_idle, ld_win_io;
+#endif
 static inline uint32_t ui_cpu_pct(void) { return (idle || paused) ? 0u : 100u - (uint32_t)fl_idle_pct; }
 static uint32_t stop_req;
 
@@ -1137,13 +1457,11 @@ static uint32_t stop_req;
 /* paused is a bitmask: 1 the user, 2 the OS menu. (A third bit, for a legacy
  * playlist switch in progress, was removed along with that mode.) */
 static uint8_t  menu_was;         /* the OS menu was open on the last poll      */
-/* Shared "the active top-level view just changed" repaint flag, so the main loop repaints the player
- * chrome once rather than each transition site duplicating that work. B-350: every write to this flag
- * now goes through helios_view_changed() (fw/helios.inc), not a bare assignment -- one of the six
- * independent call sites that used to set it by hand (set_close()) simply omitted it (B-349), which is
- * exactly the failure a single shared entry point is meant to make structurally harder to repeat. Kept
- * under its old name (pl_ui_restore) to avoid a mechanical rename of the main loop's own read site. */
-static uint8_t  pl_ui_restore;
+/* helios_pending_mask (fw/helios.inc, item 4 of the Helios review) replaces the old bare
+ * "pl_ui_restore" repaint flag with a per-view declared bitmask -- see that file's own comment for
+ * the full history (B-349/B-350). The main loop drains it below, right before the flag it replaces
+ * used to be read, since ui_chrome_paint()/ui_art_draw() aren't declared yet at helios.inc's own
+ * #include point. */
 /* The TRACK loads that follow a reload, three deep -- general reload diagnostics, not specific to
  * the (now removed) legacy playlist mode.
  *   G  1 the gate confirmed a new file id, 2 it fired on the cap
@@ -1165,7 +1483,9 @@ static uint8_t settings_load_ok;   /* what the BOOT settings_load() returned */
  * to wake the screen before drawing to it directly. */
 static void ui_blank_wake(void);
 
-static uint8_t eq_apply;             /* preset changed: tell the RTL */
+static uint8_t hal_req;              /* Y pressed: step the Halcyon preset (applied in the main loop, where cold code is safe to call) */
+static uint8_t hal_restore;          /* the saved selection was just loaded: apply it once the cold image and the user presets are loaded */
+static const char *eq_label(void);   /* defined after fw/halcyon.inc, which it reads */
 
 static uint32_t seek_req;                /* +1 forward, -1 back (as unsigned) */
 static uint32_t soft_restart_req;  /* probe: reposition only, keeps the known-good tag */
@@ -1235,6 +1555,10 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "key_repeat.h"     /* B-534: the one hold-to-repeat primitive (volume, Settings, library lists; host-tested) */
+#include "pcm_push.h"       /* Cymo C1 (B-533): the shared volume + fade + pack arithmetic (host-tested) */
+#include "meter_policy.h"    /* B-525: throttle for the heavy meter (host-tested) */
+#include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
 #include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
 /* Vertical gradient endpoints. Drawn as horizontal bands rather than a true
  * per-pixel ramp: a rect is ONE engine command, so 40 bands cost 40 commands
@@ -1505,7 +1829,7 @@ static ui_marquee_t ui_mq_title, ui_mq_artist;
  * row for it, so it costs a few dozen extra fb_rect() calls on the rare occasions its Settings-list thumbnail is drawn,
  * not a stash row it doesn't have room for. */
 #if TAU_ART_TIMG
-#define THUMB_LIVE_SLOTS (VIZ_COUNT - 5u)
+#define THUMB_LIVE_SLOTS (VIZ_COUNT - 6u)
 static inline uint32_t thumb_slot(uint32_t v)
 {
     return v - (v > VIZ_RETIRED_LEVELS) - (v > VIZ_RETIRED_MIRROR) - (v > VIZ_RETIRED_EYE) - (v > VIZ_RETIRED_TAPE) - (v > VIZ_CHLADNI);
@@ -1665,6 +1989,15 @@ static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
  * WVIZ_BANDS_MIN/MAX bound the band count (= SPEC_BANDS, the octave cascade's real band count: more would mean interpolating fake data;
  * the manifest range and a _Static_assert below keep them equal). */
 #include "meter_module.h"
+#define MTR_PSRAM_FW 1      /* firmware build: MTR_PSRAM puts meter state in PSRAM and mtr_psram_ready() really proves the window (host harnesses leave this undefined) */
+/* Figure draws that may be clipped around a Helios exclusion rect (fw/helios.inc fig_rect_fn/fig_bar_fn): the fullscreen figures (Winamp Bars/Scope, Layered
+ * Wave) call fig_rect/fig_bar instead of fb_rect/fb_bar. A separate wrapper rather than a check inside fb_rect(), which is inlined at hundreds of sites
+ * (that cost 1.4 KB of heap gap). Host harnesses that include meter.h without this get fig_rect = fb_rect. */
+static uint8_t fig_clip_on;
+static void fig_rect_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color);
+static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);
+#define fig_rect fig_rect_fn
+#define fig_bar  fig_bar_fn
 #include "meter.h"          /* the draw contract, docs/features/meters/METER_MODULE_SPEC.md section 3 */
 #include "meters_gen.h"
 #define WVIZ_BANDS_MIN 4u
@@ -1739,6 +2072,15 @@ static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardwa
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint8_t  hw_lpc;                   /* B-369: the bitstream has the FLAC LPC unit (probed once at boot) */
+static uint8_t  hw_a16;                   /* B-602: the bitstream has the 16-bit I2S slot switch (probed once at boot; an unmapped read is 0 on older bitstreams) */
+static uint8_t  a16_on;                   /* B-602: what the owner switched on (Diagnostics > 16-BIT OUTPUT); OFF at every boot, never persisted */
+static uint8_t  hw_cymo;                  /* B-471/B-476: the bitstream has the Cymo resampler (probed once at boot) */
+#define CYMO_RESAMP_READY() (hw_cymo != 0u)   /* a plain status-bit read: unlike BLIT_READY()/RRECT_READY(), this address
+                                                * range is cleanly unmapped on every older bitstream (docs/MMIO_ALLOCATION.md:
+                                                * "0x150-0x1FC free" before this unit existed), so there is no truncation/
+                                                * aliasing risk a behavioural probe would need to rule out. */
+static uint8_t  dbuf_hw;                  /* Helios/Talos H2 (B-340): the bitstream has double buffering (probed once at boot) */
+#define DBUF_READY() (dbuf_hw != 0u)
 #if FLAC_PROFILE
 static uint32_t clz_cal_cyc;              /* B-342: measured cycles/call of __clzdi2, once at boot */
 #endif
@@ -1855,6 +2197,7 @@ static uint32_t art_x = ART_X, art_shown = 1, art_ready, ui_text_w;
  * track with no artwork hides the panel without forgetting that the panel
  * is wanted, so the next track that has some brings it back. */
 static uint8_t  art_pref = 1, art_have;
+static uint8_t  art_job_on;       /* B-735 (gapless G1b): the embedded cover is decoding in the background (fw/art.inc art_job_tick). Cleared by anything that can change the slot's file. */
 static uint32_t art_file_id;      /* 0190 identity the stash was decoded for */
 static uint32_t art_sig;          /* fingerprint of the IMAGE the stash holds  */
 /* An image already known to be undecodable. Without this, a cover the core
@@ -1908,7 +2251,44 @@ static uint16_t ui_grad_top_c = UI_GRAD_TOP;
  * the card -- this should say "tinted", not "coloured". */
 /* Set where ui_grad_set() can reach it; the stash itself is built further
  * down, once UI_WAVE_* are in scope. */
+/* B-450: root cause of the Winamp Scope trail "accumulation" bug, found by reading mp3_fb.sv directly
+ * after PIXHIST (B-449) showed a stuck, non-decaying pixel with real contrast against the expected
+ * background -- decisive evidence the blend's DESTINATION write was landing somewhere never displayed,
+ * not that the blend arithmetic itself was wrong (already proven correct by the boot self-test and the
+ * live JTAG ALPHA reads, B-440/B-441/B-444). mp3_fb.sv's own module-header comment (line ~184-193,
+ * unchanged, not a bug in the RTL) documents the real contract: H2's automatic per-buffer offsetting
+ * (`dbuf_addr()`, keyed on `dbuf_cpu_buf`) applies ONLY to ordinary RECT/CHAR/COPY dispatch; every
+ * true BLIT-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) is addressed purely through the firmware-set
+ * sticky SRC_BASE/DST_BASE fields and is untouched by `dbuf_cpu_buf` -- "a caller wanting one of them
+ * to target the back buffer sets blt_dst_base itself" (docs/features/HELIOS_SPEC.md section 5). This
+ * is the EXACT bug class B-414 already found and fixed once for Chladni (fw/chladni.inc): a BLIT-mode
+ * caller that never calls fb_set_bases() always lands on buffer 0, regardless of which buffer
+ * `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-397) has since made the real CPU target via R_DBUF_CPU
+ * -- exactly what happens on every Settings/fullscreen/Configure open-close, the owner's own reported
+ * trigger. `wviz_scope_tick()`'s trail fade (`ui_bg_blend()` below) uses `fb_blit()`, a true BLIT-mode
+ * opcode, and never called `fb_set_bases()` at all: it always faded buffer 0 while the RECT-class
+ * trace bars (`fb_bar()`, automatically `dbuf_cpu_buf`-aware) correctly followed R_DBUF_CPU onto
+ * whichever buffer was actually displayed -- new segments keep landing on the real screen, the fade
+ * keeps updating a buffer nothing shows, exactly "accumulates instead of fading," and every earlier
+ * per-register check (STRIP/BASES/ALPHA/DBUF, B-433/434/439/440) reads correct in isolation because
+ * none of them asks whether a BLIT-mode write's TARGET buffer matches the DISPLAYED one.
+ *
+ * One further wrinkle this fix has to account for: `ui_bg_ready`'s lazy-built gradient strip (columns
+ * UI_BG_X..UI_BG_X+UI_BG_W, rows well inside V_ACT=360) is itself built via `fb_rect()` -- RECT-class,
+ * so it is ALREADY `dbuf_cpu_buf`-aware in hardware and, because its rows sit below DBUF_VISIBLE_WORDS,
+ * genuinely gets a SEPARATE physical copy per H2 buffer (unlike Chladni's own CHL_PLANE_Y scratch,
+ * which the module header confirms lives above V_ACT and is deliberately buffer-independent -- not
+ * the same situation, do not assume both stash regions behave alike). A strip built once for buffer 0
+ * is therefore just plain STALE/uninitialised content when later read back from buffer 1's copy -- a
+ * one-shot `ui_bg_ready` flag with no buffer memory cannot express "stale because the ACTIVE buffer
+ * changed," only "stale because the gradient changed" (`ui_grad_set()`). `ui_bg_buf` below fixes that:
+ * whichever buffer the strip was last built for, invalidated (forcing a fresh `fb_rect()` build into
+ * whichever buffer is now current) the moment `R_DBUF_CPU` disagrees with it. */
 static uint8_t ui_bg_ready;
+static uint8_t ui_bg_buf;      /* which H2 buffer (0/1) ui_bg_ready's strip actually reflects */
+/* B-413: live counters for the still-unexplained Winamp Scope trail "accumulation" report -- see the
+ * comment at their increment site (wviz_scope_tick()) for what each one means. */
+static uint32_t dbg_scope_blend_ok, dbg_scope_blend_fail;
 
 static void ui_grad_set(uint16_t accent)
 {
@@ -2154,16 +2534,40 @@ static uint32_t ui_wave_w(void)
 #define UI_BG_X  FB_W                  /* first off-screen column */
 #define UI_BG_W  (FB_STRIDE - FB_W)    /* 112 px of invisible stride */
 
+/* B-411 (owner-reported: Winamp Scope's trail stops fading -- "accumulates" -- specifically after
+ * returning from a use_gradient=0 context, fullscreen or the Configure preview, and stays broken
+ * every time until the next such transition): unlike every other draw primitive in this codebase
+ * (fb_rect/fb_bar/fb_blit, and this function's own sibling ui_bg_blend() a few lines below), this had
+ * no FB_HELD() guard of its own. If it ran during the brief window right as an overlay was closing --
+ * exactly when this is called as ui_bg_blend()'s fallback after ui_bg_blend() itself failed because
+ * FB_HELD() was still transiently true -- its fb_rect() calls silently no-op'd (each checks FB_HELD()
+ * internally), leaving the off-screen gradient strip's memory untouched, but `ui_bg_ready` still got
+ * set to 1 unconditionally: every later blend then faded toward whatever stale/garbage content was
+ * actually sitting there instead of the real gradient, until the next transition reset the flag and
+ * the same race could recur. */
+/* B-450: which H2 buffer (0/1) R_DBUF_CPU currently targets, 0 on any bitstream without H2 -- the
+ * SAME test `dbuf_addr()` performs in hardware for every RECT-class opcode, so both the strip build
+ * below (fb_rect, already dbuf_cpu_buf-aware in RTL) and this function's callers agree on which
+ * buffer is "current" without a second source of truth. */
+static uint32_t ui_bg_cur_buf(void)
+{
+    return (DBUF_READY() && (REG(R_DBUF_CPU) & 1u)) ? 1u : 0u;
+}
+
 static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-    if (!w || !h) return;
-    if (!ui_bg_ready) {
+    if (!w || !h || FB_HELD()) return;
+    const uint32_t buf = ui_bg_cur_buf();
+    if (!ui_bg_ready || ui_bg_buf != buf) {   /* B-450: also rebuild if the ACTIVE H2 buffer changed */
         for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
         ui_bg_ready = 1;
+        ui_bg_buf = (uint8_t)buf;
     }
     /* Source and destination share rows, so the ramp lines up by
-     * construction and the copy is purely horizontal. */
+     * construction and the copy is purely horizontal. fb_copy() is OP_COPY -- RECT-adjacent, already
+     * dbuf_cpu_buf-aware in hardware (mp3_fb.sv p0_addr dispatch), so unlike fb_blit() below it needs
+     * no explicit sticky-base handling here at all. */
     while (w) {
         uint32_t n = (w < UI_BG_W) ? w : UI_BG_W;
         fb_copy(UI_BG_X, y, x, y, n, h);
@@ -2179,11 +2583,26 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     if (!w || !h || FB_HELD()) return 0;
     blend_ensure();
     if (!BLEND_READY()) return 0;
-    if (!ui_bg_ready) {                                     /* the same lazy strip build as ui_bg_restore() */
+    const uint32_t buf = ui_bg_cur_buf();
+    if (!ui_bg_ready || ui_bg_buf != buf) {                  /* the same lazy strip build as ui_bg_restore() */
         for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
         ui_bg_ready = 1;
+        ui_bg_buf = (uint8_t)buf;
     }
+    /* B-450: fb_blit() is a true BLIT-mode opcode (mp3_fb.sv: BLIT/BAR/SBLIT/CBLIT/RRECT), addressed
+     * ONLY through the firmware-programmable sticky SRC_BASE/DST_BASE fields -- it does NOT follow
+     * R_DBUF_CPU automatically the way fb_rect()/fb_copy() do. Without this, the fade always targeted
+     * buffer 0 regardless of which buffer was actually the CPU's current target (and displayed), while
+     * the RECT-class trace bars correctly followed it -- new content landing on screen, the fade
+     * updating a buffer nothing shows. Same bug class, same fix pattern as Chladni's own H2 tracking
+     * (fw/chladni.inc, B-414): point both SRC_BASE and DST_BASE at the buffer this call already
+     * determined the strip lives in (source = the strip's own per-buffer copy, destination = the
+     * visible meter area, both the SAME currently-active buffer), then restore to (0,0) once the
+     * blit has genuinely executed (fb_fence(), not merely queued -- B-412's own lesson) so no later,
+     * unrelated BLIT-mode caller silently inherits a nonzero base. */
+    const uint32_t base = buf ? DBUF_BASE1_W : 0u;
+    fb_set_bases(base, base);
     fb_blend_on(bg_alpha > 255u ? 255u : bg_alpha);
     while (w) {
         uint32_t n = (w < UI_BG_W) ? w : UI_BG_W;
@@ -2192,7 +2611,121 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     }
     fb_fence();
     fb_blend_off();
+    fb_set_bases(0u, 0u);
     return 1;
+}
+
+/* B-433: Option A of the B-413 investigation. dbg_scope_blend_ok/fail (wviz_scope_tick()) already
+ * proved the blend mechanism runs to completion and reports success every single time -- this reads
+ * back the gradient strip's ACTUAL SDRAM pixel content (via the same mailbox primitive blend_probe()
+ * uses) and compares it against what ui_grad_at() computes fresh for those same rows RIGHT NOW. Every
+ * word in a given row should hold the same colour twice (both mailbox halves), since ui_bg_ready's
+ * lazy build paints one uniform colour per row via a single fb_rect() call -- so a genuine mismatch
+ * here is real corruption, not a sampling artefact. Three rows sampled (top/middle/bottom of the
+ * strip's range) rather than one, since a corruption mechanism might only hit part of the strip.
+ * Result: if this reads BAD, the strip itself holds wrong data despite ui_bg_ready claiming otherwise
+ * (points back at a firmware-side write bug, worth another source pass); if it reads OK while the
+ * trail still visibly doesn't fade, the strip is genuinely correct and the bug is in the blend
+ * hardware's own datapath -- the next real step is a live JTAG read of the blend pipeline itself
+ * (bl_fg/bl_bg/bl_r/blt_blend_alpha), not more firmware source-reading.
+ * B-434: owner confirmed STRIP always reads OK. Before going to JTAG, also snapshot dbg_base_src/dst
+ * (fb_set_bases()'s own shadow of the sticky SRC_BASE/DST_BASE fields, which are write-only in
+ * hardware and can't otherwise be read back) right here -- if either is nonzero at the exact moment
+ * this blend fires, the trail blit and ui_bg_blend()'s destination pre-read are silently targeting the
+ * wrong SDRAM region (a real firmware bug, the same class B-410/B-414 both found), which would read
+ * exactly like "the trail never fades" while the strip itself stays provably correct. */
+static uint8_t  dbg_strip_bad;
+static uint16_t dbg_strip_actual[3], dbg_strip_expect[3];
+static uint32_t dbg_strip_base_src, dbg_strip_base_dst;
+/* B-439: STRIP/BASES both check out fine even while the owner reproduces the accumulation live (Info
+ * screenshot: SCOPE BG READY 173 OK 0 FAIL, STRIP OK, BASES both 0) -- every theory reachable from
+ * ui_bg_blend()'s own inputs is now exhausted. Reconsidering from the H2/Helios addressing split
+ * (docs/MMIO_ALLOCATION.md's DBUF_CPU row, corrected this session): RECT-class opcodes (fb_rect/
+ * fb_bar/fb_copy -- what builds the strip AND draws the trace bars) automatically follow R_DBUF_CPU's
+ * current buffer selection; true BLIT-class opcodes (fb_blit -- what ui_bg_blend() actually uses to
+ * paint the fade) do NOT, and rely entirely on the sticky SRC_BASE/DST_BASE fields already confirmed
+ * zero. If R_DBUF_CPU (the buffer new CPU draws target) and R_DBUF_DISP (the buffer actually shown)
+ * ever disagree at the moment this blend fires, the trace bars (RECT-class) keep landing on the
+ * correct, currently-displayed buffer -- explaining why new segments keep appearing -- while the
+ * blend (BLIT-class, base 0 always) keeps updating the OTHER, undisplayed buffer, having zero visible
+ * effect: exactly "new draws pile up, nothing ever visibly erases." Both registers are ordinary
+ * readable MMIO (unlike the write-only sticky blit fields), so this needs no JTAG. */
+static uint8_t dbg_dbuf_cpu, dbg_dbuf_disp;
+/* B-440: dbg_blend_alpha (fw/blit_probe.inc) is fb_blend_on()'s own shadow of the last alpha value
+ * WRITTEN to the sticky BLEND field -- snapshotted here so it reads alongside everything else this
+ * investigation already checks. If this shows a plausible value derived from the configured trail %
+ * (matching `(100 - trail) * 256 / 100` from wviz_scope_tick()'s own call) while the trail still
+ * visibly never fades, firmware's write is correct and the bug is in hardware actually applying it;
+ * if it reads something else (stuck at 0, or not matching what the trail setting implies), the bug is
+ * in firmware's own alpha computation/write, not the blend datapath at all. */
+static uint32_t dbg_strip_alpha;
+
+/* B-444: JTAG polling (B-443) proved a genuine methodology dead end -- every ALPHA/register-level check
+ * (execution success, strip content, bases, buffer selection, and now the alpha register itself) reads
+ * correct, yet the visual symptom persists. Worked out why opportunistic sampling can never resolve
+ * this further: `blend_ch()`'s 8-bit-truncated `>>8` approximation means a source/destination pair
+ * differing by exactly 1 LSB in a channel can NEVER show any blend effect for ANY alpha 0-255 (the
+ * arithmetic proves it: with f=b+1, dsp=b*256+alpha, which never reaches (b+1)*256 for alpha<256) --
+ * and a genuinely fading pixel converges to within 1 LSB of the background in about 4-5 frames at
+ * alpha=153 (40% trail). JTAG polling is far slower than that, so every live sample was always going
+ * to land on an already-converged, blend-indistinguishable pixel regardless of whether the hardware is
+ * healthy. This logs the ACTUAL framebuffer content of one fixed on-screen pixel (the scope box's own
+ * top-left corner, `in->x`/`in->y` -- touched by every erase/blend call, only occasionally by the
+ * trace's own accent bars when amplitude reaches that high) across consecutive `wviz_scope_tick()`
+ * calls into a small ring buffer, entirely through the existing `blend_mb_read()` mailbox (no JTAG, no
+ * new RTL) -- a real frame-by-frame decay trace instead of a single, badly-timed snapshot.
+ * `dbg_strip_check()`'s own "whichever half matches" trick only works for a known-constant value (the
+ * static gradient strip) -- it breaks down here, since a genuinely decaying value spends most of its
+ * life NOT matching either "the old bright colour" or "the current background" exactly. (x, y) stays
+ * fixed across every logged call, so whichever mailbox half is this pixel's own stays the SAME half on
+ * every read (address parity never changes) -- storing the raw word and showing both halves lets the
+ * real decaying half be told apart from its neighbour's unrelated content by eye by seeing which one is
+ * actually trending, without needing to guess up front. */
+#define DBG_PIXHIST_N 3u   /* B-445: 4 overflowed set_draw_ro()'s fixed char v[40] row buffer (10 chars/entry
+                            * + "Wxxxx" = 45 bytes into 40, a real stack overflow -- crashed hardware the
+                            * instant the row scrolled into view). 3 entries + the suffix fits with margin,
+                            * matching STRIP's own 3-item convention. */
+static uint32_t dbg_pixhist[DBG_PIXHIST_N];
+static uint8_t  dbg_pixhist_pos;
+static uint16_t dbg_pixhist_want;   /* what ui_grad_at() currently expects for that row, for comparison */
+
+static void dbg_pixel_log(uint32_t x, uint32_t y)
+{
+    /* B-450: this exact non-decaying PIXHIST reading was the decisive evidence that the fade's write
+     * was landing on the wrong H2 buffer -- keep reading whichever buffer is now the real CPU target
+     * (ui_bg_cur_buf()), so a future read after this fix stays meaningful instead of silently going
+     * back to reading a buffer nothing displays. */
+    uint32_t addr = ui_bg_cur_buf() * DBUF_BASE1_W + y * FB_STRIDE + x, r = 0xFFFFFFFFu;
+    blend_mb_read(addr, &r);   /* leaves r as the sentinel on failure -- visible as FFFF/FFFF, not a silent gap */
+    dbg_pixhist_want = ui_grad_at(y);
+    dbg_pixhist[dbg_pixhist_pos] = r;
+    dbg_pixhist_pos = (uint8_t)((dbg_pixhist_pos + 1u) % DBG_PIXHIST_N);
+}
+
+static void dbg_strip_check(void)
+{
+    const uint32_t rows[3] = { UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H / 2u, UI_WAVE_Y + UI_WAVE_H - 1u };
+    dbg_strip_bad = 0;
+    dbg_strip_base_src = dbg_base_src; dbg_strip_base_dst = dbg_base_dst;
+    dbg_dbuf_cpu = (uint8_t)(REG(R_DBUF_CPU) & 1u);
+    dbg_dbuf_disp = (uint8_t)(REG(R_DBUF_DISP) & 1u);
+    dbg_strip_alpha = dbg_blend_alpha;
+    /* B-450: the strip now legitimately has a separate physical copy per H2 buffer (ui_bg_buf); read
+     * back whichever one ui_bg_blend()/ui_bg_restore() actually built most recently, or this check
+     * would report a false BAD/mismatch (reading buffer 0's now-stale copy) the instant the active
+     * buffer is 1, even though the fix above is working correctly. */
+    const uint32_t strip_base = ui_bg_buf ? DBUF_BASE1_W : 0u;
+    for (uint32_t k = 0; k < 3u; k++) {
+        uint32_t yy = rows[k];
+        uint16_t want = ui_grad_at(yy);
+        uint32_t addr = strip_base + yy * FB_STRIDE + UI_BG_X;
+        uint32_t r = 0;
+        dbg_strip_expect[k] = want;
+        if (blend_mb_read(addr, &r)) { dbg_strip_bad = 1u; dbg_strip_actual[k] = 0xFFFFu; continue; }
+        uint16_t lo = (uint16_t)(r & 0xFFFFu), hi = (uint16_t)(r >> 16);
+        dbg_strip_actual[k] = (lo == want) ? lo : hi;    /* prefer whichever half matches, for display */
+        if (lo != want && hi != want) dbg_strip_bad = 1u;
+    }
 }
 
 /* Repaint the strip the art travels through, so a slide leaves the background
@@ -2368,6 +2901,8 @@ static char *ui_hex2(char *p, uint8_t v)
  * off-screen rows -- so the panel, the slide and the clipping are all exercised
  * now and the decoder simply replaces the contents later. */
 static int  art_decode(uint32_t tag_len);
+static int  art_job_launch(uint32_t tag_len, uint32_t sig);   /* B-735: begin the background decode; 1 = a job is running */
+static void art_job_tick(void);
 
 /* Round the art's corners by masking the STASH rather than the blit: baked in
  * once, so every slide step then draws an already-rounded image for free. The
@@ -2403,8 +2938,16 @@ static void ui_art_mount(void)
     fb_rect(0, ART_STASH_Y, ART_W, ART_H, UI_PANEL);
 }
 
+/* B-412 (audit after B-410/B-411): same pattern as ui_bg_restore()'s own bug -- fb_rect() already
+ * no-ops under FB_HELD(), but `art_ready` used to get marked regardless, so a track load that
+ * happened to coincide with an overlay closing could leave art_ready=1 over a placeholder that was
+ * never actually drawn. Lower-probability window than ui_bg_restore's (needs a track load and an
+ * overlay transition to coincide, not every single transition) and a safer failure mode (no cover
+ * shown, matching the existing "no art" state, not a corrupted one) -- fixed anyway for consistency
+ * with every other draw primitive's own guard. */
 static void ui_art_placeholder(void)
 {
+    if (FB_HELD()) return;
     /* Only the cover area -- the mount around it is already drawn. A slightly
      * darker fill than the plate so an artless track reads as an empty frame
      * rather than a solid grey slab. */
@@ -2424,6 +2967,7 @@ static void ui_art_placeholder(void)
  * a standing fact about the file, not an event. */
 static void ui_art_reason(int progressive)
 {
+    if (FB_HELD()) return;   /* B-412: same reasoning as ui_art_placeholder()'s own guard just above */
     /* A boolean, not the picojpeg status: this lives well above the point
      * where art.inc pulls picojpeg.h in, so the enum is not in scope here.
      * The caller does the comparison, where it is. */
@@ -2647,10 +3191,10 @@ static void ui_eq_pill(void)
     uint16_t pbg = ui_grad_at(UI_GENRE_Y + UI_GENRE_H / 2u);
     fb_round_rect_on(UI_TEXT_X, UI_GENRE_Y, UI_EQ_PILL_W, UI_GENRE_H, UI_GENRE_H / 2u,
                      UI_PILL_BG, pbg);
-    const char *n = eq_name[eq_idx];
+    const char *n = eq_label();
     uint32_t w = fb_text_width(n, TS_1X);
     if (w > UI_EQ_PILL_W - 12u) w = UI_EQ_PILL_W - 12u;
-    fb_set_color(eq_idx ? ui_accent : UI_FAINT, UI_PILL_BG);
+    fb_set_color(hal_sel ? ui_accent : UI_FAINT, UI_PILL_BG);
     fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + (UI_GENRE_H - FB_CELL(TS_1X)) / 2u, n, TS_1X, TS_1X, w);
 }
 
@@ -2689,7 +3233,7 @@ COLD_SR static void ui_draw_chrome(void)
     else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK)
         title = "Select a track from your library";
     else if (!track_title[0] && !track_file[0] && lib_state != LIB_ST_OK)
-        title = "Sync your library to play music";
+        title = "Sync your library with Tau Omega";
     else if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
          * ("/Assets/tau/common/Flodown.mp3"). */
@@ -2869,7 +3413,7 @@ COLD_SR static void ui_draw_chrome(void)
      * Resetting a new track's clock belongs to load_track, which is the only
      * place that knows a new track started. It does it now. */
     ui_prog_sec   = 0xFFFFFFFFu;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     /* Chrome repaints the bottom strip too; make the 1 Hz stress HUD restore
      * itself on the next main-loop pass rather than waiting for another tick. */
     stress_hud_tick = 0xFFFFFFFFu;
@@ -2916,9 +3460,75 @@ static uint8_t ui_chrome_region = 0xFFu;
 static void ui_chrome_paint(void)
 {
     if (!SR_READY()) return;          /* B-333: the chrome is cold code; no cold image, no player screen */
-    if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register(ui_draw_chrome);
+    /* cold-aware: ui_draw_chrome is cold code, so helios_flush() itself checks cold_code_ok before calling it */
+    if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register_rows_cold(ui_draw_chrome, 0u, 0xFFFFu);
     helios_mark_dirty(ui_chrome_region);
     helios_flush();
+}
+
+/* Helios H2 (docs/features/HELIOS_SPEC.md section 5, item 7 of the architecture review): double
+ * buffering for a genuine full-frame redraw (chrome, and whatever the same transition draws right
+ * alongside it, e.g. album art) -- bracket every plain FB_BASE-relative draw in the redraw with
+ * these two calls instead of touching R_DBUF_CPU/R_DBUF_DISP at each individual call site.
+ *
+ * dbuf_redraw_begin(): if this bitstream has H2 (DBUF_READY()), select the buffer NOT currently
+ * displayed for the CPU write-side (R_DBUF_CPU) and return 1; otherwise return 0 and touch nothing
+ * -- old-bitstream safety rests entirely on this one check, since R_DBUF_CPU/R_DBUF_DISP simply do
+ * not exist on any bitstream without TAU_DBUF (mp3_soc.v decodes those offsets to something else
+ * or nothing at all there). The return value is NOT optional: it must be passed to
+ * dbuf_redraw_end() unchanged, so the "end" half never touches the registers either when this
+ * bitstream lacks them.
+ *
+ * dbuf_redraw_end(active): a no-op if `active` is 0. Otherwise: fb_fence() (every draw issued
+ * between begin/end has now actually EXECUTED, not merely been accepted into the queue -- B-412,
+ * found auditing every sticky-field/buffer-redirect site after B-410/B-411 found the same
+ * fb_wait()-where-fb_fence()-was-needed gap twice elsewhere: this used to call fb_wait(), which
+ * only confirms the FIFO wasn't full at queue time, not that the hardware has drained it, so the
+ * flip below could in principle land at the next vblank before ui_chrome_paint()/ui_art_draw()'s
+ * own commands had finished. No ov_draw dance needed here unlike those other two fixes: fb_fence()
+ * is itself gated on FB_HELD(), but dbuf_redraw_begin()'s own precondition already guarantees
+ * FB_HELD() is false for this whole bracket -- neither overlay flag it checks changes while this
+ * runs), request the flip, then poll the RTL's own "flip still pending" bit for up to CLK_HZ/10
+ * (~100 ms) before giving up. Either way, resync
+ * R_DBUF_CPU to whatever IS now actually displayed: every ordinary INCREMENTAL draw after this
+ * point (concretely, the meter box, ui_meter_redraw()) must target the buffer currently on screen
+ * directly, per HELIOS_SPEC.md section 5's own note that H1's beam-gated draws are not part of
+ * this double-buffered bracket at all -- so leaving R_DBUF_CPU pointed at the back buffer past this
+ * function's return would silently misdirect every one of them, whether or not the flip we
+ * requested actually landed in time. */
+static uint8_t dbuf_redraw_begin(void)
+{
+    /* B-399 (owner-observed on real hardware, TAU_DEV_55): FB_HELD() is checked INSIDE every
+     * individual draw primitive (fb_rect()/fb_bar()/etc., all at line ~465 onward), not by this
+     * bracket's own caller -- while an overlay holds the screen, ui_chrome_paint()'s underlying
+     * ui_draw_chrome() silently draws NOTHING (every call inside it no-ops), but this function had
+     * no way to know that and dbuf_redraw_end() would request a flip anyway, onto a back buffer
+     * holding whatever stale content was left there from an earlier, unrelated redraw -- visible as
+     * a brief tear/glitch that self-corrects once the next real redraw catches up. Matches exactly
+     * what was reported: settings/library open-close and menu navigation (both of which set
+     * UI_OVERLAY_UP while the chrome bit is still set) tearing briefly then returning to normal. */
+    /* B-402: the exact same bug shape as B-399's FB_HELD() fix above, found while scoping an
+     * unrelated feature request -- ui_draw_chrome() ALSO no-ops while screen_blank is set (its own
+     * comment: "a track change must not light the screen back up", ui_blank_wake() re-triggers the
+     * real draw on the way out), a DIFFERENT condition from FB_HELD() (screen_blank is not part of
+     * UI_OVERLAY_UP/ui_fullscreen). Without this check, a chrome invalidation firing while blanked
+     * -- a track change during blank is the documented, expected case -- would still flip onto
+     * whatever stale content sits in the back buffer, briefly breaking the "stays black while
+     * blanked" guarantee. */
+    if (!DBUF_READY() || FB_HELD() || screen_blank) return 0u;
+    const uint32_t cur = REG(R_DBUF_DISP) & 1u;
+    REG(R_DBUF_CPU) = cur ^ 1u;
+    return 1u;
+}
+
+static void dbuf_redraw_end(uint8_t active)
+{
+    if (!active) return;
+    fb_fence();
+    REG(R_DBUF_DISP) = 1u;
+    const uint32_t t0 = cycles();
+    while ((REG(R_DBUF_DISP) & 2u) && (uint32_t)(cycles() - t0) < CLK_HZ / 10u) { }
+    REG(R_DBUF_CPU) = REG(R_DBUF_DISP) & 1u;
 }
 
 /* A load failure used to spin in `for(;;){}`, which is the worst possible
@@ -2954,7 +3564,7 @@ static void poll_input(void);
 #define UI_SPL_VER_Y    (UI_TITLE_Y - 14u + UI_CARD_H - 14u - 16u)
 #define UI_SPL_INFO_Y  262u    /* the transport row's line */
 
-/* Authored Tau loading screen. The generated 16-colour RLE file lives in its
+/* Authored Tau loading screen. The generated RLE file (TAU2: 256 colours, B-574; TAU1, the original 16-colour format, is still read) lives in its
  * own deferred APF slot and streams through the existing 4 KB tag scratch
  * window. Embedding it in the firmware crossed the reserved DMA boundary by
  * 12.5 KB; keeping it external preserves both image quality and decoder RAM.
@@ -2962,7 +3572,8 @@ static void poll_input(void);
 #define TAU_SPLASH_SLOT_ID  4u
 #define TAU_SPLASH_W        400u
 #define TAU_SPLASH_H        360u
-#define TAU_SPLASH_HEADER   44u
+#define TAU_SPLASH_HEADER   44u      /* TAU1: 12-byte header + 16 colours  */
+#define TAU_SPLASH_HEADER2  524u     /* TAU2: 12-byte header + 256 colours */
 #define TAU_SPLASH_CHUNK    4096u
 #define TAU_SPLASH_STATUS_X 104u
 #define TAU_SPLASH_STATUS_Y 256u
@@ -2995,29 +3606,34 @@ static int ui_splash_asset(void)
 {
     uint32_t dst = (uint32_t)(uintptr_t)&_tag_start;
     uint8_t *buf = (uint8_t *)(uintptr_t)(0xC0000000u + dst);
-    uint16_t palette[16];
+    uint16_t palette[256];
 
-    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER))
+    /* One read serves both formats: the larger header, of which TAU1 uses the first 44 bytes. */
+    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER2))
         return 0;
-    if (buf[0] != 'T' || buf[1] != 'A' || buf[2] != 'U' || buf[3] != '1' ||
-        tau_u16(buf + 4u) != TAU_SPLASH_W ||
+    uint32_t ncol = 0, hdr = 0;
+    if (buf[0] == 'T' && buf[1] == 'A' && buf[2] == 'U') {
+        if (buf[3] == '1')      { ncol = 16u;  hdr = TAU_SPLASH_HEADER;  }
+        else if (buf[3] == '2') { ncol = 256u; hdr = TAU_SPLASH_HEADER2; }
+    }
+    if (!ncol || tau_u16(buf + 4u) != TAU_SPLASH_W ||
         tau_u16(buf + 6u) != TAU_SPLASH_H)
         return 0;
 
     uint32_t bytes = tau_u32(buf + 8u);
     if (!bytes || (bytes & 1u) || bytes > TAU_SPLASH_W * TAU_SPLASH_H * 2u)
         return 0;
-    for (uint32_t i = 0; i < 16u; i++)
+    for (uint32_t i = 0; i < ncol; i++)
         palette[i] = tau_u16(buf + 12u + i * 2u);
 
-    uint32_t file_off = TAU_SPLASH_HEADER, pos = 0;
+    uint32_t file_off = hdr, pos = 0;
     while (bytes) {
         uint32_t chunk = bytes > TAU_SPLASH_CHUNK ? TAU_SPLASH_CHUNK : bytes;
         if (!target_read_slot(TAU_SPLASH_SLOT_ID, file_off, dst, chunk))
             return 0;
         for (uint32_t i = 0; i < chunk; i += 2u) {
             uint32_t left = buf[i];
-            uint16_t c = palette[buf[i + 1u] & 15u];
+            uint16_t c = palette[buf[i + 1u] & (ncol - 1u)];
             if (!left || pos + left > TAU_SPLASH_W * TAU_SPLASH_H)
                 return 0;
             while (left) {
@@ -3038,13 +3654,14 @@ static int ui_splash_asset(void)
 
 static void ui_splash_version(void)
 {
-    const char *s = "TAU ALPHA " APP_VER;
-    uint32_t w = fb_text_width(s, TS_1X);
+    /* The full version alone (it was "TAU ALPHA 0.6.0": the repository's name, which read like a channel; the splash image already says
+     * TAU). One draw, no buffer: the 192 KB diagnostic build has almost no RAM to spare. */
+    const char *v = app_version();
+    uint32_t w = fb_text_width(v, TS_1X);
     fb_rect(UI_MARGIN - 4u, TAU_SPLASH_VER_Y - 1u, w + 8u,
             FB_CELL(TS_1X) + 2u, TAU_SPLASH_BG);
     fb_set_color(UI_DIM, TAU_SPLASH_BG);
-    fb_text_clipped(UI_MARGIN, TAU_SPLASH_VER_Y, s, TS_1X, TS_1X,
-                    FB_W - 2u * UI_MARGIN);
+    fb_text_clipped(UI_MARGIN, TAU_SPLASH_VER_Y, v, TS_1X, TS_1X, FB_W - 2u * UI_MARGIN);
 }
 
 /* Card, title and version. Shared by the static splash and the animated one so
@@ -3071,8 +3688,7 @@ static void ui_splash_bg(void)
                   UI_INNER_W + 16u, UI_CARD_H, 8u, UI_PANEL);
 
     fb_set_color(UI_DIM, UI_PANEL);
-    fb_text_clipped(UI_MARGIN, UI_SPL_VER_Y, "v" APP_VER, TS_1X, TS_1X,
-                    UI_INNER_W);
+    fb_text_clipped(UI_MARGIN, UI_SPL_VER_Y, app_version(), TS_1X, TS_1X, UI_INNER_W);
 }
 
 static void ui_splash_title(uint32_t f, uint32_t den)
@@ -3344,6 +3960,399 @@ static inline mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
     return in;
 }
 
+/* Helios review item 5 (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5): the 8
+ * legacy meters below, extracted from ui_draw_dynamic_cold()'s own inline `if (viz_mode == VIZ_X)`
+ * chain into the same mtr_in_t contract item 1 proved on Winamp Bars/Scope, Chladni and VU Master --
+ * geometry (x/y/w/h/bg) and the audio-input fields the struct already carries (spec/wave/peak/peak_l/
+ * peak_r) come from `in`, exactly like those four; a meter's OWN accumulated state that is not really
+ * an "input" (wave[]/wave_pk[]'s shared envelope history, the phase scope's trail buffer, the VU
+ * needle's physics) stays a file-scope static read directly, same precedent wviz_bars_tick's own
+ * per-band easing arrays already set. No new mtr_in_t fields added -- meter.h's own header comment
+ * says as much ("without also inventing... in the same pass"), and every one of these 8 already had a
+ * working direct-global-read version, so there is nothing here that NEEDS a new field to express.
+ *
+ * Not hardware-tested this pass (no card mounted) -- pure code motion, verified by diffing against the
+ * pre-move logic line by line and by `make test-host`/every firmware build target still linking; see
+ * docs/AUDIT_TRAIL.md B-390 for the full account of what was and was not possible to verify this way. */
+
+/* Scrolling waveform: the waterfall's COPY-scroll, but the new column is drawn MIRRORED about a
+ * centre line instead of colour-coded from the bottom -- a DAW-style envelope building up left to
+ * right. ~5 commands a frame, because COPY moves the whole strip for the price of one. */
+static void viz_scroll_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t cy = y + h / 2u;
+    const uint32_t half = h / 2u - 1u;
+    if (paused) return;
+    fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
+
+    uint32_t a = (in->peak * half) / 32768u;
+    if (a > half) a = half;
+
+    uint32_t cx = x0 + w - 1u;
+    ui_bg_restore(cx, y, 1, h);     /* clear column */
+    if (a) fb_rect(cx, cy - a, 1, a * 2u + 1u,
+                   ui_mix(UI_TRACK, ui_accent, a, half));
+    else   fb_rect(cx, cy, 1, 1, UI_TRACK);         /* silence line */
+}
+
+/* Spectrum: eight columns of real frequency content from the octave cascade (in->spec, SPEC_BANDS
+ * entries). Bass on the left, treble on the right, each moving on its own. */
+static void viz_led_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    if (paused)
+        for (uint32_t b = 0; b < SPEC_BANDS; b++) spec_lvl[b] = 0;
+
+    /* The gaps between blocks show background, and the background is a per-row ramp -- a flat fill
+     * is the mistake the magic eye made. Only on a repaint: the gaps never move. */
+    int repaint = (spec_drawn[0] == 0xFFu);
+    if (repaint) ui_bg_restore(x0, y, w, h);
+
+    uint32_t colw  = w / SPEC_BANDS;
+    uint32_t bw    = (colw > SPEC_GAPX) ? colw - SPEC_GAPX : 1u;
+    uint32_t pitch = LED_BLKH + LED_GAPV;
+
+    for (uint32_t b = 0; b < SPEC_BANDS; b++) {
+        uint32_t lit  = ((uint32_t)in->spec[b] * LED_ROWS) / 256u;
+        uint32_t prev = spec_drawn[b];
+
+        /* Nothing crossed a row boundary: draw nothing at all. In ordinary music most bands are in
+         * this state on most updates, which is the whole saving. */
+        if (!repaint && lit == prev) continue;
+
+        uint32_t lo = repaint ? 0u : (lit < prev ? lit : prev);
+        uint32_t hi = repaint ? LED_ROWS : (lit > prev ? lit : prev);
+        spec_drawn[b] = (unsigned char)lit;
+
+        uint32_t bx = x0 + b * colw;
+        for (uint32_t r = lo; r < hi; r++) {
+            uint32_t by = y + h - (r + 1u) * pitch;
+            uint16_t c;
+            if (r < lit) {
+                uint32_t half = LED_ROWS / 2u;
+                c = (r < half)
+                  ? ui_mix(LED_LO, LED_MIDC, r, half)
+                  : ui_mix(LED_MIDC, LED_HI, r - half,
+                           LED_ROWS - half);
+            } else {
+                c = UI_TRACK;
+            }
+            fb_rect(bx, by, bw, LED_BLKH, c);
+        }
+    }
+}
+
+/* Peak dots: only the peak-hold markers, no bars -- a row of floating dots tracing the loudness
+ * contour. ~2 commands a column and the sparsest mode here. wave_pk[]/wave_pk_drawn[] are the shared
+ * envelope-peak history every column-based meter reads, computed once per tick before this dispatch
+ * (not part of mtr_in_t -- see this section's own header comment). */
+static void viz_dots_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    for (uint32_t i = 0; i < UI_WAVE_N; i++) {
+        uint32_t x   = x0 + (i * w) / UI_WAVE_N;
+        uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
+        uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+        uint32_t pk  = wave_pk[i];
+        if (pk < 2u) pk = 2u;
+
+        /* Same treatment as the mirrored bars: skip an unmoved column, and restore around the dot
+         * rather than through it. */
+        if (pk == wave_pk_drawn[i]) continue;
+        wave_pk_drawn[i] = (unsigned char)pk;
+
+        uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
+        uint32_t top = y + h - pk;   /* first dot row */
+        uint32_t end = y + h;        /* one past box  */
+        if (top > y)
+            ui_bg_restore(x, y, lit, top - y);
+        if (top + 2u < end)
+            ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
+        fb_rect(x, top, lit, 2u, c);
+    }
+}
+
+/* Waterfall: scroll the whole strip one pixel left with a single COPY, then draw only the new
+ * right-hand column. That is ~4 commands a frame against the bars' ~72, because COPY moves a block
+ * for the price of one command -- the same primitive the album-art slide uses. Colour encodes
+ * loudness, so the strip becomes a picture of the track's dynamics rather than an instantaneous
+ * reading. */
+static void viz_water_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    if (paused) return;
+    fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
+
+    uint32_t a = (in->peak * h) / 32768u;
+    if (a > h) a = h;
+
+    /* Column drawn as three bands -- quiet bed, body, hot tip -- so loud passages read as brighter
+     * AND taller. */
+    uint32_t cx = x0 + w - 1u;
+    ui_bg_restore(cx, y, 1, h - a);
+    if (a) {
+        uint16_t c = ui_mix(UI_TRACK, ui_accent, a, h);
+        fb_rect(cx, y + h - a, 1, a, c);
+        fb_rect(cx, y + h - a, 1, 1, UI_WHITE);
+    }
+}
+
+/* VU meters: two analogue movements side by side. Geometry comes from `in` every pass rather than
+ * being assumed: hiding the album art widens the box from ~246 to ~360, and a fixed layout would leave
+ * the pair huddled at the left -- the same trap the waterfall fell into. */
+static void viz_vu_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t wf = in->force;
+    /* The face -- arc, ticks, labels -- never changes, so it is drawn ONCE and left alone. Clearing
+     * the whole box and repainting everything each pass is what made the L and R labels flicker: they
+     * were being erased and redrawn while the panel was being scanned out. Only the needle is erased
+     * and redrawn now. Width changes with the art panel, and the face geometry is derived from it, so
+     * a cached face drawn at another width is stale even if nothing erased it. */
+    if (wf || w != vu_face_w) vu_face = 0;
+
+    /* Per ROW. Same fault the magic eye exposed: the box was filled with a flat colour, the gradient
+     * sampled once at its top row, which is a flat slab on a ramp that falls to 62% of that value by
+     * the bottom. The needles leave most of the box empty, so it shows. */
+    if (!vu_face)
+        for (uint32_t yy = y; yy < y + h; yy++)
+            fb_rect(x0, yy, w, 1, ui_grad_at(yy));
+
+    for (int ch = 0; ch < 2; ch++) {
+        uint32_t half = w / 2u;
+        uint32_t ox   = x0 + (uint32_t)ch * half;
+        uint32_t pivx = ox + half / 2u;
+        uint32_t pivy = y + h - 4u;
+        uint32_t len  = h - 18u;
+        /* Needle stops short of the ticks, so erasing it can never rub them out and they never need
+         * repainting. */
+        uint32_t nlen = len - 6u;
+
+        uint32_t pkc = ch ? in->peak_r : in->peak_l;
+        uint32_t tgt = (pkc * 255u) / 32768u;
+        if (tgt > 255u) tgt = 255u;
+        uint32_t *v = ch ? &vu_r : &vu_l;
+        if (paused) tgt = 0;
+        if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
+        else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
+                        if (*v < tgt) *v = tgt; }
+
+        if (!vu_face) {
+            for (uint32_t t = 0; t <= 80u; t++) {
+                uint32_t q = (t * 16u) / 80u, f = (t * 16u) % 80u;
+                uint32_t q1 = (q < 16u) ? q + 1u : 16u;
+                int32_t sn = vu_sn[q] + (int32_t)((vu_sn[q1] - vu_sn[q]) * (int32_t)f) / 80;
+                int32_t cs = vu_cs[q] + (int32_t)((vu_cs[q1] - vu_cs[q]) * (int32_t)f) / 80;
+                int32_t ar = (int32_t)len + 4;
+                int32_t ax = (int32_t)pivx + (ar * sn) / 4096;
+                int32_t ay = (int32_t)pivy - (ar * cs) / 4096;
+                if (ay < (int32_t)y) continue;
+                if (ax < (int32_t)ox || ax + 1 >= (int32_t)(ox + half)) continue;
+                /* Everything on the face is a TONE OF THE ACCENT. Fixed grey and red meant changing
+                 * colour only moved the needle and the labels, and the meter looked unchanged. The
+                 * peak zone is the accent at full strength against a dimmed scale, so it still reads
+                 * as "the loud end" in any palette. */
+                fb_rect((uint32_t)ax, (uint32_t)ay, 2, 2,
+                        (t >= 60u) ? ui_accent
+                                   : ui_mix(ui_grad_at((uint32_t)ay),
+                                            ui_accent, 2u, 5u));
+            }
+            for (uint32_t t = 0; t <= 4u; t++) {
+                uint32_t i = t * 4u;
+                for (uint32_t d = 0; d < 4u; d++) {
+                    int32_t ar = (int32_t)len - 1 - (int32_t)d;
+                    int32_t ax = (int32_t)pivx + (ar * vu_sn[i]) / 4096;
+                    int32_t ay = (int32_t)pivy - (ar * vu_cs[i]) / 4096;
+                    if (ay < (int32_t)y) continue;
+                    fb_rect((uint32_t)ax, (uint32_t)ay, 1, 1,
+                            (t >= 3u) ? ui_accent
+                                      : ui_mix(ui_grad_at((uint32_t)ay),
+                                               ui_accent, 3u, 5u));
+                }
+            }
+            fb_set_color(ui_accent, ui_grad_at(y + 2u));
+            fb_text_clipped(ox + 6u, y + 2u, ch ? "R" : "L",
+                            TS_1X, TS_1X, 16u);
+        }
+
+        uint8_t shown = ch ? vu_shown_r : vu_shown_l;
+        uint8_t now   = (uint8_t)*v;
+        if (vu_face && now == shown) continue;   /* nothing moved */
+
+        /* Erase the old needle, then draw the new one. Two passes over the same geometry costs less
+         * than repainting the face. The erase is skipped on the first draw after the face is laid
+         * down, when there is no old needle to remove. */
+        for (int pass = vu_face ? 0 : 1; pass < 2; pass++) {
+            int32_t  sn, cs;
+            vu_angle(pass ? now : shown, &sn, &cs);
+            /* One colour throughout its travel. Flashing at the top drew the eye to the loudest
+             * moments, which is the opposite of what a meter is for -- the scale already marks the
+             * peak zone. The erase pass repaints the needle's own footprint in the BACKGROUND colour,
+             * so with a ramp behind it that colour has to be sampled per segment -- a flat fill would
+             * leave a lighter trail down the lower half of the sweep, exactly where the needle spends
+             * most of its time. */
+            for (uint32_t k = 2; k <= VU_STEPS; k++) {
+                int32_t rr = ((int32_t)nlen * (int32_t)k) / (int32_t)VU_STEPS;
+                int32_t nx = (int32_t)pivx + (rr * sn) / 4096;
+                int32_t ny = (int32_t)pivy - (rr * cs) / 4096;
+                if (nx < (int32_t)ox || nx >= (int32_t)(ox + half)) continue;
+                if (ny < (int32_t)y) continue;
+                uint32_t th = (k > VU_STEPS - 6u) ? 1u : 2u;
+                fb_rect((uint32_t)nx, (uint32_t)ny, th, th,
+                        pass ? ui_accent
+                             : ui_grad_at((uint32_t)ny));
+            }
+        }
+        fb_rect(pivx - 2u, pivy - 2u, 5, 5, ui_accent);
+        for (uint32_t r = 0; r < 3u; r++)
+            fb_rect(pivx - 1u, pivy - 1u + r, 3, 1,
+                    ui_grad_at(pivy - 1u + r));
+
+        if (ch) vu_shown_r = now; else vu_shown_l = now;
+    }
+    vu_face = 1;
+    vu_face_w = (uint16_t)w;
+}
+
+/* Oscilloscope: one clear, then one vertical rect per column: ~65 commands, fewer than the bars. */
+static void viz_wave_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const int32_t ey = (int32_t)(h / 2u) - 1;
+    const uint32_t cy = y + h / 2u;
+
+    ui_bg_restore(x0, y, w, h);
+    fb_rect(x0, cy, w, 1, UI_TRACK);      /* zero line */
+
+    if (paused) return;
+    int32_t prev_y = 0;
+    for (uint32_t c = 0; c < WAVE_COLS; c++) {
+        uint32_t x  = x0 + (c * w) / WAVE_COLS;
+        uint32_t xn = x0 + ((c + 1u) * w) / WAVE_COLS;
+        uint32_t cw = (xn > x) ? (xn - x) : 1u;
+
+        int32_t v = (in->wave[c] * ey) / SCOPE_UNIT;
+        if (v >  ey) v =  ey;
+        if (v < -ey) v = -ey;
+
+        /* Span from the previous sample to this one, so the trace is continuous rather than a row of
+         * disconnected marks -- and stays thin, because consecutive samples in a short window are
+         * close together. */
+        int32_t a = (c == 0) ? v : prev_y;
+        int32_t lo = (a < v) ? a : v;
+        int32_t hi = (a < v) ? v : a;
+        prev_y = v;
+
+        uint32_t top = (uint32_t)((int32_t)cy - hi);
+        uint32_t ch = (uint32_t)(hi - lo) + 2u;   /* min 2 px line */
+        if (top + ch > y + h) ch = y + h - top;
+        uint16_t col = ui_mix(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
+        fb_rect(x, top, cw, ch, col);
+    }
+}
+
+/* Stereo phase scope: one rect to clear, then one per point: ~65 commands, fewer than the bars. The
+ * whole trace is redrawn each pass rather than erased point by point, which would double the count
+ * for no gain. scope_x[]/scope_y[]/scope_head are the trail's own accumulated history, not part of
+ * mtr_in_t -- same precedent as the phase scope's own kind, wviz_scope_tick's smoothing state. */
+static void viz_phase_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t r  = h / 2u;          /* usable radius */
+    const uint32_t cx = x0 + w / 2u;
+    const uint32_t cy = y + r;
+
+    ui_bg_restore(x0, y, w, h);
+
+    /* Centre cross: without it a quiet passage is an empty box, and there is no way to tell "silent"
+     * from "not working". */
+    fb_rect(cx, y, 1, h, UI_TRACK);
+    fb_rect(x0, cy, w, 1, UI_TRACK);
+
+    if (paused) return;
+    const int32_t ex = (int32_t)(w / 2u) - 2;   /* horizontal reach */
+    const int32_t ey = (int32_t)r - 2;           /* vertical reach   */
+    /* Oldest first, so the newest trace lands on top of the fading ones rather than under them. */
+    for (uint32_t age = SCOPE_HIST; age-- > 0; ) {
+        uint32_t f = (scope_head + SCOPE_HIST - age) % SCOPE_HIST;
+        const signed char *sx = scope_x[f], *sy = scope_y[f];
+        /* Blended from the background, so it has to be the background near where the trace actually
+         * sits -- the dots cluster around the centre line. Per-dot would cost a call for each of
+         * 48 x 4. */
+        uint16_t c  = ui_mix(ui_grad_at(cy), ui_accent,
+                             SCOPE_HIST - age, SCOPE_HIST);
+        uint32_t sz = age ? 1u : 2u;     /* newest trace is fatter */
+        for (uint32_t k = 0; k < SCOPE_N; k++) {
+            int32_t px = (int32_t)cx + (sx[k] * ex) / SCOPE_UNIT;
+            int32_t py = (int32_t)cy - (sy[k] * ey) / SCOPE_UNIT;
+            if (px < (int32_t)x0 ||
+                px + (int32_t)sz > (int32_t)(x0 + w)) continue;
+            if (py < (int32_t)y ||
+                py + (int32_t)sz > (int32_t)(y + h)) continue;
+            fb_rect((uint32_t)px, (uint32_t)py, sz, sz, c);
+
+            /* Newest trace only: drop a point midway to the next sample so the figure closes into a
+             * curve instead of a dotted outline. Only the top layer gets this -- doing it on every
+             * frame of history would triple the command count for detail that is fading out anyway. */
+            if (!age && k + 1u < SCOPE_N) {
+                int32_t qx = (int32_t)cx + (((sx[k] + sx[k+1]) / 2) * ex) / SCOPE_UNIT;
+                int32_t qy = (int32_t)cy - (((sy[k] + sy[k+1]) / 2) * ey) / SCOPE_UNIT;
+                if (qx >= (int32_t)x0 &&
+                    qx + 1 < (int32_t)(x0 + w) &&
+                    qy >= (int32_t)y &&
+                    qy + 1 < (int32_t)(y + h))
+                    fb_rect((uint32_t)qx, (uint32_t)qy, 1, 1, c);
+            }
+        }
+    }
+}
+
+/* Classic bars: the default meter. Loop invariants computed once per frame instead of once per
+ * changed column: the engine probe, the lit colour and the mirrored geometry. The plain-rectangle
+ * fallback for a bitstream without the blit engine is gone: every bitstream that can run the cold code
+ * has it (OP_BAR since B-104, in every build since alpha.1). wave[]/wave_pk[]/wave_drawn[]/
+ * wave_pk_drawn[] are the shared envelope history every column-based meter reads (not part of
+ * mtr_in_t, see this section's own header comment). */
+static void viz_bars_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint16_t bg = in->bg;
+    blit_probe_ensure();
+    const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
+    const uint32_t hh = h / 2u, cy = y + hh;
+    for (uint32_t i = 0; i < UI_WAVE_N; i++) {
+        /* Bar edges come from scaling the index across the full width, so the row always reaches its
+         * right edge. */
+        const uint32_t x   = x0 + (i * w) / UI_WAVE_N;
+        const uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
+        const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+        uint32_t bh = wave[i];
+        if (bars_layout) { bh = (bh * (hh - 1u)) / h; if (bh < 1u) bh = 1u; }   /* mirrored: each half is half the box */
+        else if (bh < 2u) bh = 2u;                 /* always show a floor */
+        /* Most bars land on the height already drawn there: skip them (one compare instead of a draw
+         * command). */
+        uint32_t pk = bars_layout ? bh : wave_pk[i];
+        if (pk < bh) pk = bh;
+        if (bh == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
+        wave_drawn[i]    = (unsigned char)bh;
+        wave_pk_drawn[i] = (unsigned char)pk;
+        const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
+        if (bars_layout) {
+            /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at
+             * its bottom, the centre line); the lower half is the same bar inverted -- OP_BAR always
+             * lights the bottom of its span, so swap the colours and light the EMPTY part (top h rows
+             * the bar colour, the rest the bed). The bed is the dim track colour. */
+            fb_bar(x, y, lit, hh, bh, c, UI_TRACK);
+            fb_bar(x, cy, lit, hh, hh - bh, UI_TRACK, c);
+            continue;
+        }
+        fb_bar(x, y, lit, h, bh, c, bg);
+        if (pk > bh + 1u)                       /* 1 px peak-hold marker */
+            fb_rect(x, y + h - pk, lit, 1, UI_WHITE);
+    }
+}
+
 /* Winamp bars/scope drawing, factored out of ui_draw_dynamic_cold()'s own
  * VIZ_WINAMP_BARS/VIZ_WINAMP_SCOPE blocks (below) so the Settings > Meter >
  * Configure page (fw/settingsui.inc, B-215/B-216) can render the SAME live,
@@ -3366,7 +4375,7 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
      * closed) -- wipe the whole preview rect once so no leftover pixels from a
      * DIFFERENT geometry or a different mode's draw survive, then force every
      * band to redraw below regardless of the change cache. */
-    if (force) fb_rect(x0, y, w, h, bg);
+    if (force) fig_rect(x0, y, w, h, bg);
 
     for (uint32_t b = 0; b < bands; b++) {
         uint32_t target = mtr_band_target(in->spec, SPEC_BANDS, bands, b);
@@ -3386,15 +4395,15 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
 
         blit_probe_ensure();
         if (BLIT_READY()) {
-            fb_bar(x, y, colw, h, bh, ui_accent, bg);
+            fig_bar(x, y, colw, h, bh, ui_accent, bg);
         } else {
-            fb_rect(x, y + h - bh, colw, bh, ui_accent);
-            if (h > bh) fb_rect(x, y, colw, h - bh, bg);
+            fig_rect(x, y + h - bh, colw, bh, ui_accent);
+            if (h > bh) fig_rect(x, y, colw, h - bh, bg);
         }
         if (MV_WINAMP_BARS(PEAK_ON)) {
             uint32_t ph = (wviz_pk[b].peak * h) / 255u;
             if (ph > bh + 1u && ph < h)
-                fb_rect(x, y + h - ph, colw, 1u, UI_WHITE);
+                fig_rect(x, y + h - ph, colw, 1u, UI_WHITE);
         }
     }
     wviz_force = 0u;
@@ -3428,7 +4437,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     if (in->force) { wviz_scope_init = 0u; wviz_force = 0u; }
 
     /* B-298/B-300/B-301 STOPGAP: the hardware wave path below draws up to 256 columns x up to 3
-     * fb_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
+     * fig_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
      * jitter on hardware) -- about 21x wviz_bars_tick()'s own baseline. Forced off here, keeping the
      * 64-column software path (tools/meter_cost_estimate.py: 198 commands, within budget) until the
      * real fix -- batching the hardware path's per-column draws -- is designed and built. Flip this
@@ -3447,8 +4456,8 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
             const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
             if (!percol) {
                 if (use_gradient) ui_bg_restore(x0, y, w, h);
-                else              fb_rect(x0, y, w, h, bg);
-                fb_rect(x0, cy, w, 1, UI_TRACK);
+                else              fig_rect(x0, y, w, h, bg);
+                fig_rect(x0, cy, w, 1, UI_TRACK);
             }
             uint32_t npk = 1u;
             for (uint32_t c = 0; c < WAVE_HW_COLS; c++) {
@@ -3481,8 +4490,8 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
                 if (s_bot < s_top) s_bot = s_top;
                 const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
                 const uint32_t cwid = (cxn > cx) ? (cxn - cx) : 1u;
-                if (percol) { fb_rect(cx, y, cwid, h, bg); fb_rect(cx, cy, cwid, 1, UI_TRACK); }
-                fb_rect(cx, top, cwid, rh, ui_accent);
+                if (percol) { fig_rect(cx, y, cwid, h, bg); fig_rect(cx, cy, cwid, 1, UI_TRACK); }
+                fig_rect(cx, top, cwid, rh, ui_accent);
             }
             sc_pk = npk;
             wviz_scope_init = 1u;
@@ -3501,13 +4510,31 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     if (!percol) {
         /* B-334: a trail. With the blend bitstream the old trace is faded toward the background instead of erased: `trail` % of it survives
          * each frame (the background strip is blended over the box with the remaining weight). 0, no blend bitstream, or the Configure preview
-         * (flat background) erases as before. */
+         * (flat background) erases as before.
+         * B-413: neither the ui_bg_ready race (B-411) nor the sticky-base fence audit (B-412) fixed the
+         * owner's reported "accumulates after a fullscreen/Configure visit" -- rather than guess a third
+         * time, capture WHICH branch actually ran, live, so the next repro tells us directly instead of
+         * needing another theory. Counted only when a blend was genuinely attempted (use_gradient && trail
+         * && !paused all true), matching did_blend's own short-circuit exactly -- fullscreen/Configure's own
+         * legitimate use_gradient=0 skip is not counted as a "failure" here, only a real attempted-and-failed
+         * blend is. */
         const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
-        if (!(use_gradient && trail && !paused && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u))) {
+        const int attempt = use_gradient && trail && !paused;
+        const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
+        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check();
+                       dbg_pixel_log(x0 + w / 2u, y + 8u); }   /* B-449: B-447's (cy-4, centre column) spot
+                       STILL read a dark, gradient-consistent value even during an owner-confirmed active
+                       repro -- a real screenshot of the accumulation showed the actual bright mass sits
+                       in the box's UPPER region (solid across nearly the full width there), not near the
+                       centreline; the centre column at cy-4 most likely just hit a real local amplitude
+                       dip for that one column, not a diagnostic bug. Moved to (x0+w/2, y+8) -- near the
+                       box's own TOP edge, in the region the screenshot shows solidly filled regardless
+                       of which column is sampled. */
+        if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
-            else              fb_rect(x0, y, w, h, bg);
+            else              fig_rect(x0, y, w, h, bg);
         }
-        fb_rect(x0, cy, w, 1, UI_TRACK);
+        fig_rect(x0, cy, w, 1, UI_TRACK);
     }
 
     if (!paused) {
@@ -3538,21 +4565,11 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
             if (s_bot > (int32_t)(y + h)) s_bot = (int32_t)(y + h);
             if (s_bot < s_top) s_bot = s_top;
             const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
-            if (percol) { fb_rect(cx, y, cw, h, bg); fb_rect(cx, cy, cw, 1, UI_TRACK); }
-            fb_rect(cx, top, cw, rh, ui_accent);
+            if (percol) { fig_rect(cx, y, cw, h, bg); fig_rect(cx, cy, cw, 1, UI_TRACK); }
+            fig_rect(cx, top, cw, rh, ui_accent);
         }
         wviz_scope_init = 1u;
     }
-}
-
-/* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview. The one hand-written binding
- * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
-COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
-{
-    const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
-    if (viz == VIZ_WINAMP_SCOPE)     wviz_scope_tick(&in, 0);
-    else if (viz == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
-    /* other meters (Chladni, VU Master) have no live preview here: their drawing is refused while an overlay is up */
 }
 
 static void ui_draw_dynamic(void);
@@ -3778,20 +4795,16 @@ COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code *
      * as a separate alert. */
     if (reason) ui_gs_line(144u, reason, UI_RED, TS_1X);
 
-    ui_gs_line(170u, "Getting started",                     ui_accent, TS_15X);
-
-    /* 18 px within a step, 26 between them. An even pitch throughout made the
-     * steps read as one block -- the grouping has to be visible or the
-     * numbers are doing all the work. */
     /* Colour carries meaning here, so it follows one rule: prose is white,
-     * literal values and menu names are grey. */
-    ui_gs_line(206u, "1  Copy your music to your SD card:",  UI_WHITE,  TS_1X);
-    ui_gs_line(224u, "   /Assets/tau/common/",               UI_DIM,    TS_1X);
-
-    ui_gs_line(250u, "2  Run the sync tool (see the README)", UI_WHITE, TS_1X);
-    ui_gs_line(268u, "   to build tau-library.tdb.",          UI_WHITE, TS_1X);
-
-    ui_gs_line(294u, "3  Press Select to browse and play.",  UI_WHITE,  TS_1X);
+     * literal values and file names are grey. There is no "load a track" instruction any more: without a
+     * library there is nothing to browse, and the one remedy is to sync again with Tau Omega. The same
+     * screen covers a missing index and one that could not be read (Info > LIBRARY shows which). */
+    ui_gs_line(170u, "Library file not found",               ui_accent, TS_15X);
+    ui_gs_line(206u, "The library index is missing or",      UI_WHITE,  TS_1X);
+    ui_gs_line(224u, "could not be read:",                   UI_WHITE,  TS_1X);
+    ui_gs_line(242u, "   tau-library.tdb",                   UI_DIM,    TS_1X);
+    ui_gs_line(268u, "Use Tau Omega to sync your",           UI_WHITE,  TS_1X);
+    ui_gs_line(286u, "library to this card again.",          UI_WHITE,  TS_1X);
 }
 
 /* The failure screen, with the two explanatory lines supplied by the caller.
@@ -3867,7 +4880,7 @@ static void ui_load_failed(void)
  * lands near 87% for 24-bit, which fits; nothing above it does. */
 #define FLAC_MAX_RATE 48000u
 static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ACCEPT_ALL_RATES
 /* Settings > Diagnostics > ACCEPT ALL RATES (default OFF). Bypasses ONLY the measured-performance
  * FLAC_MAX_RATE cutoff above -- deliberately not FLR_CHANS/FLR_DEPTH/FLR_BLOCK, which come from
  * flac_open() itself refusing a shape its decoder does not support at all (2 channels max, specific bit
@@ -3877,6 +4890,36 @@ static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
  * above; that is the expected, useful result of turning this on, not a bug. Diagnostic-build-only, and off
  * by default even there, so it can never affect a normal listening session by accident. */
 static uint8_t flac_accept_all_rates;
+#endif
+
+#if TAU_FX_CYMO_TOGGLE
+/* Settings > Diagnostics > CYMO RESAMPLER (default OFF). First-ever hardware test of the real 44.1:48
+ * polyphase FIR resampler (B-471..B-478) -- hands the live audio path (EQ input) from pcm_fifo's own
+ * zero-order hold to the resampler's output via mp3_soc.v's R_CYMO_CTRL bit 2 (sticky LIVE_ENABLE).
+ * Diagnostic-build-only, never persisted. Default ON at every boot since 2026-10-03 (owner), the other
+ * diagnostic toggles stay off: this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
+ * proven on real silicon. No-op if CYMO_RESAMP_READY() is false (the write lands on an unmapped
+ * register on any bitstream without the unit, same inert-when-absent convention as every other probe
+ * here). */
+static uint8_t cymo_live_toggle = 1u;   /* what the owner switched on; ON at every boot (owner decision 2026-10-03, B-534) -- engages only for a 44.1 kHz file at 1.00x, see cymo_guard_apply() */
+static uint8_t cymo_live_on;       /* what is actually engaged in hardware (B-530) */
+static uint32_t cymo_last_hz;      /* last file rate seen by pcm_rate_apply() */
+
+/* B-530: the resampler is a fixed 147:160 (44.1 -> 48 kHz) and mis-resamples anything else by design, so the
+ * hardware is engaged only while the toggle is on AND the current file is 44.1 kHz at 1.00x speed. pcm_rate_apply()
+ * is the one place that learns the rate and the speed (every track load and every speed change goes through it),
+ * so the guard follows both with no extra call sites. Re-engaging is a clear in hardware (B-488), so each return
+ * to a 44.1 kHz track starts from a clean history. */
+static void cymo_guard_apply(uint32_t hz)
+{
+    if (hz) cymo_last_hz = hz;
+    if (!CYMO_RESAMP_READY()) return;
+    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_eff() == SPEED_1X);
+    if (want != cymo_live_on) {
+        cymo_live_on = want;
+        REG(R_CYMO_CTRL) = want ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+    }
+}
 #endif
 
 /* Shown ON THE TRACK CARD rather than as a takeover screen. The card is
@@ -4049,6 +5092,85 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 
 #include "chladni.inc"
 #include "vu_master.inc"
+#define LW_STATS 1  /* Layered Wave keeps its draw-cost statistics (Info > LW COST, fw/layered_wave.inc); host harnesses leave this undefined */
+#include "layered_wave.inc"
+
+/* ==================================================================== helios_meter() -- the ONE way a meter is drawn (B-521, docs/issues/022)
+ * Three places draw meters: the player screen (ui_draw_dynamic), fullscreen (ui_fs_dynamic) and the Settings > Meter > Configure preview
+ * (mtr_preview). They used to dispatch to each meter themselves and each carried its own idea of where to draw, so the same meter behaved differently
+ * in each (Layered Wave and Chladni composed off-screen in two of them and flickered in the third). Every one of them now calls this, which owns:
+ *   - the dispatch from the meter id to its draw function (the one hand-written binding between a meter module and its drawing function);
+ *   - the surface: full-repaint meters (Layered Wave, Chladni -- they wipe their box and repaint it, which takes tens of ms) are drawn into the idle H2
+ *     back buffer and the finished box is copied onto the displayed one (helios_present); the incremental meters (Bars, Scope, VU Master) change only
+ *     what moved, are fast, and are drawn directly. Where the back buffer is not available (no H2 bitstream, blanked, claimed by the Settings
+ *     crossfade, a flip pending) everything draws directly, exactly as before;
+ *   - exclusion rects (HM_CLIP): the fullscreen CPU% label is never drawn over, by the clipped fig_* primitives and by the present copy.
+ * The caller keeps what is genuinely its own: the box and background (the mtr_in_t), the FB_HELD bypass (ov_draw), and whether the draw is forced.
+ * Returns HM_DREW if the meter issued commands, plus HM_COMPOSED if they were composed off-screen and presented. */
+enum { HM_CLIP = 1u, HM_GRAD = 2u };           /* flags: honour helios_excl[] rects; the scope paints the player screen's gradient behind itself */
+enum { HM_DREW = 1u, HM_COMPOSED = 2u };       /* result */
+static int meter_afford(void);                 /* defined with the audio-yield logic further down */
+/* Policy for the heavy meter (B-524): Layered Wave's redraw costs 10-20 ms of CPU inside the decode loop (worst seen 52 ms), which starves the PCM FIFO.
+ * It is redrawn at most every HM_MIN_MS and skipped altogether while the FIFO is low (the same yield Chladni uses); the time skipped is added to the next
+ * call's dt_ms, so the history still scrolls at the right speed. A forced repaint is never skipped. */
+#define HM_MIN_MS 45u
+static mp_t hm_pol;
+static uint32_t hm_n_skip;
+COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
+{
+    mtr_in_t inb = *in0;
+    const mtr_in_t *in = &inb;
+    if (viz == VIZ_LAYERED_WAVE) {
+        uint32_t dt = in0->dt_ms;
+        if (!mp_throttle(&hm_pol, cycles(), (CLK_HZ / 1000u) * HM_MIN_MS, in0->dt_ms, in0->force, meter_afford(), &dt)) { hm_n_skip++; return 0u; }
+        inb.dt_ms = (uint16_t)dt;
+    }
+    const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
+    const uint32_t front = DBUF_READY() ? helios_front_idx() : 0u;
+    const uint32_t cpu = DBUF_READY() ? (REG(R_DBUF_CPU) & 1u) : 0u;              /* where plain drawing points right now */
+    /* Nested inside an off-screen render that someone else started (the Settings crossfade renders the new page into the back buffer, preview included):
+     * R_DBUF_CPU already points at the back buffer, so draw there and leave composing and presenting to the outer render. Switching it back to the front
+     * buffer here sent the rest of that page to the displayed buffer and presented the preview onto it -- the corruption seen in the Configure screen (B-524). */
+    const uint32_t comp = full && cpu == front && helios_offscreen_ok();
+    const uint32_t t0 = cycles();
+    hs_base = helios_buf_base(comp ? (front ^ 1u) : cpu);
+    if (comp) REG(R_DBUF_CPU) = front ^ 1u;                    /* RECT-class commands read this at EXECUTION time: it stays on the back buffer until drained */
+    /* A composed figure is drawn whole in the back buffer and the present copy skips the exclusion rects, so clipping its fills as well would only add commands. */
+    fig_clip_on = ((flags & HM_CLIP) && !comp) ? 1u : 0u;
+    uint32_t drew = 0u;
+    switch (viz) {
+    case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
+    case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
+    case VIZ_VU_MASTER:    vum_tick(in); break;
+    case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
+    case VIZ_LAYERED_WAVE: drew = (uint32_t)lw_tick(in); break;
+    default: break;
+    }
+    fig_clip_on = 0u;
+    uint32_t res = drew ? HM_DREW : 0u;
+    if (comp) {
+        const int ok = drew ? helios_drain() : 1;
+        REG(R_DBUF_CPU) = front;
+        if (drew) {
+            if (ok) {
+                const uint32_t pt = cycles();
+                helios_present(in->x, in->y, in->w, in->h, flags & HM_CLIP);
+                helios_t_pres = (uint32_t)(cycles() - pt); helios_n_comp++; res |= HM_COMPOSED;
+            } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
+        }
+    }
+    if (viz == VIZ_LAYERED_WAVE) mp_drew(&hm_pol, cycles());
+    if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
+    return res;
+}
+
+/* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview (B-415: the caller, wvcfg_preview_tick()
+ * in fw/settingsui.inc, sets ov_draw around the call, which is what lets every meter draw while Settings is up). */
+COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+{
+    const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
+    (void)helios_meter(viz, &in, 0u);
+}
 #include "fullscreen.inc"
 
 /* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
@@ -4056,29 +5178,217 @@ static void ov_frame(const char *title, const char *right, const char *hint)
  * "cold calls hot" pattern G4 steps 1-3 and fw/cold.inc's own cold_calls_hot() already prove safe),
  * just relocated and renamed so the thin wrapper below can time it and apply the COLD_READY()
  * fail-safe. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_METER_TRACE
 static void mt_take(void);          /* fw/suite.inc: meter trace recorder (M3), called once per displayed meter frame */
 #endif
-COLD_FN3 static void ui_draw_dynamic_cold(void)
-{
-    if (screen_blank) return;
-    /* The overlay covers the meters, the card and the transport row. Letting
-     * the player keep drawing underneath would punch holes straight through
-     * it, once per frame. */
-    /* Jump the UPPER screen, not the whole function.
-     *
-     * The overlay panel is y 18..284; the clock (288) and the progress bar
-     * (334) sit BELOW it and stay visible. Returning early here froze both,
-     * and worse: the elapsed-time accumulator lives further down this
-     * function, so time itself stopped advancing while the list was open and
-     * the clock came back stale.
-     *
-     * A goto over the drawing rather than a wrapped block -- the skipped
-     * region is several hundred lines and every declaration in it is scoped
-     * inside the sections being skipped. `viz_done` already sets the
-     * precedent. */
-    if (UI_OVERLAY_UP) goto ui_tail;
 
+/* Helios review item 6 (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5): the meter
+ * box as Helios's SECOND row-ranged region consumer (`ui_chrome_paint()` was the only one -- section
+ * 11's own finding). ui_meter_redraw() (defined right below, called from ui_draw_dynamic_cold()'s own
+ * beam-safety-gated `if` further down this file) is verbatim what used to live directly inside that
+ * `if`; only its LOCATION moved
+ * (into its own function, called through helios_mark_dirty()+helios_flush() instead of running
+ * inline) -- nothing about wf/ww/bed or any of the dispatch logic changed. Registering this as a real
+ * region (instead of just calling helios_rows_safe_counted() by hand, as this call site always has)
+ * proves the region/beam-safety abstraction generalises beyond chrome's own full-screen, no-row-range
+ * case, which is exactly what item 6's own text names as the precondition for a fuller
+ * partial-invalidation vocabulary -- this does NOT attempt that fuller unification (the three separate
+ * "invalidation" mechanisms section 3.1 lists are still three), it only proves the region half of it
+ * now has two real, differently-shaped consumers to design the rest against. */
+static uint8_t ui_meter_region = 0xFFu;
+
+/* COLD_FN3, matching ui_draw_dynamic_cold() (this body used to live directly inside it): without it,
+ * this ~150-line function would compile as ordinary hot code instead of landing in the cold image,
+ * costing real RAM budget for no reason -- caught by the heap-gap number moving after the first build
+ * of this change (50,784 B here vs the pre-move 56,864 B), not by inspection. */
+COLD_FN3 static void ui_meter_redraw(void)
+{
+    uint32_t wf = ui_wave_force; ui_wave_force = 0;
+    /* The accumulated maximum, not the instantaneous value: this tick
+     * covers two display frames and both should count. */
+    uint32_t src = wave_pend ? wave_pend : peak_amp;
+    wave_pend = 0;
+    uint32_t amp = (src * UI_WAVE_H) / 32768u;
+    if (amp > UI_WAVE_H) amp = UI_WAVE_H;
+    /* Frozen while paused: the forced pass exists only to recolour. */
+    if (!paused) {
+        for (uint32_t i = 0; i < UI_WAVE_N - 1u; i++) {
+            wave[i]    = wave[i + 1];
+            wave_pk[i] = wave_pk[i + 1];
+        }
+        wave[UI_WAVE_N - 1u]    = (unsigned char)amp;
+        wave_pk[UI_WAVE_N - 1u] = (unsigned char)amp;
+
+    }
+    (void)wf;
+    /* Peaks sink slowly back toward the bar, so the marker trails the
+     * loudest recent moment instead of sitting at the ceiling. */
+    for (uint32_t i = 0; i < UI_WAVE_N; i++)
+        if (wave_pk[i] > wave[i]) wave_pk[i]--;
+
+    uint32_t ww  = ui_wave_w();
+    uint16_t bed = ui_grad_at(UI_WAVE_Y);
+
+    /* ---- WATERFALL ----------------------------------------------------
+     * Scroll the whole strip one pixel left with a single COPY, then draw
+     * only the new right-hand column. That is ~4 commands a frame against
+     * the bars' ~72, because COPY moves a block for the price of one
+     * command -- the same primitive the album-art slide uses.
+     *
+     * Colour encodes loudness, so the strip becomes a picture of the
+     * track's dynamics rather than an instantaneous reading. */
+    /* ---- SCROLLING WAVEFORM -------------------------------------------
+     * The waterfall's COPY-scroll, but the new column is drawn MIRRORED
+     * about a centre line instead of colour-coded from the bottom -- a
+     * DAW-style envelope building up left to right. ~5 commands a frame,
+     * because COPY moves the whole strip for the price of one. */
+    if (viz_mode == VIZ_SCROLL) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_scroll_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- MIRRORED BARS ------------------------------------------------
+     * The same wave[] history the bars use, grown up AND down from a
+     * centre line. Same cost as the bars; different shape entirely. */
+    /* ---- SPECTRUM ------------------------------------------------
+     *
+     * Eight columns of real frequency content from the octave cascade --
+     * see SPEC_BANDS. Bass on the left, treble on the right, each moving
+     * on its own.
+     *
+     * This replaced a two-channel level ladder. Six blocks drawn from one
+     * number will always rise and fall together however they are styled;
+     * "make them move independently" is not a tuning request, it needs
+     * frequency data, and the cascade is what provides it. */
+    if (viz_mode == VIZ_LED) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_led_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- WINAMP BARS -----------------------------------------------
+     * Classic Winamp bars, drawn at the normal meter box's own position
+     * -- see wviz_bars_tick() (defined earlier in this file, alongside
+     * wviz_ease_step()) for the actual drawing/easing logic, shared with
+     * the Settings > Meter > Configure page (fw/settingsui.inc) so both
+     * places animate from one source of truth. */
+    if (viz_mode == VIZ_CHLADNI) {
+        if (!ui_fullscreen) {
+            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
+            (void)helios_meter(VIZ_CHLADNI, &in, 0u);
+        }
+        goto viz_done;
+    }
+
+    if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
+    if (viz_mode == VIZ_WINAMP_BARS) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        (void)helios_meter(VIZ_WINAMP_BARS, &in, 0u);
+        goto viz_done;
+    }
+
+    /* ---- WINAMP SCOPE ------------------------------------------------
+     * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
+     * drawing/smoothing logic, shared with the Configure page. */
+    if (viz_mode == VIZ_WINAMP_SCOPE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
+        (void)helios_meter(VIZ_WINAMP_SCOPE, &in, HM_GRAD);
+        goto viz_done;
+    }
+
+    /* ---- MASTER VU -----------------------------------------------------
+     * Mastering-style segmented dB peak ladder -- see vum_tick() (fw/vu_master.inc) for the
+     * ladder/peak-hold/overlay logic. Not fullscreen-capable (fs_capable() in fullscreen.inc
+     * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
+     * one above -- fullscreen is always forced off before this meter can be the active one. */
+    if (viz_mode == VIZ_VU_MASTER) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        (void)helios_meter(VIZ_VU_MASTER, &in, 0u);
+        goto viz_done;
+    }
+
+    /* ---- LAYERED WAVE ---------------------------------------------------
+     * Nested mirrored envelope layers on a solid background -- see lw_tick() (fw/layered_wave.inc). Fullscreen-capable:
+     * fullscreen.inc draws it there. */
+    if (viz_mode == VIZ_LAYERED_WAVE) {
+        if (ui_fullscreen) goto viz_done;
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        (void)helios_meter(VIZ_LAYERED_WAVE, &in, 0u);
+        goto viz_done;
+    }
+
+    /* ---- PEAK DOTS ----------------------------------------------------
+     * Only the peak-hold markers, no bars: a row of floating dots tracing
+     * the loudness contour. ~2 commands a column and the sparsest mode
+     * here. */
+    if (viz_mode == VIZ_DOTS) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_dots_tick(&in);
+        goto viz_done;
+    }
+
+    if (viz_mode == VIZ_WATER) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_water_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- VU METERS ----------------------------------------------------
+     * Two analogue movements side by side. Geometry is derived from
+     * ui_wave_w() every pass rather than assumed: hiding the album art
+     * widens the box from ~246 to ~360, and a fixed layout would leave the
+     * pair huddled at the left -- the same trap the waterfall fell into. */
+    if (viz_mode == VIZ_VU) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_vu_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- OSCILLOSCOPE -------------------------------------------------
+     * One clear, then one vertical rect per column: ~65 commands, fewer
+     * than the bars. */
+    if (viz_mode == VIZ_WAVE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_wave_tick(&in);
+        goto viz_done;
+    }
+    /* ---- STEREO PHASE SCOPE -------------------------------------------
+     * One rect to clear, then one per point: ~65 commands, fewer than the
+     * bars. The whole trace is redrawn each pass rather than erased point
+     * by point, which would double the count for no gain. */
+    if (viz_mode == VIZ_SCOPE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_phase_tick(&in);
+        goto viz_done;
+    }
+
+    /* Classic bars: the default meter. */
+    {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_bars_tick(&in);
+    }
+viz_done: ;
+#if TAU_DX_METER_TRACE
+    mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
+#endif
+}
+
+/* B-452 (owner-reported: in the Configure page's Meter preview, only Winamp Scope actually plays --
+ * Bars/Chladni/VU Master preview a static, non-animating snapshot): this whole block used to live
+ * inline inside `ui_draw_dynamic_cold()`, reached only when `!UI_OVERLAY_UP` -- correct for the
+ * ordinary player screen (an overlay covers the meter box, so there is nothing to publish for), but the
+ * SAME gate also silently starves `wvcfg_preview_tick()`'s live preview, since Settings being open is
+ * itself a `UI_OVERLAY_UP` case. Winamp Scope's own tick function manages its `R_WAVE_CTL` capture
+ * directly inside itself (see wviz_scope_tick()), so it never depended on this publish step and kept
+ * working through the overlay regardless -- which is exactly why it was the one meter that "still
+ * played" while the preview browsed. `meters_feed()` (called from the decode path, unconditional)
+ * still accumulates `peak_acc*` regardless of any overlay; only the once-per-display-frame PUBLISH
+ * into `peak_l`/`peak_r`/`spec_lvl[]` was gated. Extracted verbatim (no logic changed) so
+ * `wvcfg_preview_tick()` can call it too, bypassing the overlay gate on purpose for exactly the
+ * meter currently being previewed. */
+COLD_FN3 static void meters_publish(void)
+{
     /* Publish the peaks once per display frame, so every meter below reads a
      * value covering exactly the audio since the last frame. Nothing new means
      * hold the last -- correct during FLAC's channel-0 window, where there
@@ -4104,7 +5414,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * MANY songs.
          *
          * One constant, applied in one place, so all ten meters keep agreeing.
-         * tools/meter_preview.py renders the effect from real audio. */
+         * the old tools/meter_preview.py rendered the effect from real audio (archived). */
         if (wave_hw) {                       /* B-283: the block tracks max |L| / |R| continuously; read and clear it */
             const uint32_t pk = REG(R_WAVE_PK);
             REG(R_WAVE_CTL) = 1u;
@@ -4125,7 +5435,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
         uint32_t hw_mean[SPEC_BANDS];
-        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI)
+        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI || viz_mode == VIZ_LAYERED_WAVE)
                    && spec_hw_fetch(hw_mean);
         if (have) {
             for (uint32_t b = 0; b < SPEC_BANDS; b++) {
@@ -4165,6 +5475,33 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
         }
         if (peak_amp > wave_pend) wave_pend = peak_amp;
     }
+}
+
+COLD_FN3 static void ui_draw_dynamic_cold(void)
+{
+    if (art_job_on) art_job_tick();   /* B-735: a few ms of the background cover decode when the audio is comfortable */
+#if TAU_PCM_RING_FW
+    if (gp_pend) gp_tick();           /* G2b: the old track has been heard to its end: the new one's display takes over */
+#endif
+    if (screen_blank) return;
+    /* The overlay covers the meters, the card and the transport row. Letting
+     * the player keep drawing underneath would punch holes straight through
+     * it, once per frame. */
+    /* Jump the UPPER screen, not the whole function.
+     *
+     * The overlay panel is y 18..284; the clock (288) and the progress bar
+     * (334) sit BELOW it and stay visible. Returning early here froze both,
+     * and worse: the elapsed-time accumulator lives further down this
+     * function, so time itself stopped advancing while the list was open and
+     * the clock came back stale.
+     *
+     * A goto over the drawing rather than a wrapped block -- the skipped
+     * region is several hundred lines and every declaration in it is scoped
+     * inside the sections being skipped. `viz_done` already sets the
+     * precedent. */
+    if (UI_OVERLAY_UP) goto ui_tail;
+
+    meters_publish();
     /* Shift a new sample in and repaint the band. Every bar moves each update,
      * so there is nothing to gain from change-detection here -- instead it is
      * throttled, and each bar is two rects (lit + unlit), which the engine
@@ -4216,479 +5553,18 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
     if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u
         && helios_rows_safe_counted(UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)) {
         ui_last_vu = 0;
-
-        uint32_t wf = ui_wave_force; ui_wave_force = 0;
-        /* The accumulated maximum, not the instantaneous value: this tick
-         * covers two display frames and both should count. */
-        uint32_t src = wave_pend ? wave_pend : peak_amp;
-        wave_pend = 0;
-        uint32_t amp = (src * UI_WAVE_H) / 32768u;
-        if (amp > UI_WAVE_H) amp = UI_WAVE_H;
-        /* Frozen while paused: the forced pass exists only to recolour. */
-        if (!paused) {
-            for (uint32_t i = 0; i < UI_WAVE_N - 1u; i++) {
-                wave[i]    = wave[i + 1];
-                wave_pk[i] = wave_pk[i + 1];
-            }
-            wave[UI_WAVE_N - 1u]    = (unsigned char)amp;
-            wave_pk[UI_WAVE_N - 1u] = (unsigned char)amp;
-
-        }
-        (void)wf;
-        /* Peaks sink slowly back toward the bar, so the marker trails the
-         * loudest recent moment instead of sitting at the ceiling. */
-        for (uint32_t i = 0; i < UI_WAVE_N; i++)
-            if (wave_pk[i] > wave[i]) wave_pk[i]--;
-
-        uint32_t ww  = ui_wave_w();
-        uint16_t bed = ui_grad_at(UI_WAVE_Y);
-
-        /* ---- WATERFALL ----------------------------------------------------
-         * Scroll the whole strip one pixel left with a single COPY, then draw
-         * only the new right-hand column. That is ~4 commands a frame against
-         * the bars' ~72, because COPY moves a block for the price of one
-         * command -- the same primitive the album-art slide uses.
-         *
-         * Colour encodes loudness, so the strip becomes a picture of the
-         * track's dynamics rather than an instantaneous reading. */
-        /* ---- SCROLLING WAVEFORM -------------------------------------------
-         * The waterfall's COPY-scroll, but the new column is drawn MIRRORED
-         * about a centre line instead of colour-coded from the bottom -- a
-         * DAW-style envelope building up left to right. ~5 commands a frame,
-         * because COPY moves the whole strip for the price of one. */
-        if (viz_mode == VIZ_SCROLL) {
-            const uint32_t x0 = UI_MARGIN, w = ww;
-            const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
-            const uint32_t half = UI_WAVE_H / 2u - 1u;
-            if (!paused) {
-                fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
-
-                uint32_t a = (peak_amp * half) / 32768u;
-                if (a > half) a = half;
-
-                uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H);     /* clear column */
-                if (a) fb_rect(cx, cy - a, 1, a * 2u + 1u,
-                               ui_mix(UI_TRACK, ui_accent, a, half));
-                else   fb_rect(cx, cy, 1, 1, UI_TRACK);         /* silence line */
-            }
-            goto viz_done;
-        }
-
-        /* ---- MIRRORED BARS ------------------------------------------------
-         * The same wave[] history the bars use, grown up AND down from a
-         * centre line. Same cost as the bars; different shape entirely. */
-        /* ---- SPECTRUM ------------------------------------------------
-         *
-         * Eight columns of real frequency content from the octave cascade --
-         * see SPEC_BANDS. Bass on the left, treble on the right, each moving
-         * on its own.
-         *
-         * This replaced a two-channel level ladder. Six blocks drawn from one
-         * number will always rise and fall together however they are styled;
-         * "make them move independently" is not a tuning request, it needs
-         * frequency data, and the cascade is what provides it. */
-        if (viz_mode == VIZ_LED) {
-            if (paused)
-                for (uint32_t b = 0; b < SPEC_BANDS; b++) spec_lvl[b] = 0;
-
-            /* The gaps between blocks show background, and the background is
-             * a per-row ramp -- a flat fill is the mistake the magic eye made.
-             * Only on a repaint: the gaps never move. */
-            int repaint = (spec_drawn[0] == 0xFFu);
-            if (repaint) ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-
-            uint32_t colw  = ww / SPEC_BANDS;
-            uint32_t bw    = (colw > SPEC_GAPX) ? colw - SPEC_GAPX : 1u;
-            uint32_t pitch = LED_BLKH + LED_GAPV;
-
-            for (uint32_t b = 0; b < SPEC_BANDS; b++) {
-                uint32_t lit  = ((uint32_t)spec_lvl[b] * LED_ROWS) / 256u;
-                uint32_t prev = spec_drawn[b];
-
-                /* Nothing crossed a row boundary: draw nothing at all. In
-                 * ordinary music most bands are in this state on most
-                 * updates, which is the whole saving. */
-                if (!repaint && lit == prev) continue;
-
-                uint32_t lo = repaint ? 0u : (lit < prev ? lit : prev);
-                uint32_t hi = repaint ? LED_ROWS : (lit > prev ? lit : prev);
-                spec_drawn[b] = (unsigned char)lit;
-
-                uint32_t x0 = UI_MARGIN + b * colw;
-                for (uint32_t r = lo; r < hi; r++) {
-                    uint32_t y = UI_WAVE_Y + UI_WAVE_H - (r + 1u) * pitch;
-                    uint16_t c;
-                    if (r < lit) {
-                        uint32_t half = LED_ROWS / 2u;
-                        c = (r < half)
-                          ? ui_mix(LED_LO, LED_MIDC, r, half)
-                          : ui_mix(LED_MIDC, LED_HI, r - half,
-                                   LED_ROWS - half);
-                    } else {
-                        c = UI_TRACK;
-                    }
-                    fb_rect(x0, y, bw, LED_BLKH, c);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- WINAMP BARS -----------------------------------------------
-         * Classic Winamp bars, drawn at the normal meter box's own position
-         * -- see wviz_bars_tick() (defined earlier in this file, alongside
-         * wviz_ease_step()) for the actual drawing/easing logic, shared with
-         * the Settings > Meter > Configure page (fw/settingsui.inc) so both
-         * places animate from one source of truth. */
-        if (viz_mode == VIZ_CHLADNI) {
-            if (!ui_fullscreen) {
-                const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
-                (void)chladni_tick_box(&in);
-            }
-            goto viz_done;
-        }
-
-        if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
-        if (viz_mode == VIZ_WINAMP_BARS) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-            wviz_bars_tick(&in);
-            goto viz_done;
-        }
-
-        /* ---- WINAMP SCOPE ------------------------------------------------
-         * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
-         * drawing/smoothing logic, shared with the Configure page. */
-        if (viz_mode == VIZ_WINAMP_SCOPE) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
-            wviz_scope_tick(&in, 1);
-            goto viz_done;
-        }
-
-        /* ---- MASTER VU -----------------------------------------------------
-         * Mastering-style segmented dB peak ladder -- see vum_tick() (fw/vu_master.inc) for the
-         * ladder/peak-hold/overlay logic. Not fullscreen-capable (fs_capable() in fullscreen.inc
-         * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
-         * one above -- fullscreen is always forced off before this meter can be the active one. */
-        if (viz_mode == VIZ_VU_MASTER) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-            vum_tick(&in);
-            goto viz_done;
-        }
-
-        /* ---- PEAK DOTS ----------------------------------------------------
-         * Only the peak-hold markers, no bars: a row of floating dots tracing
-         * the loudness contour. ~2 commands a column and the sparsest mode
-         * here. */
-        if (viz_mode == VIZ_DOTS) {
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-                uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-                uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-                uint32_t pk  = wave_pk[i];
-                if (pk < 2u) pk = 2u;
-
-                /* Same treatment as the mirrored bars: skip an unmoved column,
-                 * and restore around the dot rather than through it. */
-                if (pk == wave_pk_drawn[i]) continue;
-                wave_pk_drawn[i] = (unsigned char)pk;
-
-                uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
-                uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk;   /* first dot row */
-                uint32_t end = UI_WAVE_Y + UI_WAVE_H;        /* one past box  */
-                if (top > UI_WAVE_Y)
-                    ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
-                if (top + 2u < end)
-                    ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
-                fb_rect(x, top, lit, 2u, c);
-            }
-            goto viz_done;
-        }
-
-        if (viz_mode == VIZ_WATER) {
-            const uint32_t x0 = UI_MARGIN, w = ww;
-            if (!paused) {
-                fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
-
-                uint32_t a = (peak_amp * UI_WAVE_H) / 32768u;
-                if (a > UI_WAVE_H) a = UI_WAVE_H;
-
-                /* Column drawn as three bands -- quiet bed, body, hot tip --
-                 * so loud passages read as brighter AND taller. */
-                uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H - a);
-                if (a) {
-                    uint16_t c = ui_mix(UI_TRACK, ui_accent, a, UI_WAVE_H);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, a, c);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, 1, UI_WHITE);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- VU METERS ----------------------------------------------------
-         * Two analogue movements side by side. Geometry is derived from
-         * ui_wave_w() every pass rather than assumed: hiding the album art
-         * widens the box from ~246 to ~360, and a fixed layout would leave the
-         * pair huddled at the left -- the same trap the waterfall fell into. */
-        if (viz_mode == VIZ_VU) {
-            /* The face -- arc, ticks, labels -- never changes, so it is drawn
-             * ONCE and left alone. Clearing the whole box and repainting
-             * everything each pass is what made the L and R labels flicker:
-             * they were being erased and redrawn while the panel was being
-             * scanned out. Only the needle is erased and redrawn now. */
-            /* Width changes with the art panel, and the face geometry is
-             * derived from it, so a cached face drawn at another width is
-             * stale even if nothing erased it. */
-            if (wf || ww != vu_face_w) vu_face = 0;
-
-            /* Per ROW. Same fault the magic eye exposed: the box was filled
-             * with `bed`, the gradient sampled once at its top row, which is a
-             * flat slab on a ramp that falls to 62% of that value by the
-             * bottom. The needles leave most of the box empty, so it shows. */
-            if (!vu_face)
-                for (uint32_t yy = UI_WAVE_Y; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
-                    fb_rect(UI_MARGIN, yy, ww, 1, ui_grad_at(yy));
-
-            for (int ch = 0; ch < 2; ch++) {
-                uint32_t half = ww / 2u;
-                uint32_t ox   = UI_MARGIN + (uint32_t)ch * half;
-                uint32_t pivx = ox + half / 2u;
-                uint32_t pivy = UI_WAVE_Y + UI_WAVE_H - 4u;
-                uint32_t len  = UI_WAVE_H - 18u;
-                /* Needle stops short of the ticks, so erasing it can never rub
-                 * them out and they never need repainting. */
-                uint32_t nlen = len - 6u;
-
-                uint32_t pkc = ch ? peak_r : peak_l;
-                uint32_t tgt = (pkc * 255u) / 32768u;
-                if (tgt > 255u) tgt = 255u;
-                uint32_t *v = ch ? &vu_r : &vu_l;
-                if (paused) tgt = 0;
-                if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
-                else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
-                                if (*v < tgt) *v = tgt; }
-
-                if (!vu_face) {
-                    for (uint32_t t = 0; t <= 80u; t++) {
-                        uint32_t q = (t * 16u) / 80u, f = (t * 16u) % 80u;
-                        uint32_t q1 = (q < 16u) ? q + 1u : 16u;
-                        int32_t sn = vu_sn[q] + (int32_t)((vu_sn[q1] - vu_sn[q]) * (int32_t)f) / 80;
-                        int32_t cs = vu_cs[q] + (int32_t)((vu_cs[q1] - vu_cs[q]) * (int32_t)f) / 80;
-                        int32_t ar = (int32_t)len + 4;
-                        int32_t ax = (int32_t)pivx + (ar * sn) / 4096;
-                        int32_t ay = (int32_t)pivy - (ar * cs) / 4096;
-                        if (ay < (int32_t)UI_WAVE_Y) continue;
-                        if (ax < (int32_t)ox || ax + 1 >= (int32_t)(ox + half)) continue;
-                        /* Everything on the face is a TONE OF THE ACCENT.
-                         * Fixed grey and red meant changing colour only moved
-                         * the needle and the labels, and the meter looked
-                         * unchanged. The peak zone is the accent at full
-                         * strength against a dimmed scale, so it still reads as
-                         * "the loud end" in any palette. */
-                        fb_rect((uint32_t)ax, (uint32_t)ay, 2, 2,
-                                (t >= 60u) ? ui_accent
-                                           : ui_mix(ui_grad_at((uint32_t)ay),
-                                                    ui_accent, 2u, 5u));
-                    }
-                    for (uint32_t t = 0; t <= 4u; t++) {
-                        uint32_t i = t * 4u;
-                        for (uint32_t d = 0; d < 4u; d++) {
-                            int32_t ar = (int32_t)len - 1 - (int32_t)d;
-                            int32_t ax = (int32_t)pivx + (ar * vu_sn[i]) / 4096;
-                            int32_t ay = (int32_t)pivy - (ar * vu_cs[i]) / 4096;
-                            if (ay < (int32_t)UI_WAVE_Y) continue;
-                            fb_rect((uint32_t)ax, (uint32_t)ay, 1, 1,
-                                    (t >= 3u) ? ui_accent
-                                              : ui_mix(ui_grad_at((uint32_t)ay),
-                                                       ui_accent, 3u, 5u));
-                        }
-                    }
-                    fb_set_color(ui_accent, ui_grad_at(UI_WAVE_Y + 2u));
-                    fb_text_clipped(ox + 6u, UI_WAVE_Y + 2u, ch ? "R" : "L",
-                                    TS_1X, TS_1X, 16u);
-                }
-
-                uint8_t shown = ch ? vu_shown_r : vu_shown_l;
-                uint8_t now   = (uint8_t)*v;
-                if (vu_face && now == shown) continue;   /* nothing moved */
-
-                /* Erase the old needle, then draw the new one. Two passes over
-                 * the same geometry costs less than repainting the face. The
-                 * erase is skipped on the first draw after the face is laid
-                 * down, when there is no old needle to remove. */
-                for (int pass = vu_face ? 0 : 1; pass < 2; pass++) {
-                    int32_t  sn, cs;
-                    vu_angle(pass ? now : shown, &sn, &cs);
-                    /* One colour throughout its travel. Flashing at the top drew the eye
-                     * to the loudest moments, which is the opposite of what a
-                     * meter is for -- the scale already marks the peak zone. */
-                    /* The erase pass repaints the needle's own footprint in
-                     * the BACKGROUND colour, so with a ramp behind it that
-                     * colour has to be sampled per segment -- a flat `bed`
-                     * would leave a lighter trail down the lower half of the
-                     * sweep, exactly where the needle spends most of its
-                     * time. */
-                    for (uint32_t k = 2; k <= VU_STEPS; k++) {
-                        int32_t rr = ((int32_t)nlen * (int32_t)k) / (int32_t)VU_STEPS;
-                        int32_t nx = (int32_t)pivx + (rr * sn) / 4096;
-                        int32_t ny = (int32_t)pivy - (rr * cs) / 4096;
-                        if (nx < (int32_t)ox || nx >= (int32_t)(ox + half)) continue;
-                        if (ny < (int32_t)UI_WAVE_Y) continue;
-                        uint32_t th = (k > VU_STEPS - 6u) ? 1u : 2u;
-                        fb_rect((uint32_t)nx, (uint32_t)ny, th, th,
-                                pass ? ui_accent
-                                     : ui_grad_at((uint32_t)ny));
-                    }
-                }
-                fb_rect(pivx - 2u, pivy - 2u, 5, 5, ui_accent);
-                for (uint32_t r = 0; r < 3u; r++)
-                    fb_rect(pivx - 1u, pivy - 1u + r, 3, 1,
-                            ui_grad_at(pivy - 1u + r));
-
-                if (ch) vu_shown_r = now; else vu_shown_l = now;
-            }
-            vu_face = 1;
-            vu_face_w = (uint16_t)ww;
-            goto viz_done;
-        }
-
-        /* ---- OSCILLOSCOPE -------------------------------------------------
-         * One clear, then one vertical rect per column: ~65 commands, fewer
-         * than the bars. */
-        if (viz_mode == VIZ_WAVE) {
-            const int32_t ey = (int32_t)(UI_WAVE_H / 2u) - 1;
-            const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
-
-            ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-            fb_rect(UI_MARGIN, cy, ww, 1, UI_TRACK);      /* zero line */
-
-            if (!paused) {
-                int32_t prev_y = 0;
-                for (uint32_t c = 0; c < WAVE_COLS; c++) {
-                    uint32_t x  = UI_MARGIN + (c * ww) / WAVE_COLS;
-                    uint32_t xn = UI_MARGIN + ((c + 1u) * ww) / WAVE_COLS;
-                    uint32_t w  = (xn > x) ? (xn - x) : 1u;
-
-                    int32_t v = (wav_v[c] * ey) / SCOPE_UNIT;
-                    if (v >  ey) v =  ey;
-                    if (v < -ey) v = -ey;
-
-                    /* Span from the previous sample to this one, so the trace
-                     * is continuous rather than a row of disconnected marks --
-                     * and stays thin, because consecutive samples in a short
-                     * window are close together. */
-                    int32_t a = (c == 0) ? v : prev_y;
-                    int32_t lo = (a < v) ? a : v;
-                    int32_t hi = (a < v) ? v : a;
-                    prev_y = v;
-
-                    uint32_t top = (uint32_t)((int32_t)cy - hi);
-                    uint32_t h   = (uint32_t)(hi - lo) + 2u;   /* min 2 px line */
-                    if (top + h > UI_WAVE_Y + UI_WAVE_H) h = UI_WAVE_Y + UI_WAVE_H - top;
-                    uint16_t col = ui_mix(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
-                    fb_rect(x, top, w, h, col);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- STEREO PHASE SCOPE -------------------------------------------
-         * One rect to clear, then one per point: ~65 commands, fewer than the
-         * bars. The whole trace is redrawn each pass rather than erased point
-         * by point, which would double the count for no gain. */
-        if (viz_mode == VIZ_SCOPE) {
-            const uint32_t r  = UI_WAVE_H / 2u;          /* usable radius */
-            const uint32_t cx = UI_MARGIN + ww / 2u;
-            const uint32_t cy = UI_WAVE_Y + r;
-
-            ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-
-            /* Centre cross: without it a quiet passage is an empty box, and
-             * there is no way to tell "silent" from "not working". */
-            fb_rect(cx, UI_WAVE_Y, 1, UI_WAVE_H, UI_TRACK);
-            fb_rect(UI_MARGIN, cy, ww, 1, UI_TRACK);
-
-            if (!paused) {
-                const int32_t ex = (int32_t)(ww / 2u) - 2;   /* horizontal reach */
-                const int32_t ey = (int32_t)r - 2;           /* vertical reach   */
-                /* Oldest first, so the newest trace lands on top of the
-                 * fading ones rather than under them. */
-                for (uint32_t age = SCOPE_HIST; age-- > 0; ) {
-                    uint32_t f = (scope_head + SCOPE_HIST - age) % SCOPE_HIST;
-                    const signed char *sx = scope_x[f], *sy = scope_y[f];
-                    /* Blended from the background, so it has to be the
-                     * background near where the trace actually sits -- the
-                     * dots cluster around the centre line. Per-dot would cost
-                     * a call for each of 48 x 4. */
-                    uint16_t c  = ui_mix(ui_grad_at(cy), ui_accent,
-                                         SCOPE_HIST - age, SCOPE_HIST);
-                    uint32_t sz = age ? 1u : 2u;     /* newest trace is fatter */
-                    for (uint32_t k = 0; k < SCOPE_N; k++) {
-                        int32_t px = (int32_t)cx + (sx[k] * ex) / SCOPE_UNIT;
-                        int32_t py = (int32_t)cy - (sy[k] * ey) / SCOPE_UNIT;
-                        if (px < (int32_t)UI_MARGIN ||
-                            px + (int32_t)sz > (int32_t)(UI_MARGIN + ww)) continue;
-                        if (py < (int32_t)UI_WAVE_Y ||
-                            py + (int32_t)sz > (int32_t)(UI_WAVE_Y + UI_WAVE_H)) continue;
-                        fb_rect((uint32_t)px, (uint32_t)py, sz, sz, c);
-
-                        /* Newest trace only: drop a point midway to the next
-                         * sample so the figure closes into a curve instead of
-                         * a dotted outline. Only the top layer gets this --
-                         * doing it on every frame of history would triple the
-                         * command count for detail that is fading out anyway. */
-                        if (!age && k + 1u < SCOPE_N) {
-                            int32_t qx = (int32_t)cx + (((sx[k] + sx[k+1]) / 2) * ex) / SCOPE_UNIT;
-                            int32_t qy = (int32_t)cy - (((sy[k] + sy[k+1]) / 2) * ey) / SCOPE_UNIT;
-                            if (qx >= (int32_t)UI_MARGIN &&
-                                qx + 1 < (int32_t)(UI_MARGIN + ww) &&
-                                qy >= (int32_t)UI_WAVE_Y &&
-                                qy + 1 < (int32_t)(UI_WAVE_Y + UI_WAVE_H))
-                                fb_rect((uint32_t)qx, (uint32_t)qy, 1, 1, c);
-                        }
-                    }
-                }
-            }
-            goto viz_done;
-        }
-
-        /* Loop invariants, computed once per frame instead of once per changed column: the engine probe, the lit colour
-         * and the mirrored geometry. The plain-rectangle fallback for a bitstream without the blit engine is gone: every
-         * bitstream that can run the cold code has it (OP_BAR since B-104, in every build since alpha.1). */
-        blit_probe_ensure();
-        const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
-        const uint32_t hh = UI_WAVE_H / 2u, cy = UI_WAVE_Y + hh;
-        for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-            /* Bar edges come from scaling the index across the full width, so the row always reaches its right edge. */
-            const uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-            const uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-            const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-            uint32_t h = wave[i];
-            if (bars_layout) { h = (h * (hh - 1u)) / UI_WAVE_H; if (h < 1u) h = 1u; }   /* mirrored: each half is half the box */
-            else if (h < 2u) h = 2u;                 /* always show a floor */
-            /* Most bars land on the height already drawn there: skip them (one compare instead of a draw command). */
-            uint32_t pk = bars_layout ? h : wave_pk[i];
-            if (pk < h) pk = h;
-            if (h == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
-            wave_drawn[i]    = (unsigned char)h;
-            wave_pk_drawn[i] = (unsigned char)pk;
-            const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
-            if (bars_layout) {
-                /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at its bottom, the centre
-                 * line); the lower half is the same bar inverted -- OP_BAR always lights the bottom of its span, so swap the
-                 * colours and light the EMPTY part (top h rows the bar colour, the rest the bed). The bed is the dim track colour. */
-                fb_bar(x, UI_WAVE_Y, lit, hh, h, c, UI_TRACK);
-                fb_bar(x, cy, lit, hh, hh - h, UI_TRACK, c);
-                continue;
-            }
-            fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
-            if (pk > h + 1u)                       /* 1 px peak-hold marker */
-                fb_rect(x, UI_WAVE_Y + UI_WAVE_H - pk, lit, 1, UI_WHITE);
-        }
-    viz_done: ;
-#if TAU_DIAGNOSTIC
-        mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
-#endif
+        if (ui_meter_region == 0xFFu)
+            ui_meter_region = helios_region_register_rows_cold(ui_meter_redraw, UI_WAVE_Y - UI_WAVE_TOP,
+                                                                UI_WAVE_Y + UI_WAVE_H - 1u);
+        helios_mark_dirty(ui_meter_region);
+        /* Safety was already confirmed just above; helios_flush()'s own re-check of the same row
+         * range passes trivially (the beam has not moved in the few cycles since), so this draws NOW
+         * -- the exact cadence/timing this call site always had, not deferred to a later pass. Kept
+         * as an explicit gate rather than relying only on helios_flush()'s internal check, so
+         * ui_last_vu's reset-only-on-an-actual-redraw semantics (the comment above) are unchanged:
+         * that is what makes it retry every tick while genuinely beam-blocked rather than every
+         * other tick. */
+        helios_flush();
     }
 
     /* Sticky underrun latch (pcm_fifo.v) stays set until the next pcm_flush()
@@ -4713,11 +5589,21 @@ ui_tail:
      * RV32 -- and it ran EVERY frame inside the same budget that keeps the PCM
      * FIFO fed. Adds and compares give the identical answer. */
     if (samprate && frames != ui_last_frames) {
+        const uint32_t df = (ui_last_frames == 0xFFFFFFFFu || frames < ui_last_frames || frames - ui_last_frames > 512u) ? 1u : (uint32_t)(frames - ui_last_frames);   /* a reset or a seek moves `frames` backwards (or far): count one frame, as before */   /* every frame decoded since the last call: in ring mode the decoder runs several frames per UI tick and one frame's worth was all that was counted (the clock ran 1-2 s slow) */
         ui_last_frames = frames;
-        ui_sec_acc += samp_per_frame;
+        ui_sec_acc += samp_per_frame * (df ? df : 1u);
         while (ui_sec_acc >= samprate) { ui_sec_acc -= samprate; ui_sec++; }
     }
     uint32_t sec = ui_sec;
+#if TAU_PCM_RING_FW
+    if (rg_on && samprate) {                         /* B-746: the heard position: the decoded one minus what the ring and the FIFO still hold */
+        if (gp_pend) sec = prh_old_clock_pairs(gp_pre_pp, gp_marker, REG(R_RING_CNT) - PCM_LEVEL(REG(R_PCM_ST))) / samprate;   /* G2b: the OLD track's tail */
+        else {
+        const uint32_t pp = ui_sec * samprate + ui_sec_acc, lead = rg_lead();
+        sec = prh_heard_pos(pp, lead) / samprate;
+        }
+    }
+#endif
 
     /* Measured average: bytes actually consumed divided by elapsed time. Only
      * after a few seconds, so a partly-filled ring cannot skew it. */
@@ -4771,8 +5657,8 @@ ui_tail:
          *
          * Accent, not white: it is a state the user chose, and the same colour
          * every other active mode indicator uses. */
-        if (speed_idx != SPEED_1X) {
-            const char *sp = speed_txt[speed_idx];
+        const char *sp = speed_marker();
+        if (sp) {
             uint32_t sw = fb_text_width(sp, TS_1X);
             uint32_t sx = FB_W - UI_MARGIN - sw;
             uint32_t sy = UI_TIME_Y + (FB_CELL(TS_15X) > FB_CELL(TS_1X)
@@ -5120,9 +6006,9 @@ ui_tail:
                                 vl ? ui_accent : UI_FAINT);
             }
 
-            fb_set_color(eq_idx ? ui_accent : UI_FAINT, tbg);
+            fb_set_color(hal_sel ? ui_accent : UI_FAINT, tbg);
             fb_text_clipped(mx + (UI_MODE_W + 10u) * 2u, my - 2u,
-                            eq_name[eq_idx], TS_1X, TS_1X, 110u);
+                            eq_label(), TS_1X, TS_1X, 110u);
 
             /* "4 / 12", right-aligned so the numbers do not shuffle sideways as
              * the track index gains a digit.
@@ -5238,6 +6124,30 @@ ui_tail:
     }
 #endif
 
+    /* CPU load / underrun-attribution latch. This used to live inside the UI_SHOW_SPEED_DIAG block below, which is compiled out (default 0), so
+     * fl_idle_pct and fl_io_pct were never written: ui_cpu_pct() read 100% in every state (and Chladni's CPU shedding, which reads it, always shed).
+     * Always on now, and normalised to the real elapsed cycles of the window rather than assumed to be one second, because this runs from the UI
+     * tick and the window stretches while an overlay holds the screen. */
+    {
+        static uint32_t load_t0;
+        const uint32_t now = cycles(), el = now - load_t0;
+        if (el >= CLK_HZ) {
+            load_t0 = now;
+            fl_idle_pct = (uint8_t)(fl_idle_cyc / (el / 100u));
+            fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
+            if (fl_idle_pct > 99u) fl_idle_pct = 99u;
+            if (fl_io_pct   > 99u) fl_io_pct   = 99u;
+            if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct, fl_io_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
+#if TAU_DX_LOAD_STATS
+            if (ld_win_on) {
+                ld_win_secs++; ld_win_idle += fl_idle_pct; ld_win_io += fl_io_pct;
+                if (100u - fl_idle_pct > ld_win_worst) ld_win_worst = (uint8_t)(100u - fl_idle_pct);
+            }
+#endif
+            fl_idle_cyc = fl_io_cyc = 0u;
+        }
+    }
+
     /* Speed-branch readout. These five values ARE the suspected fault, not a
      * general-purpose dump:
      *
@@ -5271,12 +6181,6 @@ ui_tail:
      * investigations are closed, and legacy playlist mode itself is removed. */
     if (ui_sec != ui_last_spd) {
         ui_last_spd = ui_sec;
-        /* Latch and reset the attribution for the second just finished. */
-        fl_idle_pct = (uint8_t)(fl_idle_cyc / (CLK_HZ / 100u));
-        fl_io_pct   = (uint8_t)(fl_io_cyc   / (CLK_HZ / 100u));
-        if (fl_idle_pct > 99u) fl_idle_pct = 99u;
-        if (fl_io_pct   > 99u) fl_io_pct   = 99u;
-        fl_idle_cyc = fl_io_cyc = 0u;
         char b[64], *q = b;
         /* The speed prefix this row was built for is dropped while the
          * playlist switch is under investigation: measured against the real
@@ -5733,7 +6637,7 @@ static void ui_blank_pump(void)
     if (blank_sec >= blank_min * 60u) ui_blank_enter();
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #include "stress.inc"
 #endif
 
@@ -5741,6 +6645,15 @@ static void ui_blank_pump(void)
  * panel itself off from a core, so "blank" means every pixel black. The
  * backlight stays on regardless; see the note on blank_min. */
 __attribute__((optimize("Os")))       /* button handling: no timing role; RAM is the constraint in the library build */
+#if TAU_DX_GAP_TIMING
+COLD_FN2 static void pg_note_cold(uint32_t d, uint32_t ra, uint32_t rb)
+{
+    const uint32_t ms = d / (CLK_HZ / 1000u);
+    uint8_t *c = &pg_b[ms < 46u ? 0u : ms < 300u ? 1u : ms < 1000u ? 2u : 3u];
+    if (*c < 255u) (*c)++;
+    if (ms > pg_max_ms) { pg_max_ms = (uint16_t)(ms > 65535u ? 65535u : ms); pg_ra_max = ra; pg_rb_max = rb; }
+}
+#endif
 static void poll_input(void)
 {
     static uint32_t prev;
@@ -5749,8 +6662,16 @@ static void poll_input(void)
     static uint8_t  sel_used;            /* Select was used as a modifier      */
     static uint32_t sel_t0;              /* when Select went down              */
     static uint8_t  sel_held;            /* the hold action already ran        */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     stress_tick();
+#endif
+#if TAU_DX_GAP_TIMING
+    {   /* B-731: time since the previous call; a long one is bucketed in cold code (the hot path is a read, a subtract and a compare) */
+        const uint32_t t = cycles(), d = t - pg_t;
+        pg_t = t;
+        const uint32_t ra = pg_ra, rb = (uint32_t)(uintptr_t)__builtin_return_address(0); pg_ra = rb;
+        if (d >= CLK_HZ / 50u && cold_code_ok) pg_note_cold(d, ra, rb);
+    }
 #endif
     uint32_t in   = REG(R_INPUT);
     uint32_t keys = in & 0xFFFFu;
@@ -5773,6 +6694,18 @@ static void poll_input(void)
         edge = 0; fall = 0; keys = 0;
     }
 
+    /* ---- Start: opens Settings on RELEASE, and only if nothing else claimed it (B-522) -------------------------------------------------
+     * A press-time open meant every chord with Start was impossible (Settings was already open before the second button landed), and a Start
+     * used as a modifier also opened the menu. Now a bare Start press on the player screen only ARMS the menu (start_pend); the menu opens when
+     * Start is released, unless in between any other button went down (a chord, or a plain action of its own) -- that claims the press and the
+     * release then does nothing, so one physical gesture can never produce two actions. Closing is unchanged and stays on press: with Settings
+     * or the library open a Start press is not armed at all, so its release cannot reopen what the press just closed. Without the cold image
+     * the menu cannot open (set_input refuses), so the press is left alone and keeps its old meaning (stop). */
+    {
+        static sg_t start_g;
+        if (sg_step(&start_g, &edge, fall, keys, KEY_START, KEY_Y, KEY_SELECT, !set_open && !lib_ui_open, cold_code_ok) & SG_CHORD)
+            set_open_wvizcfg_direct();      /* Start+Y: Meter > Configure, skipping Home -> Appearance -> Meter. Cold code (fw/settingsui.inc) -- not visible this early in the file */
+    }
     /* ---- the overlay owns most of the pad while it is up -------------------
      * Handled BEFORE every normal binding, then the consumed bits are cleared
      * so nothing downstream also acts on them. Select is deliberately left in
@@ -5854,15 +6787,15 @@ static void poll_input(void)
                    : viz_mode == VIZ_WINAMP_SCOPE ? "METER: WINAMP SCOPE"
                    : viz_mode == VIZ_CHLADNI      ? "METER: CHLADNI"
                    : viz_mode == VIZ_VU_MASTER    ? "METER: MASTER VU"
+                   : viz_mode == VIZ_LAYERED_WAVE ? "METER: LAYERED WAVE"
                                             : "METER");
         settings_mark_dirty();
     }
     if (edge & KEY_Y) {
-        /* Forward only, matching X. Y was completely unused before the EQ. */
-        eq_idx = (uint8_t)((eq_idx + 1u) % EQ_COUNT);
-        eq_apply = 1u;
+        /* Forward only, matching X: the next Halcyon EQ preset (after the last, off). */
+        hal_req = 1u;
     }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     /* The normal Start action stops playback. In the developer stress build,
      * Select+Start is an explicit HUD refresh and MUST consume the combo: the
      * test is only meaningful while audio and visualizer traffic continue. */
@@ -5937,6 +6870,11 @@ static void poll_input(void)
      * Select+Up used to change the volume AND toggle the art panel on release,
      * because nothing claimed the combo. Select+Down needs it properly. */
     if (!(keys & KEY_SELECT)) {
+        /* Holding Up/Down keeps stepping the volume (B-534): the same press-then-hold-then-steady shape as the menus and
+         * lists (kr_step), at about 12 steps a second after the shared hold delay, so the whole 0-100 range takes about
+         * 1.7 s to sweep. A repeat is just another edge, so the handling below is unchanged. */
+        static kr_t vol_kr;
+        edge = kr_step(&vol_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 12u, 0);
         if (edge & KEY_UP)   { volume = (volume + VOL_STEP > VOL_MAX)
                                       ? VOL_MAX : volume + VOL_STEP;
                                vol_apply(); ui_toast_set("VOLUME", volume, "%");
@@ -6039,8 +6977,18 @@ static inline void pcm_flush(void)
 {
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
+    if (vol_st.hw) fade_left = 0u;  /* the hardware stage fades itself; a stale software fade would pop when the gain is handed back */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
-#if TAU_DIAGNOSTIC
+#if TAU_PCM_RING_FW
+    rg_on_flush();   /* B-746/G2b: the hardware drops the unread pairs: the meter read-back and the put count restart here; a pending gapless marker is reached at once */
+#endif
+#if TAU_TEMPO
+    tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
+#endif
+#if TAU_DX_UNDERRUN_LOG
+    ur_flush(&ur_all);
+#endif
+#if TAU_DX_STRESS
     stress_frames_at_flush = frames;
 #endif
 }
@@ -6049,7 +6997,17 @@ static uint32_t rd_seq0, rd_deadline, rd_len;
 static int      rd_pending, rd_ok;
 
 static uint8_t  eof_hit;  /* a refill ran off the end: the file's true extent */
-static uint8_t  sw_prev_head[16];   /* head of the song being left */
+/* B-732: the head of the song being left, as a hash of its first SW_HEAD bytes. It was the first 16 bytes, which for two FLAC files from the same encoder ("fLaC", the STREAMINFO header and the
+ * block sizes) are IDENTICAL, so the settle loop below never saw a difference and ran to its 32-read timeout (about 1.07 s) on every FLAC-to-FLAC change (GAP LATENCY 1,543 ms, SLOT SETTLE
+ * L1068 T33 on DEV 116). 48 bytes reach the end of STREAMINFO (total samples, MD5) and an ID3 tag's length and first frame; a hash keeps it to four bytes of RAM. */
+#define SW_HEAD 48u
+static uint32_t sw_prev_hash;
+static uint32_t sw_head_hash(const uint8_t *b)
+{
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < SW_HEAD; i++) h = (h ^ b[i]) * 16777619u;
+    return h;
+}
 static uint8_t  sw_have_prev;
 static uint32_t eof_at;   /* offset the failures are accumulating at        */
 static uint32_t eof_fails;
@@ -6463,6 +7421,16 @@ static void ui_draw_dynamic(void)
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
 #include "library.inc"
+#include "halcyon.inc"     /* B-640/B-641: the Halcyon selector and the PRST user presets (before assets.inc, whose loader hands it the file) */
+/* The now-playing EQ label: the Halcyon selection's name (OFF, a preset, CUSTOM); a plain OFF when there is no cold code or no engine. */
+static const char *eq_label(void)
+{
+#if TAU_HALCYON_FW
+    if (COLD_READY()) return hal_row_text();
+#endif
+    return "OFF";
+}
+
 #include "assets.inc"     /* theme step 0d: extra themes from tau-assets.bin (data slot 8) */
 #pragma GCC pop_options
 #if TAU_ART_TIMG
@@ -6936,6 +7904,147 @@ static int flac_restart(void)
 static uint32_t fl_meter_n;
 
 
+/* B-633 (parallel plan A4, gapless groundwork): how long is the gap at a NATURAL track end? Stamped when the decoder meets the end of a file and starts the next track (the
+ * point from which the FIFO's remaining audio, about 46 ms at most, is all that bridges the load), read back when the first frame of the next track has been decoded and pushed.
+ * Diagnostic Build only (Info > GAP LATENCY); other builds compile it to nothing. A deeper FIFO and a no-flush boundary are only worth building if this is longer than the buffer. */
+#if TAU_DX_GAP_TIMING
+/* The bodies are cold code (the diagnostic heap gap is tight); hot code only tests a flag. gap_armed is set by the cold function, which implies the cold image is loaded. */
+COLD_FN2 static void gap_eof_cold(void)
+{
+    gap_t0 = cycles(); gap_armed = 1u;
+    const uint32_t hz = track_hz ? track_hz : 44100u;
+    gap_buf_ms = PCM_ST_LEVEL(REG(R_PCM_ST)) * 1000u / hz;       /* audio still queued at the end of the file */
+}
+COLD_FN2 static void gap_frame_cold(void)
+{
+    gap_armed = 0u;
+    gap_last_ms = (cycles() - gap_t0) / (CLK_HZ / 1000u);
+    if (gap_last_ms > gap_max_ms) gap_max_ms = gap_last_ms;
+    gap_n++;
+    gap_sum += gap_last_ms;
+    gap_hist[gap_last_ms < 150u ? 0u : gap_last_ms < 300u ? 1u : gap_last_ms < 600u ? 2u : gap_last_ms < 1000u ? 3u : gap_last_ms < 2000u ? 4u : 5u]++;
+}
+#define gap_mark_eof()   do { if (COLD_READY()) gap_eof_cold(); } while (0)
+#define gap_mark_frame() do { if (gap_armed) gap_frame_cold(); } while (0)
+#else
+#define gap_mark_eof()   ((void)0)
+#define gap_mark_frame() ((void)0)
+#endif
+
+/* Cymo C1 (B-533): the ONE place a decoded sample pair reaches the audio FIFO. MP3 and FLAC each had their own copy of volume, fade, FIFO wait and write, and the
+ * two had already drifted apart once (FLAC shipped without volume). The arithmetic is fw/pcm_push.h (host-tested against the old lines); the wait is the old wait,
+ * unchanged: block while the FIFO is full (it silently DROPS pushes when full, so skipping the wait corrupts audio), servicing input and I/O from inside it, and
+ * count the time as idle. `abortable` is the MP3 loop's behaviour: a pending reload leaves the wait and the sample is NOT pushed (returns 0); the FLAC callback
+ * has no such exit and never aborts. Always inlined, so the generated code per call site is what the hand-written copies produced. */
+static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
+{
+#if TAU_PCM_RING_FW
+    if (rg_on) {
+        if (rg_room1) {   /* fast path (hot, no calls): the cold hooks cost about 300 cycles a pair from the PSRAM instruction fetch and left FLAC no idle time (DEV 123) */
+            RG_WIN[rg.w] = ((uint32_t)(uint16_t)(int16_t)r << 16) | (uint32_t)(uint16_t)(int16_t)l;
+            if (++rg.w == rg.size) rg.w = 0u;
+            rg_room1--; rg_put_total++;
+            if ((++rg_n1 & 63u) == 0u) REG(R_RING_WPTR) = rg.w;
+            return 1u;
+        }
+        return rg_put1(l, r, abortable);
+    }   /* B-746: raw pair into the ring (the gain stage is at the FIFO output) */
+#endif
+    pcm_gain_apply(&l, &r, &vol_st, &fade_left, FADE_SAMPLES);
+    const uint32_t st = REG(R_PCM_ST);
+#if TAU_DX_UNDERRUN_LOG
+    ur_note(&ur_all, PCM_FULL(st), PCM_EMPTY(st));   /* B-546: counts every stall, not just the first per flush */
+#endif
+    if (PCM_FULL(st)) {
+        uint32_t t0 = cycles();
+        do {
+            poll_input();
+            refill_pump();
+            if (abortable && reload_pending) { const uint32_t d = cycles() - t0; fl_idle_cyc += d; LD_WAIT(d); return 0u; }
+        } while (PCM_FULL(REG(R_PCM_ST)));
+        { const uint32_t d = cycles() - t0; fl_idle_cyc += d; LD_WAIT(d); }
+    }
+    REG(R_AUDIO) = pcm_pack(l, r);
+    return 1u;
+}
+
+/* Cymo C0 follow-up (B-592): the MP3 loop's burst push (fw/pcm_push.h pcm_push_pairs, host-tested against the per-pair path): one status read per burst instead of one per
+ * pair. The hooks are the same hardware accesses cymo_push() makes; the wait is counted as idle exactly as before. FLAC and the tempo funnel still use cymo_push(). */
+static uint32_t cpb_t0;
+static inline __attribute__((always_inline)) uint32_t cpb_rd(void)  { return REG(R_PCM_ST); }
+static inline __attribute__((always_inline)) void     cpb_wr(uint32_t w) { REG(R_AUDIO) = w; }
+static inline __attribute__((always_inline)) void     cpb_wb(void)  { cpb_t0 = cycles(); }
+static inline __attribute__((always_inline)) void     cpb_we(void)  { const uint32_t d = cycles() - cpb_t0; fl_idle_cyc += d; LD_WAIT(d); }
+static inline __attribute__((always_inline)) int      cpb_spin(void) { poll_input(); refill_pump(); return reload_pending ? 1 : 0; }
+static inline __attribute__((always_inline)) void     cpb_note(uint32_t no_room, uint32_t empty)
+{
+#if TAU_DX_UNDERRUN_LOG
+    ur_note(&ur_all, no_room, empty);   /* B-546: counts every stall, not just the first per flush */
+#else
+    (void)no_room; (void)empty;
+#endif
+}
+static const pcm_hooks_t cymo_hooks = { cpb_rd, cpb_wr, cpb_wb, cpb_we, cpb_spin, cpb_note };
+#include "pcm_ring_fw.inc"
+
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): the tempo funnel (fw/tempo_core.h) wired to the player. The staging ring is the PSRAM window at +6 MiB (planar, 64 KB a channel; the map is in
+ * docs/features/CYMO_TEMPO_INTEGRATION.md section 4: the library image, queue and dead-track bitmap, the cold image and the Check scratch are elsewhere). Output pairs go through
+ * cymo_push(), the same volume / fade-in / FIFO wait as everything else, so the FIFO paces the whole chain at the native rate; the meters are fed from the stretched
+ * output, so they move at real time and not at tempo times real time. */
+#define TEMPO_PS_L ((volatile uint32_t *)(uintptr_t)0xA4600000u)
+#define TEMPO_PS_R ((volatile uint32_t *)(uintptr_t)0xA4610000u)
+#define TEMPO_PUSH(l, r) cymo_push((l), (r), 1u)
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n);
+#define TEMPO_METER(l, r, n) tempo_meter((l), (r), (n))
+/* The stretcher and the funnel are COLD CODE (the 192 KB link has 13.9 KB of heap in the release build, and the hot code alone would not fit); the Hann table is cold data.
+ * The hot MP3 loop enters them only through tempo_use(), which is gated on COLD_READY(). */
+#define WS_FN    COLD_FN3 static
+#define TEMPO_FN COLD_FN3 static
+#define WS_DATA  COLD_DATA
+#include "tempo_core.h"
+static tempo_t tempo_st;
+/* The meters take interleaved pairs; to avoid a 2 KB buffer a stereo hop is handed over as every 4th pair (128 of 512): the peaks of speech are slightly underestimated,
+ * the spectrum is measured in hardware and does not use this. */
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n)
+{
+    if (r) {
+        int16_t il[2u * (WS_MAX_HS / 4u)];
+        uint32_t m = n / 4u;
+        for (uint32_t i = 0; i < m; i++) { il[2u * i] = l[4u * i]; il[2u * i + 1u] = r[4u * i]; }
+        meters_feed(il, (int)(2u * m), 1);
+    } else {
+        meters_feed(l, (int)n, 0);
+    }
+}
+static uint8_t tempo_psram;               /* 0 unknown, 1 proven, 2 not available */
+static int tempo_psram_ok(void)
+{
+    if (tempo_psram == 0u) {              /* write and read back four words; the staging ring is scratch, so nothing is lost */
+        volatile uint32_t *a = TEMPO_PS_L, *b = TEMPO_PS_R;
+        a[0] = 0x5A5AC3C3u; b[0] = 0xA5A53C3Cu; a[1] = 0x12345678u; b[1] = 0x9ABCDEF0u;
+        tempo_psram = (a[0] == 0x5A5AC3C3u && b[0] == 0xA5A53C3Cu && a[1] == 0x12345678u && b[1] == 0x9ABCDEF0u) ? 1u : 2u;
+    }
+    return tempo_psram == 1u;
+}
+/* 1 when this MP3 frame goes through the stretcher. Eligibility: MP3 only, 22.05-48 kHz, mono or stereo, the PSRAM window proven. (Re)starts the stretcher when the
+ * stream's parameters or the setting changed, or after a flush. Anything else plays normally, at 1.00x. */
+static int tempo_use(uint32_t rate, uint32_t nch)
+{
+    if (!tempo_idx || track_fmt == FMT_FLAC || !COLD_READY()) return 0;   /* the stretcher is cold code: only once the cold image is loaded */
+    if (rate < 22050u || rate > 48000u || (nch != 1u && nch != 2u)) return 0;
+    if (!tempo_psram_ok()) return 0;
+    const uint32_t key = ((rate << 8) ^ (nch << 4) ^ (uint32_t)tempo_idx) | 0x80000000u;
+    if (key != tempo_cfg_key) {
+#if TAU_PCM_RING_FW
+        rg_off();                       /* B-746: the stretcher works in output time: it keeps the direct FIFO path (the ring is armed again at the next track only if tempo is off) */
+#endif
+        tempo_start(&tempo_st, rate, (uint8_t)nch, tempo_q8[tempo_idx]); tempo_cfg_key = key;
+    }
+    return 1;
+}
+#endif
+
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
 HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
@@ -6980,41 +8089,24 @@ HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
             clk_prev = xl;
         }
 #endif
+#if TAU_PCM_RING_FW
+        if (rg_on) {                                         /* B-746: the meters follow the heard position, read back from the ring */
+            if (++fl_meter_n == FL_METER_PAIRS) { fl_meter_n = 0; rg_meter_feed(); }
+        } else
+#endif
+        {
         pcm[fl_meter_n * 2u]      = src[i * 2];
         pcm[fl_meter_n * 2u + 1u] = src[i * 2 + 1];
         if (++fl_meter_n == FL_METER_PAIRS) {
             meters_feed(pcm, (int)(FL_METER_PAIRS * 2u), 1);
             fl_meter_n = 0;
         }
-        int32_t l = src[i * 2], r = src[i * 2 + 1];
-        /* Volume, which this path did not apply at all -- the d-pad moved the
-         * number on screen while FLAC played at full scale, and volume 0 was
-         * not silent. The MP3 loop has had this the whole time; adding FLAC
-         * added a second push path and only one of them was volume-aware.
-         * Same order as MP3: volume first, then the fade, so a fade-in at low
-         * volume stays at low volume. Capped at unity, so it only ever
-         * attenuates and cannot overflow. */
-        if (vol_gain != 256) {
-            l = (l * vol_gain) >> 8;
-            r = (r * vol_gain) >> 8;
         }
-        if (fade_left) {
-            int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-            l = (l * g) >> 8;
-            r = (r * g) >> 8;
-            fade_left--;
-        }
-        if (PCM_FULL(REG(R_PCM_ST))) {
-            uint32_t t0 = cycles();
-            do {
-                poll_input();
-                refill_pump();
-            } while (PCM_FULL(REG(R_PCM_ST)));
-            fl_idle_cyc += cycles() - t0;
-        }
-        REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                     | (uint32_t)(uint16_t)(int16_t)l;
+        cymo_push(src[i * 2], src[i * 2 + 1], 0u);   /* volume, fade, FIFO wait, write: the one shared path (C1) */
     }
+#if TAU_PCM_RING_FW
+    if (rg_on) rg_publish();                                 /* B-746: whatever the 64-pair publishing left behind */
+#endif
 }
 
 /* Issue a read, then go back to decoding and collect it later.
@@ -7475,6 +8567,16 @@ static void id3_walk_collect(uint32_t tag_len)
                ((uint32_t)h[6] << 8)  |  (uint32_t)h[7]);
         if (!fsize || p + 10u + fsize > tag_len) return;
 
+        if (h[0] == 'T' && h[1] == 'X' && h[2] == 'X' && h[3] == 'X') {      /* ReplayGain (B-599): a TXXX frame behind the picture */
+            if (fsize <= 96u) {
+                if (!cold_code_ok) { /* no cold code: no ReplayGain */ }
+                else if (ID3_HAVE(p + 10u, fsize)) rg_txxx_cold(tagbuf + (p + 10u - wo), fsize);
+                else if (target_read_slot(MP3_SLOT_ID, p + 10u, TAG_OFF, fsize)) { rg_txxx_cold(tagbuf, fsize); wl = 0; }
+            }
+            p += 10u + fsize;
+            continue;                                            /* tagbuf may have been replaced: h is stale */
+        }
+
         for (uint32_t k = 0; k < 7u; k++) {
             if (dst[k][0]) continue;                   /* already have it */
             if (h[0] != (uint8_t)want[k][0] || h[1] != (uint8_t)want[k][1] ||
@@ -7557,6 +8659,7 @@ static uint32_t vbr_frame_count(void)
                     for (int k = 8; k >= 0 && track_encoder[k] == ' '; k--)
                         track_encoder[k] = 0;
                     track_vbr_method = ring[e+9] & 0x0Fu;
+                    { uint16_t dl, pd; if (e + 24u <= lim && lame_ext_gapless(&ring[e], 24u, &dl, &pd)) { track_enc_delay = dl; track_enc_padding = pd; } }   /* B-624 */
                 }
             }
             return ((uint32_t)ring[i+8]  << 24) | ((uint32_t)ring[i+9]  << 16) |
@@ -7579,7 +8682,7 @@ COLD_SR static int read_track_head(void)
 {
     refill_drain();     /* settle anything in flight before touching the ring */
 
-    int attempt = 0, have_prev = 0;
+    int attempt = 0, have_prev = 0, proven = 0;   /* B-733: proven = the slot-open check below saw the new file's head differ and then agree twice */
     uint32_t skip = 0, prev_skip = 0;
     char prev_try[TITLE_MAX];
     /* PROVE THE SLOT HAS SETTLED before reading anything we will act on.
@@ -7609,7 +8712,7 @@ COLD_SR static int read_track_head(void)
          * passed instantly on exactly the stale data it existed to reject.
          * Proving "settled" is not the same as proving "switched".
          *
-         * sw_prev_head is the outgoing file's first 16 bytes, captured before
+         * sw_prev_hash is a hash of the outgoing file's first SW_HEAD (48) bytes, captured before
          * the 0192. Sixteen, not four: every ID3v2.3 tag begins "ID3" plus a
          * version, so four bytes are the same constant for every tagged file --
          * the discriminator-that-does-not-discriminate this project has been
@@ -7618,26 +8721,32 @@ COLD_SR static int read_track_head(void)
          *
          * Then two agreeing reads, so a half-switched slot is not trusted
          * either. ~1 s cap, after which the existing retry loop takes over. */
-        uint8_t prev[16];
+        uint32_t prev = 0;
+#if TAU_DX_GAP_TIMING
+        const uint32_t gset_t0 = cycles();
+#endif
         uint32_t tries = 0, agree = 0, differs = !sw_have_prev;
-        for (uint32_t i = 0; i < sizeof(prev); i++) prev[i] = 0u;
         while (tries++ < 32u && !(differs && agree >= 2u)) {
-            if (!target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 16u)) { agree = 0; continue; }
-            if (!differs) {
-                for (uint32_t i = 0; i < sizeof(prev); i++)
-                    if (tagbuf[i] != sw_prev_head[i]) { differs = 1; break; }
-            }
-            uint32_t same = 1;
-            for (uint32_t i = 0; i < sizeof(prev); i++) {
-                if (tagbuf[i] != prev[i]) same = 0;
-                prev[i] = tagbuf[i];
-            }
-            agree = same ? agree + 1u : 0u;
+            if (!target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, SW_HEAD)) { agree = 0; continue; }
+            const uint32_t hh = sw_head_hash(tagbuf);
+            if (!differs && hh != sw_prev_hash) differs = 1;
+            agree = (hh == prev) ? agree + 1u : 0u;
+            prev = hh;
             if (!(differs && agree >= 2u)) {
                 uint32_t wait = cycles() + CLK_HZ / 32u;   /* ~30 ms */
                 while ((int32_t)(cycles() - wait) < 0) { }
             }
         }
+#if TAU_DX_GAP_TIMING
+        {   /* B-725: how long the slot-open settle took (ms) and how many reads it needed (tries is one past the last read) */
+            const uint32_t ms = (cycles() - gset_t0) / (CLK_HZ / 1000u);
+            gset_last = (uint16_t)(ms > 65535u ? 65535u : ms);
+            if (gset_last > gset_max) gset_max = gset_last;
+            if (tries > gset_tries_max) gset_tries_max = (uint16_t)tries;
+            gset_sum += ms; gset_n++;
+        }
+#endif
+        proven = (differs && agree >= 2u);
         sw_have_prev = 0;         /* one switch, one use */
     }
 
@@ -7693,6 +8802,7 @@ COLD_SR static int read_track_head(void)
         track_title[0] = 0; track_artist[0] = 0;
         track_album[0] = 0; track_year[0]   = 0; track_trk[0] = 0;
         title_status   = ID3_NO_TAG;      /* filename fallback shows the name */
+        rg_clear(&rg_cur);
         cur_file_id    = slot_file_id();
         return 1;
     }
@@ -7707,6 +8817,7 @@ COLD_SR static int read_track_head(void)
     track_album[0]  = 0;
     track_year[0]   = 0;
     track_trk[0]    = 0;
+    rg_clear(&rg_cur);
     title_status = ID3_NO_TAG;
     if (skip) {
         /* MUST happen before the audio re-read below, which overwrites ring[]
@@ -7719,6 +8830,7 @@ COLD_SR static int read_track_head(void)
                       track_album, sizeof(track_album));
         id3_find_text(ring, ring_fill, skip, "TRCK",
                       track_trk, sizeof(track_trk));
+        if (cold_code_ok) rg_scan_cold(ring, ring_fill, skip);       /* ReplayGain TXXX frames among what is loaded (B-599) */
 
         /* Everything above only saw the first 4 KB of the tag. If the title is
          * not in there, the text frames sit past a large picture -- so walk the
@@ -7752,6 +8864,7 @@ COLD_SR static int read_track_head(void)
                                                 track_album, sizeof(track_album));
             if (!track_trk[0])    id3_find_text(ring, ring_fill, skip, "TRCK",
                                                 track_trk, sizeof(track_trk));
+            if (!rg_cur.have && cold_code_ok) rg_scan_cold(ring, ring_fill, skip);
             if (!track_year[0] && id3_find_text(ring, ring_fill, skip, "TDRC",
                                                 track_year, sizeof(track_year)) != ID3_OK)
                 id3_find_text(ring, ring_fill, skip, "TYER",
@@ -7783,6 +8896,7 @@ COLD_SR static int read_track_head(void)
 
         track_year[4] = 0;
     }
+    rg_update();                                 /* ReplayGain for this track (all-clear when it has no tag): B-599 */
 
     {
         int same = have_prev && (skip == prev_skip);
@@ -7791,7 +8905,9 @@ COLD_SR static int read_track_head(void)
             if (!track_title[i]) break;
         }
         if (same) break;                 /* two reads agree -> settled */
-        if (attempt >= 1) break;         /* 0190 gates the load; belt and braces */
+        /* B-733: the second pass (a 250 ms sleep and a second 64 KB head read) was the belt and braces from before the slot-open check existed; when that check
+         * proved the switch (the head hash differs from the song left, then two reads agree) the first pass is trusted. A check that timed out still takes the second pass. */
+        if (attempt >= 1 || proven) break;         /* 0190 gates the load; belt and braces */
     }
 
     for (uint32_t i = 0; i < sizeof(track_title); i++) prev_try[i] = track_title[i];
@@ -7806,7 +8922,7 @@ COLD_SR static int read_track_head(void)
 
     audio_start  = skip;
     track_frames = 0;
-    track_encoder[0] = 0; track_vbr_method = 0;
+    track_encoder[0] = 0; track_vbr_method = 0; track_enc_delay = 0; track_enc_padding = 0;
     track_secs   = 0;
     meas_rate    = 0; meas_pos0 = 0; meas_sec0 = 0;
     vbr_seen     = 0;
@@ -7856,227 +8972,26 @@ COLD_SR static int read_track_head(void)
 /* Everything needed to start a track from the beginning, shared by boot and by
  * a reload. ONE function deliberately -- two copies of this drift apart. */
 __attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
-COLD_SR static int load_track(void)
+/* B-737: the part of decoded frame fi (stream index, the Info frame counted) to play. Whole frame when the file cannot be trimmed (no LAME numbers, no frame count). */
+COLD_FN2 static uint32_t mt_range(uint32_t fi, uint32_t spf)    /* (first << 16) | count, both at most one frame */
 {
-    /* Release the FLAC buffer FIRST. This runs before the format is known --
-     * detection needs the file's head, which read_track_head() has not fetched
-     * yet -- so Helix is rebuilt on every load and handed back below if the
-     * track turns out to be FLAC.
-     *
-     * Order is load-bearing. Rebuilding Helix while an 18 KB FLAC buffer was
-     * still live asked the arena for 42 KB of 24, MP3InitDecoder() returned 0,
-     * and EVERY load failed from the first FLAC attempt onwards -- including
-     * MP3s, which is how it presented. */
-    if (fl_buf) { free(fl_buf); fl_buf = 0; }
+    mp3_trim_cfg_t c;
+    uint32_t first = 0, count = spf;
+    if (mp3_trim_cfg(&c, track_frames, spf, track_enc_delay, track_enc_padding)) mp3_trim_range(&c, fi, &first, &count);
+    return (first << 16) | count;
+}
+/* 1 when the file will be trimmed at its start (the warm-up must then stop after the frame that contains the first kept pair, so it never discards music). */
+COLD_FN2 static uint32_t mt_start_pair(uint32_t spf)
+{
+    mp3_trim_cfg_t c;
+    return mp3_trim_cfg(&c, track_frames, spf, track_enc_delay, track_enc_padding) ? c.S : 0u;
+}
 
-    /* Helix carries bit-reservoir state internally, so a fresh instance is
-     * needed rather than just resetting our own bookkeeping. */
-    if (dec) MP3FreeDecoder(dec);
-    dec = MP3InitDecoder();
-    if (!dec) { REG(R_STAT2) = 0xF0000000u; return 0; }
-
-    /* Silence the old track's tail before anything else touches the ring. */
-    pcm_flush();
-
-    frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
-    /* A NEW track starts at 0:00, and this is the one place that knows one
-     * started. ui_draw_chrome used to do it, which caught every repaint too. */
-    ui_sec = 0; ui_sec_acc = 0; ui_last_frames = 0xFFFFFFFFu;
-    track_kbps = 0; track_hz = 0; samp_per_frame = 1152u;
-    /* FLAC-only, and it LEAKED. Nothing cleared it on an MP3 load, so an
-     * MP3 played after a FLAC inherited that FLAC's first-frame offset --
-     * 642 KB on an album with large embedded art -- and the size probe's
-     * gate is measured from it. On a 128 kbps track that pushed the probe
-     * from 16 seconds out to 56, which on a short track means never. */
-    fl_first_frame = 0;
-    bytes_per_sec = 16000u;
-    paused = 0;
-    /* Arm the free-running-counter deadlines from NOW.
-     *
-     * Both are compared as `(int32_t)(cycles() - deadline) >= 0`, which is the
-     * right way to handle a 32-bit counter that wraps every 71.6 s -- but only
-     * once the deadline holds a real timestamp. Left at 0, the comparison
-     * reduces to the sign of cycles() itself, so a track loaded while the
-     * counter sits in its upper half reads NEGATIVE and the timer does not
-     * fire until the counter wraps: up to 35.8 seconds, ~18 on average.
-     *
-     * That is not theoretical. It was reported as the FLAC meters flowing
-     * slowly and out of time for about 17 seconds and then snapping into
-     * place -- the wrap. With fl_ui_next dead, ui_draw_dynamic() ran only once
-     * per FLAC frame, 9.6 Hz, scrolling the bars at 4.8. */
-    fl_ui_next = cycles();
-    tk_poll_at = cycles() + CLK_HZ * 2u;
-    /* `stopped` is sticky and was cleared in exactly ONE place -- the A handler,
-     * on un-pause. A new track starts PLAYING, so leaving it set meant the
-     * first A press paused while the transport still read STOPPED, and it took
-     * a second play/pause to clear. Clearing it here is what `paused = 0`
-     * already means: this track is running, not parked at 0:00. */
-    stopped = 0;
-    seek_req = 0; soft_restart_req = 0;
-    st0 = 0; REG(R_STAT0) = 0; REG(R_STAT1) = 0; REG(R_STAT2) = 0; REG(R_STAT3) = 0;
-    st0 |= (1u << 0); REG(R_STAT0) = st0;            /* decoder up */
-
-    /* The RTL only latches R_SLOT_SZ on a reload edge, so at boot there is
-     * genuinely nothing to read. Take APF's number when there is one -- but
-     * NOT after a core-initiated 0192 open, which raises no such edge and
-     * would leave the PREVIOUS track's size here: wrong total time, wrong
-     * end-of-track, and an end-of-track that fires early or never. */
-    slot_size = force_size_probe ? 0u : REG(R_SLOT_SZ);
-    force_size_probe = 0;
-    seek_size_tried  = 0;
-
-    uint32_t t0 = cycles(), tphase = t0;
-    if (!read_track_head()) { REG(R_STAT2) = 0xE0000000u; return 0; }
-    ld_head = LD_MS(cycles() - tphase); tphase = cycles();
-
-    if (track_fmt == FMT_FLAC) {
-        /* Hand the arena to FLAC. Helix has to go first -- the two decoders
-         * swap the same space, and Helix's 23824 leaves no room beside a
-         * blocksize buffer. */
-        if (dec) { MP3FreeDecoder(dec); dec = 0; }
-        fl_buf = 0;
-
-        /* Open with a provisional cap so STREAMINFO can be read; the real
-         * buffer is sized from max_blocksize once it is known. */
-        static int32_t probe_cap;
-        probe_cap = (int32_t)(ARENA_LIMIT / sizeof(int32_t));
-
-        /* Tags come out of the Vorbis comment block during the metadata walk,
-         * straight into the same fields the ID3 path fills -- so the card,
-         * the marquees and the idle screen need to know nothing about format.
-         * Set BEFORE flac_open, which is where the walk happens. */
-        fl.tag_title  = track_title;
-        fl.tag_artist = track_artist;
-        fl.tag_album  = track_album;
-        fl.tag_year   = track_year;
-        fl.tag_trk    = track_trk;
-        fl.tag_cap    = sizeof(track_title);
-
-        fl.skip = flac_skip_bytes;  /* set BEFORE open: it survives the zeroing */
-        flac_err fe = flac_open(&fl, flac_pull, 0, 0, (uint32_t)probe_cap);
-        if (fe == FLAC_ERR_UNSUPPORTED) {
-            /* Mirrors the order of the checks inside flac_open, so the reason
-             * reported is the one that actually fired. */
-            if (fl.channels < 1u || fl.channels > 2u) {
-                fl_reject_kind = FLR_CHANS; fl_reject_val = fl.channels;
-            } else if (fl.bps != 8u && fl.bps != 16u &&
-                       fl.bps != 20u && fl.bps != 24u) {
-                fl_reject_kind = FLR_DEPTH; fl_reject_val = fl.bps;
-            } else {
-                fl_reject_kind = FLR_BLOCK; fl_reject_val = fl.max_blocksize;
-            }
-            REG(R_STAT2) = 0xC4000000u | (uint32_t)fl_reject_kind;
-            dec = MP3InitDecoder();
-            track_fmt = FMT_MP3;
-            rate_unsupported = 1u;
-            return 0;
-        }
-        if (fe != FLAC_OK) {
-            /* Hand the arena back to Helix rather than leaving the core with
-             * no decoder -- otherwise one bad file breaks every load after
-             * it, which is exactly what happened. */
-            REG(R_STAT2) = 0xC0000000u | (uint32_t)fe;
-            dec = MP3InitDecoder();
-            track_fmt = FMT_MP3;
-            return 0;
-        }
-        /* Refuse hi-res BEFORE committing the arena to it. Measured cutoff --
-         * see ui_rate_unsupported(). Handing the arena back to Helix on the
-         * way out matters: leaving the core with no decoder is what once made
-         * a single bad file break every load after it. */
-        if (fl.rate > FLAC_MAX_RATE
-#if TAU_DIAGNOSTIC
-            && !flac_accept_all_rates
-#endif
-        ) {
-            REG(R_STAT2) = 0xC3000000u | fl.rate;
-            fl_reject_kind = FLR_RATE;
-            fl_reject_val  = fl.rate;
-            dec = MP3InitDecoder();
-            track_fmt = FMT_MP3;
-            rate_unsupported = 1u;
-            return 0;
-        }
-        fl_buf = (int32_t *)malloc((size_t)fl.max_blocksize * sizeof(int32_t));
-        if (!fl_buf) { REG(R_STAT2) = 0xC1000000u; return 0; }
-        fl.ch0     = fl_buf;
-        fl.ch0_cap = fl.max_blocksize;
-        fl_cap     = fl.max_blocksize;
-
-        track_hz       = fl.rate;
-        samprate       = fl.rate;
-        track_kbps     = 0;      /* computed after the size probe, below */
-        /* The format row's third field. On an MP3 it names the encoder; for a
-         * lossless file the bit depth is the equivalent fact, and it is the
-         * one thing about a FLAC that the rate does not already say. */
-        {
-            char *q = track_encoder;
-            *q++ = 'F'; *q++ = 'L'; *q++ = 'A'; *q++ = 'C'; *q++ = ' ';
-            q = ui_dec(q, fl.bps);
-            *q++ = '-'; *q++ = 'b'; *q++ = 'i'; *q++ = 't';
-            *q = 0;
-        }
-        /* Seek distance falls back to bytes_per_sec until the size probe lands
-         * slot_size, and the 16000 default would make every FLAC seek about
-         * six times too short. Estimate from the uncompressed rate instead:
-         * FLAC lands around 60-77% of PCM on the test files (16/44.1 measured
-         * 105 KB/s against 176 uncompressed, 24/44.1 204 against 265), so 70%
-         * is within ~15% either way -- and it stops mattering entirely the
-         * moment slot_size is known, when both helpers switch to the exact
-         * size/duration figure. */
-        bytes_per_sec  = ((uint32_t)fl.rate * (uint32_t)fl.channels
-                          * (uint32_t)fl.bps / 8u) * 7u / 10u;
-        samp_per_frame = fl.max_blocksize;
-        track_secs     = fl.rate ? (uint32_t)DIV64(fl.total_samples, fl.rate) : 0;
-        rate_set       = 1;
-        pcm_rate_apply(fl.rate);
-        flac_stall     = 0;
-        flac_scan_metadata();      /* seek table + where audio starts */
-        fl_rate_hz     = fl.rate;
-        fl_bps_mirror  = fl.bps;
-    }
-#if IO_BENCH
-    /* Here specifically: the FIFO is flushed and the gap is already silent,
-     * so a one-off burst costs gap length rather than audio. */
-    io_bench(audio_start);
-    tphase = cycles();                      /* keep ld_size honest */
-#endif
-    if (audio_start) { st0 |= (1u << 1); REG(R_STAT0) = st0; }
-
-    /* The size probe is ~20 blocking reads -- measured at 480 ms, and it runs
-     * with the FIFO empty, which is most of the hiccup. Two attempts at caching
-     * it away both silently failed to hit, so the answer is not a better cache:
-     * an operation that long simply cannot live here.
-     *
-     * It is now INCREMENTAL. The main loop performs one read per pass, only
-     * when the buffer is full, so the search spreads harmlessly across a couple
-     * of seconds of playback instead of stalling the start of it. Nothing needs
-     * the size immediately: it feeds the total time, the progress bar and the
-     * end-of-track check, none of which matter in the first second.
-     *
-     * A file that declares its own length still skips all of this. */
-    if (slot_size <= audio_start && track_bytes)
-        slot_size = audio_start + track_bytes;
-    if (slot_size <= audio_start)
-        /* ARMED, not run. It used to block here, deliberately, on the argument
-         * that a load is silent anyway so the reads cost gap length rather
-         * than audio. True, but it cost 480 ms of every FLAC load, and worse,
-         * it produced the WRONG answer for a file opened by name -- the slot
-         * has only just been opened and a random read far into it still fails,
-         * so a 30 MB track measured 5 MB and seeking could not work at all.
-         * Running it a second later, spread across the main loop, is both
-         * faster to load and correct. */
-        size_probe_arm();
-    /* FLAC's bitrate is only knowable once the file SIZE is -- the stream
-     * carries a duration but never a rate, and it is variable anyway, so this
-     * is the average over the whole file. It has to be here rather than in the
-     * format branch above, which runs before the probe. */
-    if (track_fmt == FMT_FLAC && track_secs && slot_size > fl_first_frame) {
-        uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
-        track_kbps = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
-    }
-    ld_size = LD_MS(cycles() - tphase); tphase = cycles();
-
+/* G2a (B-749, a pure refactor of load_track(): no behaviour change). The part of a track load that is only about the SCREEN: the library title/artist/album from the index, the loader frame,
+ * the cover (sidecar, cache, background JPEG job, bad-cover frame), the panel state and the chrome paint. It reads audio_start and the track's tags (already read), and writes the art_*
+ * state and ld_art. The gapless boundary (G2b, docs/features/GAPLESS_SPEC.md section 11) runs it at the marker instead of at load time. *tphase is load_track()'s phase timer. */
+COLD_SR static void load_ui_tail(uint32_t *tphase)
+{
     /* Library track: show the title, artist and album at once (taken from the index), and let the cover art and the
      * rest of the details follow once the file has fully loaded. The panel is parked so the early frame has no stale cover. */
     if (lib_src) {
@@ -8142,11 +9057,17 @@ COLD_SR static int load_track(void)
             art_bad = 1;
         } else {
             ui_art_mount();
+            /* B-735 (gapless G1b): the embedded-JPEG decode takes 2 to 16 s and used to stop everything, audio included. Now it is started here and finished in the
+             * background by art_job_tick() (a few ms between decoded frames, only while the FIFO is comfortable); the panel shows the empty plate meanwhile and the cover
+             * arrives when the job ends. art_sig stays 0 until then, so a next track never reuses a half-finished stash. */
+            int started = 0;
 #if TAU_G4 >= 2
-            has_art = COLD_READY() ? art_decode(audio_start) : 0;     /* cold code: no cover without it */
+            if (COLD_READY()) started = art_job_launch(audio_start, sig);
+            has_art = started;
 #else
             has_art = art_decode(audio_start);
 #endif
+            if (started) ui_art_placeholder();
             if (!has_art) {
                 if (art_fail_code) {     /* present, and unreadable */
                     art_bad      = 1;
@@ -8158,7 +9079,7 @@ COLD_SR static int load_track(void)
                 }
             }
             ui_art_round();
-            art_sig = has_art ? sig : 0u;
+            art_sig = (has_art && !started) ? sig : 0u;
 
             /* A cover that IS there and cannot be read is worth a word. An
              * empty frame with no reason for it reads as the core being
@@ -8176,7 +9097,7 @@ COLD_SR static int load_track(void)
         art_file_id = cur_file_id;
     }
     art_ready = 1;
-    ld_art = LD_MS(cycles() - tphase); tphase = cycles();
+    ld_art = LD_MS(cycles() - *tphase); *tphase = cycles();
 
     /* Panel state follows the TRACK, not the session. art_x is set directly
      * rather than animated -- a track change should not look like a slide. */
@@ -8186,6 +9107,257 @@ COLD_SR static int load_track(void)
 
     ui_chrome_paint();   /* title/artist are populated now -- draw the UI */
     ui_boot_cancel();   /* the loader is over: prefill()'s reads tick ui_boot_tick(), which would otherwise keep painting the spinner and its caption over the cover */
+}
+
+COLD_SR static int load_track(void)
+{
+    art_job_on = 0;      /* B-735: a new load owns the slot */
+#if TAU_PCM_RING_FW
+    if (!gp_mode) gp_pend = 0u;   /* G2b: an ordinary load overwrites everything the pending boundary would have shown */
+#if TAU_TEMPO
+    if (cold_code_ok && !rg_on && !tempo_idx) rg_probe();   /* B-746: re-evaluated at every load while the ring is off: it comes back after a tempo or HW GAIN excursion */
+#else
+    if (cold_code_ok && !rg_on) rg_probe();
+#endif
+#endif
+    /* Release the FLAC buffer FIRST. This runs before the format is known --
+     * detection needs the file's head, which read_track_head() has not fetched
+     * yet -- so Helix is rebuilt on every load and handed back below if the
+     * track turns out to be FLAC.
+     *
+     * Order is load-bearing. Rebuilding Helix while an 18 KB FLAC buffer was
+     * still live asked the arena for 42 KB of 24, MP3InitDecoder() returned 0,
+     * and EVERY load failed from the first FLAC attempt onwards -- including
+     * MP3s, which is how it presented. */
+    if (fl_buf) { free(fl_buf); fl_buf = 0; }
+
+    /* Helix carries bit-reservoir state internally, so a fresh instance is
+     * needed rather than just resetting our own bookkeeping. */
+    if (dec) MP3FreeDecoder(dec);
+    dec = MP3InitDecoder();
+    if (!dec) { REG(R_STAT2) = 0xF0000000u; return 0; }
+
+    /* Silence the old track's tail before anything else touches the ring. */
+#if TAU_PCM_RING_FW
+    if (!gp_mode)        /* G2b: a gapless load leaves the old track playing out of the ring */
+#endif
+    pcm_flush();
+
+    frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
+    mt_wu = 0xFFu;   /* B-737: set when the warm-up has told how many frames it discarded */
+    /* A NEW track starts at 0:00, and this is the one place that knows one
+     * started. ui_draw_chrome used to do it, which caught every repaint too. */
+    ui_sec = 0; ui_sec_acc = 0; ui_last_frames = 0xFFFFFFFFu;
+    track_kbps = 0; track_hz = 0; samp_per_frame = 1152u;
+    /* FLAC-only, and it LEAKED. Nothing cleared it on an MP3 load, so an
+     * MP3 played after a FLAC inherited that FLAC's first-frame offset --
+     * 642 KB on an album with large embedded art -- and the size probe's
+     * gate is measured from it. On a 128 kbps track that pushed the probe
+     * from 16 seconds out to 56, which on a short track means never. */
+    fl_first_frame = 0;
+    bytes_per_sec = 16000u;
+#if TAU_PCM_RING_FW
+    if (!gp_mode)
+#endif
+    paused = 0;
+    /* Arm the free-running-counter deadlines from NOW.
+     *
+     * Both are compared as `(int32_t)(cycles() - deadline) >= 0`, which is the
+     * right way to handle a 32-bit counter that wraps every 71.6 s -- but only
+     * once the deadline holds a real timestamp. Left at 0, the comparison
+     * reduces to the sign of cycles() itself, so a track loaded while the
+     * counter sits in its upper half reads NEGATIVE and the timer does not
+     * fire until the counter wraps: up to 35.8 seconds, ~18 on average.
+     *
+     * That is not theoretical. It was reported as the FLAC meters flowing
+     * slowly and out of time for about 17 seconds and then snapping into
+     * place -- the wrap. With fl_ui_next dead, ui_draw_dynamic() ran only once
+     * per FLAC frame, 9.6 Hz, scrolling the bars at 4.8. */
+    fl_ui_next = cycles();
+    tk_poll_at = cycles() + CLK_HZ * 2u;
+    /* `stopped` is sticky and was cleared in exactly ONE place -- the A handler,
+     * on un-pause. A new track starts PLAYING, so leaving it set meant the
+     * first A press paused while the transport still read STOPPED, and it took
+     * a second play/pause to clear. Clearing it here is what `paused = 0`
+     * already means: this track is running, not parked at 0:00. */
+    stopped = 0;
+    seek_req = 0; soft_restart_req = 0;
+    st0 = 0; REG(R_STAT0) = 0; REG(R_STAT1) = 0; REG(R_STAT2) = 0; REG(R_STAT3) = 0;
+    st0 |= (1u << 0); REG(R_STAT0) = st0;            /* decoder up */
+
+    /* The RTL only latches R_SLOT_SZ on a reload edge, so at boot there is
+     * genuinely nothing to read. Take APF's number when there is one -- but
+     * NOT after a core-initiated 0192 open, which raises no such edge and
+     * would leave the PREVIOUS track's size here: wrong total time, wrong
+     * end-of-track, and an end-of-track that fires early or never. */
+    slot_size = force_size_probe ? 0u : REG(R_SLOT_SZ);
+    force_size_probe = 0;
+    seek_size_tried  = 0;
+
+    uint32_t t0 = cycles(), tphase = t0;
+    if (!read_track_head()) { REG(R_STAT2) = 0xE0000000u; return 0; }
+#if TAU_PCM_RING_FW
+    if (gp_mode && (uint8_t)track_fmt != gp_old_fmt) gp_abort();       /* G2b: another codec: the ordinary path (play-out, flush) */
+#endif
+    ld_head = LD_MS(cycles() - tphase); tphase = cycles();
+
+    if (track_fmt == FMT_FLAC) {
+        /* Hand the arena to FLAC. Helix has to go first -- the two decoders
+         * swap the same space, and Helix's 23824 leaves no room beside a
+         * blocksize buffer. */
+        if (dec) { MP3FreeDecoder(dec); dec = 0; }
+        fl_buf = 0;
+
+        /* Open with a provisional cap so STREAMINFO can be read; the real
+         * buffer is sized from max_blocksize once it is known. */
+        static int32_t probe_cap;
+        probe_cap = (int32_t)(ARENA_LIMIT / sizeof(int32_t));
+
+        /* Tags come out of the Vorbis comment block during the metadata walk,
+         * straight into the same fields the ID3 path fills -- so the card,
+         * the marquees and the idle screen need to know nothing about format.
+         * Set BEFORE flac_open, which is where the walk happens. */
+        fl.tag_title  = track_title;
+        fl.tag_artist = track_artist;
+        fl.tag_album  = track_album;
+        fl.tag_year   = track_year;
+        fl.tag_trk    = track_trk;
+        fl.tag_cap    = sizeof(track_title);
+
+        fl.skip = flac_skip_bytes;  /* set BEFORE open: it survives the zeroing */
+        flac_err fe = flac_open(&fl, flac_pull, 0, 0, (uint32_t)probe_cap);
+        if (fe == FLAC_ERR_UNSUPPORTED) {
+            /* Mirrors the order of the checks inside flac_open, so the reason
+             * reported is the one that actually fired. */
+            if (fl.channels < 1u || fl.channels > 2u) {
+                fl_reject_kind = FLR_CHANS; fl_reject_val = fl.channels;
+            } else if (fl.bps != 8u && fl.bps != 16u &&
+                       fl.bps != 20u && fl.bps != 24u) {
+                fl_reject_kind = FLR_DEPTH; fl_reject_val = fl.bps;
+            } else {
+                fl_reject_kind = FLR_BLOCK; fl_reject_val = fl.max_blocksize;
+            }
+            REG(R_STAT2) = 0xC4000000u | (uint32_t)fl_reject_kind;
+            dec = MP3InitDecoder();
+            track_fmt = FMT_MP3;
+            rate_unsupported = 1u;
+            return 0;
+        }
+        if (fe != FLAC_OK) {
+            /* Hand the arena back to Helix rather than leaving the core with
+             * no decoder -- otherwise one bad file breaks every load after
+             * it, which is exactly what happened. */
+            REG(R_STAT2) = 0xC0000000u | (uint32_t)fe;
+            dec = MP3InitDecoder();
+            track_fmt = FMT_MP3;
+            return 0;
+        }
+        /* Refuse hi-res BEFORE committing the arena to it. Measured cutoff --
+         * see ui_rate_unsupported(). Handing the arena back to Helix on the
+         * way out matters: leaving the core with no decoder is what once made
+         * a single bad file break every load after it. */
+        if (fl.rate > FLAC_MAX_RATE
+#if TAU_FX_ACCEPT_ALL_RATES
+            && !flac_accept_all_rates
+#endif
+        ) {
+            REG(R_STAT2) = 0xC3000000u | fl.rate;
+            fl_reject_kind = FLR_RATE;
+            fl_reject_val  = fl.rate;
+            dec = MP3InitDecoder();
+            track_fmt = FMT_MP3;
+            rate_unsupported = 1u;
+            return 0;
+        }
+        fl_buf = (int32_t *)malloc((size_t)fl.max_blocksize * sizeof(int32_t));
+        if (!fl_buf) { REG(R_STAT2) = 0xC1000000u; return 0; }
+        fl.ch0     = fl_buf;
+        fl.ch0_cap = fl.max_blocksize;
+        fl_cap     = fl.max_blocksize;
+
+        track_hz       = fl.rate;
+        samprate       = fl.rate;
+        if (cold_code_ok) rg_flac_cold(fl.rg_txt, fl.rg_have);   /* ReplayGain tags from the Vorbis comments (B-599) */
+        rg_update();
+        track_kbps     = 0;      /* computed after the size probe, below */
+        /* The format row's third field. On an MP3 it names the encoder; for a
+         * lossless file the bit depth is the equivalent fact, and it is the
+         * one thing about a FLAC that the rate does not already say. */
+        {
+            char *q = track_encoder;
+            *q++ = 'F'; *q++ = 'L'; *q++ = 'A'; *q++ = 'C'; *q++ = ' ';
+            q = ui_dec(q, fl.bps);
+            *q++ = '-'; *q++ = 'b'; *q++ = 'i'; *q++ = 't';
+            *q = 0;
+        }
+        /* Seek distance falls back to bytes_per_sec until the size probe lands
+         * slot_size, and the 16000 default would make every FLAC seek about
+         * six times too short. Estimate from the uncompressed rate instead:
+         * FLAC lands around 60-77% of PCM on the test files (16/44.1 measured
+         * 105 KB/s against 176 uncompressed, 24/44.1 204 against 265), so 70%
+         * is within ~15% either way -- and it stops mattering entirely the
+         * moment slot_size is known, when both helpers switch to the exact
+         * size/duration figure. */
+        bytes_per_sec  = ((uint32_t)fl.rate * (uint32_t)fl.channels
+                          * (uint32_t)fl.bps / 8u) * 7u / 10u;
+        samp_per_frame = fl.max_blocksize;
+        track_secs     = fl.rate ? (uint32_t)DIV64(fl.total_samples, fl.rate) : 0;
+        rate_set       = 1;
+#if TAU_PCM_RING_FW
+        if (gp_mode && fl.rate != gp_old_rate) gp_abort();                 /* G2b: another sample rate: the ordinary path */
+#endif
+        pcm_rate_apply(fl.rate);
+        flac_stall     = 0;
+        flac_scan_metadata();      /* seek table + where audio starts */
+        fl_rate_hz     = fl.rate;
+        fl_bps_mirror  = fl.bps;
+    }
+#if IO_BENCH
+    /* Here specifically: the FIFO is flushed and the gap is already silent,
+     * so a one-off burst costs gap length rather than audio. */
+    io_bench(audio_start);
+    tphase = cycles();                      /* keep ld_size honest */
+#endif
+    if (audio_start) { st0 |= (1u << 1); REG(R_STAT0) = st0; }
+
+    /* The size probe is ~20 blocking reads -- measured at 480 ms, and it runs
+     * with the FIFO empty, which is most of the hiccup. Two attempts at caching
+     * it away both silently failed to hit, so the answer is not a better cache:
+     * an operation that long simply cannot live here.
+     *
+     * It is now INCREMENTAL. The main loop performs one read per pass, only
+     * when the buffer is full, so the search spreads harmlessly across a couple
+     * of seconds of playback instead of stalling the start of it. Nothing needs
+     * the size immediately: it feeds the total time, the progress bar and the
+     * end-of-track check, none of which matter in the first second.
+     *
+     * A file that declares its own length still skips all of this. */
+    if (slot_size <= audio_start && track_bytes)
+        slot_size = audio_start + track_bytes;
+    if (slot_size <= audio_start)
+        /* ARMED, not run. It used to block here, deliberately, on the argument
+         * that a load is silent anyway so the reads cost gap length rather
+         * than audio. True, but it cost 480 ms of every FLAC load, and worse,
+         * it produced the WRONG answer for a file opened by name -- the slot
+         * has only just been opened and a random read far into it still fails,
+         * so a 30 MB track measured 5 MB and seeking could not work at all.
+         * Running it a second later, spread across the main loop, is both
+         * faster to load and correct. */
+        size_probe_arm();
+    /* FLAC's bitrate is only knowable once the file SIZE is -- the stream
+     * carries a duration but never a rate, and it is variable anyway, so this
+     * is the average over the whole file. It has to be here rather than in the
+     * format branch above, which runs before the probe. */
+    if (track_fmt == FMT_FLAC && track_secs && slot_size > fl_first_frame) {
+        uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
+        track_kbps = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
+    }
+    ld_size = LD_MS(cycles() - tphase); tphase = cycles();
+
+#if TAU_PCM_RING_FW
+    if (!gp_mode)            /* G2b: a gapless load keeps the old screen; load_ui_tail() runs at the marker (gp_tick) */
+#endif
+    load_ui_tail(&tphase);   /* G2a: lib_meta_apply, loader frame, cover, panel state, chrome paint (screen only) */
 
     if (!prefill()) { REG(R_STAT2) = 0xD0000000u; return 0; }
 
@@ -8224,7 +9396,9 @@ COLD_SR static int load_track(void)
          * fixed count, and 26-78 ms of a track's very start. */
         int guard = 12;                      /* never loop on a broken stream */
         uint32_t warmed = 0;                 /* bytes of DECODED frames so far */
-        while (guard-- && warmed < 512u) {
+        uint32_t mt_n = 0, mt_s = 0, mt_spf = 0;   /* B-737: frames decoded here, the first kept pair of a trimmable file (0 = no trim), samples per frame */
+        int mt_last_ok = 0;                  /* the last warm-up decode succeeded, so pcm[] still holds that frame */
+        while (guard-- && warmed < 512u && !(mt_s && mt_n * mt_spf > mt_s)) {   /* a trimmed file: never warm up past the frame holding the first kept pair, or music is discarded */
             int bl = (int)(ring_fill - ring_rd);
             if (bl < 512) break;
             int off = MP3FindSyncWord(&ring[ring_rd], bl);
@@ -8235,8 +9409,10 @@ COLD_SR static int load_track(void)
             int e = MP3Decode(dec, &ib, &bl, pcm, 0);
             uint32_t used = (uint32_t)(before - bl);
             ring_rd += used;
+            mt_last_ok = (e == 0);
             if (e == 0) {
                 warmed += used;              /* only real frames count */
+                mt_n++;
 
                 /* Establish the stream's real rate HERE, off the warm-up
                  * frame, not on the first frame that plays.
@@ -8254,6 +9430,9 @@ COLD_SR static int load_track(void)
                 if (!rate_set) {
                     MP3FrameInfo wfi;
                     MP3GetLastFrameInfo(dec, &wfi);
+#if TAU_PCM_RING_FW
+                    if (gp_mode && wfi.samprate && wfi.samprate != gp_old_rate) gp_abort();   /* G2b: another sample rate */
+#endif
                     if (wfi.samprate) {
                         pcm_rate_apply(wfi.samprate);
                         if (wfi.bitrate) bytes_per_sec = wfi.bitrate / 8u;
@@ -8271,14 +9450,33 @@ COLD_SR static int load_track(void)
                         rate_set = 1;
                     }
                 }
+                if (!mt_spf && cold_code_ok && samp_per_frame) { mt_spf = samp_per_frame; mt_s = mt_start_pair(mt_spf); }   /* B-737: known once the first frame has told us its size */
             }
             else if (!used) ring_rd++;       /* no progress: step past it */
+        }
+        /* B-737: the first frames are discarded by the warm-up, and the stream index of the first frame the main loop decodes is mt_n. If the last one held kept pairs (the file is
+         * trimmed and the warm-up stopped on the frame containing the first kept pair), play that part now, from the buffer it is still in. */
+        mt_wu = cold_code_ok ? (uint8_t)(mt_n > 200u ? 200u : mt_n) : 0xFFu;
+        if (mt_s && mt_last_ok && mt_n
+#if TAU_PCM_RING_FW
+            && !gp_mode          /* G2b: the restart body decodes from the first frame again, so this tail would be heard twice */
+#endif
+            ) {
+            const uint32_t r = mt_range(mt_n - 1u, mt_spf), tf = r >> 16, tc = r & 0xFFFFu;
+            if (tc) {
+                MP3FrameInfo lfi; MP3GetLastFrameInfo(dec, &lfi);
+                const uint32_t st = (lfi.nChans == 2) ? 1u : 0u;
+#if TAU_PCM_RING_FW
+                if (rg_on) rg_put_frame(pcm + tf * (st ? 2u : 1u), tc, st); else
+#endif
+                pcm_push_pairs(&cymo_hooks, pcm + tf * (st ? 2u : 1u), tc, st, &vol_st, &fade_left, FADE_SAMPLES);
+            }
         }
     }
 
     ld_pre   = LD_MS(cycles() - tphase);
     ld_total = LD_MS(cycles() - t0);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     chk_loads++;
 #endif
 
@@ -8327,6 +9525,9 @@ int main(void)
         for (;;) { }
     }
     helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
+    dbuf_hw = (uint8_t)((REG(R_DBUF_DISP) >> 31) & 1u);    /* Helios/Talos H2: double buffering present? -- a real dedicated
+                                                             * presence bit (unlike BLIT_READY()/RRECT_READY()'s functional
+                                                             * probe, needed only because THOSE opcodes have no such bit) */
     wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
     text_mode_hw = (uint8_t)((REG(R_TEXT_MODE) >> 31) & 1u);   /* theme/gamma: second text weight table present? (0 on an older bitstream) */
@@ -8338,6 +9539,13 @@ int main(void)
 #if TAU_LPC_FW
     tau_lpc_hw_enable = hw_lpc;
 #endif
+    hw_a16  = (uint8_t)((REG(R_AUDIO_CFG) >> 1) & 1u);   /* B-602 */
+#if TAU_HALCYON_FW
+    hw_hal  = (uint8_t)((REG(R_HAL_CTRL) >> 31) & 1u);   /* B-640 */
+#endif
+    hw_gain_boost = (uint8_t)((REG(R_GAIN_CTRL) >> 30) & 1u);   /* B-720: bit 30 = the stage can exceed unity (read together with bit 31) */
+    hw_gain = (uint8_t)((REG(R_GAIN_CTRL) >> 31) & 1u);  /* B-615: hardware gain stage present? (0 on any other bitstream) */
+    hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE
     /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call
      * count can be turned into an estimated cycle share without ever timing unary() itself live (which
@@ -8366,7 +9574,8 @@ int main(void)
      * the first fill is visible as a screenful of noise. */
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
 
-    vol_apply();
+    vol_apply_snap();
+    gain_hw_adopt();   /* B-615: probe-then-adopt: with the hardware stage in the bitstream it owns the gain from the first sample (no-op otherwise) */
 
     /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): point the decoders'
      * cycle-counting hooks at R_CYCLES. Compiles to nothing unless the
@@ -8431,6 +9640,18 @@ int main(void)
 #else
     th_assets_load();
 #endif
+    /* B-416 follow-up: settings_load() (well above, deliberately first for the splash accent)
+     * validated the saved theme index against TH_COUNT() before th_assets_load() had a chance to
+     * populate th_file_n -- a saved index pointing at an EXTRA theme (from tau-assets.bin) would be
+     * wrongly rejected every boot, staying stuck at the built-in default, purely because of this
+     * ordering, not because it was never saved. Re-validate now that TH_COUNT() is accurate. Not
+     * confirmed to be what the owner's "theme: fail" report actually hit (their choice may simply
+     * have been a built-in theme, fully explained by B-416's real cause: the save trigger itself was
+     * missing) -- fixed anyway since it's a real, separate latent bug either way. */
+    {
+        uint32_t v = set_rd32(SW_THEME);
+        if (v < TH_COUNT() && v != th_theme) { th_theme = (uint8_t)v; th_apply(); }
+    }
     /* The SDRAM CPU window still needs proving at boot even though nothing here reads a
      * playlist any more: fw/suite.inc's Check (CT_SDW/CT_SDC) and Blit Test's crumb trail both
      * rely on this same proof having already run. */
@@ -8461,8 +9682,9 @@ int main(void)
     if (lib_state == LIB_ST_OK) { from_lib = lib_boot_restore();
         lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
     }
-    if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
-    from_slot = SR_READY() ? load_track() : 0;      /* B-333: load_track is cold code; no cold image, nothing plays */
+    /* No library: do NOT fall back to loading the audio slot's file. Tau plays from the library only; the idle screen below tells the
+     * user the library file is missing and to sync again with Tau Omega. (A file picked from the Pocket's Load menu while running is
+     * still handled by the reload path in the main loop.) */
     ui_boot_cancel();          /* not _clear: see the note on that function */
 
     if (!from_slot && !from_lib) {
@@ -8509,6 +9731,7 @@ int main(void)
          * still needs its dirty regions drawn. No region is registered yet (fw/helios.inc's own
          * header explains why), so this call costs one bounded loop over zero entries today. */
         helios_flush();
+        gain_step_poll();                    /* B-681: normal gain ramp rate again after a dip */
 
         /* A reload is NOT acted on the instant it is announced: 008A fires
          * when the user PICKS a file, not when the slot is readable. The old
@@ -8601,9 +9824,19 @@ int main(void)
                 /* The indicator went up when the pick was detected, not here.
                  * was_idle only decides what to restore if the open fails. */
                 int was_idle = idle;
-                if (!was_idle)
+#if TAU_PCM_RING_FW
+                gp_begin_load();                 /* G2b: gapless mode if the end-of-file branch asked for it */
+#endif
+                if (!was_idle
+#if TAU_PCM_RING_FW
+                    && !gp_mode
+#endif
+                    )
                     ui_boot_note("LOADING TRACK");
                 int opened   = SR_READY() ? load_track() : 0;
+#if TAU_PCM_RING_FW
+                const int gp_go = gp_end_load(opened);   /* G2b: 1 = keep the old screen, take the gapless hand-off below */
+#endif
                 {   /* FNV over the filename APF reports for the slot. */
                     uint32_t h = 2166136261u;
                     for (uint32_t i = 0; i < sizeof(track_file)
@@ -8647,8 +9880,15 @@ int main(void)
                      * Costs one extra prefill inside a gap that is already
                      * silent. Buys the guarantee that every route into playback
                      * is the same route. */
+#if TAU_PCM_RING_FW
+                    if (gp_go) gp_handoff();                 /* G2b: the restart body without its flush */
+                    else {
+#endif
                     stop_req = 1u;
                     if (hold_paused) { hold_paused = 0; paused |= 1u; stopped = 1u; }
+#if TAU_PCM_RING_FW
+                    }
+#endif
                     /* Nothing queues the first track any more. Picking a
                       * file is an explicit request to hear it, and the old
                       * behaviour -- the first track after launch loading
@@ -8703,15 +9943,33 @@ int main(void)
             continue;
         }
 
-        /* EQ preset change. The filter is in the RTL and the audio never stops
-         * flowing, so this is seamless in a way a track change can never be --
-         * no flush, no reload, nothing to resynchronise. */
-        if (eq_apply) {
-            eq_apply = 0;
-            REG(R_EQ) = eq_idx;
-            ui_eq_pill();
-            ui_mode_dirty = 1u;          /* the mode row NAMES the preset */
-            settings_mark_dirty();
+        /* Halcyon EQ preset change (Y) or a saved selection to apply. The filter is in the RTL and the audio never stops flowing, so this is
+         * seamless in a way a track change can never be -- no flush, no reload, nothing to resynchronise (the change itself runs inside a gain dip). */
+        if (hal_req || hal_restore) {
+#if TAU_HALCYON_FW
+            if (COLD_READY()) {                              /* until the cold image is up the request simply waits (nothing is lost) */
+                if (hal_restore) {                           /* a saved or Core Settings value: the user presets are loaded by now, so range-check against them */
+                    if (hal_sel > HAL_NPRESET + hal_user_n || hal_sel >= HAL_SEL_CUSTOM) hal_sel = 0u;
+                    hal_apply_sel_dipped();                  /* in a gain dip, as every other recall: it can arrive mid-track from Core Settings */
+                    hal_restore = 0u;
+                    ui_eq_pill();
+                    ui_mode_dirty = 1u;
+                }
+                if (hal_req && !hw_hal) {                    /* B-653: no engine in this bitstream: say so instead of doing nothing */
+                    hal_req = 0u;
+                    ui_toast_msg("EQ: NEEDS A NEWER CORE");
+                }
+                if (hal_req) {                               /* the Y key: a user action, so it is also saved */
+                    hal_cycle();
+                    hal_req = 0u;
+                    ui_eq_pill();
+                    ui_mode_dirty = 1u;                      /* the mode row NAMES the preset */
+                    settings_mark_dirty();
+                }
+            }
+#else
+            hal_req = 0u; hal_restore = 0u;
+#endif
         }
 
         /* Only when nothing is loading: a write is an SD round trip, and the
@@ -8777,6 +10035,7 @@ int main(void)
             pcm_flush();
             refill_drain();
             frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
+            mt_wu = 0;       /* B-737: a soft restart decodes from the Info frame again */
             track_kbps = 0; track_hz = 0;
             file_pos  = audio_start;
             ring_fill = 0; ring_rd = 0;
@@ -8813,6 +10072,7 @@ int main(void)
             file_pos  = audio_start;
             ring_fill = 0; ring_rd = 0;
             frames = 0; min_level = 0xFFFFFFFFu;
+            mt_wu = 0;       /* B-737: restart from the start of the file */
             ui_sec = 0; ui_sec_acc = 0;
             ui_last_sec = 0xFFFFFFFFu; ui_prog_sec = 0xFFFFFFFFu;
             ui_last_pause = 0xFFFFFFFFu;      /* repaint the transport label */
@@ -9049,6 +10309,7 @@ int main(void)
                 meas_sec0 = ui_sec;
 
                 pcm_flush();
+                mt_wu = 0xFFu;   /* B-737: a seek lands mid-file: the decoded-frame count no longer says where in the stream we are, so no trim until the next start */
                 refill_drain();
                 ring_fill = 0; ring_rd = 0;
 
@@ -9079,6 +10340,70 @@ int main(void)
         seek_done: ;
         }
 
+        /* B-406: moved AHEAD of the "B-234" block below (was after it, together with the rest of
+         * this tick's other draws). A view transition queued THIS tick (e.g. opening Settings) must
+         * have its chrome/art repaint actually landed in the framebuffer BEFORE anything else this
+         * same tick reads "whatever is currently displayed" as a known-good snapshot -- concretely,
+         * Settings' own hardware crossfade (fw/settingsui.inc's set_xfade_render()) does exactly
+         * that the very first time set_draw() runs below. Before this reorder, a same-tick
+         * open-Settings-from-Library transition captured Library's still-undrawn-over leftovers as
+         * the crossfade's "before" frame -- B-406's reported "shows some elements of the playing
+         * screen" during that specific transition. Nothing between the old and new position depended
+         * on the old order: vblank_sample()/set_info_tick()/the diagnostic ticks/the library redraw
+         * are all independent of whether chrome/art was just repainted. */
+        if (helios_pending_mask) {
+            uint8_t hm = helios_pending_mask;
+            helios_pending_mask = 0;
+            /* Helios H2: this is exactly the "genuine full-frame redraw" HELIOS_SPEC.md section 5
+             * means -- chrome and (the same transition's) album art together, the one place every
+             * view-transition's full repaint already funnels through (B-389/B-391). Bracketing HERE,
+             * once, covers every current and future transition automatically instead of touching
+             * each of the six call sites that used to set the old pl_ui_restore flag by hand. */
+            const uint8_t dbuf_active = (hm & (HELIOS_INV_CHROME | HELIOS_INV_ART)) ? dbuf_redraw_begin() : 0u;
+            if (hm & HELIOS_INV_CHROME) {
+                /* ui_draw_chrome() paints the gradient itself -- calling it here
+                   too would push ~360 rects twice for one repaint. */
+                ui_chrome_paint();
+                ui_mode_dirty = 1u;
+                ui_last_info  = 0xFFFFFFFFu;
+                ui_last_sec   = 0xFFFFFFFFu;
+                ui_prog_sec   = 0xFFFFFFFFu;
+            }
+            if ((hm & HELIOS_INV_ART) && art_ready && art_shown) ui_art_draw();
+            dbuf_redraw_end(dbuf_active);
+            /* The meters' background strip lives in the invisible columns 400..511 of the meter rows, and the Check's
+             * blit storm and the Blit Test write into those same columns. Rebuild it on every return to the player
+             * screen, or the next erase copies the test's leftovers back as three 112 px tiles (B-256). */
+            if (hm & HELIOS_INV_BG_STRIP) ui_bg_ready = 0;
+            /* The meters cache what they last drew; the overlay painted over
+             * all of it, so every column has to be considered stale.
+             * B-406: also force this whenever `dbuf_active` fired even WITHOUT the HELIOS_INV_WAVE
+             * bit (e.g. an art-only invalidation) -- H2's redraw bracket physically flips the
+             * displayed buffer, and every non-chrome incremental drawer (Winamp Bars/Scope, VU
+             * Master, Chladni, all reached through wviz_force/mtr_build()) was never told that
+             * happened; its per-band/trail caches were built assuming the buffer they drew into
+             * last frame is still the one now shown, which H2 makes false for one frame right after
+             * any flip.
+             * CORRECTED same session: gating wviz_force on `dbuf_active` ALONE (as first written)
+             * missed the fullscreen visualiser case entirely -- FB_HELD() is true throughout
+             * fullscreen (fw/player.c's own FB_HELD() macro includes ui_fullscreen), so
+             * dbuf_redraw_begin() always refuses and `dbuf_active` is 0 for every fullscreen
+             * enter/exit transition, even though those ARE real view transitions carrying
+             * HELIOS_INV_ALL (so `hm & HELIOS_INV_WAVE` IS set). Matches the reported "scope
+             * accumulation... comes back when going fullscreen then normal" exactly: the stale-trail
+             * reset never fired on that specific transition. Now gated the same way as ui_wave_force
+             * just above, on EITHER signal. (Fullscreen's own bar flicker turned out to be a separate,
+             * unrelated bug -- OP_BAR's 7-bit lit-row field wrapping above 127, fixed at fb_bar()'s
+             * own definition -- not this gap; corrected here so this comment doesn't keep overclaiming
+             * a fix it didn't provide.) */
+            if ((hm & HELIOS_INV_WAVE) || dbuf_active) {
+                ui_wave_force = 1u;
+                for (uint32_t i = 0; i < UI_WAVE_N; i++) { wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu; }
+            }
+            if ((hm & HELIOS_INV_SPEC) || dbuf_active) { for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu; }
+            if ((hm & HELIOS_INV_WAVE) || dbuf_active) wviz_force = 1u;
+            if (hm & HELIOS_INV_EXCL) { for (uint8_t i = 0; i < HELIOS_MAX_EXCL; i++) helios_exclude_clear(i); }
+        }
         /* B-234: the Meter > Configure page's live preview reads real playing
          * audio (spec_lvl[]/wav_v[]) every draw, same as the player screen's
          * own meter box -- but unlike every other Settings page, it needs to
@@ -9095,41 +10420,27 @@ int main(void)
         vblank_sample();
         set_info_tick();
 #if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
         chk_tick();
-#if MP3_PROFILE || FLAC_PROFILE
+#endif
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
         sw_tick();
 #endif
+#if TAU_DX_BLIT_TEST
         bt_tick();
+#endif
+#if TAU_DX_SWEEPS
         mw_tick();
+#endif
+#if TAU_DX_METER_TRACE
         mt_tick();
 #endif
-#if TAU_DIAGNOSTIC
+#endif
+#if TAU_DX_STRESS
         dg_soak_tick();
 #endif
         if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
         if (lib_ui_open) lib_ui_marquee();
-        if (pl_ui_restore) {
-            pl_ui_restore = 0;
-            /* ui_draw_chrome() paints the gradient itself -- calling it here
-               too would push ~360 rects twice for one repaint. */
-            ui_chrome_paint();
-            if (art_ready && art_shown) ui_art_draw();
-            /* The meters' background strip lives in the invisible columns 400..511 of the meter rows, and the Check's
-             * blit storm and the Blit Test write into those same columns. Rebuild it on every return to the player
-             * screen, or the next erase copies the test's leftovers back as three 112 px tiles (B-256). */
-            ui_bg_ready = 0;
-            /* The meters cache what they last drew; the overlay painted over
-             * all of it, so every column has to be considered stale. */
-            ui_wave_force = 1u;
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-            }
-            ui_mode_dirty = 1u;
-            ui_last_info  = 0xFFFFFFFFu;
-            ui_last_sec   = 0xFFFFFFFFu;
-            ui_prog_sec   = 0xFFFFFFFFu;
-        }
         if (lib_play_req) {
             stop_req = 0;
             if (lib_play_start()) { ui_mode_dirty = 1u; continue; }
@@ -9140,6 +10451,9 @@ int main(void)
         if (idle) continue;
 
         if (paused) {
+#if TAU_PCM_RING_FW
+            rg_hold(1u);                    /* B-746: the reader keeps the unread pairs while paused */
+#endif
             st0 |= (1u << 7); REG(R_STAT0) = st0;
             /* Keep drawing. The UI update lives at the BOTTOM of this loop, so
              * simply continuing here meant PAUSED could only ever be drawn on
@@ -9162,6 +10476,9 @@ int main(void)
             continue;
         }
         st0 &= ~(1u << 7); REG(R_STAT0) = st0;
+#if TAU_PCM_RING_FW
+        rg_hold(0u);
+#endif
         if (ui_was_paused) {
             ui_wave_force = 1;              /* recolour back to full on resume */
             for (uint32_t i = 0; i < UI_WAVE_N; i++) {
@@ -9171,7 +10488,7 @@ int main(void)
             /* The FIFO drained during the pause and its output has glided to
              * zero, so the resume must ramp up from zero like any other
              * discontinuity -- see FADE_SAMPLES. */
-            fade_left = FADE_SAMPLES;
+            fade_restart();
         }
         ui_was_paused = 0;
 
@@ -9190,7 +10507,15 @@ int main(void)
                  * when it deliberately did not (repeat-one, or the end of a
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
+#if TAU_PCM_RING_FW
+                { mp3_trim_cfg_t tc_; gp_au_exp = (samp_per_frame && mp3_trim_cfg(&tc_, track_frames, samp_per_frame, track_enc_delay, track_enc_padding)) ? track_frames * samp_per_frame - track_enc_delay - track_enc_padding : 0u; }
+                gp_eof_begin();            /* G2b: mark the boundary: the next track is opened behind the old one's tail */
+#endif
+                gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
+#if TAU_PCM_RING_FW
+                gp_want = 0u; rg_playout();   /* no next track (end of list, repeat one): let the ring play out as before */
+#endif
                 if (list_ended()) {
                     paused |= 1u;              /* end of the list: stop here */
                     ui_toast_msg("END OF LIST");
@@ -9215,11 +10540,11 @@ int main(void)
 #endif
             if (!under_shadow && pcm_underrun()) {
                 under_shadow = 1u;
-                pcm_under_n++;
-#if TAU_DIAGNOSTIC
+                pcm_under_n++; rg_und_note();
+#if TAU_DX_STRESS
                 stress_note_underrun();
 #endif
-                fade_left    = FADE_SAMPLES;
+                fade_restart();
                 /* Latch the circumstances of the FIRST one only -- the later
                  * ones are consequences and would overwrite the evidence. */
                 if (und1_sec == 0xFFFFFFFFu) {
@@ -9234,7 +10559,15 @@ int main(void)
             /* Meters are fed from flac_emit on a fixed 1152-pair interval,
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
+#if TAU_PCM_RING_FW
+                gp_au_exp = (uint32_t)fl.total_samples;
+                gp_eof_begin();
+#endif
+                gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
+#if TAU_PCM_RING_FW
+                gp_want = 0u; rg_playout();
+#endif
                 if (list_ended()) {
                     paused |= 1u;
                     ui_toast_msg("END OF LIST");
@@ -9246,6 +10579,7 @@ int main(void)
                 continue;
             }
             if (fe != FLAC_OK) { errs++; REG(R_STAT2) = 0xC2000000u | fe; }
+            gap_mark_frame();
             frames++;
 #if UI_SHOW_SEEK_DIAG
             /* The three frames after a seek, exactly as the decoder saw them.
@@ -9292,7 +10626,9 @@ int main(void)
 
         unsigned char *inbuf = &ring[ring_rd];
         int before = bytesLeft;
+        LD_MARK(ld0);
         int err = MP3Decode(dec, &inbuf, &bytesLeft, pcm, 0);
+        LD_ACC(ld0, ld_t_dec);
         ring_rd += (uint32_t)(before - bytesLeft);
 
         if (err) {
@@ -9357,59 +10693,60 @@ int main(void)
 #endif
         if (!under_shadow && pcm_underrun()) {
             under_shadow = 1u;
-            pcm_under_n++;
-#if TAU_DIAGNOSTIC
+            pcm_under_n++; rg_und_note();
+#if TAU_DX_STRESS
             stress_note_underrun();
 #endif
-            fade_left    = FADE_SAMPLES;
+            fade_restart();
         }
 
         int n = fi.outputSamps;                  /* interleaved L,R */
         int stereo = (fi.nChans == 2);
+        /* B-737 (gapless trim): play only pairs [tf, tf + tc) of this frame when the file is a LAME file with a frame count and no seek has happened (mt_wu != 0xFF). */
+        uint32_t tc = (uint32_t)(stereo ? n / 2 : n), tf = 0;
+        if (mt_wu != 0xFFu && cold_code_ok) { const uint32_t r = mt_range((uint32_t)mt_wu + frames, tc); tf = r >> 16; tc = r & 0xFFFFu; }
+        const short *tp = pcm + (stereo ? tf * 2u : tf);
 
-        meters_feed(pcm, n, stereo);
+#if TAU_TEMPO
+        if (tempo_use(fi.samprate, (uint32_t)fi.nChans)) {
+            /* B-558: through the stretcher; it feeds the meters itself, from its output */
+            if (tc && !tempo_frame(&tempo_st, (const int16_t *)tp, stereo ? tc * 2u : tc, stereo)) goto next_outer;   /* B-737: trimmed like the plain path */
+        } else
+#endif
+        {
+        LD_MARK(ld1);
+#if TAU_PCM_RING_FW
+        if (!rg_on)
+#endif
+        meters_feed(tp, (int)(stereo ? tc * 2u : tc), stereo);
+        LD_ACC(ld1, ld_t_feed);
 
-        for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
-            int32_t l = pcm[i];
-            int32_t r = stereo ? pcm[i + 1] : l;
-            /* Capped at unity, so this only ever attenuates and cannot
-             * overflow -- no clamp needed. */
-            if (vol_gain != 256) {
-                l = (l * vol_gain) >> 8;
-                r = (r * vol_gain) >> 8;
-            }
-            /* Ramp out of a discontinuity: one shift per sample, and only
-             * while the fade is live. Grows 0 -> 255/256 across FADE_SAMPLES. */
-            if (fade_left) {
-                int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-                l = (l * g) >> 8;
-                r = (r * g) >> 8;
-                fade_left--;
-            }
-            /* Block while the FIFO is full -- pcm_fifo silently DROPS pushes
-             * when full, so skipping this corrupts the audio rather than
-             * merely delaying it. Being blocked here is the healthy state.
-             * This is also where the CPU spends most of its time, so input and
-             * I/O are serviced from inside the wait. */
-            if (PCM_FULL(REG(R_PCM_ST))) {
-                uint32_t t0 = cycles();
-                do {
-                    poll_input();
-                    refill_pump();
-                    if (reload_pending) { fl_idle_cyc += cycles() - t0;
-                                          goto next_outer; }
-                } while (PCM_FULL(REG(R_PCM_ST)));
-                fl_idle_cyc += cycles() - t0;
-            }
-            REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                         | (uint32_t)(uint16_t)(int16_t)l;
+        LD_MARK(ld2);
+#if TAU_PCM_RING_FW
+        if (rg_on) {
+            if (tc && !rg_put_frame(tp, tc, (uint32_t)stereo)) goto next_outer;      /* B-746: into the hardware ring; aborts on a pending reload like the FIFO path */
+            rg_meter_feed();                                                          /* the meters follow what has been HEARD */
+        } else
+#endif
+        if (tc && !pcm_push_pairs(&cymo_hooks, tp, tc, (uint32_t)stereo, &vol_st, &fade_left, FADE_SAMPLES))
+            goto next_outer;                         /* volume, fade, FIFO wait, write (C1, burst form B-592); aborts on a pending reload */
+        LD_ACC(ld2, ld_t_push);
         }
 
+        gap_mark_frame();
         frames++;
         st0 |= (1u << 3);
         REG(R_STAT0) = st0;
 
+        LD_MARK(ld3);
+#if TAU_PCM_RING_FW
+        /* G2c: with the ring the decoder runs flat out while the ring fills (about 1 s after a start or a seek, at 2-3 times real time); the meters and the clock expect one call per frame
+         * at real time, so a call that comes less than 20 ms after the last one is skipped (a frame at real time is 26 ms apart, so steady playback is untouched). */
+        if (!ui_dump_mode && (!rg_on || rg_ui_due())) ui_draw_dynamic();
+#else
         if (!ui_dump_mode) ui_draw_dynamic();
+#endif
+        LD_ACC(ld3, ld_t_ui);
 
 next_outer: ;
     }

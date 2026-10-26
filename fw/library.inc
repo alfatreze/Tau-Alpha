@@ -33,7 +33,7 @@ static lib_lv_t lib_stk[4];
 static uint8_t  lib_depth;
 #define LIB_CUR (lib_stk[lib_depth])
 
-static uint32_t lib_rep_at;
+static kr_t lib_kr;   /* B-534: hold-to-repeat state for the list's Up/Down */
 static uint16_t lib_mq_sel = 0xFFFFu, lib_mq_off;
 static uint32_t lib_mq_next;
 
@@ -244,8 +244,131 @@ COLD_FN static void lib_row_body(uint32_t i)
     fb_text_boxed(tx, ty, txt, TS_1X, TS_1X, right - tx, right);
 }
 
+
+/* ---- Track details page (B-727, docs/features/TRACK_DETAILS_SPEC.md) -------------------------------------------------------------------------------------------------------
+ * Y on a track row opens a scrolling page with everything the index knows about the track: the tags, the file, and (from the index's optional details section, written by
+ * tools/tau_details.py) the technical facts; for the track that is playing, a few live rows. Nothing is read from the card: the player streams ONE file through ONE slot, so
+ * another file's head cannot be read without disturbing playback -- which is why the technical fields live in the index. Long values wrap onto continuation rows.
+ * The formatting is fw/track_details.h (host-tested); all the text is one cold-data blob generated from its string list. */
+COLD_FN static const char *lib_det_s(uint32_t i);
+#define TDET_S(i) lib_det_s(i)
+#define TDET_FN COLD_FN static
+#include "track_details.h"
+#define X(n, s) s "\0"
+static const char lib_det_blob[] COLD_DATA = TDET_STRINGS(X);
+#undef X
+COLD_FN static const char *lib_det_s(uint32_t i)              /* the i-th string of the blob */
+{
+    const char *p = lib_det_blob;
+    while (i--) { while (*p++) { } }
+    return p;
+}
+#define LIB_DET_ROW_H 25u                       /* B-730: stacked fields: a dim label row, then the value rows under it */
+#define LIB_DET_ROWS  10u
+#define LIB_DET_CH    36u                       /* characters of a value per row (the value now has the full width) */
+static uint16_t lib_cur_id = 0xFFFFu, lib_prev_id = 0xFFFFu;   /* the library track playing and the one played before it (track-info report) */
+static uint8_t  lib_det_open;
+static uint16_t lib_det_id, lib_det_top;
+enum { DF_TITLE, DF_ARTIST, DF_ALBUM, DF_TRACKNO, DF_YEAR, DF_LENGTH, DF_FILE, DF_FOLDER, DF_FORMAT, DF_AUDIO, DF_BITRATE, DF_SIZE, DF_ENCODER, DF_GAPLESS, DF_RGT, DF_RGA, DF_COVER,
+       DF_LIVE_DEC, DF_LIVE_RG, DF_LIVE_LOAD, DF_N };       /* the same order as the L_* label strings: label of field f = string f */
+COLD_FN static int lib_det_playing(void) { return lib_state == LIB_ST_OK && lib_qn && lib_qpos < lib_qn && LIB_Q[lib_qpos] == lib_det_id; }
+
+/* The text of field f for the open track ("" = nothing known). */
+COLD_FN static void lib_det_text(uint32_t f, char *o, uint32_t cap)
+{
+    lib_track_t t; lib_track(&lib, lib_det_id, &t);
+    lib_album_t a; lib_album(&lib, t.album, &a);
+    lib_artist_t ar; lib_artist(&lib, a.artist, &ar);
+    lib_det_t d; const int has = lib_details(&lib, lib_det_id, &d);
+    char *q = o; *q = 0;
+    switch (f) {
+    case DF_TITLE:  lib_str(&lib, t.title, o, cap); return;
+    case DF_ARTIST: lib_str(&lib, ar.name, o, cap); return;
+    case DF_ALBUM:  lib_str(&lib, a.title, o, cap); return;
+    case DF_TRACKNO: q = tdet_trackno(q, t.tno); break;
+    case DF_YEAR:   if (a.year) q = tdet_dec(q, a.year); break;
+    case DF_LENGTH: q = tdet_length(q, t.secs); break;
+    case DF_FILE:   lib_str(&lib, t.file, o, cap); return;
+    case DF_FOLDER: lib_str(&lib, a.dir, o, cap); return;
+    case DF_FORMAT: q = tdet_format(q, has ? d.codec : t.fmt, has ? d.bits : 0u, has ? d.flags : 0u, has); break;
+    case DF_AUDIO:  if (has) q = tdet_audio(q, d.rate, d.ch); break;
+    case DF_BITRATE: if (has) q = tdet_bitrate(q, d.kbps, d.codec, d.flags); break;
+    case DF_SIZE:   if (has) q = tdet_size(q, d.size); break;
+    case DF_ENCODER: if (has && d.enc) { lib_str(&lib, d.enc, o, cap); return; } break;
+    case DF_GAPLESS: if (has) q = tdet_gapless(q, d.codec, d.flags, d.delay, d.pad); break;
+    case DF_RGT: if (has && (d.flags & TD_RGTG)) q = tdet_gain(q, d.tg, (d.flags & TD_RGTP) ? d.tp : 0u); break;
+    case DF_RGA: if (has && (d.flags & TD_RGAG)) q = tdet_gain(q, d.ag, (d.flags & TD_RGAP) ? d.ap : 0u); break;
+    case DF_COVER: if (has) q = tdet_cover(q, d.flags, d.cover_kib); break;
+    case DF_LIVE_DEC: q = tdet_dec(q, track_hz); q = tdet_cat(q, lib_det_s(TDS_HZ)); q = tdet_dec(q, track_kbps); q = tdet_cat(q, lib_det_s(TDS_KBPS)); break;
+    case DF_LIVE_RG:
+        q = tdet_cat(q, lib_det_s(rg_mode == RG_OFF ? TDS_OFF : rg_mode == RG_TRACK ? TDS_TRACKW : TDS_ALBUM));
+        q = tdet_cat(q, lib_det_s(TDS_CAP)); q = tdet_dec(q, ((rg_cap_hw ? rg_cap_hw : RG_UNITY) * 100u + 16384u) >> 15); q = tdet_cat(q, lib_det_s(TDS_PCT));
+        break;
+    case DF_LIVE_LOAD: q = tdet_dec(q, ld_head); *q++ = '/'; q = tdet_dec(q, ld_size); *q++ = '/'; q = tdet_dec(q, ld_art); *q++ = '/'; q = tdet_dec(q, ld_total); break;
+    default: break;
+    }
+    *q = 0;
+}
+
+/* Number of display rows, and the field and chunk of display row r (fields with no value still take one row, "-"). */
+COLD_FN static uint32_t lib_det_rows(void)
+{
+    char b[96]; uint32_t n = 0;
+    for (uint32_t f = 0; f < DF_N; f++) {
+        if (f >= DF_LIVE_DEC && !lib_det_playing()) break;
+        lib_det_text(f, b, sizeof b);
+        uint32_t len = 0; while (b[len]) len++;
+        n += 1u + (len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u);
+    }
+    return n;
+}
+COLD_FN static int lib_det_row_at(uint32_t r, uint32_t *field, uint32_t *chunk, char *b, uint32_t cap)
+{
+    uint32_t n = 0;
+    for (uint32_t f = 0; f < DF_N; f++) {
+        if (f >= DF_LIVE_DEC && !lib_det_playing()) break;
+        lib_det_text(f, b, cap);
+        uint32_t len = 0; while (b[len]) len++;
+        uint32_t c = 1u + (len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u);   /* label row + value rows */
+        if (r < n + c) { *field = f; *chunk = r - n; return 1; }
+        n += c;
+    }
+    return 0;
+}
+
+COLD_FN static void lib_det_draw(void)
+{
+    const uint32_t total = lib_det_rows();
+    if (lib_det_top + LIB_DET_ROWS > total) lib_det_top = (uint16_t)(total > LIB_DET_ROWS ? total - LIB_DET_ROWS : 0u);
+    char right[16], *q = right;
+    q = tdet_dec(q, (uint32_t)lib_det_top + 1u); q = tdet_cat(q, lib_det_s(TDS_SLASH)); q = tdet_dec(q, total); *q = 0;
+    ov_frame(lib_det_s(lib_det_playing() ? TDS_TRACK_DETAILS_PLAYING : TDS_TRACK_DETAILS), right, lib_det_s(TDS_SCROLL_HINT));
+    const uint32_t lx = PL_UI_TEXT_X, vx = PL_UI_TEXT_X + 8u, vw = PL_UI_X + PL_UI_W - 16u - vx;
+    for (uint32_t i = 0; i < LIB_DET_ROWS; i++) {
+        const uint32_t y = PL_UI_LIST_Y + i * LIB_DET_ROW_H;
+        fb_rect(PL_UI_X + 4u, y, PL_UI_W - 8u, LIB_DET_ROW_H, OV_BODY);
+        char b[96]; uint32_t f, c;
+        if (!lib_det_row_at((uint32_t)lib_det_top + i, &f, &c, b, sizeof b)) continue;
+        if (c == 0u) { fb_set_color(UI_DIM, OV_BODY); fb_text_clipped(lx, y + 5u, lib_det_s(f), TS_1X, TS_1X, vw); continue; }
+        c--;
+        char v[LIB_DET_CH + 1u]; uint32_t len = 0; while (b[len]) len++;
+        uint32_t from = c * LIB_DET_CH, k = 0;
+        for (; k < LIB_DET_CH && from + k < len; k++) v[k] = b[from + k];
+        v[k] = 0;
+        fb_set_color(len ? UI_WHITE : UI_DIM, OV_BODY);
+        fb_text_clipped(vx, y + 5u, len ? v : lib_det_s(TDS_DASH), TS_1X, TS_1X, vw);
+    }
+    if (total > LIB_DET_ROWS) {
+        const uint32_t track_x = PL_UI_X + PL_UI_W - 11u, track_y = PL_UI_LIST_Y, track_h = LIB_DET_ROWS * LIB_DET_ROW_H - 4u;
+        fb_rect(track_x, track_y, 3u, track_h, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
+        uint32_t th = track_h * LIB_DET_ROWS / total; if (th < 8u) th = 8u;
+        fb_rect(track_x, track_y + (track_h - th) * lib_det_top / (total - LIB_DET_ROWS), 3u, th, ui_accent);
+    }
+}
+
 COLD_FN static void lib_ui_draw_body(void)
 {
+    if (lib_det_open) { lib_det_draw(); return; }                       /* B-727: the track details page replaces the list while it is open */
     lib_lv_t *v = &LIB_CUR;
     if (v->kind == LV_HOME) v->count = (uint16_t)lib_home_n();
     if (v->sel >= v->count) v->sel = (uint16_t)(v->count ? v->count - 1u : 0u);
@@ -269,6 +392,7 @@ COLD_FN static void lib_ui_draw_body(void)
     const char *hint = v->kind == LV_HOME ? "A OPEN   B CLOSE"
                      : v->kind == LV_ARTISTS ? "A OPEN  X PLAY  L R A-Z"
                      : (v->kind == LV_ALBUMS || v->kind == LV_ALBUMS_OF || v->kind == LV_LISTS) ? "A OPEN  X PLAY  B BACK"
+                     : (v->kind == LV_TRACKS || v->kind == LV_TRACKS_OF || v->kind == LV_TRACKS_LIST) ? lib_det_s(TDS_HINT_TRACKS)
                      : "A PLAY   B BACK";
     ov_frame(title, right, hint);
 
@@ -301,7 +425,7 @@ COLD_FN static void lib_ui_draw(void)
 COLD_FN static void lib_ui_marquee(void)
 {
     lib_lv_t *v = &LIB_CUR;
-    if (!v->count) return;
+    if (!v->count || lib_det_open) return;   /* B-730: the details page owns the screen; the list row must not repaint over it */
     if (lib_mq_sel != v->sel) { lib_mq_sel = v->sel; lib_mq_off = 0; lib_mq_next = cycles() + CLK_HZ; return; }
     if ((int32_t)(cycles() - lib_mq_next) < 0) return;
     char nm[64]; int32_t tile; uint32_t year;
@@ -327,10 +451,7 @@ COLD_FN static int lib_play_span(uint32_t pos, int dir, uint32_t span)
     uint32_t leaving_id = cur_file_id;
 
     sw_have_prev = 0;
-    if (target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 16u)) {
-        for (uint32_t i = 0; i < sizeof(sw_prev_head); i++) sw_prev_head[i] = tagbuf[i];
-        sw_have_prev = 1;
-    }
+    if (target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, SW_HEAD)) { sw_prev_hash = sw_head_hash(tagbuf); sw_have_prev = 1; }   /* B-732: 48 bytes hashed, not 16 raw (see sw_head_hash) */
     uint32_t at = pos % lib_qn, nmiss = 0, nfail = 0;
     char path[LIB_MAX_PATH + 8u];
     for (uint32_t n = 0; n < span; n++) {
@@ -342,6 +463,7 @@ COLD_FN static int lib_play_span(uint32_t pos, int dir, uint32_t span)
         } else {
             lib_qpos = (uint16_t)at; lib_src = 1u;
             if (pl_open_name(path)) {
+                if (lib_cur_id != (uint16_t)id) { lib_prev_id = lib_cur_id; lib_cur_id = (uint16_t)id; }
                 if (lib_h) { lib_h = (lib_h & 0x3FFFu) | ((uint32_t)lib_qpos << 14); settings_mark_dirty(); }   /* remember the position */
                 pl_arm_load(leaving_id);
                 if (nmiss)      ui_toast_set("SKIPPED", nmiss, " MISSING");
@@ -480,7 +602,11 @@ COLD_FN static void lib_meta_apply(void)
 }
 
 /* ---------------------------------------------------------------- input */
-COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; helios_view_changed(); }   /* B-350 */
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything closing the library browser needs, same as before this existed. */
+static const helios_view_t library_view = { 0, 0, HELIOS_INV_ALL };
+
+COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; helios_view_switch(&library_view, &helios_player_view); }   /* B-350/item 4 */
 
 COLD_FN static void lib_ui_enter(void)
 {
@@ -509,19 +635,22 @@ COLD_FN static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *k
         *edge_p = edge & KEY_SELECT; *fall_p &= KEY_SELECT; *keys_p = keys & KEY_SELECT;
         return;
     }
+    if (lib_det_open) {                          /* B-727: the details page: Up/Down scroll (holding repeats), B / Left / Y go back to the list */
+        edge = kr_step(&lib_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, 0);
+        const uint32_t total = lib_det_rows(), maxtop = total > LIB_DET_ROWS ? total - LIB_DET_ROWS : 0u;
+        if ((edge & KEY_UP) && lib_det_top) { lib_det_top--; lib_ui_dirty = 1u; }
+        if ((edge & KEY_DOWN) && lib_det_top < maxtop) { lib_det_top++; lib_ui_dirty = 1u; }
+        if (edge & (KEY_B | KEY_LEFT | KEY_Y)) { lib_det_open = 0u; lib_ui_dirty = 1u; lib_mq_sel = 0xFFFFu; }
+        *edge_p = edge & KEY_SELECT; *fall_p &= KEY_SELECT; *keys_p = keys & KEY_SELECT;
+        return;
+    }
     lib_lv_t *v = &LIB_CUR;
     if (v->kind == LV_HOME) v->count = (uint16_t)lib_home_n();
     uint32_t n = v->count ? v->count : 1u;      /* never divide by zero on an empty list */
 
+    edge = kr_step(&lib_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, 0);   /* B-534: the shared hold-to-repeat primitive */
     if (edge & KEY_UP)   { v->sel = v->sel ? (uint16_t)(v->sel - 1u) : (uint16_t)(n - 1u); lib_follow(); lib_ui_dirty = 1u; }
     if (edge & KEY_DOWN) { v->sel = (uint16_t)((v->sel + 1u) % n); lib_follow(); lib_ui_dirty = 1u; }
-    if (edge & (KEY_UP | KEY_DOWN)) lib_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    if ((keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - lib_rep_at) >= 0) {
-        lib_rep_at = cycles() + CLK_HZ / 16u;
-        if (keys & KEY_UP) v->sel = v->sel ? (uint16_t)(v->sel - 1u) : (uint16_t)(n - 1u);
-        else               v->sel = (uint16_t)((v->sel + 1u) % n);
-        lib_follow(); lib_ui_dirty = 1u;
-    }
     /* Left and Right are Back and Forward, as in the menus (they used to page, and both jumped to an end of a short list). Long
      * lists: hold Up/Down, or the letter jump on L1/R1. */
     if (edge & KEY_RIGHT) edge |= KEY_A;
@@ -552,6 +681,9 @@ COLD_FN static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *k
             break; }
         default: lib_request(LP_ALLTITLE, 0, 0, v->sel, 4u, 0); break;
         }
+    }
+    if ((edge & KEY_Y) && v->count && (v->kind == LV_TRACKS || v->kind == LV_TRACKS_OF || v->kind == LV_TRACKS_LIST)) {   /* B-727: details of the selected track */
+        lib_det_id = (uint16_t)lib_row_track(v, v->sel); lib_det_top = 0u; lib_det_open = 1u; lib_ui_dirty = 1u;
     }
     if ((edge & KEY_X) && (v->kind == LV_ARTISTS || v->kind == LV_ALBUMS || v->kind == LV_ALBUMS_OF || v->kind == LV_LISTS)) {
         if (v->kind == LV_LISTS) {

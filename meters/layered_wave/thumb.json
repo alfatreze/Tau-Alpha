@@ -1,0 +1,34 @@
+{
+ "w": 56,
+ "h": 32,
+ "palette": [
+  4259,
+  19049,
+  38066,
+  61277,
+  24028,
+  4259,
+  4259,
+  4259
+ ],
+ "rle": "1f1f1f1f1f0c231f13261f0f291f0d2a1f0b2145251f092049241f06204c241f0420416348241f02416946360d406e47244a24092074572107407f6c4220057f6c816282027f6c81628202407f6c4220052074572108406e47244a240a416946360d20416348241f02204c241f052049241f072145251f0a2a1f0c291f0e261f10231f1f1f1f1f1f16",
+ "note": "56x32 preview, 8-colour RGB565 palette, raster run-length: byte = (palette index << 5) | (run - 1). A hand-authored/procedural placeholder (extracted 2026-10-21 from the old player's meter_thumbs.h).",
+ "palette_roles": [
+  "chrome",
+  {
+   "ramp": [
+    "surface",
+    "text_secondary",
+    1,
+    2
+   ]
+  },
+  "text_secondary",
+  "text_primary",
+  "accent",
+  null,
+  null,
+  null
+ ],
+ "note_roles": "palette_roles: per palette entry null (the fixed RGB565 in `palette`), a theme role name (tools/player2/gen_meters_p2.py ROLES) or {\"ramp\": [roleA, roleB, t, n]} (a + (b - a) * t / n per channel); the firmware resolves them from the active theme each time the preview is drawn, `palette` is the fallback for tools that have no theme."
+}

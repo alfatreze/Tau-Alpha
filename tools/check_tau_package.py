@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 CORE_DIR = DIST / "Cores/alfatreze.TAU"
-ASSET_DIR = DIST / "Assets/tau/common"
+ASSET_DIR = DIST / "Assets/tau/alfatreze.TAU"   # build-bound files are core-specific (tools/tau_layout.py)
 PLATFORM_JSON = DIST / "Platforms/tau.json"
 PLATFORM_ART = DIST / "Platforms/_images/tau.bin"
 
@@ -29,7 +29,9 @@ def main():
     # Pocket hardware does not render the superscript-alpha metadata glyph.
     # Keep OS-visible strings ASCII and carry the brand mark in artwork and in
     # Tau's own framebuffer, where the project controls glyph rendering.
-    assert core["description"] == "TAU Music Player"
+    assert 0 < len(core["description"]) <= 63, "core.json description must be 1..63 characters (Pocket limit)"
+    assert "Tau Omega" in core["description"], "the description should say that music is synced with Tau Omega"
+    assert core.get("url") == "https://github.com/alfatreze/Tau-Alpha" and len(core["url"]) <= 63, "core.json needs the repository url (openFPGA Library requirement, 63 characters at most)"
     assert platform["name"] == "TAU"
     assert platform["manufacturer"] == "alfatreze"
 
@@ -39,6 +41,11 @@ def main():
     assert splash["filename"] == "tau-loading.bin"
     assert (ASSET_DIR / firmware["filename"]).is_file()
     assert (ASSET_DIR / splash["filename"]).is_file()
+    for slot in data:                                    # H4: every build-bound slot reads from the core's own folder
+        if slot.get("filename") in ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin"):
+            assert int(str(slot["parameters"]), 16) & 2, f"data slot {slot['id']} ({slot['filename']}) must be core-specific (parameter bit 1)"
+    assert not any((DIST / "Assets/tau/common" / n).exists() for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin")), \
+        "build-bound files must not be in the platform-wide common/ folder"
     assert PLATFORM_ART.stat().st_size == 521 * 165 * 2
     assert (CORE_DIR / "icon.bin").stat().st_size == 36 * 36 * 2
 
@@ -49,6 +56,18 @@ def main():
         DIST / "Platforms/_images/mp3player.bin",
     ]
     assert not any(path.exists() for path in old_paths)
+
+    # B-456: the Pocket hard-caps interact.json at 16 shown UI entries -- anything past that is
+    # silently dropped from BOTH the Core Settings UI and persistence (APF's read-modify-write cycle
+    # operates on the same declared list). This is exactly how theme/mode persistence silently broke
+    # once: 5 new entries pushed a fine 12-entry file to 17, one over, with no error anywhere.
+    interact = read_json(CORE_DIR / "interact.json")["interact"]["variables"]
+    assert len(interact) <= 16, (
+        f"interact.json has {len(interact)} variables, over the Pocket's hard 16-entry cap "
+        "(docs/AUDIT_TRAIL.md B-456) -- entries past 16 are silently dropped from both the UI and "
+        "persistence, not rejected with an error"
+    )
+
     print("PASS: TAU package identity and side-by-side paths are consistent")
 
 

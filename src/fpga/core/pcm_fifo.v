@@ -20,7 +20,8 @@
 // =============================================================================
 
 module pcm_fifo #(
-    parameter AW = 11                  // 2048 entries = ~43 ms at 48 kHz
+    parameter AW = 11,                 // 2048 entries = ~43 ms at 48 kHz
+    parameter UBUG = 0                 // test-only mutants of the underrun statistics (sim/tb_pcm_under.v): 1 counts while not primed, 2 counts events per tick instead of per run, 3 lets a flush clear them
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -49,10 +50,16 @@ module pcm_fifo #(
     output reg signed [15:0] out_l,
     output reg signed [15:0] out_r,
     output reg         underrun,
-    output wire        sample_tick     // the fractional-rate sample strobe (one clk pulse per output sample), for the spectrum bank
+    // P6 (Player 2 S1): free-running underrun statistics, cleared only by reset (a flush does NOT clear them: they are the whole-session record). `under_ticks` counts output ticks that found
+    // the FIFO empty while primed (each is one lost sample pair), saturating; `under_events` counts runs of such ticks (an event ends at the next real sample), saturating.
+    output reg  [14:0] under_events,
+    output reg  [15:0] under_ticks,
+    output wire        sample_tick,    // the fractional-rate sample strobe (one clk pulse per output sample), for the spectrum bank
+    output wire        adv             // B-615: this tick delivers a real queued sample (primed, not empty, no flush): the gain stage's fade advances only on these
 );
 
     localparam DEPTH = (1 << AW);
+    reg under_prev;                     // the previous tick was an underrun tick (so a run is counted once)
 
     reg [31:0] mem [0:DEPTH-1];
     reg [AW:0] wptr, rptr;
@@ -89,6 +96,7 @@ module pcm_fifo #(
     reg [31:0] acc;
     reg        tick;
     assign sample_tick = tick;
+    assign adv = tick & primed & ~empty & ~flush & ~rst;
     always @(posedge clk) begin
         if (rst) begin
             acc  <= 32'd0;
@@ -118,6 +126,7 @@ module pcm_fifo #(
             out_r    <= 16'd0;
             underrun <= 1'b0;
             primed   <= 1'b0;
+            under_events <= 15'd0; under_ticks <= 16'd0; under_prev <= 1'b0;
         end else if (flush) begin
             // Same effect as reset on the pointers, but does NOT touch
             // out_l/out_r: slamming those to 0 would produce an audible click,
@@ -128,6 +137,8 @@ module pcm_fifo #(
             rptr     <= 0;
             underrun <= 1'b0;
             primed   <= 1'b0;
+            under_prev <= 1'b0;
+            if (UBUG == 3) begin under_events <= 15'd0; under_ticks <= 16'd0; end
         end else begin
             if (push && !full) wptr <= wptr + 1'b1;
 
@@ -141,6 +152,7 @@ module pcm_fifo #(
                     out_l <= q[15:0];
                     out_r <= q[31:16];
                     rptr  <= rptr + 1'b1;
+                    under_prev <= 1'b0;
                 end else begin
                     // Empty: GLIDE the output to zero rather than holding it.
                     //
@@ -169,7 +181,12 @@ module pcm_fifo #(
                     // Priming is not an underrun: the glide above is carrying
                     // silence on purpose. Raising the flag here would have the
                     // firmware fade in every track start it is preventing.
-                    if (primed) underrun <= 1'b1;
+                    if (primed || UBUG == 1) begin
+                        if (primed) underrun <= 1'b1;
+                        if (under_ticks != 16'hFFFF) under_ticks <= under_ticks + 16'd1;
+                        if ((UBUG == 2 || !under_prev) && under_events != 15'h7FFF) under_events <= under_events + 15'd1;
+                        under_prev <= 1'b1;
+                    end
                 end
             end
         end

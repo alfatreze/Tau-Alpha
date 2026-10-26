@@ -1,0 +1,134 @@
+{
+  "about": "What each persisted interact.json id MEANS (RELEASE_SYSTEM_REVIEW_2026-10-08 H2). Bump `meaning` and set `since` to the release that first ships the new meaning whenever the firmware changes how a saved value is read or written (packing, units, enum, range), even when interact.json does not change. `since` is a release tag with a CHANGELOG heading, or the upcoming release's tag. Baseline: earlier history is not tracked before the first release listed. tools/tau_compat.py reports an id as changed when its `since` is later than the previous release, and refuses a release whose interact.json persists an id missing here or named differently. Never reuse an id: give a new meaning a new id when the format allows it.",
+  "ids": {
+    "10": {
+      "name": "(internal) playback",
+      "word": "SW_PLAYBACK",
+      "meaning": 3,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 0: bits 30-27 the layout version (0 = the legacy layout of v0.6.1 and older, where this word was the volume 0-100; 1 = the layout by area, docs/features/PERSISTENCE_LAYOUT.md), bit 26 which tuning slot was saved last (0 = A, 1 = B); the rest is reserved for playback options. A default of 1<<27 puts a fresh card on the new layout; a card saved before is migrated at the first boot"
+    },
+    "11": {
+      "name": "(internal) appearance",
+      "word": "SW_APPEARANCE",
+      "meaning": 2,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 1: accent colour bits 4-0 (0-18), theme bits 10-5, polarity bit 11 (Dark 0, Light 1), font bits 14-12; before v0.7.0 this word was the accent colour alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+    },
+    "12": {
+      "name": "(internal) audio",
+      "word": "SW_AUDIO",
+      "meaning": 2,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 2: volume bits 6-0 (0-100, the dB taper), repeat bits 8-7 (0 off, 1 all, 2 one), ReplayGain mode bits 10-9 (0 off, 1 track, 2 album), Halcyon EQ preset bits 15-11 (0-30); before v0.7.0 this word was the repeat mode alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+    },
+    "15": {
+      "name": "(internal) meters 1",
+      "word": "SW_METERS1",
+      "meaning": 3,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 5: the selected meter bits 5-0 (an index in the meter table), then the selected preset of meters 0-5, four bits each from bit 6; before v0.7.0 this word was the meter number alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+    },
+    "16": {
+      "name": "(internal) meters 2",
+      "word": "SW_METERS2",
+      "meaning": 3,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 6: the selected preset of meters 6-12, four bits each from bit 0; before v0.7.0 this word was the Halcyon EQ preset. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+    },
+    "20": {
+      "name": "(internal) tuning A 1",
+      "word": "SW_TUNE_A1",
+      "meaning": 4,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot A, word 1 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+    },
+    "21": {
+      "name": "(internal) tuning A 2",
+      "word": "SW_TUNE_A2",
+      "meaning": 4,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot A, word 2 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+    },
+    "22": {
+      "name": "(internal) tuning A 3",
+      "word": "SW_TUNE_A3",
+      "meaning": 4,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot A, word 3 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+    },
+    "23": {
+      "name": "(internal) tuning A 4",
+      "word": "SW_TUNE_A4",
+      "meaning": 4,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot A, word 4 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+    },
+    "27": {
+      "name": "(internal) tuning B 1",
+      "word": "SW_TUNE_B1",
+      "meaning": 3,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot B, word 1 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 27 was the theme index"
+    },
+    "28": {
+      "name": "(internal) tuning B 2",
+      "word": "SW_TUNE_B2",
+      "meaning": 3,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot B, word 2 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 28 was the theme polarity and the ReplayGain mode"
+    },
+    "29": {
+      "name": "(internal) tuning B 3",
+      "word": "SW_TUNE_B3",
+      "meaning": 2,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot B, word 3 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 29 was the meter presets, the font and the sixth meter's preset"
+    },
+    "30": {
+      "name": "(internal) meters 3",
+      "word": "SW_METERS3",
+      "meaning": 2,
+      "since": "v0.7.0",
+      "what": "(Player 2) word 15: the selected preset of meters 13-19, four bits each from bit 0 (until v0.6.1 bits 3-0 were the seventh meter's preset, which is meter 6 and now lives in word 6). Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+    },
+    "31": {
+      "name": "(internal) last played 1",
+      "word": "SW_LAST0",
+      "meaning": 1,
+      "since": "v0.7.0",
+      "what": "(Player 2) the last played track (fw2/cores/lastplayed_core.h), word 0 of 2: record flag, queue kind, queue parent and the low ten bits of the track; 31 bits a word (an interact variable is 0..2147483647). The old player's library words (ids 24..26) are retired from interact.json (the Pocket takes at most 16 variables). First shipped in v0.7.0: the released v0.6.1 still used ids 24-26 (the old library words) for this."
+    },
+    "32": {
+      "name": "(internal) last played 2",
+      "word": "SW_LAST1",
+      "meaning": 1,
+      "since": "v0.7.0",
+      "what": "(Player 2) the last played track, word 1 of 2: a 27-bit check over word 0 and the high four bits of the track; a record that fails the check restores nothing. First shipped in v0.7.0: the released v0.6.1 still used ids 24-26 (the old library words) for this."
+    },
+    "33": {
+      "name": "(internal) tuning B 4",
+      "word": "SW_TUNE_B4",
+      "meaning": 1,
+      "since": "v0.7.0",
+      "what": "(Player 2) tuning slot B, word 4 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 33 was not declared"
+    }
+  },
+  "retired": {
+    "24": {
+      "name": "(internal) library 1",
+      "last_in": "v0.6.1",
+      "what": "the old player's library state, word 1 of 3; not persisted since v0.7.0 (Player 2 keeps the last played track in ids 31 and 32). An old value must be ignored."
+    },
+    "25": {
+      "name": "(internal) library 2",
+      "last_in": "v0.6.1",
+      "what": "word 2 of 3, as id 24"
+    },
+    "26": {
+      "name": "(internal) library 3",
+      "last_in": "v0.6.1",
+      "what": "word 3 of 3, as id 24"
+    }
+  }
+}

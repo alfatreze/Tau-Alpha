@@ -6,10 +6,11 @@
                 "tau"
             ],
             "shortname": "TAU",
-            "description": "TAU Music Player",
+            "description": "Music player. Sync music with Tau Omega or the repo's tools",
             "author": "alfatreze",
-            "version": "0.5.0",
-            "date_release": "2026-09-27"
+            "url": "https://github.com/alfatreze/Tau-Alpha",
+            "version": "0.6.1",
+            "date_release": "2026-10-09"
         },
         "framework": {
             "target_product": "Analogue Pocket",

@@ -1,4 +1,4 @@
-/* Native harness for fw/chladni_core.h (sim/test_chladni_core.py). Not part of any firmware build.
+/* Native harness for fw2/cores/chladni_core.h (sim/test_chladni_core.py). Not part of any firmware build.
  *   plane Rx Ry hw_q8 K m n w s ...        one tile of levels, one line per row
  *   extreme layout eps topk up dn morph gain sens refr tonal   600 ticks of a synthetic loud/quiet track through detect, update, select and render
  *                                          with this tunable set (the sanitised build in sim/test_chladni_params.py must not fault)
@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../fw/chladni_core.h"
+#include "../../fw2/cores/chladni_core.h"
 
 static uint32_t g_rects; static uint32_t g_rx;
 static void count_cb(uint32_t j, const uint8_t *lvl, void *ud)

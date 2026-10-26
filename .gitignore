@@ -25,7 +25,7 @@ fw/build.log
 # not a game ROM, and the core does not start without it -- a release zip built
 # from a checkout that lacks it is a broken release. The blanket *.rom rule above
 # still covers everything else.
-!dist/Assets/tau/common/tau.rom
+!dist/Assets/tau/alfatreze.TAU/tau.rom
 
 # Simulation outputs
 sim/*.vvp
@@ -78,8 +78,6 @@ dist/Assets/tau/common/playlist.m3u
 # name the user's own files.
 tools/_snapshots/
 
-# EQ test vectors -- regenerate with tools/gen_eq_vectors.py
-sim/eq_*.hex
 sim/*.vvp
 
 # Stray bitstream copies at the repo root -- the shipped one lives in
@@ -100,6 +98,7 @@ fw/*.o
 # just stops tracking it as unstaged.
 /work/
 /.claude/
+/.codex/
 /UniClaudeProxy/
 /build/
 /release/

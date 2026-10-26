@@ -2,11 +2,11 @@
  * bg, theme, p (params by key), st (module state), force}. Two channel ladders (L above R), 24 dB segments each, zone-coloured
  * green/yellow/red via ctx.theme.role.ok/warn/danger (fw/theme.h's TR_OK/WARN/DANGER, the roles docs/THEME_SPEC.md names for this
  * meter), a held-peak marker per channel reusing C.newPeak()/C.peakStep() -- the SAME ballistics fw/vu_master.inc reuses from
- * fw/meter_core.h, per the resolved open question in the spec (no new peak-hold design). The displayed level is also eased
+ * fw2/cores/meter_core.h, per the resolved open question in the spec (no new peak-hold design). The displayed level is also eased
  * (C.ease(), mode 2/exponential, attack 85/release 40 -- fw/vu_master.inc's VUM_EASE_* comment has the full reasoning) before
  * it is quantized to a segment count, to kill single-frame jitter without reversing section 2.2's fast-attack decision. The
  * 256-entry dB-to-segment lookup is
- * fw/vu_segment_table.h's checked-in vu_db_to_segment[], inlined verbatim below rather than re-derived from the log10 formula --
+ * fw2/generated/vu_segment_table.h's checked-in vu_db_to_segment[], inlined verbatim below rather than re-derived from the log10 formula --
  * the generated table is the ground truth (tools/gen_vu_segment_table.py), so re-deriving it risks a second, independently-rounded
  * table that quietly disagrees with the firmware's.
  *

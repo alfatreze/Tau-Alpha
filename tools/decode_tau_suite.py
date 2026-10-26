@@ -2,12 +2,15 @@
 """Decoder (and reference encoder) for the Tau diagnostics report (fw/suite_core.h, docs/TEST_SUITE_SPEC.md).
 
   decode_tau_suite.py --text 'TAUD1:...'          full report from the QR text (also reads it from stdin with '-')
+  decode_tau_suite.py --grid screenshot.png       decode a Tau pixel grid (TPG1, tools/tpg.py) in a screenshot; needs only numpy and Pillow
   decode_tau_suite.py --qr screenshot.png         decode the QR code in a screenshot (needs OpenCV; use the PNG, not a resized copy)
   decode_tau_suite.py --interact persist.json     the four-word summary from Settings/<core>/Interact/_core/interact_persist.json
   decode_tau_suite.py --words A B C D             the same from four numbers
   decode_tau_suite.py --code 'XXXXXX-...'         the 36-character short code (summary plus bitstream revision)
 Add --json for machine output. Exit 0 = record valid, 1 = invalid (bad CRC or format), 2 = usage."""
 import argparse
+import os
+import re
 import base64
 import json
 import struct
@@ -27,7 +30,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
-        22: "decprof2"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
+        22: "decprof2", 23: "heap", 24: "load", 25: "load2", 26: "infotext", 27: "nowplaying", 28: "trackinfo"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -135,6 +138,21 @@ def parse_record(rec: bytes) -> dict:
                 "free_ram": free_ram, "underruns": underruns, "draw_stall_ms": stall_ms, "load_ms": load_ms,
                 "cpu_pct": v[19],
             }
+        elif tag == 26 and n >= 2 and 0 in v[1:]:  # SR_T_INFOTEXT: one Info page row exactly as shown on screen (row, label, 0, value)
+            z = v.index(0, 1)
+            out["entries"].setdefault("infotext", []).append({"row": v[0], "label": v[1:z].decode("ascii", "replace"),
+                                                              "value": v[z + 1:].decode("ascii", "replace")})
+        elif tag == 27 and n >= 5:                # SR_T_NOWPLAYING: what was playing when the report was made
+            parts = v[5:].split(b"\0")
+            txt = [x.decode("utf-8", "replace") for x in parts] + [""] * 3
+            out["entries"]["nowplaying"] = {"state": ["nothing loaded", "stopped", "paused", "playing"][min(v[0], 3)],
+                                            "queue_pos": v[1] | v[2] << 8, "queue_len": v[3] | v[4] << 8,
+                                            "title": txt[0], "artist": txt[1], "album": txt[2]}
+        elif tag == 28 and n >= 4 and 0 in v[2:]:  # SR_T_TRACKINFO: one field of the track-details page (which: 0 playing, 1 previous; field; label, 0, value)
+            z = v.index(0, 2)
+            out["entries"].setdefault("trackinfo", []).append({"which": "playing" if v[0] == 0 else "previous", "field": v[1],
+                                                               "label": v[2:z].decode("ascii", "replace"),
+                                                               "value": v[z + 1:].decode("utf-8", "replace")})
         elif tag == 20 and n >= 4:                # SR_T_METERCFG (M2): meter id, schema, preset, nparams, values (widths from the registry)
             meter_id, schema, preset, np_ = v[0], v[1], v[2], v[3]
             entry = {"meter_id": meter_id, "schema": schema, "preset": None if preset == 0xFF else preset}
@@ -175,7 +193,7 @@ def parse_record(rec: bytes) -> dict:
                 "scope_smooth": v[11], "scope_trail": v[12],
             }
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2, 23: 4, 24: 2, 25: 2}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",
@@ -200,6 +218,13 @@ def parse_record(rec: bytes) -> dict:
                 elif tag == 16 and len(vals) == 2:         # SR_T_STACK (B-204): stack high-water mark
                     vals = dict(zip(("peak_bytes", "stack_size"), vals))
                     vals["free_bytes"] = vals["stack_size"] - vals["peak_bytes"]
+                elif tag == 24 and len(vals) == 6:         # SR_T_LOAD (Cymo C0, 2026-10-04): window CPU load and the Subband split
+                    vals = dict(zip(("busy_pct", "busy_worst_pct", "io_pct", "secs", "sub_fdct_pct", "sub_hw_pct"), vals))
+                elif tag == 25 and len(vals) == 5:         # SR_T_LOAD2 (B-589): where the non-decode CPU goes (MP3 loop)
+                    vals = dict(zip(("dec_pct", "feed_pct", "push_pct", "ui_pct", "wait_pct"), vals))
+                elif tag == 23 and len(vals) == 2:         # SR_T_HEAP (B-514): heap high-water mark
+                    vals = dict(zip(("peak_bytes", "heap_size"), vals))
+                    vals["free_bytes"] = vals["heap_size"] - vals["peak_bytes"]
                 out["entries"][TAGS[tag]] = vals
         else:
             out["unknown"].append({"tag": tag, "hex": v.hex()})
@@ -286,6 +311,11 @@ def qr_text(path: str) -> str:
     return txt
 
 
+def grid_record(path: str) -> bytes:
+    import tpg                                    # tools/tpg.py: the TPG1 container (docs/features/BARCODE_STUDY.md)
+    return tpg.decode_file(path)
+
+
 def show(d: dict) -> str:
     return json.dumps(d, indent=2)
 
@@ -295,19 +325,28 @@ def main(argv=None) -> int:
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--text")
     g.add_argument("--qr")
+    g.add_argument("--grid")
     g.add_argument("--interact")
     g.add_argument("--words", nargs=4, type=int)
     g.add_argument("--code")
     ap.add_argument("--ids", default="20,21,22,23", help="interact variable ids of the four words")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
+    ap.add_argument("--table", action="store_true", help="with --text/--qr/--grid: print the Info page rows (SR_T_INFOTEXT) as an aligned table instead of JSON")
+    ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr/--grid: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
     a = ap.parse_args(argv)
     try:
-        if a.text or a.qr:
-            txt = a.text if a.text else qr_text(a.qr)
-            if txt == "-":
-                txt = sys.stdin.read()
-            res = parse_record(from_text(txt))
+        if a.text or a.qr or a.grid:
+            if a.grid:
+                rec = grid_record(a.grid)
+            else:
+                txt = a.text if a.text else qr_text(a.qr)
+                if txt == "-":
+                    txt = sys.stdin.read()
+                rec = from_text(txt)
+            res = parse_record(rec)
+            m = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", os.path.basename(a.grid or a.qr or ""))
+            if m:                                 # the Pocket names screenshots YYYYMMDD_HHMMSS: free capture time, no bytes in the record
+                res["captured"] = "%s-%s-%sT%s:%s:%s" % m.groups()
             if a.trace:
                 frames = res["entries"].get("metertrace")
                 if not frames:
@@ -324,6 +363,23 @@ def main(argv=None) -> int:
     except (ValueError, KeyError, ImportError) as e:
         print(f"invalid: {e}", file=sys.stderr)
         return 1
+    if a.table:
+        rows = res.get("entries", {}).get("infotext")
+        if not rows:
+            print("invalid: the record has no Info page rows (export them from Settings > Diagnostics > Info > A)", file=sys.stderr)
+            return 1
+        w = max(len(r["label"]) for r in rows)
+        for r in sorted(rows, key=lambda r: r["row"]):
+            print(f"{r['label']:<{w}}  {r['value']}")
+        ti = res.get("entries", {}).get("trackinfo", [])
+        for which in ("playing", "previous"):
+            fs = [t for t in ti if t["which"] == which]
+            if fs:
+                print(f"\n-- {which} track --")
+                w2 = max(len(t["label"]) for t in fs)
+                for t in fs:
+                    print(f"{t['label']:<{w2}}  {t['value']}")
+        return 0
     print(show(res))
     return 0
 

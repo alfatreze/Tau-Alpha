@@ -1,7 +1,6 @@
 """Generate the preset EQ coefficient table, and prove it before any RTL exists.
 
     python tools/gen_eq_coeffs.py            # report + ASCII response curves
-    python tools/gen_eq_coeffs.py --verilog  # emit the table to paste into RTL
 
 docs/EQ_DESIGN.md fixes the plan this implements, and the reason it is fixed:
 a hand-written sine table for the VU needle produced a 45-degree sweep instead
@@ -31,10 +30,19 @@ import os
 import math
 import sys
 
+try:
+    import numpy as np          # only the offline matched design needs it; the cookbook path stays dependency-free
+except ImportError:
+    np = None
+
 FS = 48000.0            # fixed output rate; see EQ_DESIGN "what rate it runs at"
-QF = 16                 # Q2.16 -> 16 fractional bits
+# Coefficient word. 18-bit Q2.16 is what ships. EQ_COEF_BITS=24 selects 24-bit Q2.22 (B-608 / docs/features/CYMO_AUDIO_STACK_REVIEW.md F1): the 100 Hz and
+# 220 Hz stages of Sound Shaping have their poles close to z = 1 and need the extra bits (response error 0.6 dB -> under 0.02 dB, uniform gain steps).
+CW = int(os.environ.get("EQ_COEF_BITS", "18"))
+assert CW in (18, 24), "EQ_COEF_BITS must be 18 or 24"
+QF = CW - 2             # Q2.(CW-2): 16 fractional bits at 18, 22 at 24
 QSCALE = 1 << QF
-QMIN, QMAX = -(1 << 17), (1 << 17) - 1        # 18-bit signed
+QMIN, QMAX = -(1 << (CW - 1)), (1 << (CW - 1)) - 1        # signed
 
 # Five bands: low shelf, three peaks, high shelf. Classic preset shape, and
 # what the named curves in EQ_DESIGN are actually describing.
@@ -96,11 +104,96 @@ def design(kind, f0, q, gain_db):
     return (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
 
 
+def analog_response(kind, f0, q, gain_db, f):
+    """Complex response of the analog prototype the cookbook imitates (RBJ Audio EQ Cookbook, public). For shelves `q` is the slope S, as in design()."""
+    A = 10.0 ** (gain_db / 40.0)
+    s = 1j * f / f0
+    if kind == "peak":
+        return (s * s + s * (A / q) + 1) / (s * s + s / (A * q) + 1)
+    r = math.sqrt(A)
+    iq = math.sqrt((A + 1.0 / A) * (1.0 / q - 1.0) + 2.0)
+    if kind == "lowshelf":
+        return A * (s * s + (r * iq) * s + A) / (A * s * s + (r * iq) * s + 1)
+    return A * (A * s * s + (r * iq) * s + 1) / (s * s + (r * iq) * s + A)
+
+
+def _digital(c, f):
+    z = np.exp(-2j * np.pi * f / FS)
+    b0, b1, b2, a1, a2 = c
+    return (b0 + b1 * z + b2 * z * z) / (1 + a1 * z + a2 * z * z)
+
+
+def design_matched(kind, f0, q, gain_db, f_hi=20000.0, n=200):
+    """Analog-magnitude-matched design (B-614, D-H02). Starts from the cookbook coefficients and refines the five of them by Levenberg-Marquardt so the digital
+    log-magnitude follows the analog prototype from 20 Hz to f_hi on a log grid (the cookbook response cramps toward Nyquist: up to 1.14 dB at the 10 kHz shelf).
+    Offline only: the tables are data, so this costs nothing in hardware. numpy only, our own method (see docs/PROVENANCE.md); returns the cookbook design if the
+    refinement is not stable or not better."""
+    if abs(gain_db) < 1e-9 or np is None:
+        return design(kind, f0, q, gain_db)
+    c0 = np.array(design(kind, f0, q, gain_db), dtype=float)
+    f = 20.0 * (f_hi / 20.0) ** (np.arange(n) / (n - 1.0))
+    target = 20.0 * np.log10(np.abs(analog_response(kind, f0, q, gain_db, f)))
+
+    def resid(c):
+        return 20.0 * np.log10(np.abs(_digital(c, f))) - target
+
+    def stable_c(c):
+        return np.all(np.abs(np.roots([1.0, c[3], c[4]])) < 0.9999)
+
+    c, lam = c0.copy(), 1e-3
+    r = resid(c)
+    cost = float(r @ r)
+    for _ in range(80):
+        J = np.empty((n, 5))
+        for k in range(5):                      # forward differences, step scaled to the coefficient
+            h = 1e-7 * max(1.0, abs(c[k]))
+            d = c.copy(); d[k] += h
+            J[:, k] = (resid(d) - r) / h
+        step = np.linalg.solve(J.T @ J + lam * np.eye(5), -J.T @ r)
+        cn = c + step
+        if not stable_c(cn):
+            lam *= 10.0
+            continue
+        rn = resid(cn)
+        costn = float(rn @ rn)
+        if costn < cost:
+            c, r, cost, lam = cn, rn, costn, lam * 0.3
+            if np.max(np.abs(step)) < 1e-12:
+                break
+        else:
+            lam *= 10.0
+    if cost >= float(resid(c0) @ resid(c0)) or not stable_c(c):
+        return tuple(float(v) for v in c0)
+    return tuple(float(v) for v in c)
+
+
+def clamp_slope(S):
+    """Shelf stages use the slope form: the square root in design() goes negative (the design fails) for S > 1 once the gain is large, and S <= 1 is the monotonic
+    range. Any tool that edits a shelf stage must clamp to (0, 1] (lesson from FreeEQ8's published shelf-slope NaN bug, see PROVENANCE.md)."""
+    return max(0.1, min(1.0, S))
+
+
+def design_stage(kind, f0, q, gain_db, matched=True):
+    """The one entry for a written stage: clamps shelf S, designs (matched by default) and returns floats."""
+    if kind != "peak":
+        q = clamp_slope(q)
+    return (design_matched if matched else design)(kind, f0, q, gain_db)
+
+
+def quantise_checked(coefs, where, errors):
+    """Quantise a raw biquad (b0 b1 b2 a1 a2, floats, a0 = 1) at the build's real width and verify the QUANTISED poles. Returns the integer tuple. This is the check any
+    imported or hand-written stage (a raw biquad list, e.g. from Equalizer APO / AutoEQ) must pass: the 18-bit format goes unstable for 40 Hz +-24 dB, 24-bit does not."""
+    qc = tuple(quantise(v, where, errors) for v in coefs)
+    if not stable([qc]):
+        errors.append("%s: a pole is on or outside the unit circle after quantisation to Q2.%d" % (where, QF))
+    return qc
+
+
 def quantise(c, where, errors):
     q = int(round(c * QSCALE))
     if not (QMIN <= q <= QMAX):
-        errors.append("%s: %.6f -> %d is outside Q2.16 [%d,%d]"
-                      % (where, c, q, QMIN, QMAX))
+        errors.append("%s: %.6f -> %d is outside Q2.%d [%d,%d]"
+                      % (where, c, q, QF, QMIN, QMAX))
         q = max(QMIN, min(QMAX, q))
     return q
 
@@ -154,27 +247,6 @@ def stable(qcoefs):
 FREQS = [20 * (10 ** (i / 24.0)) for i in range(int(24 * math.log10(20000 / 20)) + 1)]
 
 
-# On-screen curve, at the real meter geometry from fw/player.c.
-UI_WAVE_N = 36
-UI_WAVE_H = 72
-CURVE_DB = 8.0          # full bar deflection; presets peak at +6
-
-
-def curve_bars(qcoefs):
-    """Signed pixel offset from the meter's centre line, per bar.
-
-    Deliberately the response WITHOUT the preamp: the preamp is a level
-    adjustment, and what the user wants to see when they flip a preset is its
-    tonal shape, not how it was normalised."""
-    span = UI_WAVE_H // 2 - 1
-    out = []
-    for i in range(UI_WAVE_N):
-        f = 20.0 * (20000.0 / 20.0) ** (i / (UI_WAVE_N - 1.0))
-        db = max(-CURVE_DB, min(CURVE_DB, response_db(qcoefs, f)))
-        out.append(int(round(db / CURVE_DB * span)))
-    return out
-
-
 def ascii_curve(name, qcoefs, preamp_db):
     """The shipped curve, drawn. Reading the shape is the whole point of this,
     so the grid stays out of the way: only the trace and the 0 dB line."""
@@ -208,14 +280,10 @@ def ascii_curve(name, qcoefs, preamp_db):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--verilog", action="store_true",
-                    help="emit the coefficient table for the RTL")
-    ap.add_argument("--curves", action="store_true",
-                    help="emit the on-screen curve table for the firmware")
     args = ap.parse_args()
 
     errors, table = [], []
-    print("Preset EQ coefficients -- Q2.16 (18-bit signed), Fs = %g Hz" % FS)
+    print("Preset EQ coefficients -- Q2.%d (%d-bit signed), Fs = %g Hz" % (QF, CW, FS))
     print("Bands: " + ", ".join("%s %gHz Q%.2f" % (k, f, q) for k, f, q in BANDS))
     print()
 
@@ -253,8 +321,8 @@ def main():
                           "leave to saturation" % (name, over))
 
     print()
-    print("Tightest Q2.16 margin: %d counts (%s) -- 0 would mean the format is "
-          "too narrow." % (worst_margin[0], worst_margin[1]))
+    print("Tightest Q2.%d margin: %d counts (%s) -- 0 would mean the format is "
+          "too narrow." % (QF, worst_margin[0], worst_margin[1]))
     print()
 
     print("=== magnitude response of the QUANTISED cascade, preamp applied ===")
@@ -266,81 +334,6 @@ def main():
             print()
             continue
         ascii_curve(name, qcoefs, pdb)
-
-    if args.verilog:
-        out = []
-        out.append("// GENERATED by tools/gen_eq_coeffs.py --verilog -- DO NOT EDIT.")
-        out.append("//")
-        out.append("// Q2.16 signed (18-bit), Fs = %g Hz. Five bands per preset," % FS)
-        out.append("// five coefficients per band, in the order b0 b1 b2 a1 a2.")
-        out.append("// Index: ((preset*%d) + band)*5 + k" % len(BANDS))
-        out.append("//")
-        out.append("// The difference equation SUBTRACTS a1 and a2:")
-        out.append("//   y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2")
-        out.append("")
-        for i, (name, qcoefs, pq, pdb) in enumerate(table):
-            out.append("// ---- %s (preset %d), preamp %+.2f dB" % (name, i, pdb))
-            for j, ((kind, f0, _q), qc) in enumerate(zip(BANDS, qcoefs)):
-                base = (i * len(BANDS) + j) * 5
-                out.append("//   %-9s %6g Hz" % (kind, f0))
-                for k, v in enumerate(qc):
-                    out.append("crom[%3d] = 18'sd%-7d;  // %s"
-                               % (base + k, v, "b0 b1 b2 a1 a2".split()[k])
-                               if v >= 0 else
-                               "crom[%3d] = -18'sd%-6d;  // %s"
-                               % (base + k, -v, "b0 b1 b2 a1 a2".split()[k]))
-        out.append("")
-        for i, (name, _qc, pq, pdb) in enumerate(table):
-            out.append("prom[%d] = 18'sd%-7d;  // %-10s %+.2f dB"
-                       % (i, pq, name, pdb))
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "..", "src", "fpga", "core", "eq_coefs.vh")
-        path = os.path.normpath(path)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(out) + "\n")
-        print("wrote %s (%d lines)" % (path, len(out)))
-
-    if args.curves:
-        out = []
-        out.append("/* GENERATED by tools/gen_eq_coeffs.py --curves -- DO NOT EDIT.")
-        out.append(" *")
-        out.append(" * Each preset's response drawn on the meter, %d bars wide, as a"
-                   % UI_WAVE_N)
-        out.append(" * SIGNED offset from the centre line in pixels: boost above, cut")
-        out.append(" * below, clamped to +/-%g dB over +/-%d px." % (CURVE_DB, UI_WAVE_H // 2 - 1))
-        out.append(" *")
-        out.append(" * Generated from the same quantised coefficients the RTL filters")
-        out.append(" * with, so what is on screen is the filter's real response and")
-        out.append(" * cannot drift from it. Deliberately WITHOUT the preamp: that is a")
-        out.append(" * level adjustment, and the tonal shape is what is being shown.")
-        out.append(" */")
-        out.append("#define EQ_CURVE_N %d" % UI_WAVE_N)
-        out.append("#define EQ_COUNT   %d" % len(PRESETS))
-        out.append("")
-        out.append("/* The response curves are kept but NOT compiled: showing them over")
-        out.append(" * the meter was tried and the user did not want the meter taken")
-        out.append(" * over. The mode row names the preset instead. Set EQ_SHOW_CURVE to")
-        out.append(" * 1 to bring the table back rather than re-deriving it. */")
-        out.append("#ifndef EQ_SHOW_CURVE")
-        out.append("#define EQ_SHOW_CURVE 0")
-        out.append("#endif")
-        out.append("#if EQ_SHOW_CURVE")
-        out.append("static const signed char eq_curve[EQ_COUNT][EQ_CURVE_N] = {")
-        for name, qcoefs, _pq, _pdb in table:
-            vals = curve_bars(qcoefs)
-            out.append("    { " + ",".join("%3d" % v for v in vals)
-                       + " },   /* %s */" % name)
-        out.append("};")
-        out.append("#endif")
-        out.append("")
-        out.append("static const char *const eq_name[EQ_COUNT] = {")
-        out.append("    " + ", ".join('"%s"' % n for n, _ in PRESETS))
-        out.append("};")
-        path = os.path.normpath(os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "fw", "eq_curve.h"))
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(out) + "\n")
-        print("wrote %s" % path)
 
     print()
     if errors:

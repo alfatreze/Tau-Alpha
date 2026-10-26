@@ -30,10 +30,19 @@
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
+// I2S audio MCLK = 12.288 MHz (B-457/B-460/B-462, Cymo investigation). Used to be a phase-accumulator
+//            inside sound_i2s.v dividing clk_74a directly -- a real, hardware-only jitter source on
+//            every downstream SCLK/LRCK edge, invisible to RTL simulation. A first attempt added it as
+//            a 5th output on the shared PLL below (mp1) and failed to synthesize: 12.288 MHz has no
+//            common VCO with the 12 MHz video clock and 100 MHz SDRAM clock at any legal Cyclone V fPLL
+//            frequency (LCM 38.4 GHz -- see mf_pllbase_mclk.v). It has its own dedicated PLL instead.
 wire clk_sys;
 wire clk_vid;
 wire clk_vid_90;
 wire clk_sdram;
+wire clk_audio_mclk;
+wire pll_locked_main;
+wire pll_locked_mclk;
 wire pll_locked;
 wire pll_locked_s;
 
@@ -44,8 +53,17 @@ mf_pllbase mp1 (
     .outclk_1 (clk_vid),
     .outclk_2 (clk_vid_90),
     .outclk_3 (clk_sdram),
-    .locked   (pll_locked)
+    .locked   (pll_locked_main)
 );
+
+mf_pllbase_mclk mp2 (
+    .refclk   (clk_74a),
+    .rst      (1'b0),
+    .outclk_0 (clk_audio_mclk),
+    .locked   (pll_locked_mclk)
+);
+
+assign pll_locked = pll_locked_main & pll_locked_mclk;
 
 synch_3 s_pll (pll_locked, pll_locked_s, clk_74a);
 
@@ -121,6 +139,7 @@ wire [8:0]  soc_fb_cmd_w, soc_fb_cmd_h;
 wire [15:0] soc_fb_cmd_fg, soc_fb_cmd_bg;
 wire [6:0]  soc_fb_cmd_glyph;
 wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
+wire [1:0]  soc_fb_cmd_glyph_hi;   // B12 (B-454): BAR's lit-row count, high 2 bits
 wire        soc_fb_cmd_full;
 wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
 // Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
@@ -202,10 +221,24 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_SDR_BUSY_EN 0
 `endif
 
+// B-467 (Cymo 44.1 kHz investigation): the I2S clk_audio->clk_mclk CDC jitter probe (sound_i2s.v).
+// Independent of every other macro here -- it only observes sound_i2s's own datapath.
+`ifdef TAU_I2S_DIAG
+`define TAU_I2S_DIAG_EN 1
+`else
+`define TAU_I2S_DIAG_EN 0
+`endif
+
 `ifdef TAU_SPEC
 `define TAU_SPEC_EN 1
 `else
 `define TAU_SPEC_EN 0
+`endif
+
+`ifdef TAU_STATS
+`define TAU_STATS_EN 1
+`else
+`define TAU_STATS_EN 0
 `endif
 
 `ifdef TAU_WAVE
@@ -226,6 +259,56 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_LPC_EN 1
 `else
 `define TAU_LPC_EN 0
+`endif
+
+// Cymo polyphase FIR resampler (B-471, docs/features/CYMO_AUDIO_ENGINE.md section 15). Independent of
+// every macro above -- a new standalone unit, not yet consumed by pcm_fifo.v/firmware.
+`ifdef TAU_CYMO_RESAMP
+`define TAU_CYMO_RESAMP_EN 1
+`else
+`define TAU_CYMO_RESAMP_EN 0
+`endif
+
+// B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output. Independent of every macro above.
+// B-741: the hardware PCM ring reader (gapless). It is a third client of the PSRAM port, so it needs the instruction-fetch arbiter.
+`ifdef TAU_PCM_RING
+`ifndef TAU_PSRAM_IFETCH
+`error "TAU_PCM_RING requires TAU_PSRAM_IFETCH"
+`endif
+`define TAU_PCM_RING_EN 1
+`else
+`define TAU_PCM_RING_EN 0
+`endif
+`ifdef TAU_GAIN_BOOST
+`define TAU_GAIN_BOOST_EN 1
+`else
+`define TAU_GAIN_BOOST_EN 0
+`endif
+`ifdef TAU_GAIN
+`define TAU_GAIN_EN 1
+`else
+`define TAU_GAIN_EN 0
+`endif
+
+// B-646: wide EQ input (18-bit resampler output into the Halcyon engine). Independent of every macro above; only meaningful with TAU_CYMO_RESAMP and TAU_HALCYON.
+`ifdef TAU_WIDE_EQ
+`define TAU_WIDE_EQ_EN 1
+`else
+`define TAU_WIDE_EQ_EN 0
+`endif
+
+// B-639: the Halcyon EQ engine (tau_halcyon.sv), the only EQ. Independent of every macro above.
+`ifdef TAU_HALCYON
+`define TAU_HALCYON_EN 1
+`else
+`define TAU_HALCYON_EN 0
+`endif
+
+// B-602 (Cymo C3, F2): runtime-switchable 16-bit I2S slot. Independent of every macro above.
+`ifdef TAU_AUDIO16
+`define TAU_AUDIO16_EN 1
+`else
+`define TAU_AUDIO16_EN 0
 `endif
 
 `ifdef TAU_VBLANK
@@ -274,6 +357,15 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_SCAN_A_EN 0
 `endif
+// Writable Latin-1 font memory (docs/features/FONT_SPEC.md): the engine's glyph RAM, loaded by the CPU through mp3_soc.v's FONT_* registers.
+`ifdef TAU_FONT_RAM
+`define TAU_FONT_RAM_EN 1
+`else
+`define TAU_FONT_RAM_EN 0
+`endif
+wire        soc_font_we;
+wire [12:0] soc_font_waddr;
+wire [31:0] soc_font_wdata;
 wire soc_dbuf_cpu_buf, fb_dbuf_cpu_buf, soc_dbuf_flip_req_tgl, soc_dbuf_disp_buf, soc_dbuf_flip_pending;   // Helios H2 (B-340)
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
@@ -294,6 +386,12 @@ wire [31:0] soc_xm_rdata;
 // it. Counts in clk_sdram, a domain the MMIO decoder never sees directly, so it crosses via
 // tau_cdc_gray_ctr (Gray-coded, matching mp3_fb.sv's own FIFO-pointer CDC) into clk_sys.
 wire [31:0] soc_sdram_busy_rd;
+// B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, declared here per
+// this file's own convention of declaring soc_* wires before their mp3_soc use (sound_i2s itself is
+// instantiated later, in section 7). Synchronised into clk_sys and turned into a jitter measurement
+// entirely inside mp3_soc.v -- a single bit needs no CDC handling here.
+wire soc_i2s_diag_toggle;
+wire soc_audio_full16;   // B-602: mp3_soc register -> sound_i2s full16
 `ifdef TAU_SDRAM_BUSY
 tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
     .clk_src(clk_sdram), .rst_src(~pll_locked), .inc(~arb_p0_available),
@@ -332,9 +430,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -365,6 +463,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
 
     .audio_l (soc_audio_l),
     .audio_r (soc_audio_r),
+    .audio_full16 (soc_audio_full16),
 
     .status0 (soc_status0),
     .status1 (soc_status1),
@@ -395,6 +494,10 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .fb_cmd_glyph (soc_fb_cmd_glyph),
     .fb_cmd_sx    (soc_fb_cmd_sx),
     .fb_cmd_sy    (soc_fb_cmd_sy),
+    .fb_cmd_glyph_hi (soc_fb_cmd_glyph_hi),
+    .fb_font_we   (soc_font_we),
+    .fb_font_waddr(soc_font_waddr),
+    .fb_font_wdata(soc_font_wdata),
     .fb_cmd_full  (soc_fb_cmd_full),
 
     .dt_addr  (soc_dt_addr),
@@ -449,6 +552,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .psram_guard (soc_psram_guard),
 
     .sdram_busy_rd (soc_sdram_busy_rd),
+    .i2s_diag_toggle (soc_i2s_diag_toggle),
     .vblank_rd     (soc_vblank_rd),
     .scan_rd       (soc_scan_rd),
 
@@ -817,7 +921,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
 tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .VID720(`TAU_VID720_EN), .GB_WIDE(`TAU_SCAN_A_EN)) u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .VID720(`TAU_VID720_EN), .GB_WIDE(`TAU_SCAN_A_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),
@@ -833,6 +937,10 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .VI
     .cmd_glyph (soc_fb_cmd_glyph),
     .cmd_sx    (soc_fb_cmd_sx),
     .cmd_sy    (soc_fb_cmd_sy),
+    .cmd_glyph_hi (soc_fb_cmd_glyph_hi),
+    .font_we      (soc_font_we),
+    .font_waddr   (soc_font_waddr),
+    .font_wdata   (soc_font_wdata),
     .cmd_full  (soc_fb_cmd_full),
     .text_light(fb_text_light),
 
@@ -895,9 +1003,10 @@ assign video_hs           = vid_hs_w;
 // no box-filter decimation is needed here (unlike an arcade core sampling a
 // continuously-running sound chip). SIGNED_INPUT(1) -- PCM is two's complement.
 sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
-    .clk_74a (clk_74a), .clk_audio (clk_sys),
-    .audio_l (soc_audio_l), .audio_r (soc_audio_r),
-    .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck)
+    .clk_mclk (clk_audio_mclk), .clk_audio (clk_sys),
+    .audio_l (soc_audio_l), .audio_r (soc_audio_r), .full16 (soc_audio_full16),
+    .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck),
+    .diag_toggle (soc_i2s_diag_toggle)
 );
 
 // -- 8. Persistent settings, via interact.json -----------------------------------

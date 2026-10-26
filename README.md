@@ -1,15 +1,32 @@
+
 # TAUᵅ — Analogue Pocket Music Player
 
 A music player for the Analogue Pocket. It plays MP3 and FLAC straight off the SD card, with a browsable
 library, album art, tags, themes, an equalizer and a set of live meters.
 
 Decoding runs in software on a RISC-V CPU built into the Pocket's FPGA. Since v0.5.0 the largest single cost
-of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and the screen is drawn by a small
-2D drawing engine ("Talos") rather than pixel by pixel from the CPU.
+of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and since v0.6.0 the same is true
+for FLAC's LPC/FIXED reconstruction; the screen is drawn by a small 2D drawing engine ("Talos") rather than
+pixel by pixel from the CPU.
 
-Current version **v0.5.0** (27 September 2026). See [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.6.1** (21 October 2026). See [CHANGELOG.md](CHANGELOG.md).
 
-<img src="docs/screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
+<img width="400" height="360" alt="20261017_125518" src="https://github.com/user-attachments/assets/a31940d5-2a70-4af5-9c25-884f2e197ff2" />
+<img width="400" height="360" alt="20261017_125559" src="https://github.com/user-attachments/assets/38fba9de-5f2e-4739-947a-53c656a5609f" />
+<img width="400" height="360" alt="20261017_125641" src="https://github.com/user-attachments/assets/5e8ca0a3-55b1-47b3-9055-8e440df7b410" />
+
+
+## Companion app
+
+**[Tau Omega](../Tau%20Omega/)** is th desktop companion (macOS and Windows) for building and syncing the
+Tau media library onto the Pocket's SD card and for managing Tau (and other openFPGA) cores and their media.
+It is a separate project and repository, built as the product version of `tools/tau_library.py` and
+`tools/sync_media.py`.
+
+> [!IMPORTANT]
+> Tau Omega is **REQUIRED** to be able to sync media so it builds the required library.
+
+
 
 ## What Tau does
 
@@ -18,20 +35,25 @@ Current version **v0.5.0** (27 September 2026). See [CHANGELOG.md](CHANGELOG.md)
 - **Media library.** Artists, Albums, Tracks and Shuffle All, built on the card by a sync tool, plus your own
   `.m3u` playlists imported as Lists. The library is required: it is the only way to play more than one file.
 - **Themes.** Two built-in themes (TAU and OCEAN), each in Dark and Light, a 19-colour accent palette, and
-  optional extra themes from a `tau-assets.bin` file.
+  optional extra themes from a `tau-assets.bin` file. Theme and Dark/Light mode are remembered across a
+  restart.
 - **Eleven meters.** Winamp Scope, Winamp Bars (with a Configure page: presets, band count, easing, peak
   caps), a Chladni-pattern meter (with a fullscreen view), Bars, Waterfall, Phase Scope, Oscilloscope, VU,
   Waveform, Peak Dots and a 16-band Spectrum. Level and spectrum measurement run in hardware.
 - **Fast covers.** A pre-scaled cover file shows an album's art in about 90 ms instead of decoding the
   embedded JPEG (2.6 to 15.8 s).
-- **Hardware MP3 window unit.** Bit-exact with the software decoder, with automatic fallback to it. More CPU
-  headroom, so playback stays clean at speeds that used to stutter.
-- **Equalizer.** Eight loudness-matched presets, built as hardware (five biquads per channel).
-- **Playback speed** 0.85x to 1.20x in the normal build (more in the Diagnostic Build), for spoken word.
+- **Hardware decode assist.** MP3's synthesis filterbank and FLAC's LPC/FIXED reconstruction both run in the
+  FPGA, bit-exact with the software decoder and with automatic fallback to it. More CPU headroom, so
+  playback stays clean at speeds that used to stutter.
+- **Halcyon EQ.** Eight presets and six sliders (warmth, bass, vocal, punch, sibilance, air) with a live response curve, built as hardware (17 biquad stages per channel, 24-bit coefficients, auto preamp) and loudness-matched.
+- **Playback speed** 0.85x to 2.00x for MP3 (FLAC plays at 1.00x), for spoken word; the pitch rises with the speed.
 - **Diagnostics.** An Info page in every build, and a separate Diagnostic Build with one-button Check
   profiles, a Meter Sweep and QR-code reports that can be decoded from a screenshot.
 
 <br clear="right">
+<img width="400" height="360" alt="20261017_125651" src="https://github.com/user-attachments/assets/a678281c-0b25-4f6f-bee8-0efecf7f0331" />
+<img width="400" height="360" alt="20261017_125703" src="https://github.com/user-attachments/assets/f5c1e955-bd98-4bee-9b51-1b996dda2a5a" />
+
 
 ## Performance at a glance
 
@@ -50,6 +72,7 @@ sources and the honest limits, is [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 | New Winamp meters vs the classic bars | Draw cost, measured | Estimated 16-32 commands/frame; **measured (Meter Sweep): TBD** | **TBD** |
 | Battery life with the new visuals | Whether fancy meters drain faster | **TBD** | **TBD** |
 | Menu and library responsiveness | Snappiness after code moved to PSRAM | **TBD** | **TBD** |
+
 
 ## Install
 
@@ -79,20 +102,14 @@ Full controls, playlists, settings and known limits: [docs/guide/USER_GUIDE.md](
 | [How it works](docs/HOW_IT_WORKS.md) | The interesting parts of the build, told as a story |
 | [Documentation map](docs/README.md) | Index of every document in `docs/` (specs, plans, handoffs, test scripts, issues) |
 
-## Companion app
-
-**[Tau Omega](../Tau%20Omega/)** is the desktop companion (macOS and Windows) for building and syncing the
-Tau media library onto the Pocket's SD card and for managing Tau (and other openFPGA) cores and their media.
-It is a separate project and repository, built as the product version of `tools/tau_library.py` and
-`tools/sync_media.py`.
-
 ## Provenance
 
-Tau is a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 by
-HarpMudd. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
-release history in [CHANGELOG.md](CHANGELOG.md). Tau's new identity, packaging, artwork pipeline, technical
-plans, and subsequent changes are maintained by alfatreze. See [NOTICE.md](NOTICE.md) for provenance and
-third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
+Tau was originally a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 with minor lets by
+HarpMudd. 
+Through the course of developmetn most of Harpmudd's code has been replaced, with around 18% used. 
+Release history in [CHANGELOG.md](CHANGELOG.md). 
+
+See [NOTICE.md](NOTICE.md) for provenance and third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
 [PROJECT.md](PROJECT.md) for the current milestone ledger and plan.
 
 ## License
@@ -103,11 +120,8 @@ none of it: [Helix](third_party/libhelix-mp3/docs/RPSL.txt) is RPSL 1.0 and [Int
 is SIL OFL 1.1. Details, and the rule that GPL RTL may be studied but never copied in, are in
 [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md).
 
-## Upstream support
+## Donations
+Use and abuse Tau, if you want to contribute I'd mostly love to get detailed reports on issues, improvement suggestions and feature ideas.
+If you don't want to be bothered but still wan't to show your appreciation, then hit buy me a coffee to fuel my caffeine addition for all the late nights around this project.
 
-Tau preserves HarpMudd's original support link as an acknowledgement of the
-project it builds on:
-
-💛 **[Support HarpMudd via PayPal](https://www.paypal.com/donate/?hosted_button_id=S22WV924XU2ME)**
 ☕️ **[Buy Alfatreze a Coffee or help out with my redbulls, Claude and Codex Subs 😇](https://buymeacoffee.com/alfatreze)**
-Tau does not currently configure a project funding link.

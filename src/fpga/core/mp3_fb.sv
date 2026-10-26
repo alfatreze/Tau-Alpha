@@ -108,6 +108,12 @@ module mp3_fb #(
     // silently does nothing, not just that an RRECT with a real table still draws a fill. Never
     // set outside that test.
     parameter BUG_IGNORE_RC_CUT = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_BAR_HI=1, make test-rtl-fb-mutation): 1 forces
+    // pre_bar_lit_raw's high 2 bits (cmd_glyph_hi) to always read 0, degenerating BAR's lit-row
+    // count back to its old 7-bit-only behaviour -- proves the test actually exercises a lit count
+    // above 127, not just that BAR with a small lit count still draws correctly. Never set outside
+    // that test.
+    parameter BUG_IGNORE_BAR_HI = 0,
     // Helios H2 (docs/HELIOS_SPEC.md section 5, B-340): double buffering via base-pointer swap.
     // Inert (dbuf_addr() is a no-op, byte-identical to today) when 0.
     parameter DBUF_ENABLE = 0,
@@ -125,7 +131,14 @@ module mp3_fb #(
     parameter GB_WIDE = 0,
     // Mutation hook (GB_WIDE=1 only): row end compared on 7 bits, as if the buffer were still
     // 128 words -- a 200-word row must then FAIL the wide COPY/BLIT test.
-    parameter BUG_GB_NARROW = 0
+    parameter BUG_GB_NARROW = 0,
+    // Writable font memory (docs/features/FONT_SPEC.md, TAU_FONT_RAM): the glyph atlas is a RAM the CPU
+    // loads (Latin-1, 6,112 words, 13-bit address) instead of the 3,040-word ASCII ROM. Inert (the old ROM,
+    // byte-identical behaviour) when 0. FONT_BUG_* are mutation hooks for sim/tb_font_ram.v.
+    parameter FONT_RAM_ENABLE = 0,
+    parameter BUG_FONT_NO_HI = 0,        // 1: glyph bit 7 (cmd_glyph_hi[0]) ignored -> 0x80.. codes read the ASCII range
+    parameter BUG_FONT_RANGE = 0,        // 1: the 0xA0.. range starts one glyph too high
+    parameter BUG_FONT_NO_WRITE = 0      // 1: the CPU write port is ignored
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -140,9 +153,23 @@ module mp3_fb #(
     input  wire [8:0]  cmd_h,       // RECT: height (rows)
     input  wire [15:0] cmd_fg,      // RGB565 fill / glyph foreground
     input  wire [15:0] cmd_bg,      // RGB565 glyph background
-    input  wire [6:0]  cmd_glyph,   // CHAR: ASCII code
+    input  wire [6:0]  cmd_glyph,   // CHAR: ASCII code; BAR: lit-row count, LOW 7 bits (see cmd_glyph_hi)
     input  wire [1:0]  cmd_sx,      // CHAR: h scale 0=1x 1=1.5x 2=2x 3=3x
     input  wire [1:0]  cmd_sy,      // CHAR: v scale, same encoding
+    // B12 (docs/AUDIT_TRAIL.md B-454): BAR's lit-row count widened 7->9 bits (max 127 -> 511), enough
+    // for the tallest fullscreen bar (FS_FIG_H=323). A NEW, separate field rather than widening
+    // cmd_glyph itself -- CHAR (ASCII, 7 bits is exactly right) and OP_RRECT (radius, clamped to 15)
+    // both keep reading cmd_glyph's original 7-bit [14:8] slice completely unchanged; only BAR's own
+    // lit-count math additionally consults this. Claims 2 of the FIFO word's 4 remaining padding bits
+    // (CW stays 88) and 2 of R_FB_GO's genuinely-unused bits (15:16) at the mp3_soc.v boundary -- see
+    // that file's own comment. On any bitstream without this port at all (old RTL), the write simply
+    // has nowhere to land; BAR_WIDE_READY() (fw/blit_probe.inc) is the runtime test that tells firmware
+    // which behaviour it is actually talking to, so old and new bitstreams both behave safely.
+    input  wire [1:0]  cmd_glyph_hi,
+    // Writable font memory, clk_sys domain (mp3_soc.v registers FONT_IDX/FONT_DATA); ignored when FONT_RAM_ENABLE = 0.
+    input  wire        font_we,
+    input  wire [12:0] font_waddr,
+    input  wire [31:0] font_wdata,
     output wire        cmd_full,
     // Theme step 0b/gamma (docs/THEME_SPEC.md, tools/gen_text_gamma.py): 0 = the text weight table
     // fitted for light text on a dark ramp (cov_weight), 1 = the table fitted for dark text on a
@@ -472,9 +499,12 @@ module mp3_fb #(
             // B11: cmd_op widened 3->4 bits, taking one of the FIFO word's own 5 padding bits
             // (now 4) -- every other field shifts down by exactly 1 bit, purely mechanical, no
             // width changes to any of them.
+            // B12 (B-454): cmd_glyph_hi (2 bits) claims 2 of those 4 remaining padding bits (now 2)
+            // -- every field before it (op/addr/fg/bg/w/h/glyph/sx/sy) keeps its EXACT existing bit
+            // position; only the tail padding shrinks 4->2 to make room.
             cmd_mem[wr_ptr[FAW-1:0]] <= {cmd_op, cmd_addr, cmd_fg, cmd_bg,
                                          cmd_w, cmd_h, cmd_glyph,
-                                         cmd_sx, cmd_sy, 4'd0};
+                                         cmd_sx, cmd_sy, cmd_glyph_hi, 2'd0};
             wr_ptr   <= wr_ptr + 1'b1;
             wr_ptr_g <= b2g(wr_ptr + 1'b1);
         end
@@ -510,7 +540,10 @@ module mp3_fb #(
     // compare/subtract chain. Same function of the same source data, so BAR
     // command behaviour is bit-for-bit unchanged -- only the pipeline stage
     // the arithmetic sits in moved.
-    wire [8:0] pre_bar_lit_raw = {2'd0, cmd_mem_rd[14:8]};   // cmd_glyph field
+    // B12 (B-454): the 2 new high bits (cmd_glyph_hi, packed at cmd_mem_rd[3:2]) concatenated with
+    // cmd_glyph's original 7 low bits ([14:8]) -- BAR-only; CHAR's pre_glyph and RRECT's pre_rrect_r
+    // below still read [14:8] alone, unaffected, since 7 bits is exactly right for both of them.
+    wire [8:0] pre_bar_lit_raw = {BUG_IGNORE_BAR_HI ? 2'd0 : cmd_mem_rd[3:2], cmd_mem_rd[14:8]};   // cmd_glyph_hi : cmd_glyph
     wire [8:0] pre_bar_h       = cmd_mem_rd[23:15];          // cmd_h field
     wire [8:0] pre_bar_lit     = (pre_bar_lit_raw > pre_bar_h) ? pre_bar_h : pre_bar_lit_raw;
     reg  [8:0] q_bar_lit, q_bar_unlit;
@@ -541,11 +574,25 @@ module mp3_fb #(
     // cmd_q/q_glyph, chained into char_base in the dispatch cycle. Computed off
     // cmd_mem_rd on cmd_q's own clock edge instead.
     wire [6:0] pre_glyph = cmd_mem_rd[14:8];
-    reg [11:0] q_char_base;
-    always @(posedge clk_sdram)
-        q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
-                     ? {1'b0, (pre_glyph - 7'h20), 5'd0}
-                     : 12'd0;
+    reg [12:0] q_char_base;
+    generate if (FONT_RAM_ENABLE != 0) begin : g_char_base
+        // Latin-1: the glyph code is 8 bits, bit 7 is cmd_glyph_hi[0] (R_FB_GO bit 15, packed at cmd_mem_rd[2]).
+        // Atlas order: 0x20..0x7E are glyphs 0..94, 0xA0..0xFF are glyphs 95..190 (0x7F..0x9F: the blank glyph 0).
+        // A glyph below 0x80 is sent exactly as before, so the old firmware's CHAR commands (bit 15 = 0) are unchanged.
+        wire        hi    = (BUG_FONT_NO_HI != 0) ? 1'b0 : cmd_mem_rd[2];
+        wire [7:0]  g8    = {hi, pre_glyph};
+        wire [7:0]  gidx_lo = g8 - 8'h20;                                  // 0..94 for 0x20..0x7E
+        wire [7:0]  gidx_hi = g8 - 8'hA0 + 8'd95 + ((BUG_FONT_RANGE != 0) ? 8'd1 : 8'd0);   // 95..190 for 0xA0..0xFF
+        always @(posedge clk_sdram)
+            q_char_base <= ((g8 >= 8'h20) && (g8 <= 8'h7E)) ? {gidx_lo, 5'd0}
+                         : (g8 >= 8'hA0)                    ? {gidx_hi, 5'd0}
+                         : 13'd0;
+    end else begin : g_char_base_rom
+        always @(posedge clk_sdram)
+            q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
+                         ? {2'b00, (pre_glyph - 7'h20), 5'd0}
+                         : 13'd0;
+    end endgenerate
 
     // B11: radius from cmd_glyph (the same field BAR reuses for its own lit-row count), clamped
     // to 15 -- the 16-entry cut(dy) LUT's own range, comfortably above every radius this project's
@@ -610,9 +657,14 @@ module mp3_fb #(
     assign wsrc_q = glyph_q;
 
     // ---- Font ROM (generated; see tools/gen_font_rom.py) -------------------
-    reg  [11:0] font_addr;
+    reg  [12:0] font_addr;
     wire [31:0] font_q;
-    font_rom u_font (.clk(clk_sdram), .addr(font_addr), .q(font_q));
+    generate if (FONT_RAM_ENABLE != 0) begin : g_font_ram
+        font_ram u_font (.clk_r(clk_sdram), .raddr(font_addr), .q(font_q),
+                         .clk_w(clk_sys), .we(font_we && (BUG_FONT_NO_WRITE == 0)), .waddr(font_waddr), .wdata(font_wdata));
+    end else begin : g_font_rom
+        font_rom u_font (.clk(clk_sdram), .addr(font_addr[11:0]), .q(font_q));
+    end endgenerate
 
     // ---- Phase F B8: 256-entry CLUT (one M10K, per PHASE_F_SPEC.md's budget) --
     // Independent write (clk_sys) / read (clk_sdram) ports -- a standard
@@ -725,7 +777,7 @@ module mp3_fb #(
     reg [2:0]  char_numy, char_deny;    // Y: same, latched at command pop
     reg [1:0]  rowf_cnt;                // row-fetch sequencer
     reg [31:0] rowlo, rowhi;            // one source row, 16 px x 4bpp
-    reg [11:0] char_base;               // (glyph - 0x20) * 32
+    reg [12:0] char_base;               // glyph index * 32 (ASCII: (glyph - 0x20) * 32)
 
     // Which unit of work the in-flight burst belongs to
     reg        wr_is_char;
@@ -1781,6 +1833,52 @@ module mp3_fb #(
         .source_clk (clk_sdram),
         .probe       ({bar2_pending, rect_active, copy_mode, sblit_mode, cblit_mode, blit_mode,
                         fifo_fill, astate}),
+        .source      ()
+    );
+
+    // B-435: a second instance for the B5 blend pipeline itself (bl_fg/bl_bg/bl_r, docs/AUDIT_TRAIL.md
+    // B-327), built after B-433/B-434's firmware-only diagnostics both came back clean (the gradient
+    // strip's SDRAM content is provably correct, and the sticky SRC_BASE/DST_BASE fields read zero at
+    // the exact moment of each attempted blend) -- ruling out every explanation reachable from the CPU
+    // side and leaving the blend datapath itself as the one thing left to look at. Unlike BLIT's own
+    // dispatch-state probe (useful for a genuine hang, a state that stops changing), the blend pipeline
+    // updates every cycle mid-burst -- but bl_fg/bl_bg/bl_r/bl_v0/bl_v1/bl_i1 are plain registers that
+    // simply hold their last-written value once a burst ends (nothing resets them between commands),
+    // so a read taken during the idle gap between two Winamp Scope frames (tens of ms, far longer than
+    // one JTAG poll) reliably shows the LAST pixel's blend inputs and output -- enough to hand-check
+    // bl_r against blend_px(bl_bg, bl_fg, mode, alpha) computed the same way the RTL does, and to see
+    // whether bl_bg (the pre-read destination pixel) looks like plausible on-screen content at all.
+    //
+    // Probe bits (70, LSB first): bl_fg[15:0] (source/strip pixel just read), bl_bg[15:0] (pre-read
+    // destination pixel from A_KEYDST, B2/B5's shared mechanism), bl_r[15:0] (the computed blend
+    // result, about to be written into glyphbuf), bl_i1[6:0] (the glyphbuf column this result writes
+    // to -- confirms which pixel of the row these values belong to), blend_active (whether the sticky
+    // BLEND field is actually on right now), key_dst_done, bl_v0, bl_v1 (pipeline stage valids -- both
+    // should read 0 between frames if reading during genuine idle, confirming this isn't a mid-burst
+    // tear of the snapshot).
+    //
+    // B-440 (widened): + blt_blend_alpha[7:0], blt_blend_mode[2:0] -- the two module INPUT ports
+    // blend_px() itself is actually called with. Built after firmware's own shadow (dbg_blend_alpha,
+    // fw/blit_probe.inc) proved correct: the owner read exact matches for (100-trail)*256/100 at three
+    // different trail settings (153/243/51 for 40/5/80%), live, in both the normal and the actively-
+    // accumulating state -- meaning firmware writes the right alpha to R_BLT_DATA every single frame,
+    // yet the trail still never visibly fades regardless of which alpha was requested. The remaining
+    // explanation this rules everything else out in favour of: the sticky field's OWN hardware storage
+    // (whatever register `blt_blend_alpha` actually is, upstream of this module in mp3_soc.v) isn't
+    // correctly latching what gets written to it, so `blend_px()` computes correctly from an alpha that
+    // was never what firmware intended in the first place. Comparing THIS probe's `blt_blend_alpha`
+    // against what firmware's own shadow reports for the same moment is the direct test.
+    altsource_probe #(
+        .sld_auto_instance_index("YES"),
+        .sld_instance_index(1),
+        .instance_id("BLND"),
+        .probe_width(70),
+        .source_width(1),
+        .source_initial_value("0"),
+        .enable_metastability("NO")
+    ) u_issp_blend (
+        .source_clk (clk_sdram),
+        .probe       ({blt_blend_mode, blt_blend_alpha, bl_v1, bl_v0, key_dst_done, blend_active, bl_i1, bl_r, bl_bg, bl_fg}),
         .source      ()
     );
 `endif

@@ -91,16 +91,15 @@ section 9).
   selected list rows behind a `RRECT_READY()` probe (`docs/TECHNICAL_SPEC.md` section 3).
 - B9 (palette re-index): built, RTL/sim-verified (B-179), and free to bundle into a fit alongside B8.
 
-**Alpha blend (B5) — shelved for a long time, now fixed in a fit, but not shipped.** `TAU_BLIT_BLEND` failed
-timing repeatedly across most of the blit engine's build history (worst setup -2.5 to -2.9 ns, traced to a
-single-cycle read-modify-write through the glyph write network and an unregistered DSP path,
+**Alpha blend (B5) — shelved for a long time, fixed in a fit, and shipped in v0.6.0-alpha.1.** `TAU_BLIT_BLEND`
+failed timing repeatedly across most of the blit engine's build history (worst setup -2.5 to -2.9 ns, traced
+to a single-cycle read-modify-write through the glyph write network and an unregistered DSP path,
 `docs/ALPHA_BLEND_ANALYSIS.md`). It was rebuilt as a three-stage pipeline (capture, blend, write) in B-326/
 B-327, and the `blend-pipe-b327` fit **closed timing on 2026-09-27** (seed 1 all corners positive, setup min
-+0.755 ns; RAM 304/308; DSP 17/66 — the first blend fit in the whole series with no violation). **State it
-precisely: it is not in any shipped bitstream, and the firmware does not use it yet.** A scope-trail blend
-helper (`fw/blit_probe.inc`'s `BLEND_READY()` probe, `ui_bg_blend()`) has been written against it but has
-never run on hardware, because the blend bitstream itself isn't packaged or installed. Firmware use is
-recorded as a 0.6-release item (`docs/ROADMAP.md`).
++0.755 ns). Combined with the RAM-shrink/clk66/OP_BAR-widen bundle that v0.6.0-alpha.1 ships (`bar-hi-b454`,
+B-458), M10K usage is 240/308 (down from 304/308, mainly from the `glyphbuf` single-write-port fix, T2-00).
+**It is in the shipped bitstream and the firmware uses it**, for the Settings menu cross-fade (`ui_bg_blend()`
+behind `BLEND_READY()`, B-405, hardware bugs found and fixed through B-450).
 
 ## Known limits and lessons
 
@@ -127,6 +126,22 @@ the entry that found it:
 - **A `Track changes` Check failure is pre-existing and unrelated to Talos itself** — it has shown up in
   every Check run since the blit engine was integrated and remains unexplained (`docs/ROADMAP.md`, `docs/
   CURRENT_STATUS.md`).
+- **Sticky fields (`R_BLT_IDX`/`DATA`'s SRC_BASE/DST_BASE/BLEND/etc., and `R_DBUF_CPU`) are consulted when a
+  command EXECUTES, not when it is queued — and `fb_wait()` only checks "FIFO not full," never "has actually
+  executed."** This exact firmware-discipline mistake has caused THREE separate real bugs, each rediscovered
+  from scratch rather than checked against a written rule: B-349 (the corner-cut LUT reload racing a
+  still-queued `OP_RRECT` at a different radius — `fb_round_rect_on()` fixed by moving `fb_wait()` before
+  the LUT rewrite), and B-410 (`set_xfade_render()`, Settings' hardware crossfade, restored `R_DBUF_CPU` to
+  the displayed buffer immediately after `set_draw_now()` *returned* — which only means the commands were
+  *queued*, not executed — so any command still in flight drew into the live, currently-displayed buffer
+  instead of the intended scratch one, visible as real screen corruption on hardware). **The rule, stated
+  once so it stops being tribal knowledge:** anywhere a sticky field is changed temporarily (for scratch
+  rendering, a table reload, or any other "restore it afterward" pattern), call `fb_fence()` — not
+  `fb_wait()` — after the last queued command and before restoring the field, and make sure `ov_draw` is set
+  around that fence (it is itself gated by `FB_HELD()`, like every draw primitive, so it silently no-ops and
+  waits for nothing if called while an overlay merely *thinks* it holds the screen but hasn't set `ov_draw`).
+  `set_xfade_step_draw()` (the same file, a few lines away from B-410's bug) already gets this right — the
+  precedent existed right next to the bug, just not as a written rule anyone could check new code against.
 
 ## Roadmap / possible improvements
 

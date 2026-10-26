@@ -95,7 +95,7 @@ SCANOUT FILL (unchanged, highest priority) -----------------------^
   builds `FB_DRAW_BASE`/`FB_DISP_BASE` should add a mutation test proving it also covers the BLIT-class
   sticky `DST_BASE` addressing path, not just the RECT-class `cmd_addr` path that already had H2
   coverage via the old 1-bit `R_DBUF_CPU` selector -- that distinction is the actual gap, not a detail.
-  **Resolved on `test/720` (B-413):** the rule is `fb_reloc(a) = (a < VIS_WORDS) ? a + draw_base : a` at every
+  **Resolved on `test/720` (B-847):** the rule is `fb_reloc(a) = (a < VIS_WORDS) ? a + draw_base : a` at every
   SDRAM issue site for every opcode (source, destination and key/blend pre-read); only the visible window
   moves, so stash rows stay shared. Full contract and mutation list: `VIDEO_720_PHASED_SPEC.md` section 2.2.
 - Handles the in-queue control opcodes (5.4) itself; they never reach the back end except the fence.

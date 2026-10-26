@@ -73,6 +73,8 @@ typedef struct {
      * year and track are fixed 8-byte fields, matching the ID3 path. */
     char         *tag_title, *tag_artist, *tag_album, *tag_year, *tag_trk;
     uint32_t      tag_cap;
+    char          rg_txt[4][16];  /* raw values of REPLAYGAIN_TRACK_GAIN [0] / ALBUM_GAIN [1] / TRACK_PEAK [2] / ALBUM_PEAK [3] (B-720) from the Vorbis comments, NUL-terminated; parsed in cold code (B-599) */
+    uint8_t       rg_have;        /* bit 0..3: that entry was present (flac_open zeroes it) */
 
     /* ---- from STREAMINFO ---- */
     uint32_t      rate;
@@ -128,7 +130,7 @@ extern uint8_t  flac_order, flac_type;   /* type: 1 FIXED, 2 LPC    */
 extern uint32_t flac_unary_calls;
 extern uint32_t flac_unary_calls_total;
 
-/* B-088/B-089: a SECOND, independent pair for the Check/QR record -- same
+/* B-088/B-089: a SECOND, independent pair for the Check report record -- same
  * call sites as the pair above, reset once when a Check audio window starts,
  * read once when it ends, so the screen row's per-second reset never touches
  * these. See third_party/libhelix-mp3/pub/mp3_profile.h for the MP3 side. */

@@ -11,10 +11,15 @@
 #include "library_core.h"      /* lib_crc_update, lib_ld16/32 */
 #include "meter_module.h"       /* mtr_data_t: METR presets are validated against the compiled parameter tables */
 
-enum { AS_OK = 0, AS_E_READ = 30, AS_E_MAGIC = 31, AS_E_VERSION = 32, AS_E_SIZE = 33, AS_E_CRC = 34, AS_E_NOTHEME = 35 };
+#ifndef AS_FN
+#define AS_FN static            /* the firmware defines this as COLD_FN static for the helpers two cold callers share (as_find), so the compiler does not outline them into hot RAM */
+#endif
+enum { AS_OK = 0, AS_E_READ = 30, AS_E_MAGIC = 31, AS_E_VERSION = 32, AS_E_SIZE = 33, AS_E_CRC = 34, AS_E_NOTHEME = 35, AS_E_PSRAM = 36 };
 #define AS_MAX_SECTIONS 8u
+#define AS_MAX_FILE     0x10000u     /* 64 KiB: the format's own limit (section offsets and lengths are checked against 0xFFFF) and the size of the PSRAM staging area */
+#define AS_NOFILE       (-1)         /* as_load(): the slot has no file: not an error */
 
-static uint32_t as_crc(const uint8_t *p, uint32_t n) { return LIB_CRC_DONE(lib_crc_update(LIB_CRC_INIT, p, n)); }
+AS_FN uint32_t as_crc(const uint8_t *p, uint32_t n) { return LIB_CRC_DONE(lib_crc_update(LIB_CRC_INIT, p, n)); }
 
 /* Bytes the whole file must have, from its first 12 + 16*sections bytes (the header and table); 0 = not a valid header. */
 static uint32_t as_total_size(const uint8_t *b, uint32_t have)
@@ -31,8 +36,49 @@ static uint32_t as_total_size(const uint8_t *b, uint32_t have)
     return end;
 }
 
+/* Loads the whole file (B-628, parallel plan A5: the 1 KiB cap is lifted).
+ *   rd       reads `len` bytes at file offset `off` into the caller's window (the firmware's reader lands them in the tag buffer, which is `win`)
+ *   win      4-byte aligned, LIB_WIN (4 KiB) bytes
+ *   scratch  PSRAM staging area of `cap` bytes, only used for files larger than one window
+ *   prove    called once before the first write to `scratch` (NULL on the host); 0 means the PSRAM window is not usable: AS_E_PSRAM
+ * A file that fits one window stays in `win` exactly as before (no PSRAM involved); a larger one is copied window by window into `scratch`.
+ * Returns AS_OK with *base and *total, AS_NOFILE when the slot has no file, or an AS_E_* code (a bad header or a size over AS_MAX_FILE / cap is AS_E_SIZE). */
+static int as_load(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *scratch, uint32_t cap, int (*prove)(void), const uint8_t **base, uint32_t *total)
+{
+    if (!rd(ctx, 0u, win, 12u)) return AS_NOFILE;
+    if (win[0] != 'T' || win[1] != 'A' || win[2] != 'U' || win[3] != 'A') return AS_E_MAGIC;
+    uint32_t sections = lib_ld16(win + 6);
+    if (sections > AS_MAX_SECTIONS) return AS_E_SIZE;
+    uint32_t hdr = 12u + 16u * sections;
+    if (!rd(ctx, 0u, win, hdr)) return AS_E_READ;
+    uint32_t t = as_total_size(win, hdr);
+    if (!t || t > AS_MAX_FILE || t > cap) return AS_E_SIZE;
+    if (t <= LIB_WIN) {
+        if (!rd(ctx, 0u, win, t)) return AS_E_READ;
+        *base = win; *total = t;
+        return AS_OK;
+    }
+    if (prove && !prove()) return AS_E_PSRAM;
+    for (uint32_t off = 0; off < t; ) {
+        uint32_t n = t - off;
+        if (n > LIB_WIN) n = LIB_WIN;
+        if (!rd(ctx, off, win, n)) return AS_E_READ;
+        volatile uint8_t *d = scratch + off;
+        if (((off | n) & 3u) == 0u) {
+            volatile uint32_t *dw = (volatile uint32_t *)d;
+            const uint32_t *sw = (const uint32_t *)win;
+            for (uint32_t i = 0; i < (n >> 2); i++) dw[i] = sw[i];
+        } else {
+            for (uint32_t i = 0; i < n; i++) d[i] = win[i];
+        }
+        off += n;
+    }
+    *base = (const uint8_t *)scratch; *total = t;
+    return AS_OK;
+}
+
 /* Finds section `tag` in a whole file of `len` bytes; checks version, table CRC and that section's CRC. */
-static int as_find(const uint8_t *b, uint32_t len, const char *tag, uint32_t *off, uint32_t *n)
+AS_FN int as_find(const uint8_t *b, uint32_t len, const char *tag, uint32_t *off, uint32_t *n)
 {
     if (len < 12u || b[0] != 'T' || b[1] != 'A' || b[2] != 'U' || b[3] != 'A') return AS_E_MAGIC;
     if (lib_ld16(b + 4) != 1u) return AS_E_VERSION;
@@ -103,13 +149,14 @@ static int as_metr(const uint8_t *d, uint32_t n, mtr_data_t *const *mods, uint32
         const uint32_t id = e[0], schema = e[1], npre = e[4], nparams = e[5];
         mtr_data_t *md = 0;
         for (uint32_t i = 0; i < nmods; i++) if (mods[i]->viz == id) md = mods[i];
+        if (md && md->cold) continue;                              /* its tables live read-only in the cold image */
         if (!md || schema > 1u || nparams != md->n || npre < 1u || npre > md->maxpre) continue;
         uint32_t psize = 16u;
         for (uint32_t i = 0; i < md->n; i++) psize += (md->p[i].type == MTR_U16) ? 2u : 1u;
         if (len != 6u + npre * psize + 1u || e[6u + npre * psize] >= npre) continue;
         uint16_t vals[MTR_MAX_PRESET_VALUES];
         char names[8][16];
-        if (md->n > MTR_MAX_PARAMS || npre > 8u) continue;
+        if (md->n > MTR_MAX_PARAMS || npre > 16u) continue;
         uint32_t q = 6u;
         for (uint32_t pr = 0; pr < npre; pr++) {
             uint32_t j = 0;

@@ -1,0 +1,207 @@
+{
+  "key": "waterfall_grid",
+  "enum": "VIZ_WATERFALL_GRID",
+  "index": 17,
+  "name": "WATERFALL",
+  "selectable": true,
+  "sel_index": 0,
+  "caps": [],
+  "cost_class": 2,
+  "p2_only": true,
+  "considered": "A grid of small cells, always drawn (unlit cells are a dim cell, so the grid is always visible). SPECTROGRAM: frequency across, time down; the grid scrolls smoothly a few pixels per picture (the engine's copy, gfx_scroll_down) at a set pixel speed and each new row enters cell by cell from the top edge; a cell's brightness follows its band's level in three steps. ZONES: the grid keeps still, split into 4 x 4 regions (bass top-left to treble bottom-right in reading order), each region one band that fills from its centre outwards as the level rises (a heat map). DUST: the same still grid with the bands scattered at random over the cells. A Player 2 test of the pack framework: the drawing code exists only in its pack (meter_pack_waterfall_grid.c); the firmware carries a stub that says so. SPARKLE: the still grid; a band that jumps well above its own running average (an onset: a hit, a pluck) lights a burst of cells around its column, which fades back to dim in three steps over the Fade time; silence and sustained notes light nothing.",
+  "params": [
+    {
+      "key": "mode",
+      "label": "Mode",
+      "type": "enum",
+      "values": [
+        "SPECTROGRAM",
+        "ZONES",
+        "DUST",
+        "SPARKLE"
+      ],
+      "default": 0
+    },
+    {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u16",
+      "min": 20,
+      "max": 400,
+      "step": 10,
+      "default": 90,
+      "unit": "px/s",
+      "when": {
+        "mode": 0
+      },
+      "note": "pixels per second, whatever the cell size"
+    },
+    {
+      "key": "gain",
+      "label": "Gain",
+      "type": "u8",
+      "min": 50,
+      "max": 200,
+      "step": 10,
+      "default": 100,
+      "unit": "%",
+      "note": "how bright the grid is for a given level"
+    },
+    {
+      "key": "cell",
+      "label": "Cell size",
+      "type": "u8",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 8,
+      "unit": "px",
+      "note": "the cell is this many pixels square, with one pixel between cells"
+    },
+    {
+      "key": "fade",
+      "label": "Fade time",
+      "type": "u16",
+      "min": 150,
+      "max": 2000,
+      "step": 100,
+      "default": 450,
+      "unit": "ms",
+      "when": {
+        "mode": 3
+      },
+      "note": "how long a flash takes to fade back to the dim grid"
+    },
+    {
+      "key": "palette",
+      "label": "Colours",
+      "type": "enum",
+      "values": [
+        "THEME",
+        "INFERNO",
+        "RAINBOW",
+        "ICE"
+      ],
+      "default": 1,
+      "note": "the colour map of the grid: THEME (the accent colour, three steps), INFERNO (black, purple, red, yellow, white: the classic spectrogram), RAINBOW (blue to red), ICE (blue to white); the map's 32 levels show in SPECTROGRAM, its steps colour the other modes"
+    },
+    {
+      "key": "flow",
+      "label": "Direction",
+      "type": "enum",
+      "values": [
+        "VERTICAL",
+        "HORIZONTAL"
+      ],
+      "default": 1,
+      "when": {
+        "mode": 0
+      },
+      "note": "SPECTROGRAM: HORIZONTAL (time runs across, low frequencies at the bottom, the new picture enters at the right) or VERTICAL (frequency runs across, the new picture enters at the top)"
+    }
+  ],
+  "presets": [
+    {
+      "name": "WATERFALL",
+      "values": {
+        "mode": 0,
+        "speed": 90,
+        "gain": 100,
+        "cell": 8,
+        "fade": 450,
+        "palette": 1,
+        "flow": 1
+      }
+    },
+    {
+      "name": "FAST FALL",
+      "values": {
+        "mode": 0,
+        "speed": 180,
+        "gain": 120,
+        "cell": 6,
+        "fade": 450,
+        "palette": 2,
+        "flow": 1
+      }
+    },
+    {
+      "name": "HEAT MAP",
+      "values": {
+        "mode": 1,
+        "speed": 90,
+        "gain": 110,
+        "cell": 8,
+        "fade": 450,
+        "palette": 1,
+        "flow": 1
+      }
+    },
+    {
+      "name": "FINE GRID",
+      "values": {
+        "mode": 1,
+        "speed": 90,
+        "gain": 100,
+        "cell": 5,
+        "fade": 450,
+        "palette": 3,
+        "flow": 1
+      }
+    },
+    {
+      "name": "DUST",
+      "values": {
+        "mode": 2,
+        "speed": 90,
+        "gain": 110,
+        "cell": 8,
+        "fade": 450,
+        "palette": 0,
+        "flow": 1
+      }
+    },
+    {
+      "name": "SPARKLE",
+      "values": {
+        "mode": 3,
+        "speed": 90,
+        "gain": 100,
+        "cell": 8,
+        "fade": 450,
+        "palette": 0,
+        "flow": 1
+      }
+    },
+    {
+      "name": "STARS",
+      "values": {
+        "mode": 3,
+        "speed": 90,
+        "gain": 130,
+        "cell": 5,
+        "fade": 900,
+        "palette": 0,
+        "flow": 1
+      }
+    }
+  ],
+  "p2": {
+    "cmds": 3072,
+    "max_cycles": 5000000,
+    "slot": 5,
+    "tag": "WF",
+    "compose": {
+      "param": "mode",
+      "in": [
+        0
+      ]
+    },
+    "budget": {
+      "cold": 4096,
+      "hot_ram": 2200
+    },
+    "pack_only": true
+  },
+  "default_preset": 0
+}

@@ -127,6 +127,15 @@ static void blit_probe(void)
     blit_ready = (rd != 0x0000DEADu) ? 1u : 0u;
 }
 
+/* B-575: which CLUT write behaviour does this bitstream have? Load a CLUT whose entries are distinct, starting at index 0, CLUT-blit a
+ * pixel whose palette index is 3 and read the result back. A bitstream with the registered write address (tau_clut_wr.sv) stores entry 3
+ * in slot 3 (0x4444), an older one stores entry 2 there (0x3333). The result chooses clut_start_idx_v (0 or the legacy 255); anything
+ * else leaves the legacy value. Needs the blend probe's helpers (mailbox word access, fence), defined further down, hence the forward
+ * declaration; run once the blit engine is known to exist. The cells are the blend probe's own (rows 1019/1020 of the never-displayed
+ * padding columns). The index plane word holds 3 in BOTH halves so the mailbox's half order does not matter. */
+static void clut_probe(void);
+static uint8_t clut_probed;
+
 /* B-162: run the probe at most once, on first actual need -- never at boot. */
 static void blit_probe_ensure(void)
 {
@@ -134,6 +143,7 @@ static void blit_probe_ensure(void)
         blit_probe();
         if (blit_ready || ++blit_probe_tries >= 3u) blit_probed = 1u;
     }
+    if (blit_ready && !clut_probed) clut_probe();
 }
 
 /* Helios/Talos H1 (docs/HELIOS_SPEC.md section 10): the same class of probe as blit_probe()
@@ -201,6 +211,12 @@ static void rrect_probe_ensure(void)
     }
 }
 
+/* B12 (B-454): OP_BAR's lit-row count widened 7->9 bits (cmd_glyph_hi, R_FB_GO bits 16:15) --
+ * deliberately no hardware-capability probe here (owner: alpha-stage firmware/bitstream pairs are
+ * always built and shipped together, so an old-bitstream fallback is unneeded complexity right now;
+ * revisit once betas/a real release need firmware to run against a bitstream it wasn't built
+ * alongside). fb_bar() (fw/player.c) sends the full 9-bit value unconditionally. */
+
 /* ==== B-334: alpha blend from firmware (Talos B5, the pipelined version, B-327) ==========================================================
  * A blended OP_BLIT computes dst = (src * a + dst * (256 - a)) >> 8 per colour channel for the whole rectangle, reading the destination
  * from the framebuffer itself. It needs a bitstream built with TAU_BLIT_BLEND (BLEND_READY() finds out, once, with a known-answer blit)
@@ -236,8 +252,10 @@ COLD_FN3 static int blend_mb_read(uint32_t a, uint32_t *out)
 /* Returns once every command queued before it has executed (the engine runs its queue in order): a one-pixel rectangle is queued behind
  * them and the mailbox polls that pixel for the change. Gives up after about 50 ms. Does nothing while an overlay holds the engine
  * (its commands are dropped, so there is nothing to wait for). */
+static uint8_t fb_fence_timeout;   /* set when the last fb_fence() gave up before the engine drained (B-520: off-screen compose must not switch R_DBUF_CPU back until it has) */
 COLD_FN3 static void fb_fence(void)
 {
+    fb_fence_timeout = 0u;
     if (FB_HELD()) return;
     const uint32_t a = BLEND_CELL_Y * FB_STRIDE + BLEND_CELL_X;
     uint32_t r = 0;
@@ -249,14 +267,42 @@ COLD_FN3 static void fb_fence(void)
         while ((uint32_t)(cycles() - t) < 256u) { }
         if (blend_mb_read(a, &r)) return;
     } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+    if (r == 0xDEADBEEFu) fb_fence_timeout = 1u;
 }
 
+/* B-440: owner reports trail=0 fixes the Scope accumulation completely, but trail=5% and trail=80%
+ * look identical -- severity isn't scaling with the configured fade amount at all, which is what you'd
+ * see if the alpha value never actually reaches the blend hardware correctly (stuck near 0 regardless
+ * of what's requested) rather than a proportional/rounding issue. R_BLT_IDX/R_BLT_DATA (bits[15:8] =
+ * alpha) are write-only in hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W"), same as SRC_BASE/
+ * DST_BASE -- shadow the last value WRITTEN here, same technique as fb_set_bases()'s dbg_base_src/dst,
+ * so a mismatch between what firmware intended and what the mailbox-confirmed blend actually reflects
+ * (B-439's JTAG reads, in hindsight, were consistent with alpha stuck at 0 the whole time -- dismissed
+ * then as an inconclusive 1-LSB-contrast rounding artifact, worth re-checking now this points here) is
+ * visible without another RTL/JTAG cycle. */
+static uint32_t dbg_blend_alpha;
 /* Blend on with source weight `a` (0..255, mode 0 = the DSP alpha); off. */
-COLD_FN3 static void fb_blend_on(uint32_t a)  { fb_wait(); REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = ((a & 0xFFu) << 8) | 1u; }
+COLD_FN3 static void fb_blend_on(uint32_t a)  { fb_wait(); REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = ((a & 0xFFu) << 8) | 1u; dbg_blend_alpha = a & 0xFFu; }
 COLD_FN3 static void fb_blend_off(void)       { REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = 0u; }
 
 /* Known-answer probe: blend white over black at a = 128; a bitstream with the blend gives 0x7BEF, one without it copies 0xFFFF. Either
  * half of the mailbox word may hold the pixel (the halves' order is not assumed). Not run while an overlay holds the engine. */
+COLD_FN3 static void clut_probe(void)
+{
+    if (FB_HELD()) return;                                      /* retry later: fb_cblit() would be dropped too */
+    clut_probed = 1u;
+    const uint32_t src = 1019u * FB_STRIDE + BLEND_CELL_X, dst = 1020u * FB_STRIDE + BLEND_CELL_X;
+    uint32_t r = 0;
+    if (blend_mb_write(src, 0x00030003u) || blend_mb_write(dst, 0u)) return;
+    fb_wait();
+    REG(R_CLUT_IDX) = 0u;
+    for (uint32_t i = 0; i < 8u; i++) REG(R_CLUT_DATA) = 0x1111u * (i + 1u);      /* entry 2 = 0x3333, entry 3 = 0x4444 */
+    fb_cblit(BLEND_CELL_X, 1019u, BLEND_CELL_X, 1020u, 1u, 1u);
+    fb_fence();
+    if (blend_mb_read(dst, &r)) return;
+    if ((r & 0xFFFFu) == 0x4444u || (r >> 16) == 0x4444u) clut_start_idx_v = 0u;       /* registered address: entry n in slot n */
+    else if ((r & 0xFFFFu) == 0x3333u || (r >> 16) == 0x3333u) clut_start_idx_v = 255u; /* legacy: entry n in slot n + 1 */
+}
 COLD_FN3 static void blend_probe(void)
 {
     if (FB_HELD()) return;

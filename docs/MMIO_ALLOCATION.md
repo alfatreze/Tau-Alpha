@@ -24,7 +24,7 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x48-0x58 | FB_* | W/R | framebuffer draw engine |
 | 0x5C | SLOT_SZ | R | slot size |
 | 0x60-0x64 | DT_ADDR/DT_DATA | W/R | datatable |
-| 0x68 | EQ | R/W | EQ preset |
+| 0x68 | (retired) | | was the preset EQ's preset index; the register and the EQ were removed, the address is free |
 | 0x6C-0x70 | SET_IDX/SET_DAT | W/R | persisted settings words (interact.json) |
 | 0x74-0x84 | SDR_* | W/R | Phase 1 SDRAM mailbox |
 | **0x88-0xAC** | **expansion window** | | **PSRAM diagnostic mailbox (B-004) and window counter (B-016), routed through the `xm_*` port** |
@@ -54,7 +54,7 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x10C | POLY_OUT | R | `{R sample [31:16], L sample [15:0]}` of the last computed slot (Helix's interleave). 0 when off. |
 | 0x110 | POLY_ST | R | bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed. 0 when off. |
 | 0x114 | TEXT_MODE | R/W | Theme/gamma: write bit 0 = 1 selects the light-polarity text weight table (`cov_weight_light`, dark text on a light ramp); read bit 31 = the bitstream has it (0 on older ones), bit 0 = current value. Synchronised into clk_sdram (`tau_cdc_sync1`). |
-| 0x118 | DBUF_CPU | R/W | Helios H2 (B-340, `tau_fb.v`/mp3_soc.v `TAU_DBUF`): bit 0 = which physical copy of the VISIBLE framebuffer (row < 360, word address < 184,320) ordinary RECT/CHAR/COPY(non-blit) commands read and write; buffer 1 sits 1,048,576 words above buffer 0. **Corrected 2026-09-29 (B-413, checked against the RTL):** BAR and RRECT reuse `rect_addr` and ARE offset by this bit; only BLIT, CBLIT and SBLIT address through the sticky `blt_*_base` fields and are unaffected (the gap `VIDEO_720_PHASED_SPEC.md` C2 closes). (The earlier text listed BAR and RRECT among the unaffected blit-mode opcodes.) Any address >= 184,320 (the off-screen stash region) is unaffected regardless of this bit. Read: bit 31 present (0 on a bitstream without it), bit 0 echo. |
+| 0x118 | DBUF_CPU | R/W | Helios H2 (B-340, `tau_fb.v`/mp3_soc.v `TAU_DBUF`): bit 0 = which physical copy of the VISIBLE framebuffer (row < 360, word address < 184,320) ordinary RECT/CHAR/COPY/BAR/RRECT (non-independently-addressed) commands read and write; buffer 1 sits 1,048,576 words above buffer 0. **Corrected 2026-09-29 (B-414):** only BLIT/SBLIT/CBLIT genuinely use independent addressing through the sticky `blt_*_base` fields and are unaffected by this bit -- BAR and RRECT both address through the same `R_FB_ADDR`/`cmd_addr` path as RECT/CHAR (confirmed from `fb_bar()`/`fb_rrect()`'s own source, both write `REG(R_FB_ADDR)` directly), so they ARE covered by this bit; the previous wording grouping them with the true blit-mode opcodes was wrong and caused a real hardware bug to go undiagnosed longer than necessary (Chladni, which genuinely does use `fb_sblit()`/`fb_blit()`, B-414). Any address >= 184,320 (the off-screen stash region) is unaffected regardless of this bit. Read: bit 31 present (0 on a bitstream without it), bit 0 echo. |
 | 0x11C | DBUF_DISP | R/W | Write: bit 0 = 1 requests a flip, applied only at the next vertical blanking (never mid-frame). Read: bit 31 present, bit 1 = a requested flip is still pending, bit 0 = which buffer is currently displayed (what the scanout prefetch reads). |
 | 0x120 | LPC_CFG | W | B-368 FLAC LPC unit (`tau_flac_lpc.sv`, `TAU_LPC`, `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 5): bits[5:0] = predictor order (1-32), bits[11:6] = right-shift amount (0-31). Written once per subframe; resets the coefficient/warm-up index pointers to 0. |
 | 0x124 | LPC_COEF_IDX | W | selects one of 32 coefficient slots (0 = the tap paired with the MOST RECENT sample, `fw/flac.c`'s own `coef[0]` convention). |
@@ -64,9 +64,36 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x134 | LPC_RESIDUAL | W | writes the next signed 32-bit residual and starts one reconstruction (MAC over `order` taps, one multiply-add per clock, then a registered shift and add -- never chained combinationally, this project's own timing rule). |
 | 0x138 | LPC_SAMPLE | R | the last reconstructed sample. **Reading this register is itself the acknowledgement** that lets the unit accept the next residual (wired straight to the bus's one-cycle read-request pulse, not a separate write-to-ack step) -- poll `LPC_STATUS` for done first. 0 when off. |
 | 0x13C | LPC_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done (the sample at `LPC_SAMPLE` is ready and unread). 0 when off. |
-| 0x140-0x148 | free | | Proposed for the 720 phased spec (SCAN_LAT, VID_MODE); not built. |
-| 0x14C | VID_CAPS | R | 720 phased spec capability word (test/720, B-414). Bit 1 = 256-word row buffer (`TAU_SCAN_A`, mp3_fb `GB_WIDE`): COPY/BLIT/SBLIT/CBLIT rows up to 255 words. Other bits reserved, 0. 0 on older bitstreams. |
-| 0x150-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. 0x150/0x154 proposed for FB_DRAW_BASE/FB_DISP_BASE. |
+| 0x140 | I2S_DIAG_MINMAX | R | B-467 (Cymo 44.1 kHz investigation): bits[15:0] = min interval ever (clk_sys cycles, saturates at 0xFFFF), bits[31:16] = max interval ever (saturates), between successive real changes of the I2S DAC-domain sample word, measured after crossing `sound_i2s.v`'s clk_audio->clk_mclk CDC and back into `clk` via `tau_cdc_sync1`. Free-running since reset, never cleared. 0 when `I2S_DIAG_ENABLE` is 0. |
+| 0x144 | I2S_DIAG_CNT | R | count of update events since reset. 0 when off. |
+| 0x148 | I2S_DIAG_SUM | R | sum of all measured intervals since reset (for an average via delta / delta-count). 0 when off. |
+| 0x14C | I2S_DIAG_ST | R | bit 0 = built in (`I2S_DIAG_ENABLE`). |
+| 0x150 | CYMO_CTRL | W | B-471/B-476 Cymo 44.1->48kHz resampler (`tau_cymo_resamp.sv`, `TAU_CYMO_RESAMP`, `docs/features/CYMO_AUDIO_ENGINE.md` section 15): bit 0 = clear (pulse, test-only -- the live path's own clear comes from a `cymo_live_en` rising edge, not this bit), bit 1 = start (pulse, test-only), bit 2 = LIVE_ENABLE (STICKY -- hands the real EQ-input audio path to the resampler's output in place of `pcm_fifo`'s zero-order hold). |
+| 0x154 | CYMO_PUSH | W | writes `{push_r[31:16],push_l[15:0]}` and pulses `push_we` (self-test only; the live path pushes automatically from hardware). |
+| 0x158 | CYMO_OUT | R | `{out_r[31:16],out_l[15:0]}` -- this read is itself the ack that clears `CYMO_STATUS` bit 2 (self-test only). |
+| 0x15C | CYMO_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done, bit 3 = pop_req, bit 4 = live_en, bits[7:5] = hand-off queue level (B-527, `tau_cymo_feed.sv`). 0 when off. |
+| 0x160 | CYMO_DIAG | R | B-527 (redefines B-492's single counter): bits[15:0] = saturating count of consumes (an internal `pop_req` falling edge) that found no sample pushed since the previous one -- the resampler repeated an input sample; bits[31:16] = saturating count of `pcm_sample_tick`s that found the hand-off queue full -- an input sample was lost. Both should stay at 0 with the elastic hand-off (the old tick-gated hand-off lost/repeated 9-29% of the samples); both clear on every `cymo_live_en` rising edge and keep their value when it falls. |
+| 0x168 | GAIN_CTRL | R/W | B-615 hardware gain stage (`tau_gain_stage.sv`, `TAU_GAIN`). Write: bit 0 ENABLE (sticky, reset 0), bit 1 SNAP (pulse: gain = target now), bit 2 FADE_NOW (pulse), bits [5:4] fade length 256 << n samples (sticky, reset 3 = 2048). Read: bit 31 present, bit 0 enable, bit 2 fading, [5:4] shift. 0 on a bitstream without the stage. |
+| 0x16C | GAIN_TARGET | R/W | Q15 wanted gain, 32768 = unity (values above are capped: the stage only attenuates); sticky, reset 32768. |
+| 0x170 | GAIN_CUR | R | The gain in force (ramping toward the target). |
+| 0x174 | GAIN_STEP | R/W | Maximum gain change per output sample; sticky, reset 149 (5 ms for full scale). |
+| 0x184 | RING_BASE | R/W | B-741 hardware PCM ring reader (`tau_pcm_ring.sv`, `TAU_PCM_RING`; needs `TAU_PSRAM_IFETCH`, docs/features/PCM_RING_HW_DESIGN.md). PSRAM word address (CPU window word offset: byte address = 0xA400_0000 + 4 x word) of ring[0]. Reads 0 on a bitstream without the unit. |
+| 0x188 | RING_SIZE | R/W | Pairs in the ring (2 .. 2^23); one word (`{right, left}`) per pair. |
+| 0x18C | RING_WPTR | R/W | The CPU's write index in [0, SIZE): write it AFTER the pair is stored. Empty when equal to RIDX; the CPU never fills the ring completely (capacity SIZE - 1). |
+| 0x190 | RING_RIDX | R | The reader's index (the CPU uses it for the full test and the heard position). |
+| 0x194 | RING_CTRL | R/W | Write bit 0 ENABLE (sticky, reset 0): while 1 the CPU's `R_AUDIO` write is ignored and the pcm_fifo is fed from the ring (one PSRAM read per pair while the FIFO holds fewer than 1,536 pairs); while 0 RIDX follows WPTR. Read: bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to `R_PCM_ST` (pcm_flush) also drops the unread pairs (RIDX = WPTR; a read in flight is discarded when it completes). |
+| 0x198 | RING_CNT | R | Pairs pushed into the FIFO since reset (free-running; for the heard-position arithmetic). |
+| 0x19C | UNDER | R | Player 2 S1 (P6): free-running underrun record of the PCM FIFO, cleared only by reset (a flush keeps it). [31] present (the ring bitstreams), [30:16] underrun EVENTS (runs of output ticks that found the FIFO empty while primed), [15:0] underrun TICKS (each is one lost sample pair), both saturating. Reads 0 without the ring. |
+| 0x1A0 | FONT_CTRL | R/W | Writable Latin-1 font memory (`TAU_FONT_RAM`, `docs/features/FONT_SPEC.md`, CORE_VERSION rev 27). Read: [31] present, [27:16] loads completed (the write index passed the last word), [15:0] words (6,112). Write: bit 0 = restart the write index at 0. Reads 0 on a bitstream without the memory. |
+| 0x1A4 | FONT_IDX | R/W | Write index (word, 0..6111; a larger value goes to 0), sticky. |
+| 0x1A8 | FONT_DATA | W | Writes the 32-bit word at FONT_IDX into the glyph RAM (8 pixels of 4-bit coverage), then FONT_IDX + 1; after word 6111 the index wraps to 0 and the load counter steps. The firmware fences the draw engine first (the engine reads this memory while drawing text). |
+| 0x1AC | STATS_CTL | W | B-819 audio statistics block (`tau_audio_stats.sv`, `TAU_STATS`): bit 0 latches the sums into the read-out and starts a new window, bit 1 clears everything. |
+| 0x1B0 | STATS_IDX | W | read-out word 0..7 presented at STATS_DATA. |
+| 0x1B4 | STATS_DATA | R | 0 status (`'ST'` 0x5354 in 31:16, latch count in 15:8, bit 1 window overflowed, bit 0 built in; 0 on a bitstream without the block), 1 sample count N, 2/3 sum L*L (low, bits 47:32), 4/5 sum R*R, 6/7 sum L*R (high word sign-extended). |
+| 0x1B8 | VID_CAPS | R | 720 phased spec capability word (test/720, B-848). Bit 1 = 256-word row buffer (`TAU_SCAN_A`, mp3_fb `GB_WIDE`): COPY/BLIT/SBLIT/CBLIT rows up to 255 words. Other bits reserved, 0. 0 on older bitstreams. (First picked at 0x14C; main claimed 0x140-0x1B4 first, so it moved.) |
+| 0x1BC-0x1FC | free | | The last free run of the 9-bit page (`mmio_reg = {dADR[6:0],2'b00}`). 0x1BC/0x1C0/0x1C4/0x1C8 proposed for SCAN_LAT / VID_MODE / FB_DRAW_BASE / FB_DISP_BASE in `VIDEO_720_PHASED_SPEC.md`; Phase 1 needs 4-5 of the 17 slots. |
+
+`OP_CHAR` with the font memory: the glyph code is 8 bits, bit 7 is `R_FB_GO` bit 15 (`cmd_glyph_hi[0]`), bits 6:0 are bits 9:3 as before; glyph index 0..94 = U+0020..U+007E, 95..190 = U+00A0..U+00FF, any other code is the blank glyph 0. A command with bit 15 clear is exactly the old one.
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
@@ -100,4 +127,16 @@ stores and sub-word stores work (byte enables reach the chip's LB#/UB#). The las
 stores are ignored, the mailbox STATUS `GUARD_HIT` sticky bit sets, and the access ACKs (no bus error, because the firmware has no exception handler). There is
 no cached alias: `0x2400_0000..` and every other unmapped range still terminate as a bus error. Needs the SDRAM Phase 2 decode (`TAU_PHASE2_WINDOW`) and,
 for now, the probe module that owns the controller (`TAU_PSRAM_PROBE`). The mailbox and the window share the controller (window has priority when both wait).
+
+## Halcyon EQ engine (`TAU_HALCYON`, B-639): 0x178-0x180
+
+`tau_halcyon.sv` is the only EQ (the fixed-preset EQ and its register 0x68 were removed). A sticky enable selects its output; with it off, or without the macro, the audio is the unequalised path. Inert (reads 0) without the macro.
+
+| Offset | Name | R/W | Meaning |
+|---|---|---|---|
+| 0x178 | HAL_CTRL | RW | write: [0] ENABLE (sticky, reset 0), [1] BYPASS (sticky), [2] COMMIT pulse (swap the shadow bank in at the next sample boundary, latching NACT), [3] CLEAR pulse (clear the filter state), [13:8] NACT (sticky, sampled by COMMIT). read: [31] present, [13:8] nact, [2] busy, [1] bypass, [0] enable |
+| 0x17C | HAL_IDX | RW | coefficient index (sticky), auto-increments on every DATA write; 0..84 = stage coefficients b0 b1 b2 a1 a2 per stage, 85 = preamp |
+| 0x180 | HAL_DATA | W | [23:0] signed Q2.22 coefficient into the SHADOW bank at IDX |
+
+Firmware writes a complete bank (all `NACT` stages and the preamp) then COMMITs; the previous bank stays live until the next sample boundary, so a coefficient set is never torn. Verified with the real CPU by `make test-rtl-halcyon-soc` (`sim/fw_halcyon/main.c`).
 

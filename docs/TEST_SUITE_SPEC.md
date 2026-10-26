@@ -85,6 +85,8 @@ The goal changed from "convenient for the developer" to "a listener can run it a
 **Risks:** screenshots are pixel exact but a phone photo of the screen may need a cleaner module size (use level M and version <= 20); the encoder adds code that must be proven bit-exact; anti-aliased scaling by an image viewer can blur 3 px modules (decode from the PNG, not a resized copy).
 **Decision:** QR primary, short code fallback, pages for long reports; the encoder is the first cold-code candidate once G3 is signed off.
 
+**Superseded in part (2026-10-04, B-594):** with `TAU_TPG=1` the report pages show a pixel grid first (robust by default, lossless when larger) and the QR code as the third view; see `docs/features/BARCODE_STUDY.md` and D-R01..D-R05 in `docs/DECISIONS.md`.
+
 ## 9. Decision 2026-09-21 (owner, B-065): the Check lives only in the Diagnostic Build
 Section 7 item 1 (a user-facing Check in the normal release) is **withdrawn**. Reasons: the summary borrows the settings words of the legacy playlist resume (resume is lost once a Check has run), the feature needs the cold image and the newer bitstream, it adds support surface to the everyday core, and the Diagnostic Build already installs beside it with its own settings. The release keeps the Info page. The switch `TAU_CHECK`, the target `fw/build.sh player-library-check` and the packager option stay in the source so the release can gain it later without rework. Status: S1 (USER CHECK, record, QR, decoder) and S2 (STANDARD, FULL) are built for the Diagnostic Build; S3 (restart-based tests) is not.
 

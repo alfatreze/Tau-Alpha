@@ -62,8 +62,18 @@ dual-port MLAB) [EXT]. Syntax is the one the EQ already uses:
 
     (* ramstyle = "MLAB, no_rw_check" *) reg [W-1:0] mem [0:D-1];
 
-`no_rw_check` matters: MLAB read-during-write only cleanly supports old-data behaviour, and without it Quartus
-inserts bypass muxing [EXT].
+`no_rw_check` matters: without it Quartus inserts bypass muxing for the read-during-write case [EXT].
+**Correction and detail (2026-10-13, Cyclone V Device Handbook Vol 1 sections 2.2.3, 2.3; analogue-pocket-dev
+skill KB-143 to KB-145):** the earlier wording that MLAB "only supports old-data" was too narrow. Per the vendor
+tables, same-port read-during-write on an MLAB is "don't care" only; mixed-port (one port reads what the other
+writes, same clock) offers old data, new data (registered output only), "don't care" and "constrained don't
+care", and Quartus analyses the write-to-read timing for MLAB by default. M10K differs: same-port "new data" or
+"don't care", mixed-port only "old data" or "don't care", and no write-to-read timing analysis for "don't
+care". So a design that relies on a forwarded same-cycle value behaves differently on the two block types.
+Block limits worth knowing here [EXT]: MLAB tops out at 420 MHz (M10K 315 MHz), has no true dual-port, packed
+mode or mixed-width ports, and holds only its data-in and output registers internally (the read-address
+register is built from the surrounding ALMs), which is why the exact coding style of a registered read decides
+whether Quartus infers an MLAB, an M10K or plain registers. The 5CEBA4 has 308 M10K and 303 MLAB blocks.
 
 **Migration candidates**, all simple-dual-port and therefore MLAB-legal:
 
@@ -74,7 +84,7 @@ inserts bypass muxing [EXT].
 | `glyphbuf` (128x16) | 1 | Clean fit, ~4 MLABs. |
 | `sound_i2s` dcfifo (4x32) | 1 | Holds 128 bits in a whole block purely because a `dcfifo` won't go smaller. Needs an `lpm_hint` RAM_BLOCK_TYPE change. |
 
-**Caveat [EST], not cited:** deep MLAB chaining (the 256-deep FIFO needs ~8-deep chaining) carries an
+**Caveat [EST], not cited (the 420 MHz MLAB figure is the single-block maximum; the handbook does not quantify the cost of chaining):** deep MLAB chaining (the 256-deep FIFO needs ~8-deep chaining) carries an
 unquantified Fmax penalty, and this design already has a documented timing cliff at 100 MHz (section 11). Do
 the three easy ones first and treat the command FIFO as its own decision with a timing check.
 

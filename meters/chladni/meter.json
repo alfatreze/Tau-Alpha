@@ -182,5 +182,6 @@
       }
     }
   ],
+  "p2": {"pack_only": true, "cmds": 1280, "max_cycles": 4500000, "slot": 2, "tag": "CHL", "compose": true, "budget": {"cold": 6144, "hot_ram": 2816}},
   "default_preset": 0
 }

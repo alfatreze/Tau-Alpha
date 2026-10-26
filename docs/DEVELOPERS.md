@@ -108,7 +108,7 @@ See [CARD_INSTALL_PROCEDURE.md](CARD_INSTALL_PROCEDURE.md) and [guide/MEDIA_AND_
   DSP-block placement congestion, confirmed by re-running `report_timing` against the original failing build and finding no trace of the suspected logic.) **Lesson: verify a fix's mechanism, not just its result.**
 - **Update: the rounded rectangle and the alpha blend are now both closed.** The hardware rounded rectangle (`OP_RRECT`) had a -2.366 ns violation in a corner-sequencer chain; the same retiming fixed it (B-231) and the
   combined fit with the RAM shrink closed on both seeds (B-235). The alpha blend then failed again when re-enabled, until its read-modify-write was rebuilt as a three-stage pipeline (capture, blend, write);
-  **that pipelined blend closes timing (fit `blend-pipe-b327`, 2026-09-27, setup min +0.755 ns on seed 1, RAM 304/308, DSP 17/66; B-326, B-327)**. It is not in a shipped bitstream and the firmware does not use it yet.
+  **that pipelined blend closes timing (fit `blend-pipe-b327`, 2026-09-27, setup min +0.755 ns on seed 1; B-326, B-327) and ships in v0.6.0-alpha.1**, driving the Settings menu cross-fade (B-405).
   So the earlier "shelved because it cannot close" was true for the single-cycle version only.
 - **The Fitter's own effort setting can silently cap how hard it tries.** `FITTER_EFFORT` at `AUTO FIT` (this project's current setting in `ap_core.qsf`) stops optimizing once it estimates "good enough" and skips optimizations that affect
   timing, to save compile time. Worth checking before assuming a design is at its real timing limit.
@@ -117,6 +117,11 @@ See [CARD_INSTALL_PROCEDURE.md](CARD_INSTALL_PROCEDURE.md) and [guide/MEDIA_AND_
 - **A RAM-inference pattern-matcher can be pickier than it looks.** Splitting one memory into two power-of-two regions (to work around an odd total size Quartus refused to infer as block RAM) kept failing the same way after removing
   every suspect in turn (a local address wire, a module boundary, a `generate` block). The real cause: every failing version read the result through a ternary selecting between two *different* multi-array concatenations in one
   statement, unlike every successfully inferred RAM in the file, which reads exactly one array unconditionally. Fix: give each region its own plain registered read and mux the *already-registered* values afterward.
+- **Know what each Cyclone V memory block actually supports before debugging inference.** The vendor tables (Device Handbook Vol 1, embedded-memory chapter) settle questions that otherwise cost a fit run: an MLAB (640 bits, 32 x 20,
+  420 MHz max) has no true dual-port, packed or mixed-width mode, keeps only its data-in and output registers inside the block (its read-address register comes from the surrounding ALMs), and offers "new data" on a mixed-port
+  read only with a registered output; an M10K (10 Kb, 315 MHz max) returns only "old data" or "don't care" on a mixed-port read, and both power up with their outputs cleared even when loaded from a `.mif`. The 5CEBA4 has 308 M10K and
+  303 MLAB blocks. Related caution for PLLs: all outputs of one PLL divide a single VCO, and on the Pocket's -C8 speed grade the datasheet VCO range tops out at 1300 MHz, not the 1600 MHz of faster grades.
+  (Skill entries KB-143 to KB-148; the vendor text itself is kept locally, not in this repository.)
 - **A linker script's `DEFINED()` can silently do nothing in the wrong context.** Making a memory region's size conditional via `LENGTH = DEFINED(SYM) ? A : B` inside a `MEMORY` block had no effect in this toolchain: both settings linked
   an identical image with no error. Caught only by checking symbol values with `nm`. `DEFINED()` in an ordinary symbol assignment is the well-supported form. **Lesson: verify the actual linked addresses.**
 - **A "shared read port" fear can be a timing question in disguise.** Two draw-engine opcodes reading the same lookup table looked like a contention risk. In a design that dispatches one command at a time they can never read it at once;

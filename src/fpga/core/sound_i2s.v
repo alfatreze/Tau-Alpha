@@ -9,7 +9,29 @@
 //   - SIGNED_INPUT:  0 for unsigned positive-only audio (silence at 0),
 //                   1 for signed two's-complement audio (silence at 0).
 //   - clk_audio is the game core clock domain (clk_sys)
-//   - clk_74a drives the serializer and MCLK generator
+//   - clk_mclk is a PLL-synthesised 12.288 MHz (mf_pllbase_mclk, its own dedicated PLL -- B-460/B-462:
+//     it cannot share the main mf_pllbase's VCO with clk_vid/clk_sdram) driving the serializer and the
+//     MCLK output pin directly.
+//
+// B-457 (Cymo 44.1 kHz investigation): this used to synthesise ~12.288 MHz
+// itself, from clk_74a, via a phase accumulator (DDA) -- `audgen_accum`
+// overflowing a 742500 threshold at an average rate of 245760/742500 per
+// clk_74a cycle, a ratio that does not reduce to a power of two (GCD 6,
+// 245760/6=40960, 742500/6=123750 -- still not clean). That is a REAL,
+// hardware-only source of jitter on every MCLK edge -- and since SCLK/LRCK/
+// the serializer below were all derived from detecting MCLK's own toggle,
+// that jitter propagated straight through to every DAC bit-clock edge. RTL
+// simulation (checking logical VALUES, not real inter-edge timing) could
+// never have caught this -- exactly why the decisive digital-domain SINAD
+// test (sim/test_cymo_i2s_rate.py) matched the ideal-hold prediction almost
+// exactly while real hardware measured ~17 dB worse. Replaced with a real
+// PLL output using fractional-N (sigma-delta, noise-shaped) synthesis --
+// the same mechanism outclk_1/2's 12.000 MHz already relies on -- which
+// pushes quantisation noise to frequencies far outside the audio band,
+// instead of a naive accumulator's much coarser, in-band error. The
+// serializer below now runs entirely inside this one clean clock domain
+// (previously it ran in clk_74a, edge-detecting the accumulator's own
+// jittery toggle -- a second layer of indirection this removes too).
 
 `default_nettype none
 
@@ -17,46 +39,40 @@ module sound_i2s #(
     parameter CHANNEL_WIDTH = 8,
     parameter SIGNED_INPUT  = 0
 ) (
-    input wire clk_74a,
+    input wire clk_mclk,
     input wire clk_audio,
 
     input wire [CHANNEL_WIDTH-1:0] audio_l,
     input wire [CHANNEL_WIDTH-1:0] audio_r,
 
-    output reg audio_mclk,
-    output reg audio_lrck,
-    output reg audio_dac
+    // B-602 (Cymo C3, F2): 1 = put all 16 bits of a 16-bit input in the Pocket's 16-bit slot. 0 (default, and tied 0
+    // unless the bitstream has TAU_AUDIO16) keeps the original 15-bit mapping below, bit for bit. Same clock domain as
+    // audio_l/audio_r (clk_audio), so no crossing. Only meaningful when CHANNEL_WIDTH == 16 with SIGNED_INPUT == 1.
+    input wire full16,
+
+    output wire audio_mclk,
+    output reg  audio_lrck,
+    output reg  audio_dac,
+
+    // B-457/B-460/B-467 (Cymo 44.1 kHz investigation): the MCLK jitter fix measured identical
+    // SINAD/image levels to the old phase-accumulator on real hardware, ruling MCLK jitter out. The one
+    // remaining unverified layer is this module's own clk_audio->clk_mclk crossing (sync_fifo/dcfifo
+    // below) -- already simulated clean twice (B-430 behavioural, B-442 real Altera dcfifo model) but
+    // never watched on real silicon. `diag_toggle` flips, in the clk_mclk domain, every time the
+    // DAC-domain sample word (audgen_sampdata_s) actually changes -- i.e. every real "zero-order hold"
+    // update. A single bit, not a multi-bit counter: cross-domain interval measurement (min/max/sum) is
+    // done entirely in the CONSUMER's clock domain after synchronising this one bit with tau_cdc_sync1
+    // (the standard, safe technique for a single-bit level -- see that module's own header), never here.
+    // Caveat: detects "the held value changed", not literally every FIFO read -- an update whose new
+    // sample exactly equals the previous one (rare for a live tone, common only during digital silence)
+    // is invisible to it, an accepted approximation for this purpose. Toggles even when TAU_I2S_DIAG is
+    // not compiled in (a single flip-flop, free) so the consumer's own enable gate is the only thing that
+    // decides whether it means anything.
+    output reg diag_toggle
 );
 
-  // ----------------------------------------------------------------
-  // Generate MCLK ~12.288 MHz using fractional accumulator on clk_74a
-  // 74.25 MHz * (245760/742500) ≈ 12.288 MHz
-  // CYCLE_48KHZ = 21'd122880 * 2 = 245760
-  // ----------------------------------------------------------------
-  reg [21:0] audgen_accum = 0;
-  parameter [20:0] CYCLE_48KHZ = 21'd122880 * 2;
-
-  always @(posedge clk_74a) begin
-    audgen_accum <= audgen_accum + CYCLE_48KHZ;
-    if (audgen_accum >= 21'd742500) begin
-      audio_mclk   <= ~audio_mclk;
-      audgen_accum <= audgen_accum - 21'd742500 + CYCLE_48KHZ;
-    end
-  end
-
-  // ----------------------------------------------------------------
-  // Generate SCLK = MCLK / 4 = ~3.072 MHz
-  // Serializer clocks on falling edge of SCLK
-  // ----------------------------------------------------------------
-  reg [1:0] aud_mclk_divider = 0;
-  reg prev_audio_mclk = 0;
-  wire audgen_sclk = aud_mclk_divider[1] /* synthesis keep */;
-
-  always @(posedge clk_74a) begin
-    if (audio_mclk && ~prev_audio_mclk)
-      aud_mclk_divider <= aud_mclk_divider + 1'b1;
-    prev_audio_mclk <= audio_mclk;
-  end
+  // MCLK is the PLL clock itself now -- nothing left to synthesise here.
+  assign audio_mclk = clk_mclk;
 
   // ----------------------------------------------------------------
   // Pack audio channels into 32-bit sample word.
@@ -85,13 +101,16 @@ module sound_i2s #(
   wire right_sign = (SIGNED_INPUT != 0) ? audio_r[CHANNEL_WIDTH-1] : 1'b0;
 
   wire [31:0] audgen_sampdata;
-  assign audgen_sampdata[15]    = left_sign;
-  assign audgen_sampdata[14:0]  = left_mag;
-  assign audgen_sampdata[31]    = right_sign;
-  assign audgen_sampdata[30:16] = right_mag;
+  // Original mapping: {sign, audio[15:1]} -- the input shifted right by one (15 bits, 6 dB down). full16 passes the
+  // whole word. Both words are built every cycle and one is selected, so the select is the only added logic.
+  wire        use16 = full16 && (CHANNEL_WIDTH == 16) && (SIGNED_INPUT != 0);
+  wire [15:0] left_w  = use16 ? audio_l[15:0] : {left_sign,  left_mag};
+  wire [15:0] right_w = use16 ? audio_r[15:0] : {right_sign, right_mag};
+  assign audgen_sampdata[15:0]  = left_w;
+  assign audgen_sampdata[31:16] = right_w;
 
   // ----------------------------------------------------------------
-  // Cross from clk_audio (game domain) to clk_74a (serializer domain)
+  // Cross from clk_audio (game domain) to clk_mclk (serializer domain)
   // via sync_fifo. Write whenever sample changes.
   // ----------------------------------------------------------------
   reg write_en = 0;
@@ -112,23 +131,32 @@ module sound_i2s #(
       .WIDTH(32)
   ) i_sync_fifo (
       .clk_write(clk_audio),
-      .clk_read (clk_74a),
+      .clk_read (clk_mclk),
       .write_en (write_en),
       .data_in  (audgen_sampdata),
       .data_out (audgen_sampdata_s)
   );
 
   // ----------------------------------------------------------------
+  // SCLK = MCLK / 4 = 3.072 MHz, a plain synchronous counter in the SAME
+  // clock domain as MCLK itself (no more cross-domain edge-detection of a
+  // jittery toggle -- clk_mclk already IS the clean clock). sclk_div == 3
+  // is the clk_mclk cycle right before SCLK's own bit (sclk_div[1]) falls
+  // 3->0 on the next edge -- i.e. exactly SCLK's falling edge, the same
+  // instant the original design's `prev_audgen_sclk && ~audgen_sclk` fired.
+  //
   // Serialize: shift out on falling edge of SCLK
   // 32 bits per channel (16 active + 16 padding), stereo = 64 SCLK cycles
-  // LRCK toggles every 32 SCLK cycles → 3.072MHz / 64 = 48kHz
+  // LRCK toggles every 32 SCLK cycles -> 3.072MHz / 64 = 48kHz
   // ----------------------------------------------------------------
+  reg [1:0]  sclk_div = 0;
   reg [31:0] audgen_sampshift = 0;
   reg [4:0]  audio_lrck_cnt  = 0;
-  reg        prev_audgen_sclk = 0;
 
-  always @(posedge clk_74a) begin
-    if (prev_audgen_sclk && ~audgen_sclk) begin
+  always @(posedge clk_mclk) begin
+    sclk_div <= sclk_div + 1'b1;
+
+    if (sclk_div == 2'd3) begin
       // Output next bit on falling SCLK edge
       audio_dac <= audgen_sampshift[31];
 
@@ -144,8 +172,12 @@ module sound_i2s #(
         audgen_sampshift <= {audgen_sampshift[30:0], 1'b0};
       end
     end
+  end
 
-    prev_audgen_sclk <= audgen_sclk;
+  reg [31:0] prev_sampdata_s = 0;
+  always @(posedge clk_mclk) begin
+    prev_sampdata_s <= audgen_sampdata_s;
+    if (audgen_sampdata_s != prev_sampdata_s) diag_toggle <= ~diag_toggle;
   end
 
 endmodule

@@ -24,6 +24,7 @@ module tb_mp3_fb;
     parameter BUG_SBLIT_NO_SCALE = 0;       // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_BLEND_ALWAYS_SRC = 0;     // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_IGNORE_RC_CUT = 0;        // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
+    parameter BUG_IGNORE_BAR_HI = 0;        // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -37,6 +38,7 @@ module tb_mp3_fb;
     reg  [15:0] cmd_fg = 16'hFFFF, cmd_bg = 16'h0000;
     reg  [6:0]  cmd_glyph = 0;
     reg  [1:0]  cmd_sx = 0, cmd_sy = 0;
+    reg  [1:0]  cmd_glyph_hi = 0;   // B12 (B-454): BAR lit-count high bits
     wire        cmd_full;
 
     // Phase F B1: sticky blit addressing state. Left at the power-up defaults
@@ -74,11 +76,12 @@ module tb_mp3_fb;
     mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
              .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
-             .BUG_IGNORE_RC_CUT(BUG_IGNORE_RC_CUT)) dut (
+             .BUG_IGNORE_RC_CUT(BUG_IGNORE_RC_CUT),
+             .BUG_IGNORE_BAR_HI(BUG_IGNORE_BAR_HI)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
-        .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_full(cmd_full),
+        .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_glyph_hi(cmd_glyph_hi), .cmd_full(cmd_full),
         .blt_src_base(blt_src_base), .blt_src_stride(blt_src_stride),
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
@@ -172,6 +175,21 @@ module tb_mp3_fb;
             @(posedge clk_sys);
             cmd_op <= op; cmd_addr <= a; cmd_w <= w; cmd_h <= h;
             cmd_glyph <= g; cmd_sx <= sx; cmd_sy <= sy; cmd_push <= 1'b1;
+            @(posedge clk_sys);
+            cmd_push <= 1'b0;
+        end
+    endtask
+
+    // B12 (B-454): a dedicated task rather than widening push()'s own signature -- every existing
+    // push() call site (BAR included, lit<=127) stays byte-for-byte unchanged and cmd_glyph_hi
+    // defaults to 0 for all of them, exactly as it should. `lit9` is the FULL 9-bit lit-row count;
+    // this splits it across cmd_glyph's low 7 bits and cmd_glyph_hi's 2 bits the same way
+    // fw/player.c's fb_bar() will.
+    task push_bar(input [18:0] a, input [8:0] w, input [8:0] h, input [8:0] lit9);
+        begin
+            @(posedge clk_sys);
+            cmd_op <= 4'd5; cmd_addr <= a; cmd_w <= w; cmd_h <= h;
+            cmd_glyph <= lit9[6:0]; cmd_glyph_hi <= lit9[8:7]; cmd_sx <= 2'd0; cmd_sy <= 2'd0; cmd_push <= 1'b1;
             @(posedge clk_sys);
             cmd_push <= 1'b0;
         end
@@ -415,6 +433,21 @@ module tb_mp3_fb;
         wait (rows_written == 4); repeat (30) @(posedge clk_sdram);
         check(rows_written == 4, "BAR full unlit: 4 rows");
         check(row_pix[0][0] == 16'h8888 && row_pix[3][0] == 16'h8888, "BAR full unlit: all bg colour");
+
+        // ---- BAR, lit-row count above the old 7-bit limit (B12/B-454) ------
+        // h=250, lit=200 -> unlit=50. 200 and 250 are both impossible to express in the old 7-bit
+        // field (max 127); if cmd_glyph_hi were ignored (BUG_IGNORE_BAR_HI=1, or the old RTL),
+        // lit9[6:0]=200&0x7F=72 would draw a 72-row lit / 178-row unlit split instead -- this test
+        // fails cleanly under that mutation, proving it actually exercises the new bits.
+        rows_written = 0;
+        cmd_fg <= 16'hAAAA; cmd_bg <= 16'hBBBB;
+        push_bar(19'd5000, 9'd2, 9'd250, 9'd200);
+        wait (rows_written == 250); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 250, "BAR wide lit: 250 rows total");
+        check(row_addr[0] == 19'd5000, "BAR wide lit: starts at top-left");
+        check(row_pix[0][0] == 16'hBBBB && row_pix[49][0] == 16'hBBBB, "BAR wide lit: unlit segment (50 rows) is bg");
+        check(row_addr[50] == 19'd5000 + 50*512, "BAR wide lit: lit segment starts at row 50");
+        check(row_pix[50][0] == 16'hAAAA && row_pix[249][0] == 16'hAAAA, "BAR wide lit: lit segment (200 rows) is fg");
 
         // ---- RUN ----------------------------------------------------------
         rows_written = 0;

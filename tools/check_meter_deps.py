@@ -2,7 +2,7 @@
 """Layer check for the meter code (docs/METER_MODULE_SPEC.md section 14): engine primitives <- meter_core <- meter modules <- host.
 Fails if a lower layer reaches upward or a module reaches past its contract.
 
-  fw/meter_core.h, fw/meter_module.h   portable: only <stdint.h>; no MMIO (REG(, R_*), no fb_*, no player.c state, no float
+  fw2/cores/meter_core.h, fw/meter_module.h   portable: only <stdint.h>; no MMIO (REG(, R_*), no fb_*, no player.c state, no float
   fw/meters/*.inc        modules: no REG(, no raw framebuffer/SDRAM pointers, no other module's include, colours only via
                          the role table (no 0x____u colour literals); they draw through mtr_* only
 """
@@ -18,7 +18,7 @@ def strip(s):
     return re.sub(r"//[^\n]*", "", s)
 
 
-PORTABLE = [ROOT / "fw" / "meter_core.h", ROOT / "fw" / "meter_module.h"]
+PORTABLE = [ROOT / "fw2" / "cores" / "meter_core.h", ROOT / "fw" / "meter_module.h"]
 for core in PORTABLE:
     if not core.exists():
         continue
