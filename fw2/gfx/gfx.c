@@ -22,6 +22,7 @@ static uint32_t color_shadow = 0xFFFFFFFFu;
 #if P2_DIAG
 uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;
 uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max;                    /* the wait for the flip to land at a vblank after a frame ends (the second spin of a frame, after the fence): count, cycles, the longest */
+uint32_t gfx_hw_fence_st;                                              /* which fence is in use: 0 not probed yet, 1 the mailbox fence (a bitstream without the T3 block, or the hardware one timed out), 2 the hardware FENCE command */
 uint32_t gfx_hw_ovf, gfx_hw_uf;                                         /* Talos T3: queue pushes dropped / scanout lines late (R_GFX_COUNTS), read after each hardware fence; 0 on a healthy build */
 uint32_t gfx_fence_n[7], gfx_fence_c[7];                              /* the same, by reason: 0 other (public gfx_fence), 1 frame end, 2 palette load, 3 bases, 4 compose before, 5 compose after, 6 blend off */   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
 static inline void wait_fifo(void)
@@ -134,6 +135,7 @@ static uint32_t hw_fence_issued;
 static void fence_why(uint32_t why)
 {
     if (hw_fence < 0) { hw_fence = (REG_RD(R_GFX_STATUS) >> 31) ? 1 : 0; if (hw_fence) hw_fence_issued = REG_RD(R_GFX_FENCE); }
+    GD(gfx_hw_fence_st = (uint32_t)(hw_fence + 1);)
     const uint32_t a = 1021u * GFX_STRIDE + GFX_CELL_X;
     const int hw = hw_fence > 0;
     uint32_t r = 0;

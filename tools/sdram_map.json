@@ -1,5 +1,5 @@
 {
-  "about": "The off-screen SDRAM rows Player 2 uses (T0 of the Talos plan, D-T05). Engine word addresses are row * 512 + column; rows 0..359 are the visible framebuffer (columns 400..511 of every row are the engine's own markers, never pixels), rows 360..1023 are the stash, shared by both display buffers. A new user of the stash adds its rows here and in fw2/gfx/gfx.h; sim/test_sdram_map_fw2.py reads the C constants named below and refuses an overlap or a constant that drifted from this file.",
+  "about": "The off-screen SDRAM rows Player 2 uses (T0 of the Talos plan, D-T05). Engine word addresses are row * 512 + column; rows 0..359 are the visible framebuffer (columns 400..511 of every row are the engine's own markers, never pixels), rows 360..1023 are the stash, shared by both display buffers. A new user of the stash adds its rows here and in fw2/gfx/gfx.h; sim/test_sdram_map_fw2.py reads the C constants named below and refuses an overlap or a constant that drifted from this file. (The scroll temporary, rows 780..979, was freed by the one-pass scroll, B-901.)",
   "stride": 512,
   "visible_rows": 360,
   "total_rows": 1024,
@@ -123,22 +123,6 @@
         "fw2/ui/meterlist_thumb.c",
         "THUMB_PLANE_Y",
         740
-      ]
-    },
-    {
-      "name": "scroll temporary",
-      "rows": [
-        780,
-        980
-      ],
-      "cols": [
-        0,
-        400
-      ],
-      "const": [
-        "fw2/gfx/scroll.c",
-        "SCROLL_TEMP_Y",
-        780
       ]
     },
     {
