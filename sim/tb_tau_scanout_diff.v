@@ -1,7 +1,7 @@
 `timescale 1ps/1ps
-// Differential testbench: the oracle tau_scanout against tau_scanout_new (Talos 2 T5, contract section 7).
+// Differential testbench: the oracle tau_scanout1_oracle (the scanout before the clean-room rewrite) against tau_scanout (Talos 2 T5, contract section 7).
 // Same random stimulus on three unrelated clocks; every output of both is compared on every edge of its own clock.
-// +seed=N picks the stimulus; -Ptb_tau_scanout_diff.BUG=n turns on mutant n of tau_scanout_new (the bench must FAIL).
+// +seed=N picks the stimulus; -Ptb_tau_scanout_diff.BUG=n turns on mutant n of tau_scanout (the bench must FAIL).
 module tb_tau_scanout_diff;
     parameter BUG = 0;
     parameter NFRAMES = 4;       // frames simulated (one frame = 16.667 ms)
@@ -36,13 +36,13 @@ module tb_tau_scanout_diff;
     wire        o_de, n_de, o_hs, n_hs, o_vs, n_vs;
     wire [8:0]  o_svc, n_svc;
 
-    tau_scanout o (.reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid), .cmd_push(cmd_push),
+    tau_scanout1_oracle o (.reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid), .cmd_push(cmd_push),
         .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
         .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
         .underflow_cnt(o_cnt), .fill_req_tgl(o_rt), .fill_line_req(o_fl), .vblank_tgl(o_vt),
         .video_rgb(o_rgb), .video_de(o_de), .video_hs(o_hs), .video_vs(o_vs), .scan_vc(o_svc));
 
-    tau_scanout_new #(
+    tau_scanout #(
         .BUG_ACT_X(BUG==1), .BUG_HS(BUG==2), .BUG_LATENCY(BUG==3), .BUG_PARITY(BUG==4), .BUG_VBLANK(BUG==5),
         .BUG_NO_PAINT(BUG==6), .BUG_LATE_HC(BUG==7), .BUG_REQ_EARLY(BUG==8), .BUG_VS(BUG==9),
         .BUG_PAINT_SYN(BUG==10), .BUG_NO_NEXT(BUG==11), .BUG_EXPAND(BUG==12)
