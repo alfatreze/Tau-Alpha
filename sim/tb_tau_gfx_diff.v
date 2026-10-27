@@ -114,7 +114,7 @@ module tb_tau_gfx_diff;
     // a split that mis-wires one input.
     wire [3:0] a_op = (MUTATE != 0 && cmd_op == 4'd2) ? 4'd1 : cmd_op;
 
-    tau_gfx #(.BLIT_BLEND_ENABLE(FEATURES), .DBUF_ENABLE(FEATURES), .FONT_RAM_ENABLE(FEATURES), .CBLIT_BURST(0)) dut_a (
+    tau_gfx #(.BLIT_BLEND_ENABLE(FEATURES), .DBUF_ENABLE(FEATURES), .FONT_RAM_ENABLE(FEATURES), .CBLIT_BURST(0), .FILL_WORDS(512)) dut_a (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(a_op), .cmd_addr(cmd_addr), .cmd_w(cmd_w), .cmd_h(cmd_h),
         .cmd_fg(cmd_fg), .cmd_bg(cmd_bg), .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy),

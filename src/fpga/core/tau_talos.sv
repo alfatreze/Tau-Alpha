@@ -133,7 +133,11 @@ module tau_talos #(
     parameter CBLIT_BURST = 1,
     // Mutation-test hooks only (sim/tb_tau_gfx_cblit.v): BUG_CBLIT_EARLY 1 ends the burst one pixel short (the row's last pixel is never written) / BUG_CBLIT_SHIFT 1 writes every pixel one column to the left.
     parameter BUG_CBLIT_EARLY = 0,
-    parameter BUG_CBLIT_SHIFT = 0
+    parameter BUG_CBLIT_SHIFT = 0,
+    // Talos 2 T3b: the number of words a scanout fill reads per line. The picture is 400 pixels wide; the old engine read the whole 512-word stride (a fill every
+    // scanline, about a fifth of its cycles wasted). 512 = the old behaviour (the differential test with the pre-split original runs with it), 400 = the picture only.
+    // (tb_tau_gfx_fill.v drives 399 as a mutant.)
+    parameter FILL_WORDS = 400
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -1432,7 +1436,7 @@ module tau_talos #(
                         lb_we    <= 1'b1;
                         lb_waddr <= {fill_lb, fill_cnt[8:0]};
                         lb_wdata <= p0_q;
-                        if (fill_cnt == {1'b0, STRIDE} - 1'b1) begin
+                        if (fill_cnt == FILL_WORDS - 1) begin
                             p0_end_burst_req <= 1'b1;
                             astate <= A_FILL_END;
                         end else fill_cnt <= fill_cnt + 1'b1;
