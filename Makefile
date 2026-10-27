@@ -718,11 +718,11 @@ test-rtl-sdram-controller-probe:
 	$(VERILATOR) --binary --timing -DSIM -DTAU_PHASE2_WINDOW -DTAU_PHASE2_PROBE --top-module tb_sdram_fb_controller_probe -Wno-fatal -Wno-TIMESCALEMOD -Wno-REALCVT -Mdir /tmp/tau_sdram_fb_controller_probe sim/tb_sdram_fb_controller_probe.v src/fpga/rtl/mem/tau_sdram_ctrl.sv
 	/tmp/tau_sdram_fb_controller_probe/Vtb_sdram_fb_controller_probe
 
-# Talos 2 T5: the new scanout against the oracle tau_scanout (black box), cycle for cycle on every output, three unrelated clocks,
-# several seeds (run in parallel); then twelve BUG_* mutants of tau_scanout_new, each of which the bench must fail (a survivor fails the target).
+# Talos 2 T5: the clean-room scanout against the pre-rewrite oracle sim/oracle/tau_scanout1_oracle.sv (black box), cycle for cycle on every output, three unrelated clocks,
+# several seeds (run in parallel); then twelve BUG_* mutants of tau_scanout, each of which the bench must fail (a survivor fails the target).
 # The oracle is only ever a file argument here. SCANOUT_ORACLE can be overridden (the path may contain spaces).
-SCANOUT_ORACLE ?= src/fpga/core/tau_scanout.sv
-SCANOUT_DIFF_SRC = sim/tb_tau_scanout_diff.v src/fpga/core/tau_scanout_new.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
+SCANOUT_ORACLE ?= sim/oracle/tau_scanout1_oracle.sv
+SCANOUT_DIFF_SRC = sim/tb_tau_scanout_diff.v src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
 SCANOUT_SEEDS ?= 1 2 3
 SCANOUT_MUTANTS ?= 1 2 3 4 5 6 7 8 9 10 11 12
 test-rtl-scanout-diff: $(SCANOUT_DIFF_SRC) | $(RTL_BUILD_DIR)
@@ -741,7 +741,7 @@ test-rtl-scanout-diff: $(SCANOUT_DIFF_SRC) | $(RTL_BUILD_DIR)
 	@echo "test-rtl-scanout-diff: PASSED"
 
 rtl-lint:
-	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_scanout_new -Isrc/fpga/core src/fpga/core/tau_scanout_new.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_scanout -Isrc/fpga/core src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gfx src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_ctr.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tgt_cmd src/fpga/core/tgt_cmd.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
