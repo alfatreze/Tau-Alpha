@@ -61,7 +61,7 @@ module tb_tau_gfx_cblit;
     wire [15:0] a_q, b_q; wire a_av, b_av, a_rdy, b_rdy, a_da, b_da; wire [10:0] a_wa, b_wa; wire [15:0] a_wq, b_wq;
     wire a_idle, b_idle;
 
-    tau_gfx #(.BLIT_BLEND_ENABLE(0), .CBLIT_BURST(1), .BUG_CBLIT_EARLY(MUT == 1), .BUG_CBLIT_SHIFT(MUT == 2)) dut_a (   // A: the burst
+    tau_gfx #(.BLIT_BLEND_ENABLE(0), .CBLIT_BURST(1), .FILL_WORDS(512), .BUG_CBLIT_EARLY(MUT == 1), .BUG_CBLIT_SHIFT(MUT == 2)) dut_a (   // A: the burst
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr), .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
         .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_glyph_hi(cmd_glyph_hi), .font_we(1'b0), .font_waddr(13'd0), .font_wdata(32'd0),
@@ -74,7 +74,7 @@ module tb_tau_gfx_cblit;
         .p0_wr_req(a_wr), .p0_rd_req(a_rd), .p0_end_burst_req(a_eb), .p0_available(a_av), .p0_ready(a_rdy), .p0_data_available(a_da),
         .wsrc_addr(a_wa), .wsrc_q(a_wq), .video_rgb(), .video_de(), .video_hs(), .video_vs(), .scan_vc(),
         .gfx_idle(a_idle), .gfx_fence(), .gfx_free(), .gfx_ovf(), .gfx_underflow());
-    tau_gfx #(.BLIT_BLEND_ENABLE(0), .CBLIT_BURST(0)) dut_b (                                                           // B: the per-pixel path
+    tau_gfx #(.BLIT_BLEND_ENABLE(0), .CBLIT_BURST(0), .FILL_WORDS(512)) dut_b (                                                           // B: the per-pixel path
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr), .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
         .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_glyph_hi(cmd_glyph_hi), .font_we(1'b0), .font_waddr(13'd0), .font_wdata(32'd0),

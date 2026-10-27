@@ -75,7 +75,8 @@ module tau_gfx #(
     parameter BUG_FONT_NO_WRITE = 0,     // 1: the CPU write port is ignored
     parameter BUG_FENCE_ANY = 0,       // mutation hook (sim/tb_tau_gfx_t3.v): see tau_talos.sv
     parameter CBLIT_BURST = 1,         // Talos 2 T3b: a CBLIT source row in one burst (0 = the per-pixel path); see tau_talos.sv
-    parameter BUG_CBLIT_EARLY = 0, BUG_CBLIT_SHIFT = 0   // mutation hooks (sim/tb_tau_gfx_cblit.v)
+    parameter BUG_CBLIT_EARLY = 0, BUG_CBLIT_SHIFT = 0,  // mutation hooks (sim/tb_tau_gfx_cblit.v)
+    parameter FILL_WORDS = 400         // Talos 2 T3b: words read per scanout fill (512 = the old behaviour); see tau_talos.sv
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -244,7 +245,7 @@ module tau_gfx #(
         .BUG_FONT_RANGE(BUG_FONT_RANGE),
         .BUG_FONT_NO_WRITE(BUG_FONT_NO_WRITE),
         .BUG_FENCE_ANY(BUG_FENCE_ANY),
-        .CBLIT_BURST(CBLIT_BURST), .BUG_CBLIT_EARLY(BUG_CBLIT_EARLY), .BUG_CBLIT_SHIFT(BUG_CBLIT_SHIFT)
+        .CBLIT_BURST(CBLIT_BURST), .BUG_CBLIT_EARLY(BUG_CBLIT_EARLY), .BUG_CBLIT_SHIFT(BUG_CBLIT_SHIFT), .FILL_WORDS(FILL_WORDS)
     ) u_talos (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push),
