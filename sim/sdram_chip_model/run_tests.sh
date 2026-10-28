@@ -3,7 +3,7 @@
 #   sim/sdram_chip_model/run_tests.sh            all tests (fast set)
 #   sim/sdram_chip_model/run_tests.sh long       also the full 64 ms refresh run
 #   sim/sdram_chip_model/run_tests.sh <name>     one test
-# Each line of TESTS is:  name | iverilog -P overrides (top-level parameters of tb_sdram_chip_model)
+# Each line of TESTS is:  name | iverilog -P overrides (top-level parameters of tb_sdram_chip_model) | optional label
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -43,6 +43,19 @@ n_tras_max |
 n_tref | TREFPS=100000000
 n_setup | TCO_MAX=4500
 n_hold | M_TCMH=7000
+wr_burst |
+wr_mask |
+wr_interrupt |
+wr_pre_legal |
+n_tdpl |
+n_tdal |
+n_wrap_wr |
+n_wrap_rd |
+rd_counts | | rd_counts_cl2
+rd_counts | CLSEL=3 | rd_counts_cl3
+rd_dqm_mask | | rd_dqm_mask_cl2
+rd_dqm_mask | CLSEL=3 | rd_dqm_mask_cl3
+n_bst_after_bst |
 EOF
 )
 LONGTESTS=$(cat <<'EOF'
@@ -52,23 +65,24 @@ EOF
 WANT="${1:-all}"
 pass=0; fail=0
 run_one() {
-    local name="$1" params="$2" vvpf="$OUT/$1.vvp" args=()
+    local name="$1" params="$2" label="${3:-$1}" args=()
+    local vvpf="$OUT/$label.vvp"
     for p in $params; do args+=("-P$T.$p"); done
-    if ! "$IVERILOG" -g2012 -I "$HERE" ${args[@]+"${args[@]}"} -s "$T" -o "$vvpf" "$ROOT/sim/sdram_chip_model.sv" "$HERE/$T.sv" 2> "$OUT/$name.cc.log"; then
-        echo "COMPILE FAIL $name"; cat "$OUT/$name.cc.log"; fail=$((fail+1)); return
+    if ! "$IVERILOG" -g2012 -I "$HERE" ${args[@]+"${args[@]}"} -s "$T" -o "$vvpf" "$ROOT/sim/sdram_chip_model.sv" "$HERE/$T.sv" 2> "$OUT/$label.cc.log"; then
+        echo "COMPILE FAIL $label"; cat "$OUT/$label.cc.log"; fail=$((fail+1)); return
     fi
-    "$VVP" "$vvpf" +TEST="$name" > "$OUT/$name.log" 2>&1
-    if grep -q "^TEST $name PASS" "$OUT/$name.log"; then
-        echo "PASS $name"; pass=$((pass+1))
+    "$VVP" "$vvpf" +TEST="$name" > "$OUT/$label.log" 2>&1
+    if grep -q "^TEST $name PASS" "$OUT/$label.log"; then
+        echo "PASS $label"; pass=$((pass+1))
     else
-        echo "FAIL $name"; tail -15 "$OUT/$name.log"; fail=$((fail+1))
+        echo "FAIL $label"; tail -15 "$OUT/$label.log"; fail=$((fail+1))
     fi
 }
 run_list() {
-    while IFS='|' read -r name params; do
-        name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"
+    while IFS='|' read -r name params label; do
+        name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"; [ -z "$label" ] && label="$name"
         [ -z "$name" ] && continue
-        if [ "$WANT" = all ] || [ "$WANT" = long ] || [ "$WANT" = "$name" ]; then run_one "$name" "$params"; fi
+        if [ "$WANT" = all ] || [ "$WANT" = long ] || [ "$WANT" = "$label" ]; then run_one "$name" "$params" "$label"; fi
     done
 }
 run_list <<< "$TESTS"
