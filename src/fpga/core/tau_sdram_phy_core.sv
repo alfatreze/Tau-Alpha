@@ -170,9 +170,8 @@ module tau_sdram_phy_core #(
             initial $error("tau_sdram_phy: PREEMPT_TIMEOUT must be 1..4095");
         end
     endgenerate
-
     // ---------------------------------------------------------------------------------------------------------
-    // init sequencer (also after every reset)
+    // init sequencer (also after every reset): wait, PREA, tRP, REF, tRFC, REF, tRFC, MRS, tMRD, EMRS, tMRD
     // ---------------------------------------------------------------------------------------------------------
     localparam [2:0] I_WAIT = 3'd0, I_REF1 = 3'd1, I_REF2 = 3'd2, I_MRS = 3'd3, I_EMRS = 3'd4, I_FIN = 3'd5;
     localparam integer IW = 15;
@@ -181,40 +180,331 @@ module tau_sdram_phy_core #(
     reg          init_done_q = 1'b0;
     assign init_done = init_done_q;
 
+    localparam [IW-1:0] IW_TRP  = TRP_C - 1;
+    localparam [IW-1:0] IW_TRFC = TRFC_C - 1;
+    localparam [IW-1:0] IW_TMRD = MRD_C - 1;
+    localparam [IW-1:0] IW_WAIT = INIT_WAIT_CYCLES - 1;
+
     reg  [2:0]    n_is;
     reg  [IW-1:0] n_iw;
-    wire          n_init_done = init_done_q | ((is_q == I_FIN) && (iw_q == 0));
-    // internal command (init)
-    reg           i_v;
+    wire          n_init_done = init_done_q | ((is_q == I_FIN) && (iw_q == {IW{1'b0}}));
+    reg           i_v;                 // internal command from the init sequencer
     reg  [2:0]    i_cmd;
     reg           i_mrs, i_emrs;
     always_comb begin
         n_is = is_q; n_iw = iw_q; i_v = 1'b0; i_cmd = CMD_NOP; i_mrs = 1'b0; i_emrs = 1'b0;
         if (!init_done_q) begin
-            if (iw_q != 0) n_iw = iw_q - 1'b1;
+            if (iw_q != {IW{1'b0}}) n_iw = iw_q - 1'b1;
             else begin
                 case (is_q)
-                    I_WAIT: begin i_v = 1'b1; i_cmd = CMD_PREA; n_is = I_REF1; n_iw = TRP_C - 1; end
-                    I_REF1: begin i_v = 1'b1; i_cmd = CMD_REF;  n_is = I_REF2; n_iw = TRFC_C - 1; end
-                    I_REF2: begin i_v = 1'b1; i_cmd = CMD_REF;  n_is = I_MRS;  n_iw = TRFC_C - 1; end
-                    I_MRS:  begin i_v = 1'b1; i_mrs = 1'b1;                    n_is = I_EMRS; n_iw = MRD_C - 1; end
-                    I_EMRS: begin i_v = 1'b1; i_mrs = 1'b1; i_emrs = 1'b1;     n_is = I_FIN;  n_iw = MRD_C - 1; end
+                    I_WAIT: begin i_v = 1'b1; i_cmd = CMD_PREA; n_is = I_REF1; n_iw = IW_TRP;  end
+                    I_REF1: begin i_v = 1'b1; i_cmd = CMD_REF;  n_is = I_REF2; n_iw = IW_TRFC; end
+                    I_REF2: begin i_v = 1'b1; i_cmd = CMD_REF;  n_is = I_MRS;  n_iw = IW_TRFC; end
+                    I_MRS:  begin i_v = 1'b1; i_mrs = 1'b1;                    n_is = I_EMRS; n_iw = IW_TMRD; end
+                    I_EMRS: begin i_v = 1'b1; i_mrs = 1'b1; i_emrs = 1'b1;     n_is = I_FIN;  n_iw = IW_TMRD; end
                     default: ;
                 endcase
             end
         end
     end
+    always @(posedge clk) begin
+        if (rst) begin
+            is_q <= I_WAIT; iw_q <= IW_WAIT; init_done_q <= 1'b0;
+        end else begin
+            is_q <= n_is; iw_q <= n_iw; init_done_q <= n_init_done;
+        end
+    end
 
     // ---------------------------------------------------------------------------------------------------------
-    // effective command (stage 1: the init sequencer only; the scheduler path is added in the next stage)
+    // forced-refresh sequencer (stage 4 placeholder: never active here)
     // ---------------------------------------------------------------------------------------------------------
-    wire e_mrs  = i_v & i_mrs;
-    wire e_emrs = i_v & i_emrs;
-    wire [2:0] e_cmd = i_v ? i_cmd : CMD_NOP;
-    wire [1:0] e_ba  = 2'b00;
-    wire [12:0] e_a  = 13'd0;
-    wire dqm_force = !init_done_q;
+    wire       busy_seq = 1'b0;        // the PHY owns the bus (forced BST / PREA / REF)
+    wire       s_v      = 1'b0;
+    wire [2:0] s_cmd    = CMD_NOP;
+    wire       n_busy_seq = 1'b0;
 
+    // ---------------------------------------------------------------------------------------------------------
+    // interlock: the offered command against the registered permits
+    // ---------------------------------------------------------------------------------------------------------
+    reg [3:0] ok_act_q = 4'd0, ok_rd_q = 4'd0, ok_wr_q = 4'd0, ok_pre_q = 4'd0;
+    reg       ok_prea_q = 1'b0, ok_ref_q = 1'b0, ok_bst_q = 1'b0;
+    assign ok_act = ok_act_q; assign ok_rd = ok_rd_q; assign ok_wr = ok_wr_q; assign ok_pre = ok_pre_q;
+    assign ok_prea = ok_prea_q; assign ok_ref = ok_ref_q; assign ok_bst = ok_bst_q;
+
+    wire busy = !init_done_q | busy_seq;
+    wire a10  = cmd_a[10];
+    reg  leg;
+    always_comb begin
+        case (cmd)
+            CMD_ACT:  leg = ok_act_q[cmd_ba];
+`ifdef MUT_A10
+            CMD_RD:   leg = ok_rd_q[cmd_ba];
+            CMD_WR:   leg = ok_wr_q[cmd_ba];
+`else
+            CMD_RD:   leg = ok_rd_q[cmd_ba] & ~a10;
+            CMD_WR:   leg = ok_wr_q[cmd_ba] & ~a10;
+`endif
+            CMD_PRE:  leg = ok_pre_q[cmd_ba];
+            CMD_PREA: leg = ok_prea_q;
+            CMD_REF:  leg = ok_ref_q;
+            CMD_BST:  leg = ok_bst_q;
+            default:  leg = 1'b1;           // NOP
+        endcase
+    end
+    wire silent_bst = (cmd == CMD_BST) & ~ok_bst_q & ~busy;      // BST with no burst open: NOP, no fault
+    wire illegal    = ~leg & ~silent_bst;
+    wire [2:0] o_cmd = leg ? cmd : CMD_NOP;
+
+    // effective command before the wrap guard: the PHY's own command, else the (legal) offer
+    wire       int_v   = i_v | s_v;
+    wire [2:0] e0_cmd  = i_v ? i_cmd : (s_v ? s_cmd : o_cmd);
+    wire       e0_mrs  = i_v & i_mrs;
+    wire       e0_emrs = i_v & i_emrs;
+    wire [1:0] e0_ba   = int_v ? 2'b00 : cmd_ba;
+    wire [12:0] e0_a   = int_v ? 13'd0 : cmd_a;
+
+    // ---------------------------------------------------------------------------------------------------------
+    // burst state and the column wrap guard (a burst must not run past column 1023: forced BST, fault)
+    // ---------------------------------------------------------------------------------------------------------
+    reg        rd_open_q = 1'b0, wr_open_q = 1'b0;
+    reg [1:0]  rd_bank_q = 2'b00, wr_bank_q = 2'b00;
+    reg [10:0] bcol_q = 11'd0;                   // column of the word that this cycle would carry
+    wire       burst_open = rd_open_q | wr_open_q;
+    wire [1:0] burst_bank = rd_open_q ? rd_bank_q : wr_bank_q;
+    wire e0_term = (e0_cmd == CMD_BST) | (e0_cmd == CMD_PREA) | (e0_cmd == CMD_RD) | (e0_cmd == CMD_WR) |
+                   ((e0_cmd == CMD_PRE) & (e0_ba == burst_bank));
+`ifdef MUT_NOWRAP
+    wire wrap_viol = 1'b0;
+`else
+    wire wrap_viol = burst_open & bcol_q[10] & ~e0_term & ~e0_mrs;
+`endif
+
+    wire [2:0]  e_cmd = wrap_viol ? CMD_BST : e0_cmd;
+    wire        e_mrs = e0_mrs & ~wrap_viol;
+    wire        e_emrs = e0_emrs & ~wrap_viol;
+    wire [1:0]  e_ba  = wrap_viol ? 2'b00 : e0_ba;
+    wire [12:0] e_a   = wrap_viol ? 13'd0 : e0_a;
+    wire e_act  = (e_cmd == CMD_ACT)  & ~e_mrs;
+    wire e_rd   = (e_cmd == CMD_RD)   & ~e_mrs;
+    wire e_wr   = (e_cmd == CMD_WR)   & ~e_mrs;
+    wire e_pre  = (e_cmd == CMD_PRE)  & ~e_mrs;
+    wire e_prea = (e_cmd == CMD_PREA) & ~e_mrs;
+    wire e_ref  = (e_cmd == CMD_REF)  & ~e_mrs;
+    wire e_bst  = (e_cmd == CMD_BST)  & ~e_mrs;
+
+    wire rd_open_n = e_rd | (rd_open_q & ~(e_bst | e_prea | e_wr | (e_pre & (e_ba == rd_bank_q))));
+    wire wr_open_n = e_wr | (wr_open_q & ~(e_bst | e_prea | e_rd | (e_pre & (e_ba == wr_bank_q))));
+    wire [1:0] rd_bank_n = e_rd ? e_ba : rd_bank_q;
+    wire [1:0] wr_bank_n = e_wr ? e_ba : wr_bank_q;
+    wire [10:0] bcol_n = (e_rd | e_wr) ? ({1'b0, e_a[9:0]} + 11'd1) : (bcol_q[10] ? bcol_q : bcol_q + 11'd1);
+
+    // DQM / DQ output enable
+    wire dqm_force = !init_done_q | busy_seq | illegal;
+    wire beat      = wr_open_n & wvalid & (be != 2'b00) & ~dqm_force;      // an unmasked word is written this cycle
+    reg  [1:0] dqm_n;
+    always_comb begin
+        if (dqm_force)                          dqm_n = 2'b11;
+        else if (rd_open_q | rd_open_n)         dqm_n = 2'b00;             // read: low through the terminating cycle
+`ifdef MUT_DQM
+        else if (wr_open_n)                     dqm_n = ~be;               // wvalid ignored
+`else
+        else if (wr_open_n & wvalid)            dqm_n = ~be;
+`endif
+        else                                    dqm_n = 2'b11;
+    end
+`ifdef MUT_OE_EARLY
+    wire oe_n = (wr_open_n | wr_open_q | rd_open_q) & ~dqm_force;
+`else
+    wire oe_n = wr_open_n & ~dqm_force;
+`endif
+
+    // ---------------------------------------------------------------------------------------------------------
+    // timing state
+    // ---------------------------------------------------------------------------------------------------------
+    localparam [CW-1:0] M_RCD = TRCD_C - 1, M_RP = TRP_C - 1, M_RAS = TRAS_C - 1, M_RC = TRC_C - 1,
+                        M_WRP = WRP_C - 1, M_DAL = DAL_C - 1, M_RRD = RRD_C - 1, M_RFC = TRFC_C - 1, M_RW = RW_C - 1;
+    function [CW-1:0] dec(input [CW-1:0] x);
+        begin dec = (x == {CW{1'b0}}) ? {CW{1'b0}} : x - 1'b1; end
+    endfunction
+
+    reg [CW-1:0] rrd_q = {CW{1'b0}}, rfc_q = {CW{1'b0}}, rw_q = {CW{1'b0}};
+    wire [CW-1:0] n_rrd = e_act ? M_RRD : dec(rrd_q);
+    wire [CW-1:0] n_rfc = e_ref ? M_RFC : dec(rfc_q);
+    wire [CW-1:0] n_rw  = (rd_open_q & ~rd_open_n) ? M_RW : dec(rw_q);
+    always @(posedge clk) begin
+        if (rst) begin rrd_q <= {CW{1'b0}}; rfc_q <= {CW{1'b0}}; rw_q <= {CW{1'b0}}; end
+        else begin rrd_q <= n_rrd; rfc_q <= n_rfc; rw_q <= n_rw; end
+    end
+
+    wire [3:0] n_open, r_act_b, r_rd_b, r_wr_b, r_pre_b, prea_b, ref_b;
+    wire [3:0] age_req, age_force;
+    genvar b;
+    generate
+        for (b = 0; b < 4; b = b + 1) begin : gb
+            reg          open_q = 1'b0;
+            reg [CW-1:0] rcd_q = {CW{1'b0}}, ras_q = {CW{1'b0}}, rc_q = {CW{1'b0}}, rp_q = {CW{1'b0}},
+                         wrp_q = {CW{1'b0}}, dal_q = {CW{1'b0}};
+            reg [AW-1:0] age_q = {AW{1'b0}};
+            wire act_b  = e_act & (e_ba == b);
+            wire pre_b  = e_prea | (e_pre & (e_ba == b));
+            wire beat_b = beat & (wr_bank_n == b);
+            wire n_o    = act_b | (open_q & ~pre_b);
+            wire [CW-1:0] n_rcd = act_b ? M_RCD : dec(rcd_q);
+            wire [CW-1:0] n_ras = act_b ? M_RAS : dec(ras_q);
+            wire [CW-1:0] n_rc  = act_b ? M_RC  : dec(rc_q);
+            wire [CW-1:0] n_rp  = pre_b ? M_RP  : dec(rp_q);
+            wire [CW-1:0] n_wrp = act_b ? {CW{1'b0}} : (beat_b ? M_WRP : dec(wrp_q));
+            wire [CW-1:0] n_dal = act_b ? {CW{1'b0}} : (beat_b ? M_DAL : dec(dal_q));
+            wire [AW-1:0] n_age = act_b ? {AW{1'b0}} : (n_o ? ((age_q == {AW{1'b1}}) ? age_q : age_q + 1'b1) : {AW{1'b0}});
+            always @(posedge clk) begin
+                if (rst) begin
+                    open_q <= 1'b0; rcd_q <= {CW{1'b0}}; ras_q <= {CW{1'b0}}; rc_q <= {CW{1'b0}}; rp_q <= {CW{1'b0}};
+                    wrp_q <= {CW{1'b0}}; dal_q <= {CW{1'b0}}; age_q <= {AW{1'b0}};
+                end else begin
+                    open_q <= n_o; rcd_q <= n_rcd; ras_q <= n_ras; rc_q <= n_rc; rp_q <= n_rp; wrp_q <= n_wrp;
+                    dal_q <= n_dal; age_q <= n_age;
+                end
+            end
+            // permits for the next cycle's offer, from the next state
+`ifdef MUT_TRCD
+            wire rcd_ok = 1'b1;
+`else
+            wire rcd_ok = (n_rcd == {CW{1'b0}});
+`endif
+`ifdef MUT_TRAS
+            wire ras_ok = 1'b1;
+`else
+            wire ras_ok = (n_ras == {CW{1'b0}});
+`endif
+`ifdef MUT_TRP
+            wire rp_ok = 1'b1;
+`else
+            wire rp_ok = (n_rp == {CW{1'b0}});
+`endif
+`ifdef MUT_TRC
+            wire rc_ok = 1'b1;
+`else
+            wire rc_ok = (n_rc == {CW{1'b0}});
+`endif
+`ifdef MUT_TDPL
+            wire wrp_ok = 1'b1;
+`else
+            wire wrp_ok = (n_wrp == {CW{1'b0}});
+`endif
+`ifdef MUT_TDAL
+            wire dal_ok = 1'b1;
+`else
+            wire dal_ok = (n_dal == {CW{1'b0}});
+`endif
+`ifdef MUT_ACT_OPEN
+            assign r_act_b[b] = rp_ok & rc_ok & dal_ok;
+`else
+            assign r_act_b[b] = ~n_o & rp_ok & rc_ok & dal_ok;
+`endif
+`ifdef MUT_COL_CLOSED
+            assign r_rd_b[b]  = rcd_ok;
+            assign r_wr_b[b]  = rcd_ok;
+`else
+            assign r_rd_b[b]  = n_o & rcd_ok;
+            assign r_wr_b[b]  = n_o & rcd_ok;
+`endif
+            assign r_pre_b[b] = n_o & ras_ok & wrp_ok;
+            assign prea_b[b]  = ~n_o | (ras_ok & wrp_ok);
+`ifdef MUT_REF_OPEN
+            assign ref_b[b]   = rp_ok & rc_ok;
+`else
+            assign ref_b[b]   = ~n_o & rp_ok & rc_ok;
+`endif
+            assign n_open[b]  = n_o;
+            assign age_req[b]   = open_q & (age_q >= AGE_REQ_C);
+            assign age_force[b] = open_q & (age_q >= AGE_FORCE_C);
+        end
+    endgenerate
+
+`ifdef MUT_TRRD
+    wire rrd_ok = 1'b1;
+`else
+    wire rrd_ok = (n_rrd == {CW{1'b0}});
+`endif
+`ifdef MUT_TRFC
+    wire rfc_ok = 1'b1;
+`else
+    wire rfc_ok = (n_rfc == {CW{1'b0}});
+`endif
+`ifdef MUT_TURN
+    wire rw_ok = 1'b1;
+`else
+    wire rw_ok = (n_rw == {CW{1'b0}});
+`endif
+`ifdef MUT_WR_IN_READ
+    wire no_rd = 1'b1;
+`else
+    wire no_rd = ~rd_open_n;
+`endif
+    wire n_burst = rd_open_n | wr_open_n;
+    wire [3:0] r_act = r_act_b & {4{rrd_ok & rfc_ok}};
+    wire [3:0] r_rd  = r_rd_b;
+    wire [3:0] r_wr  = r_wr_b & {4{no_rd & rw_ok}};
+    wire [3:0] r_pre = r_pre_b;
+    wire       r_prea = (&prea_b) & rfc_ok;
+    wire       r_ref = (&ref_b) & rfc_ok & ~n_burst;
+    wire       r_bst = n_burst;
+
+    wire n_busy = ~n_init_done | n_busy_seq;
+    always @(posedge clk) begin
+        if (rst) begin
+            ok_act_q <= 4'd0; ok_rd_q <= 4'd0; ok_wr_q <= 4'd0; ok_pre_q <= 4'd0; ok_prea_q <= 1'b0;
+            ok_ref_q <= 1'b0; ok_bst_q <= 1'b0;
+        end else begin
+            ok_act_q  <= r_act & {4{~n_busy}};
+            ok_rd_q   <= r_rd  & {4{~n_busy}};
+            ok_wr_q   <= r_wr  & {4{~n_busy}};
+            ok_pre_q  <= r_pre & {4{~n_busy}};
+            ok_prea_q <= r_prea & ~n_busy;
+            ok_ref_q  <= r_ref & ~n_busy;
+            ok_bst_q  <= r_bst & ~n_busy;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (rst) begin
+            rd_open_q <= 1'b0; wr_open_q <= 1'b0; rd_bank_q <= 2'b00; wr_bank_q <= 2'b00; bcol_q <= 11'd0;
+        end else begin
+            rd_open_q <= rd_open_n; wr_open_q <= wr_open_n; rd_bank_q <= rd_bank_n; wr_bank_q <= wr_bank_n; bcol_q <= bcol_n;
+        end
+    end
+
+    // ---------------------------------------------------------------------------------------------------------
+    // faults and counters
+    // ---------------------------------------------------------------------------------------------------------
+    reg        fault_q = 1'b0;
+    reg [15:0] fcnt_q  = 16'd0;
+    reg [3:0]  fcause_q = 4'd0;
+    reg [31:0] refs_q  = 32'd0;
+    reg [15:0] dqc_q   = 16'd0;
+    wire       f_ev   = illegal | wrap_viol;
+    wire [3:0] f_code = illegal ? (busy ? 4'd12 : (((cmd == CMD_RD) | (cmd == CMD_WR)) & a10) ? 4'd11 : {1'b0, cmd}) : 4'd8;
+    wire       conflict_d = oe_n & ((rw_q != {CW{1'b0}}) | rd_open_q);
+    always @(posedge clk) begin
+        if (rst) begin
+            fault_q <= 1'b0; fcnt_q <= 16'd0; fcause_q <= 4'd0; refs_q <= 32'd0; dqc_q <= 16'd0;
+        end else begin
+            if (f_ev) begin
+                fault_q <= 1'b1;
+                if (fcnt_q != 16'hffff) fcnt_q <= fcnt_q + 1'b1;
+                if (!fault_q) fcause_q <= f_code;
+            end
+            if (e_ref) refs_q <= refs_q + 1'b1;
+            if (conflict_d && dqc_q != 16'hffff) dqc_q <= dqc_q + 1'b1;
+        end
+    end
+    assign phy_fault = fault_q; assign fault_count = fcnt_q; assign fault_cause = fcause_q;
+    assign refreshes = refs_q; assign dq_conflicts = dqc_q;
+    assign row_aged = 4'd0;
+
+    // ---------------------------------------------------------------------------------------------------------
+    // pins
+    // ---------------------------------------------------------------------------------------------------------
     localparam [12:0] MRS_VAL = (CL == 3) ? 13'h037 : 13'h027;
     reg [2:0]  pc;
     reg [1:0]  pba;
@@ -237,10 +527,8 @@ module tau_sdram_phy_core #(
         end
     end
 
-    // ---------------------------------------------------------------------------------------------------------
     // pin registers: each register drives only its pin (Quartus: FAST_OUTPUT_REGISTER / FAST_OUTPUT_ENABLE_REGISTER,
-    // see tau_sdram_phy_assignments.txt). The duplicate per-bit OE registers carry PRESERVE_REGISTER.
-    // ---------------------------------------------------------------------------------------------------------
+    // see tau_sdram_phy_assignments.txt). The per-bit DQ and OE registers are duplicated on purpose (PRESERVE_REGISTER).
     reg        cke_q   = 1'b1;
     reg        ras_q   = 1'b1, cas_q = 1'b1, we_q = 1'b1;
     reg [1:0]  dqm_q   = 2'b11;
@@ -248,8 +536,6 @@ module tau_sdram_phy_core #(
     reg [12:0] a_q     = 13'd0;
     (* preserve *) reg [15:0] dq_q  = 16'd0;
     (* preserve *) reg [15:0] oe_q  = 16'd0;
-    wire       oe_n = 1'b0;
-    wire [1:0] dqm_n = 2'b11;
     always @(posedge clk) begin
         if (rst) begin
             cke_q <= 1'b1; ras_q <= 1'b1; cas_q <= 1'b1; we_q <= 1'b1; dqm_q <= 2'b11; ba_q <= 2'b00; a_q <= 13'd0;
@@ -270,24 +556,11 @@ module tau_sdram_phy_core #(
     assign dq_o = dq_q; assign dq_oe = oe_q;
 
     // ---------------------------------------------------------------------------------------------------------
-    // state update (stage 1: init only)
+    // stage 3/4 placeholders
     // ---------------------------------------------------------------------------------------------------------
-    always @(posedge clk) begin
-        if (rst) begin
-            is_q <= I_WAIT; iw_q <= INIT_WAIT_CYCLES - 1; init_done_q <= 1'b0;
-        end else begin
-            is_q <= n_is; iw_q <= n_iw; init_done_q <= n_init_done;
-        end
-    end
-
-    // stage-1 stubs for the not yet implemented outputs
-    assign ok_act = 4'd0; assign ok_rd = 4'd0; assign ok_wr = 4'd0; assign ok_pre = 4'd0;
-    assign ok_prea = 1'b0; assign ok_ref = 1'b0; assign ok_bst = 1'b0;
     assign rvalid = 1'b0; assign rdata = 16'd0;
-    assign phy_fault = 1'b0; assign fault_count = 16'd0; assign fault_cause = 4'd0; assign row_aged = 4'd0;
     assign preempt = 1'b0; assign banks_closed = 1'b0; assign ref_due = 1'b0; assign ref_debt = 4'd0;
-    assign refreshes = 32'd0; assign dq_conflicts = 16'd0;
 
-    wire unused_ok = &{1'b0, cmd, cmd_ba, cmd_a, wvalid, be, preempt_ack, dq_i};
+    wire unused_ok = &{1'b0, preempt_ack, dq_i, age_req, age_force, n_open};
 endmodule
 `default_nettype wire
