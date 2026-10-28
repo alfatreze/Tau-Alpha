@@ -49,6 +49,10 @@ twod | |
 reset_mid | |
 chain | |
 lookahead | BANK_HASH=0 |
+raw_order | |
+skew_regions | BANK_HASH=3 |
+urgent_early | UECAP=32 |
+bw_cap | BWCAP4=256 BWWIN=2000 |
 EOF
 )
 MUTANTS=$(cat <<'EOF'
@@ -68,6 +72,10 @@ MUT_BCLOSED | preempt | SOFTD=9 HARDD=9 |
 MUT_BATCHUNL | batching | |
 MUT_WLEAD_OFF | basic | | mut_wlead_off
 MUT_2D_STRIDE | twod | |
+MUT_NO_RAW | raw_order | |
+MUT_SKEW_IGN | skew_regions | BANK_HASH=3 |
+MUT_NOEARLY | urgent_early | UECAP=32 |
+MUT_NOCAP | bw_cap | BWCAP4=256 BWWIN=2000 |
 EOF
 )
 

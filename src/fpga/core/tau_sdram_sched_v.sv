@@ -42,6 +42,10 @@ module tau_sdram_sched_v #(
     parameter integer QDEPTH = 4,
     parameter integer BANK_HASH = 2,
     parameter [7:0]   URGENT_CAPABLE = 8'h01,
+    parameter [7:0]   URGENT_EARLY_CAPABLE = 8'h00,  // ports with the second (early) watermark level
+    parameter integer SKEW_REGIONS = 8,
+    parameter [8*16-1:0] BW_CAP_WORDS = 128'd0,      // per-port words per window; 0 = no cap
+    parameter integer BW_WINDOW_CYCLES = 0,          // 0 = caps off
     parameter [7:0]   ENABLE_2D = 8'h02,
     parameter [7:0]   BATCH_PORTS = 8'h04,           // write ports whose writes are collected (decoder write)
     parameter [8*10-1:0] MAXG_RD = {10'd128, 10'd128, 10'd128, 10'd128, 10'd128, 10'd128, 10'd64, 10'd128},
@@ -75,8 +79,13 @@ module tau_sdram_sched_v #(
     input  wire [NPORTS*6-1:0]  req_w,
     input  wire [NPORTS*6-1:0]  req_h,
     input  wire [NPORTS*11-1:0] req_stride,
-    input  wire [NPORTS*2-1:0]  req_skew,
     input  wire [NPORTS-1:0]    urgent,
+    input  wire [NPORTS-1:0]    urgent_early,
+    // region skew table (BANK_HASH 3): program before the first request; per-request skew does not exist
+    input  wire                 sk_we,
+    input  wire [2:0]           sk_idx,
+    input  wire [2:0]           sk_base,
+    input  wire [1:0]           sk_val,
     output wire [NPORTS-1:0]    w_next,
     output wire [NPORTS*10-1:0] w_idx,
     input  wire [NPORTS*16-1:0] w_data,
@@ -153,15 +162,31 @@ module tau_sdram_sched_v #(
     reg  [15:0]          worst_q [0:NPORTS-1];
     reg  [15:0]          uover_q [0:NPORTS-1];
     reg  [15:0]          uwc_q [0:NPORTS-1];
+    // region skew table
+    reg [SKEW_REGIONS-1:0]   sk_vld;
+    reg [SKEW_REGIONS*3-1:0] sk_basev;
+    reg [SKEW_REGIONS*2-1:0] sk_valv;
+    always @(posedge clk) begin
+        if (rst) sk_vld <= {SKEW_REGIONS{1'b0}};
+        else if (sk_we && sk_idx < SKEW_REGIONS) begin
+            sk_vld[sk_idx] <= 1'b1; sk_basev[sk_idx*3 +: 3] <= sk_base; sk_valv[sk_idx*2 +: 2] <= sk_val;
+        end
+    end
+    reg [23:0] acc_cnt;
+    always @(posedge clk) acc_cnt <= rst ? 24'd0 : acc_cnt + 24'd1;
+    wire [NPORTS*QDEPTH-1:0]    e_v, e_we;
+    wire [NPORTS*QDEPTH*27-1:0] e_lo, e_hi, e_st;
     genvar p;
     generate
         for (p = 0; p < NPORTS; p = p + 1) begin : g_p
-            tau_sdram_sv_pq #(.DEPTH(QDEPTH), .EN_2D(ENABLE_2D[p]), .BANK_HASH(BANK_HASH),
+            tau_sdram_sv_pq #(.DEPTH(QDEPTH), .EN_2D(ENABLE_2D[p]), .BANK_HASH(BANK_HASH), .SKR(SKEW_REGIONS),
                 .MAXG_RD(MAXG_RD[p*10 +: 10]), .MAXG_WR(MAXG_WR[p*10 +: 10])) u_pq (
                 .clk(clk), .rst(rst), .req_valid(req_valid[p]), .req_ready(req_ready[p]), .req_we(req_we[p]),
                 .req_addr(req_addr[p*25 +: 25]), .req_len(req_len[p*10 +: 10]), .req_tag(req_tag[p*8 +: 8]),
                 .req_2d(req_2d[p]), .req_w(req_w[p*6 +: 6]), .req_h(req_h[p*6 +: 6]), .req_stride(req_stride[p*11 +: 11]),
-                .req_skew(req_skew[p*2 +: 2]), .count(hcnt[p*4 +: 4]), .hd_v(hv[p]), .hd_bad(hbad[p]), .hd_we(hwe[p]),
+                .sk_vld(sk_vld), .sk_base(sk_basev), .sk_val(sk_valv), .push_stamp({acc_cnt, p[2:0]}),
+                .ent_v(e_v[p*QDEPTH +: QDEPTH]), .ent_we(e_we[p*QDEPTH +: QDEPTH]), .ent_lo(e_lo[p*QDEPTH*27 +: QDEPTH*27]),
+                .ent_hi(e_hi[p*QDEPTH*27 +: QDEPTH*27]), .ent_st(e_st[p*QDEPTH*27 +: QDEPTH*27]), .count(hcnt[p*4 +: 4]), .hd_v(hv[p]), .hd_bad(hbad[p]), .hd_we(hwe[p]),
                 .hd_bank(hbank[p*2 +: 2]), .hd_row(hrow[p*13 +: 13]), .hd_col(hcol[p*10 +: 10]),
                 .hd_plen(hplen[p*10 +: 10]), .hd_last(hlast[p]), .hd_tag(htag[p*8 +: 8]), .hd_2d(h2d[p]),
                 .adv(adv[p]), .pop_bad(retire[p]), .accepted(acc[p]), .accepted_bad(acc_bad[p]));
@@ -197,14 +222,56 @@ module tau_sdram_sched_v #(
         for (q = 0; q < NPORTS; q = q + 1)
             gated[q] = BATCH_PORTS[q] & hwe[q] & (hcnt[q*4 +: 4] < WR_HI_REQ[3:0]) & (wc[q] < WR_DEFER_CLK[15:0]);
     end
-    wire [NPORTS-1:0] cand = hv & (~gated | {NPORTS{~(|(hv & ~gated))}});
-    wire [NPORTS-1:0] urg  = urgent & URGENT_CAPABLE[NPORTS-1:0] & cand;
+    // ordering: a read is never granted ahead of an older (accepted earlier) write of another port whose address range
+    // overlaps; the write goes first (reads behind it wait, so an urgent read can wait for such a write)
+    reg [NPORTS-1:0] blocked;
+    integer hq, he;
+    reg [26:0] r_lo, r_hi, r_st, w_lo, w_hi, w_st, dff;
+    always @* begin
+        blocked = {NPORTS{1'b0}}; w_lo = 27'd0; w_hi = 27'd0; w_st = 27'd0; dff = 27'd0;
+        for (q = 0; q < NPORTS; q = q + 1) begin
+            r_lo = e_lo[(q*QDEPTH)*27 +: 27]; r_hi = e_hi[(q*QDEPTH)*27 +: 27]; r_st = e_st[(q*QDEPTH)*27 +: 27];
+            if (hv[q] && !hwe[q]) begin
+                for (hq = 0; hq < NPORTS; hq = hq + 1)
+                    for (he = 0; he < QDEPTH; he = he + 1) begin
+                        w_lo = e_lo[(hq*QDEPTH+he)*27 +: 27]; w_hi = e_hi[(hq*QDEPTH+he)*27 +: 27]; w_st = e_st[(hq*QDEPTH+he)*27 +: 27];
+                        dff = r_st - w_st;
+                        if (hq != q && e_v[hq*QDEPTH+he] && e_we[hq*QDEPTH+he] && dff != 27'd0 && !dff[26] &&
+                            w_lo <= r_hi && r_lo <= w_hi)
+                            blocked[q] = 1'b1;
+                    end
+            end
+`ifdef MUT_NO_RAW
+            blocked[q] = 1'b0;
+`endif
+        end
+    end
+    // bandwidth caps: words per window per port (non-urgent competition only)
+    reg [NPORTS*16-1:0] bw_used_v;
+    reg [23:0] bw_win;
+    wire [NPORTS-1:0] capped;
+    genvar cp;
+    generate
+        for (cp = 0; cp < NPORTS; cp = cp + 1) begin : g_cap
+`ifdef MUT_NOCAP
+            assign capped[cp] = 1'b0;
+`else
+            assign capped[cp] = (BW_WINDOW_CYCLES != 0) && (BW_CAP_WORDS[cp*16 +: 16] != 16'd0) && (bw_used_v[cp*16 +: 16] >= BW_CAP_WORDS[cp*16 +: 16]);
+`endif
+        end
+    endgenerate
+    wire [NPORTS-1:0] hv_u  = hv & ~blocked;
+    wire [NPORTS-1:0] cand0 = hv_u & (~gated | {NPORTS{~(|(hv_u & ~gated))}});
+    wire [NPORTS-1:0] urg   = urgent & URGENT_CAPABLE[NPORTS-1:0] & cand0;
+    wire [NPORTS-1:0] cand_nc = cand0 & ~capped;
+    wire [NPORTS-1:0] cand  = (|cand_nc) ? (cand_nc | urg) : cand0;
+    wire [NPORTS-1:0] early = urgent_early & URGENT_EARLY_CAPABLE[NPORTS-1:0] & cand;
     reg  [2:0]  last_port; reg last_v; reg [1:0] last_bank; reg [12:0] last_row;
     wire        cont_ok = last_v && cand[last_port] && hbank[last_port*2 +: 2] == last_bank &&
                           hrow[last_port*13 +: 13] == last_row && !(|(starved & ~(8'd1 << last_port)));
     wire sel_v, sel_wrr; wire [2:0] sel_p;
     reg  grant_ev; reg [2:0] grant_pt;
-    tau_sdram_sv_arb #(.NP(NPORTS), .WEIGHT(WEIGHT)) u_arb (.clk(clk), .rst(rst), .cand(cand), .urgent(urg),
+    tau_sdram_sv_arb #(.NP(NPORTS), .WEIGHT(WEIGHT)) u_arb (.clk(clk), .rst(rst), .cand(cand), .urgent(urg), .early(early),
         .cont_ok(cont_ok), .last_port(last_port), .grant(grant_ev), .grant_port(grant_pt), .grant_wrr(sel_wrr),
         .sel_v(sel_v), .sel_p(sel_p), .sel_wrr(sel_wrr));
 
@@ -429,13 +496,13 @@ module tau_sdram_sched_v #(
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
-            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE;
+            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0;
             last_port <= 3'd0; last_v <= 1'b0; last_bank <= 2'd0; last_row <= 13'd0;
             done_b_q <= {NPORTS{1'b0}}; done_w_q <= {NPORTS{1'b0}};
             for (i = 0; i < NPORTS; i = i + 1) begin
                 inflight[i] <= 6'd0; pidx[i] <= 10'd0; bad_q[i] <= 16'd0; req_cnt_q[i] <= 32'd0; word_cnt_q[i] <= 32'd0;
                 busy_cnt_q[i] <= 32'd0; done_b_tag[i] <= 8'd0; done_w_tag[i] <= 8'd0;
-                worst_q[i] <= 16'd0; uover_q[i] <= 16'd0; uwc_q[i] <= 16'd0;
+                worst_q[i] <= 16'd0; bw_used_v[i*16 +: 16] <= 16'd0; uover_q[i] <= 16'd0; uwc_q[i] <= 16'd0;
             end
         end else begin
             // ---- burst in progress
@@ -504,6 +571,7 @@ module tau_sdram_sched_v #(
             end
             if (rvalid && rq_cnt == {RQW{1'b0}}) err_q[2] <= 1'b1;
             // ---- done flags, in-flight counts, counters
+            bw_win <= (BW_WINDOW_CYCLES != 0 && bw_win == BW_WINDOW_CYCLES - 1) ? 24'd0 : bw_win + 24'd1;
             done_w_q <= {NPORTS{1'b0}};
             if (wd_ev) begin done_w_q[wd_p] <= 1'b1; done_w_tag[wd_p] <= wd_tag; end
             done_b_q <= retire;
@@ -517,6 +585,8 @@ module tau_sdram_sched_v #(
                 inflight[i] <= infl_n;
                 if (issue && t_p == i) word_cnt_q[i] <= word_cnt_q[i] + {22'd0, t_n};
                 if (cur_v && cur_port == i) busy_cnt_q[i] <= busy_cnt_q[i] + 32'd1;
+                if (rst || (BW_WINDOW_CYCLES != 0 && bw_win == BW_WINDOW_CYCLES - 1)) bw_used_v[i*16 +: 16] <= 16'd0;
+                else if (issue_p[i]) bw_used_v[i*16 +: 16] <= bw_used_v[i*16 +: 16] + {6'd0, t_n};
                 // worst wait (grant minus request) and urgent waits above the documented bound
                 if (issue_p[i] && wc[i] > worst_q[i]) worst_q[i] <= wc[i];
                 if (urg[i] && !issue_p[i]) begin if (uwc_q[i] != 16'hffff) uwc_q[i] <= uwc_q[i] + 16'd1; end
