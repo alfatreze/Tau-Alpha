@@ -12,6 +12,7 @@
 #include "../gfx/icon.h"
 #include "../cores/icon_core.h"
 #include "blit_check.h"
+#include "sdram_soak.h"
 
 #define BG UI_BG_SCREEN
 #define DIM UI_DIM
@@ -121,6 +122,7 @@ void check_page_enter(void) { dirty = 1; gfx_rect(0, 0, GFX_W, GFX_H, BG); }   /
 void check_page_exit(void) { if (state == 1u) finish(2u); }
 int check_page_key(uint32_t edge)
 {
+    if (edge & KEY_X) { soak_cycle(); dirty = 1; return 0; }                                    /* X: the SDRAM soak, off / 16 k / 64 k / 128 k operations a second, beside whatever plays and draws */
     if (edge & KEY_B) { if (state == 1u) { finish(2u); return 0; } return 1; }
     if ((edge & KEY_A) && state != 1u) {
         if (!mp.playing || mp.held) { state = 3; dirty = 1; return 0; }  /* a track must be playing */
@@ -166,7 +168,8 @@ void check_page_draw(void)
         gfx_text(GFX_W - 10 - gfx_text_width(v), y + 4, v, res[i] == 2u ? ACC : FG, BG);
     }
     gfx_rect(0, GFX_H - 44, GFX_W, 44, BG);
-    gfx_text(10, GFX_H - 40, "FONT, ICONS, STALLS, GFX ISSUE, BLIT OPS", DIM, BG);
+    { char s[40]; uint32_t n = 0; const char *p = "X SOAK L"; while (*p) s[n++] = *p++; s[n++] = (char)('0' + soak_level()); s[n++] = ' '; s[n++] = 'F'; const uint32_t f = soak_st.fails > 99u ? 99u : soak_st.fails; if (f > 9u) s[n++] = (char)('0' + f / 10u); s[n++] = (char)('0' + f % 10u); s[n++] = ' '; s[n++] = 'P'; s[n++] = (char)('0' + (soak_st.pass > 9u ? 9u : soak_st.pass)); s[n] = 0;
+      gfx_text(10, GFX_H - 40, s, soak_st.fails ? ACC : DIM, BG); }
     gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  B BACK", DIM, BG);
     dirty = 0;
 }
