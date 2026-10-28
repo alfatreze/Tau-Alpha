@@ -2,6 +2,8 @@
 
 Inputs: two independent read-only reviews commissioned for this (a memory-controller architect and a video-codec/decoder specialist, both given Tau V's `SDRAM_CONTROLLER_REQUIREMENTS.md` v1 and `docs/features/SDRAM_CONTROLLER_PLAN.md`), their evidence documents, and the repository. The reviewers are model agents; nothing below is accepted on their word alone: each claim that I could check in the repository or by arithmetic is marked **checked**, the rest **reviewer's estimate** (to be confirmed against the datasheet or by a build).
 
+> **Update after reading the datasheet and agg23's sources (`docs/features/SDRAM_PART_FACTS.md`):** the I/O finding stands but is the common practice of working Pocket cores (hygiene and margin, not a fault); the power-up sequence matches the part (the 200 us and 8 refreshes is the deep-power-down exit); **new: the controller's tRFC (80 ns, 9 cycles = 90 ns) is below the datasheet's 97.5 ns**; CL2 is limited to 110 MHz; tAC(CL2) is 8 ns.
+
 ## 1. Findings that change the plan (merged, ranked)
 | # | Finding | Applies to | Status |
 |---|---|---|---|
