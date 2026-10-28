@@ -17,3 +17,14 @@ set_clock_groups -asynchronous \
  -group { ic|mp1|mf_pllbase_inst|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk } \
  -group { ic|mp1|mf_pllbase_inst|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk } \
  -group { ic|mp2|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk }
+
+# ---- SDRAM interface (S0, D-T09) --------------------------------------------------------------------------------------------------------------------------------
+# The chip clock leaves through a DDIO (tau_sdram_ctrl: datain_h 0, datain_l 1 on clk_sdram), i.e. the inverted clk_sdram. The OUTPUT paths (command, address, DQM, CKE, data and its output
+# enable) are checked against the chip's setup and hold from the Alliance AS4C32M16MS -6 datasheet (docs/features/SDRAM_PART_FACTS.md; to be diffed against the MSA sheet) plus 0.3 ns of board
+# margin: address and data 1.5/1.0 ns (+0.3), command and DQM 0.5 setup / 1.5 hold (+0.3). Not constrained here: the input (read) side, which needs a capture register first (a multicycle
+# relationship to be derived from the RTL); the report of tools/sdram_sta_probe.tcl gives its numbers meanwhile.
+create_generated_clock -name sdram_clk_pin -source [get_pins {ic|mp1|mf_pllbase_inst|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk}] -invert [get_ports {dram_clk}]
+set_output_delay -clock sdram_clk_pin -max 1.8 [get_ports {dram_a[*] dram_ba[*] dram_dq[*] dram_cke}]
+set_output_delay -clock sdram_clk_pin -min -1.3 [get_ports {dram_a[*] dram_ba[*] dram_dq[*] dram_cke}]
+set_output_delay -clock sdram_clk_pin -max 0.8 [get_ports {dram_dqm[*] dram_cas_n dram_ras_n dram_we_n}]
+set_output_delay -clock sdram_clk_pin -min -1.8 [get_ports {dram_dqm[*] dram_cas_n dram_ras_n dram_we_n}]
