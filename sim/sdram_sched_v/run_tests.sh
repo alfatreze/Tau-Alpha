@@ -47,9 +47,27 @@ batching | |
 wrr | |
 twod | |
 reset_mid | |
+chain | |
+lookahead | BANK_HASH=0 |
 EOF
 )
 MUTANTS=$(cat <<'EOF'
+MUT_NO_PAGE_SPLIT | splits | |
+MUT_BADREQ | bad_req | |
+MUT_HASH_DROP | order | |
+MUT_NOURG | urgent_bound | |
+MUT_FLATW | wrr | |
+MUT_NOCHAIN | chain | |
+MUT_NOBST | basic | |
+MUT_PRE_UNPROT | lookahead | BANK_HASH=0 |
+MUT_NOAGE | aged_row | REFIPS=600000000 |
+MUT_NOHARD | refresh_urgent | |
+MUT_DONE_EARLY | order | | mut_done_early
+MUT_RLAST | basic | | mut_rlast
+MUT_BCLOSED | preempt | SOFTD=9 HARDD=9 |
+MUT_BATCHUNL | batching | |
+MUT_WLEAD_OFF | basic | | mut_wlead_off
+MUT_2D_STRIDE | twod | |
 EOF
 )
 
@@ -87,7 +105,7 @@ while IFS='|' read -r def name params label; do
     [ -z "$def" ] && continue
     [ -z "$label" ] && label="mut_$def"
     if [ "$WANT" = all ] || [ "$WANT" = mutants ] || [ "$WANT" = "$label" ]; then
-        build_run "$label" "$name" "$params" "$def"; rc=$?
+        build_run "$label" "$name" "$params TMO_CYC=120000" "$def"; rc=$?
         if [ $rc -eq 1 ]; then echo "KILLED $label (test $name fails with -D$def)"; pass=$((pass+1));
         elif [ $rc -eq 0 ]; then echo "SURVIVED $label (test $name still passes with -D$def)"; fail=$((fail+1));
         else fail=$((fail+1)); fi

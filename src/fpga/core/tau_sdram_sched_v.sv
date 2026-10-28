@@ -240,7 +240,11 @@ module tau_sdram_sched_v #(
     // refresh: one per idle gap (no urgent request waiting), between grants from REF_SOFT_DEBT, forced from REF_HARD_DEBT
     reg  [1:0]  rfm;
     wire        uw      = |(urgent & URGENT_CAPABLE[NPORTS-1:0] & hv);
+`ifdef MUT_NOHARD
+    wire        rf_go   = init_done & ~preempt & ref_due & ((1'b0) |
+`else
     wire        rf_go   = init_done & ~preempt & ref_due & ((ref_debt >= REF_HARD_DEBT[3:0]) |
+`endif
                           (~uw & ((ref_debt >= REF_SOFT_DEBT[3:0]) | ~(|hv))));
     wire        run_ok   = init_done & ~preempt & (rfm == RF_NONE) & ~rf_go;
     assign      preempt_ack = preempt & ~cur_v & init_done;
@@ -248,13 +252,21 @@ module tau_sdram_sched_v #(
     wire        rd_ok    = ok_rd[t_bank] && (rq_cnt < RDQ_DEPTH[RQW-1:0] - 1);
     wire        wr_ok    = ok_wr[t_bank] && lk_v && (pq_pulled >= need_pulled) && (wf_cnt != {WFW{1'b0}});
     wire        t_ready  = run_ok && t_v && t_hit && (t_we ? wr_ok : rd_ok);
+`ifdef MUT_NOCHAIN
+    wire        issue    = t_ready && !cur_v;
+`else
     wire        issue    = t_ready && (boundary || !cur_v);
+`endif
     wire        wr_issue = issue && t_we;
     wire        rd_issue = issue && !t_we;
 
     // write commitment (lock): first piece of a grant near the boundary or when idle; continuation of a batch at once
+`ifdef MUT_BATCHUNL
+    wire        bc_ok  = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port);
+`else
     wire        bc_ok  = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port) &&
                          (bt_reqs < BATCH_REQS[3:0]) && ({1'b0, bt_words} + {1'b0, hplen[cur_port*10 +: 10]} <= BATCH_WORDS[10:0]);
+`endif
     wire        pq_free = ~pq_v;
     wire        near    = !cur_v || (cur_left <= PULL_AHEAD[9:0]);
     wire        lock_b  = run_ok && pq_free && bc_ok;
@@ -281,7 +293,11 @@ module tau_sdram_sched_v #(
     always @* begin
         aged_pre = 4'd0;
         for (ab = 0; ab < 4; ab = ab + 1)
+`ifdef MUT_NOAGE
+            aged_pre[ab] = 1'b0;
+`else
             aged_pre[ab] = row_aged[ab] & o_v[ab] & ok_pre[ab] & ~(cur_v & (cur_bank == ab[1:0]));
+`endif
     end
     always @* begin
         cmd = K_NOP; cmd_ba = 2'd0; cmd_a = 13'd0;
@@ -291,14 +307,23 @@ module tau_sdram_sched_v #(
             if (ok_ref) cmd = K_REF;
         end else if (boundary) begin
             if (issue) begin cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col}; end
+`ifdef MUT_NOBST
+            else begin cmd = K_NOP; end
+`else
             else begin cmd = K_BST; end
+`endif
         end else if (issue) begin
             cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col};
         end else if (run_ok && t_v) begin
             if (!t_open) begin
                 if (ok_act[t_bank]) begin cmd = K_ACT; cmd_ba = t_bank; cmd_a = t_row; end
             end else if (!t_hit) begin
-                if (ok_pre[t_bank] && !(cur_v && cur_bank == t_bank) && !(cur_v && others_want[t_bank])) begin
+                if (ok_pre[t_bank] && !(cur_v && cur_bank == t_bank) && `ifdef MUT_PRE_UNPROT
+                    1'b1
+`else
+                    !(cur_v && others_want[t_bank])
+`endif
+                    ) begin
                     cmd = K_PRE; cmd_ba = t_bank;
                 end
             end
@@ -334,8 +359,13 @@ module tau_sdram_sched_v #(
             assign w_idx[p*10 +: 10] = pidx[p];
         end
     endgenerate
+`ifdef MUT_WLEAD_OFF
+    wire        arrive   = dl_v[0];
+    wire [2:0]  arr_p    = dl_p[0];
+`else
     wire        arrive   = dl_v[W_LEAD-1];
     wire [2:0]  arr_p    = dl_p[W_LEAD-1];
+`endif
 
     // ---------------------------------------------------------------------------------------------------
     // read return
@@ -347,7 +377,11 @@ module tau_sdram_sched_v #(
     wire [9:0]  f_rem   = rd_act ? rd_rem : f_n;
     wire        rv_ok   = rvalid && (rq_cnt != {RQW{1'b0}});
     wire        rv_end  = rv_ok && (f_rem == 10'd1);
+`ifdef MUT_RLAST
+    wire        rd_done = rv_ok && f_last && (f_rem == 10'd2);
+`else
     wire        rd_done = rv_end && f_last;
+`endif
     generate
         for (p = 0; p < NPORTS; p = p + 1) begin : g_rd
             assign r_valid[p] = rv_ok && (f_port == p);
@@ -358,7 +392,11 @@ module tau_sdram_sched_v #(
         end
     endgenerate
     // write completion event: the cycle of the last beat (done is visible one cycle later)
+`ifdef MUT_DONE_EARLY
+    wire        wd_ev  = (wr_issue && t_last) || (beat_stream && cur_left == 10'd1 && cur_last && 1'b0);
+`else
     wire        wd_ev  = (wr_issue && t_last && t_n == 10'd1) || (beat_stream && cur_left == 10'd1 && cur_last);
+`endif
     wire [2:0]  wd_p   = (wr_issue && t_last && t_n == 10'd1) ? t_p : cur_port;
     wire [7:0]  wd_tag = (wr_issue && t_last && t_n == 10'd1) ? t_tag : cur_tag;
 
@@ -413,7 +451,11 @@ module tau_sdram_sched_v #(
                 default: rfm <= RF_NONE;
             endcase
             // ---- open-row table
+`ifdef MUT_BCLOSED
+            if (cmd == K_PREA) o_v <= 4'd0;
+`else
             if (banks_closed || cmd == K_PREA) o_v <= 4'd0;
+`endif
             else if (cmd == K_ACT) begin o_v[cmd_ba] <= 1'b1; o_row[cmd_ba] <= cmd_a; end
             else if (cmd == K_PRE) o_v[cmd_ba] <= 1'b0;
             // ---- write commitment, pull cursor
