@@ -200,7 +200,7 @@ module tb_sdram_phy #(
     task wr (input [1:0] b, input [9:0] col, input [15:0] d, input [1:0] bem); cyc(K_WR, b, {3'b000, col}, 1'b1, d, bem); endtask
     task wra(input [1:0] b, input [9:0] col, input [15:0] d); cyc(K_WR, b, {2'b00, 1'b1, col}, 1'b1, d, 2'b11); endtask
     task wb (input [15:0] d, input [1:0] bem);   cyc(K_NOP, 2'b00, 13'd0, 1'b1, d, bem); endtask    // write data beat
-    task wgap;                                   cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'hdead, 2'b00); endtask  // wvalid 0: nothing written
+    task wgap;                                   cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'hdead, 2'b11); endtask  // wvalid 0 (be 11 on purpose): nothing written
     task pre(input [1:0] b);                     cyc(K_PRE, b, 13'd0, 1'b0, 16'd0, 2'b11); endtask
     task prea;                                   cyc(K_PREA, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); endtask
     task refr;                                   cyc(K_REF, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); endtask
@@ -438,6 +438,48 @@ module tb_sdram_phy #(
     // ------------------------------------------------------------------------------------------------------
     // tests
     // ------------------------------------------------------------------------------------------------------
+    // pattern data (as in the chip model's tests)
+    function [15:0] pat(input [1:0] b, input [12:0] r, input [9:0] c);
+        begin pat = {b, r[3:0], c[9:0]} ^ 16'h5a3c; end
+    endfunction
+    // write n pattern words (WR + n-1 data beats); the burst stays open
+    task wr_pat(input [1:0] b, input [12:0] r, input [9:0] c0, input integer n);
+        integer k;
+        begin
+            wr(b, c0, pat(b, r, c0), 2'b11);
+            for (k = 1; k < n; k = k + 1) wb(pat(b, r, c0 + k), 2'b11);
+        end
+    endtask
+    integer a_chain, a_first;
+    // the n words of a read burst offered in cycle a0 must be on rdata with rvalid in cycles a0 + RD_LAT + k
+    task check_burst(input integer a0, input integer n, input [1:0] b, input [12:0] r, input [9:0] c0);
+        integer k, j;
+        begin
+            for (k = 0; k < n; k = k + 1) begin
+                j = (a0 + RD_LAT_X + k) & 8191;
+                if (rv_vis[j] !== 1'b1) begin $display("  rvalid low for word %0d (cycle %0d)", k, a0 + RD_LAT_X + k); tb_fail = tb_fail + 1; end
+                else if (rd_vis[j] !== pat(b, r, c0 + k)) begin
+                    $display("  word %0d: got %h expected %h", k, rd_vis[j], pat(b, r, c0 + k)); tb_fail = tb_fail + 1;
+                end
+            end
+        end
+    endtask
+    // rvalid is high exactly for n cycles starting at a0 + RD_LAT and low in the 6 cycles around
+    task check_one_valid_run(input integer a0, input integer n);
+        integer k, j, cnt;
+        begin
+            cnt = 0;
+            for (k = -3; k < RD_LAT_X + n + 6; k = k + 1) begin
+                j = (a0 + k) & 8191;
+                if (rv_vis[j] === 1'b1) begin
+                    cnt = cnt + 1;
+                    if (k < RD_LAT_X || k >= RD_LAT_X + n) begin $display("  stray rvalid at offset %0d", k); tb_fail = tb_fail + 1; end
+                end
+            end
+            if (cnt != n) begin $display("  rvalid high in %0d cycles, expected %0d", cnt, n); tb_fail = tb_fail + 1; end
+        end
+    endtask
+
     function [16:0] pkf(input integer b, input integer r, input integer c);
         begin pkf = chip.peek(b, r, c); end
     endfunction
@@ -558,6 +600,51 @@ module tb_sdram_phy #(
             check(phy_fault === 1'b1, "fault set");
             do_reset(3); wait_init;
             check(phy_fault === 1'b0 && fault_count === 16'd0 && fault_cause === 4'd0, "reset clears the fault");
+        // ---- read path: latency, rvalid shape, data ----
+        end else if (tname == "rd_data") begin
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16);
+            bst; nop(2);
+            rd(0, 10'd4); nop(7); bst; nop(RD_LAT_X + 4);
+            check(rd_lat == RD_LAT_X, "rd_lat port");
+            check_burst(rd_a, 8, 0, 13'd5, 10'd4);
+            check_one_valid_run(rd_a, 8);
+            expect_clean;
+            $display("  RD_LAT = %0d (CL %0d, CAP_MODE %0d, RD_EXTRA %0d)", rd_lat, CLSEL, CAPMODE, RDEX);
+        end else if (tname == "rd_chain") begin       // RD at r+n ends the first burst after exactly n words, no gap
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16);
+            bst; nop(2);
+            rd(0, 10'd0); a_first = rd_a; nop(3); rd(0, 10'd8); a_chain = a_cyc; nop(3); bst; nop(RD_LAT_X + 4);
+            check_burst(a_first, 4, 0, 13'd5, 10'd0);
+            check_burst(a_chain, 4, 0, 13'd5, 10'd8);
+            check_one_valid_run(a_first, 8);
+            expect_clean;
+        end else if (tname == "wr_gap") begin         // wvalid = 0 cycles write nothing
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'h1000, 2'b11); wgap; wb(16'h1002, 2'b11); wgap; wb(16'h1004, 2'b11); wb(16'h1005, 2'b01); wgap;
+            bst; nop(2);
+            check(pkf(0, 5, 0) == 17'h11000, "col 0");
+            check(pkf(0, 5, 1) === 17'h0xxxx, "col 1 (gap) untouched");
+            check(pkf(0, 5, 2) == 17'h11002, "col 2");
+            check(pkf(0, 5, 3) === 17'h0xxxx, "col 3 (gap) untouched");
+            check(pkf(0, 5, 4) == 17'h11004, "col 4");
+            check(mrd(0, 5, 5) === 16'hxx05, "col 5 low byte only");
+            check(pkf(0, 5, 6) === 17'h0xxxx, "col 6 (gap) untouched");
+            expect_clean;
+        end else if (tname == "n_rise_worst") begin  // RISE capture at the worst-case tAC: the chip model must flag it (documented limit)
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16);
+            bst; nop(2);
+            rd(0, 10'd4); nop(7); bst; nop(RD_LAT_X + 4);
+            nop(4);
+            check(chip.err_mask[`SE_CAPTURE], "capture error flagged for RISE at tAC 8 ns");
+            check(phy_fault === 1'b0, "no PHY fault");
+            $display("TEST %0s PASS", tname); if (tb_fail != 0) $display("TEST %0s FAIL", tname); $finish;
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
             if (!$value$plusargs("SEED=%d", seed)) seed = 7;
