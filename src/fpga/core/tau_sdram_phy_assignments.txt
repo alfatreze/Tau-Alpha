@@ -1,0 +1,41 @@
+# Quartus assignments the SDRAM PHY (tau_sdram_phy) needs. MIT licence.
+# A SNIPPET FOR THE OWNER TO REVIEW AND PASTE: this file is not read by Quartus and the project's QSF was not edited.
+# Nothing here is verified in Quartus or on a Pocket. The instance path below assumes the PHY sits at u_sdram_phy;
+# the core module is tau_sdram_phy_core (instance u_core) and the capture module tau_sdram_dq_cap (instance u_cap).
+# Pin names are those of core_top.v (dram_a, dram_ba, dram_dq, dram_dqm, dram_clk, dram_cke, dram_ras_n, dram_cas_n, dram_we_n).
+#
+# 1. Every output pin is driven by ONE register that drives only that pin (fanout 1), packed into the I/O cell.
+#    The registers are cke_q, ras_q, cas_q, we_q, dqm_q[1:0], ba_q[1:0], a_q[12:0] and dq_q[15:0] in tau_sdram_phy_core.
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ba[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dqm[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cke
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ras_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cas_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dq[*]
+
+# 2. One output-enable register per DQ bit (oe_q[15:0], 16 duplicate registers on purpose: the (* preserve *)
+#    attribute in the RTL keeps them from being merged; if the fitter still merges them add PRESERVE_REGISTER
+#    or turn REMOVE_DUPLICATE_REGISTERS off for u_core|oe_q[*] and u_core|dq_q[*]).
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
+# set_instance_assignment -name REMOVE_DUPLICATE_REGISTERS OFF -to u_sdram_phy|u_core|oe_q[*]
+# set_instance_assignment -name PRESERVE_REGISTER ON -to u_sdram_phy|u_core|oe_q[*]
+
+# 3. Read capture: one register per DQ bit in the input cell, fanout 1.
+#    CAP_MODE = RISE (0): cap_r in tau_sdram_dq_cap is the input register.
+#    CAP_MODE = FALL (1, default): the first stage must be the DDIO input register of the falling edge. Use the
+#    ALTDDIO_IN macro by compiling with the Verilog macro TAU_SDRAM_ALTDDIO_IN (dataout_l = falling edge), then
+#    set FAST_INPUT_REGISTER on the pins (it applies to the DDIO input register as well).
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
+
+# 4. Chip clock: dram_clk is the inverse of the controller clock through a DDIO output (datain_h 0, datain_l 1).
+#    Compile with the macro TAU_SDRAM_ALTDDIO_OUT to instantiate ALTDDIO_OUT (tau_sdram_clk_out). The behavioural
+#    default (clk ? 0 : 1) is for simulation. Keep the 4 mA drive and the 50 ohm series termination already in the QSF.
+#    SDC: a generated clock on dram_clk (the inverted clk) with the datasheet output delays (address 1.5/1.0 ns,
+#    command and DQM 1.5/1.5 ns, data 1.5/1.0 ns plus 0.3 ns board margin) and read input delays with tOH 1.8 ns
+#    (see docs/features/SDRAM_CONTROLLER_CONTRACT.md section 1 and tools/sdram_sta_probe.tcl). Report the slack at
+#    slow 85C and fast 0C on every fit.
+
+# 5. Macros (Verilog defines, project-level): TAU_SDRAM_ALTDDIO_OUT, TAU_SDRAM_ALTDDIO_IN (both optional).
+#    The MUT_* macros are for the simulation mutation tests only and must never be defined in a fit.

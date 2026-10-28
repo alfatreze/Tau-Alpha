@@ -556,11 +556,30 @@ module tau_sdram_phy_core #(
     assign dq_o = dq_q; assign dq_oe = oe_q;
 
     // ---------------------------------------------------------------------------------------------------------
-    // stage 3/4 placeholders
+    // read path: capture registers (one per DQ bit), RD_EXTRA delay stages, rvalid delay line.
+    // Word k of a READ offered in cycle a is on rdata in cycle a + RD_LAT; rvalid marks the cycles of a burst
+    // (cycle a through the cycle before the terminating command), delayed by the same amount. No backpressure.
     // ---------------------------------------------------------------------------------------------------------
-    assign rvalid = 1'b0; assign rdata = 16'd0;
+    wire [15:0] cap_q;
+    tau_sdram_dq_cap #(.CAP_MODE(CAP_MODE)) u_cap (.clk(clk), .d(dq_i), .q(cap_q));
+    reg [15:0] rx1_q = 16'd0, rx2_q = 16'd0;
+    always @(posedge clk) begin
+        rx1_q <= cap_q;
+        rx2_q <= rx1_q;
+    end
+    assign rdata = (RD_EXTRA == 0) ? cap_q : ((RD_EXTRA == 1) ? rx1_q : rx2_q);
+    reg [7:0] vp_q = 8'd0;
+    always @(posedge clk) begin
+        if (rst) vp_q <= 8'd0;
+        else     vp_q <= {vp_q[6:0], rd_open_n};
+    end
+    assign rvalid = vp_q[RD_LAT - 1];
+
+    // ---------------------------------------------------------------------------------------------------------
+    // stage 4 placeholders
+    // ---------------------------------------------------------------------------------------------------------
     assign preempt = 1'b0; assign banks_closed = 1'b0; assign ref_due = 1'b0; assign ref_debt = 4'd0;
 
-    wire unused_ok = &{1'b0, preempt_ack, dq_i, age_req, age_force, n_open};
+    wire unused_ok = &{1'b0, preempt_ack, age_req, age_force, n_open};
 endmodule
 `default_nettype wire

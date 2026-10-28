@@ -48,8 +48,25 @@ n_init_offer | |
 n_wrap_rd | |
 n_wrap_wr | |
 fault_sticky | |
-rand | RDCHK=0 | rand_cl2
-rand | RDCHK=0 CLSEL=3 | rand_cl3
+rd_data | | rd_data_cl2_fall
+rd_data | CLSEL=3 | rd_data_cl3_fall
+rd_data | RDEX=1 | rd_data_cl2_fall_x1
+rd_data | RDEX=2 | rd_data_cl2_fall_x2
+rd_data | CLSEL=3 RDEX=2 | rd_data_cl3_fall_x2
+rd_data | CAPMODE=0 TAC2=4000 | rd_data_cl2_rise
+rd_data | CAPMODE=0 TAC2=4000 RDEX=1 | rd_data_cl2_rise_x1
+rd_data | CAPMODE=0 TAC2=4000 RDEX=2 | rd_data_cl2_rise_x2
+rd_data | CLSEL=3 CAPMODE=0 TAC3=4000 | rd_data_cl3_rise
+rd_data | DMAX=1500 | rd_data_cl2_fall_board
+rd_data | TOP=1 | rd_data_top
+n_rise_worst | CAPMODE=0 |
+rd_chain | | rd_chain_cl2
+rd_chain | CLSEL=3 | rd_chain_cl3
+wr_gap | |
+rand | | rand_cl2
+rand | CLSEL=3 | rand_cl3
+rand | RDEX=1 CLSEL=3 | rand_cl3_x1
+rand | CAPMODE=0 TAC2=4000 | rand_cl2_rise
 EOF
 )
 MUTANTS=$(cat <<'EOF'
@@ -67,6 +84,8 @@ MUT_TDPL | n_tdpl | |
 MUT_TURN | n_turn | |
 MUT_WR_IN_READ | n_wr_in_read | |
 MUT_NOWRAP | n_wrap_rd | |
+MUT_DQM | wr_gap | |
+MUT_OE_EARLY | rd_data | |
 EOF
 )
 
