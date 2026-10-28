@@ -35,7 +35,9 @@ module tb_sdram_chip_model #(
     parameter integer TRFC        = 97500,
     parameter longint TREFPS      = 64'd64_000_000_000,
     parameter integer INITNOP     = 10000,
-    parameter longint INITWAIT    = 64'd100_000_000
+    parameter longint INITWAIT    = 64'd100_000_000,
+    parameter integer M_TCMH      = 1500,    // model hold/setup overrides (to prove the checks fire)
+    parameter integer M_TCMS      = 1500
 );
     // ------------------------------------------------------------------------------------------------------
     // clocks
@@ -99,7 +101,7 @@ module tb_sdram_chip_model #(
         .TAC_CL2_PS(TAC2), .TAC_CL3_PS(TAC3), .THZ_CL2_PS(THZ2), .THZ_CL3_PS(THZ3), .TOH_PS(TOH), .TLZ_PS(TLZ),
         .TCCD_CLK(TCCD), .TRFC_PS(TRFC), .TREF_PS(TREFPS), .INIT_NOP_MIN(INITNOP), .INIT_WAIT_PS(INITWAIT),
         .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
-        .CL_DEFAULT(CLSEL)
+        .CL_DEFAULT(CLSEL), .TCMH_PS(M_TCMH), .TCMS_PS(M_TCMS)
     ) chip (
         .dram_clk(dram_clk), .dram_cke(p_cke), .dram_ras_n(p_ras), .dram_cas_n(p_cas), .dram_we_n(p_we),
         .dram_dqm(p_dqm), .dram_ba(p_ba), .dram_a(p_a), .dram_dq(dram_dq), .fpga_oe(p_oe), .cap_clk(clk)
@@ -192,6 +194,7 @@ module tb_sdram_chip_model #(
     reg [8*40-1:0] tname;
     task expect_clean;
         begin
+            nopm(3);                    // let the last command reach the chip (it samples half a clock late)
             if (chip.err_count != 0) begin
                 $display("  expected no chip errors, got %0d (first code %0d)", chip.err_count, chip.err_first);
                 tb_fail = tb_fail + 1;
@@ -200,6 +203,7 @@ module tb_sdram_chip_model #(
     endtask
     task expect_err(input integer code);
         begin
+            nopm(3);
             if (!chip.err_mask[code]) begin
                 $display("  expected chip error code %0d not raised (err_count=%0d mask=%h)", code, chip.err_count, chip.err_mask);
                 tb_fail = tb_fail + 1;
@@ -221,17 +225,157 @@ module tb_sdram_chip_model #(
         end
     endtask
 
+    // ------------------------------------------------------------------------------------------------------
+    // init variants (the legal one is init_seq)
+    // ------------------------------------------------------------------------------------------------------
+    task init_custom(input integer nnop, input integer nref, input [12:0] mrsv, input do_emrs, input integer gap_mrd);
+        integer k;
+        begin
+            nopm(nnop);
+            prea; nopm(1);
+            for (k = 0; k < nref; k = k + 1) begin refr; nopm(9); end
+            mrs(mrsv); nopm(gap_mrd);
+            if (do_emrs) begin emrs(13'h000); nopm(1); end
+        end
+    endtask
+
+    // ------------------------------------------------------------------------------------------------------
+    // tests
+    // ------------------------------------------------------------------------------------------------------
+    integer ti;
     initial begin
         if (!$value$plusargs("TEST=%s", tname)) tname = "init_cl2";
         @(posedge clk); #1;
+        // ---- legal sequences (must be clean) ----
         if (tname == "init_cl2") begin
             init_seq(2);
             check(chip.init_done, "init_done");
             expect_clean;
-            finish_test;
-        end else begin
-            $display("unknown test %0s", tname); tb_fail = tb_fail + 1; finish_test;
+        end else if (tname == "init_cl3") begin
+            init_seq(3);
+            check(chip.init_done && chip.mr_cl == 3, "init_done CL3");
+            expect_clean;
+        end else if (tname == "legal_timing") begin
+            init_seq(2);
+            act(0, 13'd5);  nop(1);
+            act(1, 13'd6);  nop(2);          // tRRD 2 clk (ACT b0 at c0, b1 at c2)
+            pre(0); nop(1);                  // c5: tRAS 50 ns >= 42
+            pre(1); nop(1);                  // c7
+            act(0, 13'd7);  nop(4);          // c9: tRP 40 ns, tRC 90 ns
+            act(1, 13'd8);  nop(4);          // tRRD, tRP
+            pre(0); nop(1);
+            prea; nop(1);                    // PREA: every bank precharged, tRP 2 clk
+            refr; nop(9);                    // tRFC 100 ns >= 97.5
+            act(2, 13'd9); nop(1);
+            expect_clean;
         end
+        // ---- negative: init order ----
+        else if (tname == "n_init_short_wait") begin
+            init_custom(5000, 2, 13'h027, 1, 1);
+            expect_err(`SE_INIT_ORDER);
+        end else if (tname == "n_init_one_ref") begin
+            init_custom(10000, 1, 13'h027, 1, 1);
+            expect_err(`SE_INIT_ORDER);
+        end else if (tname == "n_init_no_emrs") begin
+            init_custom(10000, 2, 13'h027, 0, 1);
+            act(0, 13'd1);                   // first command after MRS while EMRS is still expected
+            expect_err(`SE_INIT_ORDER);
+        end else if (tname == "n_init_mrs_value") begin
+            init_custom(10000, 2, 13'h227, 1, 1);   // A9 = 1 (single-location write): the old note
+            expect_err(`SE_MRS_VALUE);
+        end else if (tname == "n_init_first_not_prea") begin
+            nopm(10000); refr; nopm(9);
+            expect_err(`SE_INIT_ORDER);
+        end else if (tname == "n_tmrd") begin
+            init_custom(10000, 2, 13'h027, 0, 0);   // EMRS in the very next clock
+            emrs(13'h000); nopm(1);
+            expect_err(`SE_TMRD);
+        end else if (tname == "n_mrs_late") begin
+            init_seq(2);
+            mrs(13'h027); nopm(2);
+            expect_err(`SE_MRS_LATE);
+        end else if (tname == "n_cke_low") begin
+            init_seq(2);
+            u_cke = 1'b0; nop(1); u_cke = 1'b1; nop(2);
+            expect_err(`SE_CKE_LOW);
+        end
+        // ---- negative: per-bank / global timing ----
+        else if (tname == "n_trcd") begin
+            init_seq(2);
+            act(0, 13'd5); rd(0, 10'd0); nop(1); bst; nopm(3);   // RD in the next clock: 10 ns < 18 ns
+            expect_err(`SE_TRCD);
+        end else if (tname == "n_trp") begin
+            init_seq(2);
+            act(0, 13'd5); nop(4); pre(0); act(0, 13'd6); nopm(2);   // ACT 1 clk after PRE
+            expect_err(`SE_TRP);
+        end else if (tname == "n_tras") begin
+            init_seq(2);
+            act(0, 13'd5); nop(3); pre(0); nopm(3);                  // PRE at 40 ns < 42 ns
+            expect_err(`SE_TRAS);
+        end else if (tname == "n_trc") begin
+            init_seq(2);
+            act(0, 13'd5); nop(2); pre(0); nop(1); act(0, 13'd6); nopm(2);  // ACT at 50 ns < 60 ns (and tRAS)
+            expect_err(`SE_TRC);
+        end else if (tname == "n_trrd") begin
+            init_seq(2);
+            act(0, 13'd5); act(1, 13'd6); nopm(3);                    // ACT to ACT in the next clock
+            expect_err(`SE_TRRD);
+        end else if (tname == "n_trfc_act") begin
+            init_seq(2);
+            refr; nop(8); act(0, 13'd6); nopm(2);                     // ACT 9 clk (90 ns) after REF < 97.5 ns
+            expect_err(`SE_TRFC);
+        end else if (tname == "n_trfc_ref") begin
+            init_seq(2);
+            refr; nop(8); refr; nopm(2);
+            expect_err(`SE_TRFC);
+        end else if (tname == "n_act_ref") begin
+            init_seq(2);
+            act(0, 13'd5); nop(2); pre(0); nop(1); refr; nopm(10);    // REF 50 ns after ACT < tRC 60 ns
+            expect_err(`SE_ACT_REF);
+        end else if (tname == "n_ref_open") begin
+            init_seq(2);
+            act(0, 13'd5); nop(5); refr; nopm(10);
+            expect_err(`SE_REF_OPEN);
+        end else if (tname == "n_ref_trp") begin
+            init_seq(2);
+            act(0, 13'd5); nop(4); pre(0); refr; nopm(10);            // REF in the clock after PRE: tRP
+            expect_err(`SE_TRP);
+        end else if (tname == "n_col_closed") begin
+            init_seq(2);
+            rd(0, 10'd3); nopm(3);
+            expect_err(`SE_COL_CLOSED);
+        end else if (tname == "n_act_open") begin
+            init_seq(2);
+            act(0, 13'd5); nop(6); act(0, 13'd6); nopm(2);
+            expect_err(`SE_ACT_OPEN);
+        end else if (tname == "n_a10_col") begin
+            init_seq(2);
+            act(0, 13'd5); nop(1); rda(0, 10'd0); nop(1); bst; nopm(3);
+            expect_err(`SE_A10_COL);
+        end else if (tname == "n_bst_noburst") begin
+            init_seq(2);
+            bst; nopm(2);
+            expect_err(`SE_BST_NOBURST);
+        end else if (tname == "n_tras_max") begin
+            init_seq(2);
+            act(0, 13'd5); nopm(10050);                               // open for 100.5 us
+            expect_err(`SE_TRAS_MAX);
+        end else if (tname == "n_tref") begin                         // run with -P ...TREFPS=100000000 (100 us)
+            init_seq(2);
+            nopm(30000);                                              // 300 us without REF; limit 100 us + 62.4 us
+            expect_err(`SE_TREF);
+        end else if (tname == "n_setup") begin                        // run with TCO_MAX=4500 (500 ps setup < 1500)
+            init_seq(2);
+            nopm(2);
+            expect_err(`SE_SETUP);
+        end else if (tname == "n_hold") begin                         // run with M_TCMH=7000 (> 5000 + tco_min)
+            init_seq(2);
+            nopm(2);
+            expect_err(`SE_HOLD);
+        end else begin
+            $display("unknown test %0s", tname); tb_fail = tb_fail + 1;
+        end
+        finish_test;
     end
     initial begin #2_000_000_000; $display("TEST %0s FAIL (timeout)", tname); $finish; end
 endmodule
