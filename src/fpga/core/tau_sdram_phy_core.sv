@@ -154,6 +154,9 @@ module tau_sdram_phy_core #(
         if (REFRESH_DEBT_MAX < 1 || REFRESH_DEBT_MAX > 15) begin : g_chk_debt
             initial $error("tau_sdram_phy: REFRESH_DEBT_MAX must be 1..15");
         end
+        if (REFI_C > 65535) begin : g_chk_refi2
+            initial $error("tau_sdram_phy: REFRESH_INTERVAL_PS too long for the 16-bit timer");
+        end
         if (REFI_C < 1) begin : g_chk_refi
             initial $error("tau_sdram_phy: REFRESH_INTERVAL_PS shorter than one clock");
         end
@@ -216,12 +219,14 @@ module tau_sdram_phy_core #(
     end
 
     // ---------------------------------------------------------------------------------------------------------
-    // forced-refresh sequencer (stage 4 placeholder: never active here)
+    // forced-refresh sequencer (defined below, section "refresh timer, preemption, aged rows")
     // ---------------------------------------------------------------------------------------------------------
-    wire       busy_seq = 1'b0;        // the PHY owns the bus (forced BST / PREA / REF)
-    wire       s_v      = 1'b0;
-    wire [2:0] s_cmd    = CMD_NOP;
-    wire       n_busy_seq = 1'b0;
+    wire       busy_seq;               // the PHY owns the bus (forced BST / PREA / REF)
+    wire       s_v;
+    wire [2:0] s_cmd;
+    wire       n_busy_seq;
+    wire       f_force;                // the forced sequence starts (a fault)
+    wire       f_force_age;            // ... because a row reached the force age (else the refresh debt)
 
     // ---------------------------------------------------------------------------------------------------------
     // interlock: the offered command against the registered permits
@@ -451,11 +456,15 @@ module tau_sdram_phy_core #(
     wire       r_bst = n_burst;
 
     wire n_busy = ~n_init_done | n_busy_seq;
+    // unmasked (by the PHY's own ownership) permits, used by the forced-refresh sequencer
+    reg rp_prea_q = 1'b0, rp_ref_q = 1'b0;
     always @(posedge clk) begin
         if (rst) begin
             ok_act_q <= 4'd0; ok_rd_q <= 4'd0; ok_wr_q <= 4'd0; ok_pre_q <= 4'd0; ok_prea_q <= 1'b0;
-            ok_ref_q <= 1'b0; ok_bst_q <= 1'b0;
+            ok_ref_q <= 1'b0; ok_bst_q <= 1'b0; rp_prea_q <= 1'b0; rp_ref_q <= 1'b0;
         end else begin
+            rp_prea_q <= r_prea & n_init_done;
+            rp_ref_q  <= r_ref & n_init_done;
             ok_act_q  <= r_act & {4{~n_busy}};
             ok_rd_q   <= r_rd  & {4{~n_busy}};
             ok_wr_q   <= r_wr  & {4{~n_busy}};
@@ -482,8 +491,9 @@ module tau_sdram_phy_core #(
     reg [3:0]  fcause_q = 4'd0;
     reg [31:0] refs_q  = 32'd0;
     reg [15:0] dqc_q   = 16'd0;
-    wire       f_ev   = illegal | wrap_viol;
-    wire [3:0] f_code = illegal ? (busy ? 4'd12 : (((cmd == CMD_RD) | (cmd == CMD_WR)) & a10) ? 4'd11 : {1'b0, cmd}) : 4'd8;
+    wire       f_ev   = illegal | wrap_viol | f_force;
+    wire [3:0] f_code = illegal ? (busy ? 4'd12 : (((cmd == CMD_RD) | (cmd == CMD_WR)) & a10) ? 4'd11 : {1'b0, cmd}) :
+                        wrap_viol ? 4'd8 : (f_force_age ? 4'd10 : 4'd9);
     wire       conflict_d = oe_n & ((rw_q != {CW{1'b0}}) | rd_open_q);
     always @(posedge clk) begin
         if (rst) begin
@@ -500,7 +510,6 @@ module tau_sdram_phy_core #(
     end
     assign phy_fault = fault_q; assign fault_count = fcnt_q; assign fault_cause = fcause_q;
     assign refreshes = refs_q; assign dq_conflicts = dqc_q;
-    assign row_aged = 4'd0;
 
     // ---------------------------------------------------------------------------------------------------------
     // pins
@@ -576,10 +585,116 @@ module tau_sdram_phy_core #(
     assign rvalid = vp_q[RD_LAT - 1];
 
     // ---------------------------------------------------------------------------------------------------------
-    // stage 4 placeholders
+    // refresh timer, preemption, aged rows
+    //   The timer adds one to ref_debt every REFRESH_INTERVAL (780 clocks at 100 MHz); every REF (the scheduler's or the
+    //   PHY's) takes one away. When the debt reaches REFRESH_DEBT_MAX, or a row reaches ROW_FORCE_NS, the PHY raises
+    //   `preempt` and waits for preempt_ack (a cycle in which the scheduler has ended its burst) or PREEMPT_TIMEOUT
+    //   clocks; then it issues BST (if a burst is open, DQM 11), PREA (when permitted), REF (when permitted) and pulses
+    //   banks_closed. The event is a fault (cause 9 refresh debt, 10 aged row). row_aged[b] (open longer than
+    //   OPEN_ROW_MAX_NS) is a request to the scheduler only.
     // ---------------------------------------------------------------------------------------------------------
-    assign preempt = 1'b0; assign banks_closed = 1'b0; assign ref_due = 1'b0; assign ref_debt = 4'd0;
+    localparam integer TW = 16;
+    localparam [TW-1:0] TMR_RELOAD = REFI_C - 1;
+    localparam [3:0]    DEBT_MAX_V = REFRESH_DEBT_MAX;
+    localparam [11:0]   TMO_V = PREEMPT_TIMEOUT;
+    reg [TW-1:0] tmr_q = TMR_RELOAD;
+    reg [3:0]    debt_q = 4'd0;
+    reg          ref_due_q = 1'b0;
+    wire tick   = init_done_q & (tmr_q == {TW{1'b0}});
+    wire e_refc = e_ref & init_done_q;
+`ifdef MUT_DEBT
+    wire tick_eff = 1'b0;
+`else
+    wire tick_eff = tick;
+`endif
+    reg [3:0] debt_n;
+    always_comb begin
+        debt_n = debt_q;
+        if (tick_eff & ~e_refc) begin
+            if (debt_q != 4'd15) debt_n = debt_q + 4'd1;
+        end else if (~tick_eff & e_refc & (debt_q != 4'd0)) debt_n = debt_q - 4'd1;
+    end
+    always @(posedge clk) begin
+        if (rst) begin
+            tmr_q <= TMR_RELOAD; debt_q <= 4'd0; ref_due_q <= 1'b0;
+        end else begin
+            tmr_q <= (!init_done_q || tick) ? TMR_RELOAD : tmr_q - 1'b1;
+            debt_q <= debt_n;
+            ref_due_q <= (debt_n != 4'd0);
+        end
+    end
+    assign ref_due = ref_due_q;
+    assign ref_debt = debt_q;
 
-    wire unused_ok = &{1'b0, preempt_ack, age_req, age_force, n_open};
+    localparam [2:0] Q_IDLE = 3'd0, Q_WAIT = 3'd1, Q_BST = 3'd2, Q_PREA = 3'd3, Q_REF = 3'd4;
+    reg [2:0]  qs_q  = Q_IDLE;
+    reg [11:0] tmo_q = TMO_V;
+    reg        preempt_q = 1'b0, bclosed_q = 1'b0;
+    reg [3:0]  aged_q = 4'd0;
+`ifdef MUT_NOPREEMPT
+    wire trig_debt = 1'b0;
+`else
+    wire trig_debt = (debt_q >= DEBT_MAX_V);
+`endif
+`ifdef MUT_NOAGE
+    wire trig_age = 1'b0;
+`else
+    wire trig_age  = |age_force;
+`endif
+    wire trig      = init_done_q & (trig_debt | trig_age);
+    reg [2:0]  n_qs;
+    reg [11:0] n_tmo;
+    reg        sq_v, sq_bc, sq_force;
+    reg [2:0]  sq_cmd;
+    always_comb begin
+        n_qs = qs_q; n_tmo = tmo_q; sq_v = 1'b0; sq_cmd = CMD_NOP; sq_bc = 1'b0; sq_force = 1'b0;
+        case (qs_q)
+            Q_IDLE: if (trig) begin n_qs = Q_WAIT; n_tmo = TMO_V; end
+            Q_WAIT: begin
+                if (!trig) n_qs = Q_IDLE;
+                else if (preempt_ack || tmo_q == 12'd0) begin n_qs = Q_BST; sq_force = 1'b1; end
+                else n_tmo = tmo_q - 1'b1;
+            end
+            Q_BST: begin
+                if (burst_open) begin sq_v = 1'b1; sq_cmd = CMD_BST; end
+                n_qs = Q_PREA;
+            end
+            Q_PREA: begin
+`ifdef MUT_PREA_EARLY
+                if (1'b1) begin
+`else
+                if (rp_prea_q) begin
+`endif
+                    sq_v = 1'b1; sq_cmd = CMD_PREA; n_qs = Q_REF;
+                end
+            end
+            Q_REF: if (rp_ref_q) begin sq_v = 1'b1; sq_cmd = CMD_REF; n_qs = Q_IDLE; sq_bc = 1'b1; end
+            default: n_qs = Q_IDLE;
+        endcase
+    end
+    assign busy_seq    = (qs_q == Q_BST) | (qs_q == Q_PREA) | (qs_q == Q_REF);
+    assign n_busy_seq  = (n_qs == Q_BST) | (n_qs == Q_PREA) | (n_qs == Q_REF);
+    assign s_v         = sq_v;
+    assign s_cmd       = sq_cmd;
+    assign f_force     = sq_force;
+    assign f_force_age = trig_age;
+    always @(posedge clk) begin
+        if (rst) begin
+            qs_q <= Q_IDLE; tmo_q <= TMO_V; preempt_q <= 1'b0; bclosed_q <= 1'b0; aged_q <= 4'd0;
+        end else begin
+            qs_q <= n_qs; tmo_q <= n_tmo; preempt_q <= (n_qs == Q_WAIT);
+`ifdef MUT_NOPULSE
+            bclosed_q <= 1'b0;
+`else
+            bclosed_q <= sq_bc;
+`endif
+            aged_q <= age_req;
+        end
+    end
+    assign preempt = preempt_q;
+    assign banks_closed = bclosed_q;
+    assign row_aged = aged_q;
+
+    wire unused_ok = &{1'b0, n_open};
 endmodule
 `default_nettype wire

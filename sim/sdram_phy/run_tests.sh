@@ -63,10 +63,27 @@ n_rise_worst | CAPMODE=0 |
 rd_chain | | rd_chain_cl2
 rd_chain | CLSEL=3 | rd_chain_cl3
 wr_gap | |
+refresh_debt | |
+preempt_timeout | DEBTMAX=3 REFIPS=200000 |
+preempt_ack | DEBTMAX=3 REFIPS=200000 |
+preempt_wburst | DEBTMAX=3 REFIPS=200000 |
+preempt_young_row | DEBTMAX=3 REFIPS=200000 |
+aged_row | REFIPS=1000000000 |
+aged_row_sched | REFIPS=1000000000 |
+reset_rburst | | reset_rburst_cl2
+reset_rburst | CLSEL=3 | reset_rburst_cl3
+reset_wburst | |
+turn_rw | | turn_rw_cl2
+turn_rw | CLSEL=3 | turn_rw_cl3
+wr_rd_turn | | wr_rd_turn_cl2
+wr_rd_turn | CLSEL=3 | wr_rd_turn_cl3
+n_wr_in_read | CLSEL=3 | n_wr_in_read_cl3
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
 rand | RDEX=1 CLSEL=3 | rand_cl3_x1
 rand | CAPMODE=0 TAC2=4000 | rand_cl2_rise
+rand | CLSEL=3 NRAND=40000 | rand_long_cl3
+rand | NRAND=40000 CAPMODE=0 TAC2=4000 RDEX=2 | rand_long_cl2_rise_x2
 EOF
 )
 MUTANTS=$(cat <<'EOF'
@@ -86,6 +103,11 @@ MUT_WR_IN_READ | n_wr_in_read | |
 MUT_NOWRAP | n_wrap_rd | |
 MUT_DQM | wr_gap | |
 MUT_OE_EARLY | rd_data | |
+MUT_DEBT | refresh_debt | |
+MUT_NOPREEMPT | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
+MUT_NOPULSE | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
+MUT_PREA_EARLY | preempt_young_row | DEBTMAX=3 REFIPS=200000 |
+MUT_NOAGE | aged_row | REFIPS=1000000000 |
 EOF
 )
 
