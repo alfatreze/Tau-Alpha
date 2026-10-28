@@ -26,6 +26,7 @@ run_unit() {
 if [ "$WANT" = all ]; then
     run_unit unit_arb tb_arb "$HERE/tb_arb.sv" "$RTL/tau_sdram_sv_arb.sv"
     run_unit unit_queue tb_queue "$HERE/tb_queue.sv" "$RTL/tau_sdram_sv_pq.sv"
+    run_unit sys_rows tb_rows -I "$ROOT/sim/sdram_chip_model" "$HERE/tb_rows.sv" "${PHY[@]}" "${SCHED[@]}"
 fi
 echo "sdram_sched_v: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
