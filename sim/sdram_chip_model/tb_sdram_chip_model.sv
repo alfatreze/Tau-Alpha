@@ -167,10 +167,16 @@ module tb_sdram_chip_model #(
     task pre(input [1:0] b);                     cyc(K_PRE, b, 13'd0, 2'b11, 16'd0, 16'd0); endtask
     task prea;                                   cyc(K_PRE, 2'b00, 13'h0400, 2'b11, 16'd0, 16'd0); endtask
     task refr;                                   cyc(K_REF, 2'b00, 13'd0, 2'b11, 16'd0, 16'd0); endtask
+    task bstl;                                   cyc(K_BST, 2'b00, 13'd0, 2'b00, 16'd0, 16'd0); endtask   // DQM low: read data in flight stays enabled
+    task prel(input [1:0] b);                    cyc(K_PRE, b, 13'd0, 2'b00, 16'd0, 16'd0); endtask
     task bst;                                    cyc(K_BST, 2'b00, 13'd0, 2'b11, 16'd0, 16'd0); endtask
     task mrs(input [12:0] v);                    cyc(K_MRS, 2'b00, v, 2'b11, 16'd0, 16'd0); endtask
     task emrs(input [12:0] v);                   cyc(K_MRS, 2'b10, v, 2'b11, 16'd0, 16'd0); endtask
 
+    reg [16:0] pk_tmp;
+    function pvalid(input integer b, input integer r, input integer c);
+        begin pk_tmp = chip.peek(b, r, c); pvalid = pk_tmp[16]; end
+    endfunction
     // data pattern
     function [15:0] pat(input [1:0] b, input [12:0] r, input [9:0] c);
         begin pat = {b, r[3:0], c[9:0]} ^ 16'h5a3c; end
@@ -372,6 +378,108 @@ module tb_sdram_chip_model #(
             init_seq(2);
             nopm(2);
             expect_err(`SE_HOLD);
+        end
+        // ---- data model and bursts ----
+        else if (tname == "wr_burst") begin
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd4, pat(0, 13'd5, 10'd4));
+            for (ti = 1; ti < 8; ti = ti + 1) wd(pat(0, 13'd5, 10'd4 + ti));
+            cyc(K_BST, 2'b00, 13'd0, 2'b00, pat(0, 13'd5, 10'd12), 16'hffff);   // data in the BST cycle is NOT written
+            nopm(3);
+            for (ti = 0; ti < 8; ti = ti + 1) check(chip.peek(0, 5, 4 + ti) == {1'b1, pat(0, 13'd5, 10'd4 + ti)}, "word written");
+            check(chip.peek(0, 5, 12) !== {1'b1, pat(0, 13'd5, 10'd12)}, "BST-cycle data must not be written");
+            check(pvalid(0, 5, 12) != 1'b1, "word 12 never written");
+            check(chip.wr_words == 8, "exactly 8 words written");
+            expect_clean;
+        end else if (tname == "wr_mask") begin
+            init_seq(2);
+            act(1, 13'd9); nop(1);
+            wr_m(1, 10'd0, 16'h1111, 2'b00);       // both bytes
+            wd_m(16'h2222, 2'b01);                 // dqm[0]: DQ[7:0] masked, upper byte written
+            wd_m(16'h3333, 2'b10);                 // dqm[1]: DQ[15:8] masked, lower byte written
+            wd_m(16'h4444, 2'b11);                 // nothing
+            bst; nopm(3);
+            check(chip.peek(1, 9, 0) == 17'h11111, "word 0 both bytes");
+            check(chip.peek(1, 9, 1) !== 17'h12222 && chip.mem_v[chip.mhash({2'd1, 13'd9, 10'd1})] == 2'b10, "word 1: only the upper byte");
+            check(chip.mem_v[chip.mhash({2'd1, 13'd9, 10'd2})] == 2'b01, "word 2: only the lower byte");
+            check(chip.mem_v[chip.mhash({2'd1, 13'd9, 10'd3})] === 2'bxx || chip.mem_a[chip.mhash({2'd1, 13'd9, 10'd3})] != {2'd1, 13'd9, 10'd3} || chip.mem_v[chip.mhash({2'd1, 13'd9, 10'd3})] == 2'b00, "word 3 untouched");
+            check(chip.mem_d[chip.mhash({2'd1, 13'd9, 10'd1})][15:8] == 8'h22, "word 1 upper byte value");
+            check(chip.mem_d[chip.mhash({2'd1, 13'd9, 10'd2})][7:0] == 8'h33, "word 2 lower byte value");
+            expect_clean;
+        end else if (tname == "wr_interrupt") begin            // a WR interrupts a WR: exactly 3 words of the first burst
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'hA000); wd(16'hA001); wd(16'hA002);
+            wr(0, 10'd100, 16'hB000); wd(16'hB001);
+            bst; nopm(3);
+            check(chip.peek(0, 5, 0)   == 17'h1A000 && chip.peek(0, 5, 2) == 17'h1A002, "first burst words 0..2");
+            check(pvalid(0, 5, 3) != 1'b1, "first burst must not reach word 3");
+            check(chip.peek(0, 5, 100) == 17'h1B000 && chip.peek(0, 5, 101) == 17'h1B001, "second burst");
+            check(chip.wr_words == 5 && chip.wr_bursts == 2, "5 words, 2 bursts");
+            expect_clean;
+        end else if (tname == "wr_pre_legal") begin           // PRE exactly at w+n+1 (tDPL 2) and ACT exactly 4 clk after the last word
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'hC000); wd(16'hC001); wd(16'hC002); wd(16'hC003);   // w..w+3, n = 4
+            nopm(1);                                // w+4: DQM 11
+            pre(0);                                 // w+5 = w+n+1 (also >= tRAS: ACT was 7 clk ago)
+            nopm(1);
+            act(0, 13'd6); nopm(2);                 // w+7 = last data (w+3) + 4 clk = tDAL
+            check(chip.peek(0, 5, 3) == 17'h1C003, "last word stored");
+            expect_clean;
+        end else if (tname == "n_tdpl") begin               // PRE at w+n: tDPL (2 clk) and tWR (15 ns) violated
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'hC000); wd(16'hC001); wd(16'hC002); wd(16'hC003);
+            pre(0); nopm(3);
+            expect_err(`SE_TDPL);
+            expect_err(`SE_TWR);
+        end else if (tname == "n_tdal") begin               // ACT 3 clk after the last word (30 ns < 33 ns)
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'hC000); wd(16'hC001); wd(16'hC002); wd(16'hC003);
+            pre(0); nopm(1); act(0, 13'd6); nopm(3);        // PRE at w+4, ACT at w+6 = last + 3
+            expect_err(`SE_TDAL);
+        end else if (tname == "n_wrap_wr") begin            // write burst runs past column 1023
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd1020, 16'hD000);
+            for (ti = 1; ti < 8; ti = ti + 1) wd(16'hD000 + ti);
+            bst; nopm(3);
+            expect_err(`SE_COL_WRAP);
+            check(chip.peek(0, 5, 0) == 17'h1D004, "wrapped word 4 lands in column 0");
+        end else if (tname == "n_wrap_rd") begin
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd1020); nop(7); bst; nopm(6);
+            expect_err(`SE_COL_WRAP);
+        end else if (tname == "rd_counts") begin             // a burst of n words ends exactly after n words, by BST, RD or PRE
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd0); nop(7); bstl; nop(6);                                         // BST at r+8
+            check(chip.last_rd_n == 8 && chip.last_rd_launched == 8, "BST: 8 words");
+            rd(0, 10'd0); nop(2); bstl; nop(6);                                         // BST at r+3
+            check(chip.last_rd_n == 3 && chip.last_rd_launched == 3, "BST: 3 words");
+            rd(0, 10'd0); nop(4); rd(0, 10'd100); nop(1); bstl; nop(6);                 // RD at r+5 ends burst 1 after 5; burst 2 has 2
+            check(chip.rd_bursts == 4, "two bursts from the RD-terminated pair");
+            check(chip.last_rd_n == 2 && chip.last_rd_launched == 2, "second burst: 2 words");
+            rd(0, 10'd0); nop(5); prel(0); nop(6);                                      // PRE at r+6 (bank 0)
+            check(chip.last_rd_n == 6 && chip.last_rd_launched == 6, "PRE: 6 words");
+            expect_clean;
+        end else if (tname == "rd_dqm_mask") begin         // DQM high masks read words (tDQZ 2): the burst length is unchanged
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd0); nop(2);                // words slot r+CL.. ; DQM goes high at cycle 3
+            for (ti = 0; ti < 3; ti = ti + 1) cyc(K_NOP, 2'b00, 13'd0, 2'b11, 16'd0, 16'd0);   // DQM high at r+3..r+5
+            nop(2); bstl; nop(6);                                                      // BST at r+8
+            check(chip.last_rd_n == 8 && chip.last_rd_launched == 5, "8 slots, 3 masked");
+            expect_clean;
+        end else if (tname == "n_bst_after_bst") begin
+            init_seq(2);
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd0); nop(3); bst; bst; nopm(4);           // the second BST has no burst left
+            expect_err(`SE_BST_NOBURST);
         end else begin
             $display("unknown test %0s", tname); tb_fail = tb_fail + 1;
         end

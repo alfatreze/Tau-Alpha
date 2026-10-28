@@ -168,11 +168,21 @@ module sdram_chip_model #(
     integer     e_col_last;
 
     // burst streams (one read stream and one write stream; a new column command ends both)
-    reg         rs_active;           // a read stream exists (it may already have ended: rs_end != INF)
-    integer     rs_bank, rs_col0, rs_start, rs_end;   // slots (capture-edge numbers) rs_start = r + CL
-    longint     rs_cmd_t;
-    reg         ws_active;
-    integer     ws_bank, ws_col0, ws_start, ws_end;
+    // read streams: a FIFO of descriptors, because a new READ at edge c ends the previous stream only at slot c+CL
+    // (up to CL streams are in flight). A "slot" is a capture-edge number: word k of a READ at edge r is slot r+CL+k.
+    localparam integer RQ = 8;
+    integer     rq_start [0:RQ-1];
+    integer     rq_end   [0:RQ-1];
+    integer     rq_bank  [0:RQ-1];
+    integer     rq_row   [0:RQ-1];
+    integer     rq_col0  [0:RQ-1];
+    integer     rq_cnt   [0:RQ-1];   // unmasked words launched
+    reg         rq_wrap  [0:RQ-1];
+    longint     rq_t     [0:RQ-1];   // chip edge time of the READ command
+    integer     rq_head, rq_n;
+    reg         ws_active;           // the write stream: data is consumed at the edge, no latency
+    integer     ws_bank, ws_row, ws_col0, ws_start, ws_end;
+    reg         ws_wrap;
 
     integer i_b;
 
@@ -186,15 +196,18 @@ module sdram_chip_model #(
             t_wr_last[i_b] = -64'sd10_000_000_000_000; e_wr_last[i_b] = -1000;
         end
         t_ref = -64'sd10_000_000_000_000; e_act_any = -1000; t_act_any = -64'sd10_000_000_000_000; e_col_last = -1000;
-        rs_active = 1'b0; rs_bank = 0; rs_col0 = 0; rs_start = 0; rs_end = INF; rs_cmd_t = 0;
-        ws_active = 1'b0; ws_bank = 0; ws_col0 = 0; ws_start = 0; ws_end = INF;
+        rq_head = 0; rq_n = 0;
+        ws_active = 1'b0; ws_bank = 0; ws_row = 0; ws_col0 = 0; ws_start = 0; ws_end = INF; ws_wrap = 1'b0;
     end
 
     // ---------------------------------------------------------------------------------------------------------
     // burst helpers
     // ---------------------------------------------------------------------------------------------------------
+    function integer rq_tail(input integer dummy);
+        begin rq_tail = (rq_head + rq_n - 1) % RQ; end
+    endfunction
     function rs_open(input integer dummy);      // a read burst exists and has not been terminated yet
-        begin rs_open = rs_active && (rs_end == INF); end
+        begin rs_open = (rq_n > 0) && (rq_end[rq_tail(0)] == INF); end
     endfunction
     function ws_open(input integer dummy);
         begin ws_open = ws_active && (ws_end == INF); end
@@ -203,7 +216,7 @@ module sdram_chip_model #(
     // terminate the streams at command edge c: read ends after c + CL (exactly c - r words), write ends at c
     task end_streams(input integer c, input reg rd_too, input reg wr_too);
         begin
-            if (rd_too && rs_open(0)) rs_end = c + mr_cl;
+            if (rd_too && rs_open(0)) rq_end[rq_tail(0)] = c + mr_cl;
             if (wr_too && ws_open(0)) ws_end = c;
         end
     endtask
@@ -317,12 +330,144 @@ module sdram_chip_model #(
         end
     endtask
 
+
+    // ---------------------------------------------------------------------------------------------------------
+    // data model: sparse direct-mapped store (64 MB would not fit a simulator array), per-byte valid flags
+    // ---------------------------------------------------------------------------------------------------------
+    localparam integer MEM_N = (1 << MEM_LOG2);
+    reg [15:0] mem_d [0:MEM_N-1];
+    reg [24:0] mem_a [0:MEM_N-1];
+    reg [1:0]  mem_v [0:MEM_N-1];
+    integer    mem_collisions, uninit_reads;
+    integer    wr_words, wr_bursts, rd_words, rd_bursts, last_rd_n, last_rd_launched, last_rd_cap_half;
+    integer    mi;
+    initial begin
+        for (mi = 0; mi < MEM_N; mi = mi + 1) begin mem_v[mi] = 2'b00; mem_a[mi] = 25'd0; mem_d[mi] = 16'hxxxx; end
+        mem_collisions = 0; uninit_reads = 0; wr_words = 0; wr_bursts = 0; rd_words = 0; rd_bursts = 0;
+        last_rd_n = 0; last_rd_launched = 0; last_rd_cap_half = 0;
+    end
+    function integer mhash(input [24:0] a);
+        reg [24:0] h;
+        begin h = a ^ (a >> MEM_LOG2) ^ (a >> (2 * MEM_LOG2)); mhash = h & (MEM_N - 1); end
+    endfunction
+    task mem_wr(input integer b, input integer r, input integer c, input integer lane, input [7:0] v);
+        reg [24:0] a; integer h;
+        begin
+            a = {b[1:0], r[12:0], c[9:0]}; h = mhash(a);
+            if (mem_v[h] != 2'b00 && mem_a[h] != a) begin
+                mem_collisions = mem_collisions + 1;
+                $display("[CHIPMODEL] store collision at %0t (raise MEM_LOG2): old data dropped", $time);
+                mem_v[h] = 2'b00;
+            end
+            mem_a[h] = a; mem_v[h][lane] = 1'b1;
+            if (lane == 0) mem_d[h][7:0] = v; else mem_d[h][15:8] = v;
+        end
+    endtask
+    function [15:0] mem_rd(input integer b, input integer r, input integer c, input [1:0] lanes);
+        reg [24:0] a; integer h; reg [15:0] w;
+        begin
+            a = {b[1:0], r[12:0], c[9:0]}; h = mhash(a); w = 16'hxxxx;
+            if (mem_a[h] == a && mem_v[h][0]) w[7:0]  = mem_d[h][7:0];
+            if (mem_a[h] == a && mem_v[h][1]) w[15:8] = mem_d[h][15:8];
+            mem_rd = w;
+        end
+    endfunction
+    // back door for the test bench: 17 bits {valid-both-bytes, data}
+    function [16:0] peek(input integer b, input integer r, input integer c);
+        reg [24:0] a; integer h;
+        begin
+            a = {b[1:0], r[12:0], c[9:0]}; h = mhash(a);
+            peek = {(mem_a[h] == a && mem_v[h] == 2'b11), (mem_a[h] == a) ? mem_d[h] : 16'hxxxx};
+        end
+    endfunction
+
+    // read stream FIFO
+    task rq_push(input integer b, input integer r, input integer c);
+        integer t;
+        begin
+            if (rq_n == RQ) begin
+                $display("[CHIPMODEL] read stream FIFO overflow"); rq_head = (rq_head + 1) % RQ; rq_n = rq_n - 1;
+            end
+            t = (rq_head + rq_n) % RQ;
+            rq_start[t] = edge_n + mr_cl; rq_end[t] = INF; rq_bank[t] = b; rq_row[t] = r; rq_col0[t] = c;
+            rq_cnt[t] = 0; rq_wrap[t] = 1'b0; rq_t[t] = t_now;
+            rq_n = rq_n + 1;
+        end
+    endtask
+
+    // DQM history: dqm_hist[j] is DQM at edge (edge_n - j)
+    reg [1:0] dqm_hist [0:7];
+    integer   dj;
+    initial for (dj = 0; dj < 8; dj = dj + 1) dqm_hist[dj] = 2'b11;
+    reg       dq_hold_arm;
+    initial dq_hold_arm = 1'b0;
+    always @(dram_dq) begin
+        t_chg_dq = $time;
+        if (dq_hold_arm && ($time - t_edge) >= 0 && ($time - t_edge) < TDH_PS) err(`SE_HOLD, "write data changed inside tDH");
+    end
+
+    // write data: latency 0, the word at chip edge w+k is written when DQM is low at that edge
+    task write_step;
+        integer idx, col, ln; reg any;
+        begin
+            dq_hold_arm = 1'b0;
+            if (ws_active && edge_n >= ws_start && edge_n < ws_end) begin
+                idx = edge_n - ws_start; col = ws_col0 + idx; any = 1'b0;
+                if (col > 1023 && !ws_wrap) begin err(`SE_COL_WRAP, "write burst ran past column 1023"); ws_wrap = 1'b1; end
+                col = col & 1023;
+                for (ln = 0; ln < 2; ln = ln + 1) begin
+                    if (dram_dqm[ln] === 1'bx || dram_dqm[ln] === 1'bz) err(`SE_UNKNOWN, "X on DQM during a write burst");
+                    else if (dram_dqm[ln] === 1'b0) begin
+                        if ((^dram_dq[ln*8 +: 8]) === 1'bx) err(`SE_WDATA_X, "unmasked write byte is X/Z");
+                        if (t_now - t_chg_dq < TDS_PS) err(`SE_SETUP, "write data setup (tDS)");
+                        mem_wr(ws_bank, ws_row, col, ln, dram_dq[ln*8 +: 8]);
+                        any = 1'b1;
+                    end
+                end
+                if (any) begin
+                    e_wr_last[ws_bank] = edge_n; t_wr_last[ws_bank] = t_now; wr_words = wr_words + 1; dq_hold_arm = 1'b1;
+                end
+            end
+        end
+    endtask
+
+    // read data: at chip edge E the chip launches the word whose capture slot is E+1 (valid tAC after E)
+    reg [1:0]  lau_lane;            // byte lanes driven for the slot launched at this edge
+    reg [15:0] lau_word;
+    integer    lau_slot, lau_k, lau_stream;
+    task read_launch_step;
+        integer s, k, col, h; reg [1:0] msk;
+        begin
+            lau_lane = 2'b00; lau_word = 16'hxxxx; lau_stream = -1;
+            s = edge_n + 1;
+            while (rq_n > 0 && s >= rq_end[rq_head]) begin     // stream finished: record its statistics
+                last_rd_n = rq_end[rq_head] - rq_start[rq_head]; last_rd_launched = rq_cnt[rq_head];
+                rd_bursts = rd_bursts + 1;
+                rq_head = (rq_head + 1) % RQ; rq_n = rq_n - 1;
+            end
+            if (rq_n > 0 && s >= rq_start[rq_head]) begin
+                h = rq_head; k = s - rq_start[h]; col = rq_col0[h] + k;
+                if (col > 1023 && !rq_wrap[h]) begin err(`SE_COL_WRAP, "read burst ran past column 1023"); rq_wrap[h] = 1'b1; end
+                col = col & 1023;
+                msk = dqm_hist[TDQZ_CLK - 1];            // DQM at edge s - tDQZ masks this slot
+                lau_lane = ~msk; lau_slot = s; lau_k = k; lau_stream = h;
+                lau_word = mem_rd(rq_bank[h], rq_row[h], col, 2'b11);
+                if (lau_lane != 2'b00) begin
+                    rq_cnt[h] = rq_cnt[h] + 1; rd_words = rd_words + 1;
+                    if (^lau_word === 1'bx) uninit_reads = uninit_reads + 1;
+                end
+            end
+        end
+    endtask
+
     always @(posedge dram_clk) begin
         edge_n = edge_n + 1;
         t_prev = t_now;
         t_now  = $time;
         t_edge = t_now;
         if (edge_n == 0) t_first = t_now;
+        for (dj = 7; dj > 0; dj = dj - 1) dqm_hist[dj] = dqm_hist[dj-1];
+        dqm_hist[0] = dram_dqm;
 
         // clock period
         if (edge_n > 0) begin
@@ -390,7 +535,7 @@ module sdram_chip_model #(
                         end_streams(edge_n, 1'b1, 1'b1);
                         for (bi = 0; bi < 4; bi = bi + 1) do_precharge(bi);
                     end else begin
-                        if (rs_open(0) && rs_bank == dram_ba) end_streams(edge_n, 1'b1, 1'b0);
+                        if (rs_open(0) && rq_bank[rq_tail(0)] == dram_ba) end_streams(edge_n, 1'b1, 1'b0);
                         if (ws_open(0) && ws_bank == dram_ba) end_streams(edge_n, 1'b0, 1'b1);
                         do_precharge(dram_ba);
                     end
@@ -426,11 +571,11 @@ module sdram_chip_model #(
                     end_streams(edge_n, 1'b1, 1'b1);
                     e_col_last = edge_n;
                     if (cmd == C_RD) begin
-                        rs_active = 1'b1; rs_bank = dram_ba; rs_col0 = dram_a[9:0];
-                        rs_start = edge_n + mr_cl; rs_end = INF; rs_cmd_t = t_now;
+                        rq_push(dram_ba, bank_row[dram_ba], dram_a[9:0]);
                     end else begin
-                        ws_active = 1'b1; ws_bank = dram_ba; ws_col0 = dram_a[9:0];
-                        ws_start = edge_n; ws_end = INF;
+                        ws_active = 1'b1; ws_bank = dram_ba; ws_row = bank_row[dram_ba]; ws_col0 = dram_a[9:0];
+                        ws_start = edge_n; ws_end = INF; ws_wrap = 1'b0;
+                        wr_bursts = wr_bursts + 1;
                     end
                 end
                 C_BST: begin
@@ -442,5 +587,7 @@ module sdram_chip_model #(
                 default: ;
             endcase
         end
+        write_step;
+        read_launch_step;
     end
 endmodule
