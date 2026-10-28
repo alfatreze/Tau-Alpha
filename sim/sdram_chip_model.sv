@@ -66,7 +66,7 @@ module sdram_chip_model #(
     parameter integer CL_DEFAULT     = 2,       // used until the MRS is seen
     parameter integer BST_NO_BURST_IS_ERROR = 1,
     parameter integer MEM_LOG2       = 16,      // sparse store: 2^MEM_LOG2 direct-mapped words (collision = error print)
-    parameter integer MEM_COMPACT    = 0,       // 1 (needs MEM_LOG2 = 20): exact, collision-free store for a test that only uses
+    parameter integer MEM_COMPACT    = 0,       // 2 (needs MEM_LOG2 = 22; sim/sdram_replay): exact for row[9:7] = 0; 1 (needs MEM_LOG2 = 20): exact, collision-free store for a test that only uses
                                                 //   rows with row[12] = 0 and row[7:4] = 0 (all banks, all columns); added by the
                                                 //   sched_v tests, default 0 = the original hash
     parameter integer VERBOSE        = 1
@@ -352,7 +352,8 @@ module sdram_chip_model #(
     function integer mhash(input [24:0] a);
         reg [24:0] h;
         begin
-            if (MEM_COMPACT != 0) begin h = 25'd0; h[19:0] = {a[24:23], a[21:18], a[13:10], a[9:0]}; mhash = h & (MEM_N - 1); end
+            if (MEM_COMPACT == 2) begin h = 25'd0; h[21:0] = {a[24:20], a[16:0]}; mhash = h & (MEM_N - 1); end   // replay harness: exact for row[9:7] = 0 (needs MEM_LOG2 = 22)
+            else if (MEM_COMPACT != 0) begin h = 25'd0; h[19:0] = {a[24:23], a[21:18], a[13:10], a[9:0]}; mhash = h & (MEM_N - 1); end
             else begin h = a ^ (a >> MEM_LOG2) ^ (a >> (2 * MEM_LOG2)); mhash = h & (MEM_N - 1); end
         end
     endfunction
