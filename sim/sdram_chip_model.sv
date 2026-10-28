@@ -209,6 +209,44 @@ module sdram_chip_model #(
     endtask
 
     // ---------------------------------------------------------------------------------------------------------
+    // refresh and row-age bookkeeping
+    // ---------------------------------------------------------------------------------------------------------
+    localparam integer TDAL_PS = TWR_PS + TRP_PS;              // contract section 2: tDAL = tWR + tRP (4 clk at 100 MHz)
+    localparam longint TREF_LIMIT_PS = TREF_PS + TREF_SLACK_PS;
+    longint row_ts [0:8191];        // time each row index was last refreshed by REF (8,192 timestamps)
+    integer ref_ctr;                // the internal refresh row counter
+    reg     tref_flag;
+    reg     tras_flag [0:3];
+    integer refreshes;
+    integer k_r;
+    longint t_edge;                 // time of the latest chip clock edge (for hold checks)
+    longint t_chg_cmd, t_chg_adr, t_chg_cke, t_chg_dq;
+
+    initial begin
+        ref_ctr = 0; tref_flag = 1'b0; refreshes = 0; t_edge = -64'sd10_000_000_000_000;
+        t_chg_cmd = -64'sd10_000_000_000_000; t_chg_adr = -64'sd10_000_000_000_000;
+        t_chg_cke = -64'sd10_000_000_000_000; t_chg_dq = -64'sd10_000_000_000_000;
+        for (k_r = 0; k_r < 8192; k_r = k_r + 1) row_ts[k_r] = 64'sd0;
+        for (k_r = 0; k_r < 4; k_r = k_r + 1) tras_flag[k_r] = 1'b0;
+    end
+
+    // ---------------------------------------------------------------------------------------------------------
+    // setup / hold at the chip pins: change timestamps, checked at the chip edge (setup) and at the change (hold)
+    // ---------------------------------------------------------------------------------------------------------
+    always @(dram_ras_n or dram_cas_n or dram_we_n or dram_dqm) begin
+        t_chg_cmd = $time;
+        if (($time - t_edge) >= 0 && ($time - t_edge) < TCMH_PS) err(`SE_HOLD, "command/DQM changed inside tCMH");
+    end
+    always @(dram_a or dram_ba) begin
+        t_chg_adr = $time;
+        if (($time - t_edge) >= 0 && ($time - t_edge) < TAH_PS) err(`SE_HOLD, "address/bank changed inside tAH");
+    end
+    always @(dram_cke) begin
+        t_chg_cke = $time;
+        if (($time - t_edge) >= 0 && ($time - t_edge) < TCKH_PS) err(`SE_HOLD, "CKE changed inside tCKH");
+    end
+
+    // ---------------------------------------------------------------------------------------------------------
     // the chip clock edge
     // ---------------------------------------------------------------------------------------------------------
     reg [2:0]  cmd;
@@ -216,8 +254,8 @@ module sdram_chip_model #(
     reg        a10;
     integer    bsel;
     integer    bi;
-
-    reg was_done;
+    reg        was_done;
+    longint    per;
 
     // init order (contract 3.7): CKE high from the first edge, >= 100 us of NOP, PREA, REF, REF, MRS, EMRS
     task init_cmd(input [2:0] c);
@@ -250,6 +288,7 @@ module sdram_chip_model #(
                         if (dram_ba != 2'b10 || dram_a[12:7] != 6'd0)
                             err(`SE_EMRS_VALUE, "EMRS must be BA=10 with reserved bits 0");
                         init_stage = 5; init_done = 1'b1;
+                        for (k_r = 0; k_r < 8192; k_r = k_r + 1) row_ts[k_r] = t_now;   // rows start aging at init_done
                     end else err(`SE_INIT_ORDER, "expected EMRS after MRS");
                 end
                 default: ;
@@ -259,9 +298,22 @@ module sdram_chip_model #(
 
     task do_precharge(input integer b);
         begin
-            // legality (timing rules are added in the timing section)
+            if (bank_open[b]) begin
+                if (t_now - t_act[b] < TRAS_PS)             err(`SE_TRAS, "PRE before tRAS");
+                if (edge_n - e_wr_last[b] < TDPL_CLK)       err(`SE_TDPL, "PRE before tDPL after the last written word");
+                if (t_now - t_wr_last[b] < TWR_PS)          err(`SE_TWR,  "PRE before tWR after the last written word");
+            end
             bank_open[b] = 1'b0;
-            t_pre[b] = t_now;
+            tras_flag[b] = 1'b0;
+            t_pre[b]     = t_now;
+        end
+    endtask
+
+    task check_trp_all(input [8*20-1:0] what);
+        integer q;
+        begin
+            for (q = 0; q < 4; q = q + 1)
+                if (t_now - t_pre[q] < TRP_PS) err(`SE_TRP, what);
         end
     endtask
 
@@ -269,30 +321,67 @@ module sdram_chip_model #(
         edge_n = edge_n + 1;
         t_prev = t_now;
         t_now  = $time;
+        t_edge = t_now;
         if (edge_n == 0) t_first = t_now;
+
+        // clock period
+        if (edge_n > 0) begin
+            per = t_now - t_prev;
+            if (per < ((mr_cl == 3) ? TCK_MIN_CL3_PS : TCK_MIN_CL2_PS)) err(`SE_TCK, "chip clock period below tCK(min)");
+        end
+
+        // setup of command, DQM, address and CKE at this edge
+        if (t_now - t_chg_cmd < TCMS_PS) err(`SE_SETUP, "command/DQM setup (tCMS)");
+        if (t_now - t_chg_adr < TAS_PS)  err(`SE_SETUP, "address/bank setup (tAS)");
+        if (t_now - t_chg_cke < TCKS_PS) err(`SE_SETUP, "CKE setup (tCKS)");
 
         cmd   = {dram_ras_n, dram_cas_n, dram_we_n};
         cmd_known = !(^{dram_ras_n, dram_cas_n, dram_we_n} === 1'bx);
         a10   = dram_a[10];
-        bsel  = dram_ba;
+
+        // refresh ageing, tRAS(max): checked every clock once the part is initialised
+        if (init_done) begin
+            if (!tref_flag && (t_now - row_ts[ref_ctr] > TREF_LIMIT_PS)) begin
+                err(`SE_TREF, "a row exceeded the refresh limit");
+                tref_flag = 1'b1;
+            end
+            for (bi = 0; bi < 4; bi = bi + 1)
+                if (bank_open[bi] && !tras_flag[bi] && (t_now - t_act[bi] > TRAS_MAX_PS)) begin
+                    err(`SE_TRAS_MAX, "bank open longer than tRAS(max)");
+                    tras_flag[bi] = 1'b1;
+                end
+        end
 
         if (dram_cke !== 1'b1) begin
             err(`SE_CKE_LOW, "CKE not high at a chip clock edge");
         end else if (!cmd_known) begin
             err(`SE_UNKNOWN, "X/Z on RAS/CAS/WE");
         end else begin
+            if (cmd != C_NOP && cmd != C_BST && (^{dram_a, dram_ba} === 1'bx) && cmd != C_REF)
+                err(`SE_UNKNOWN, "X/Z on the address or bank pins");
             was_done = init_done;
             if (!was_done && cmd != C_NOP) init_cmd(cmd);
+            if (cmd != C_NOP) begin
+                if (t_now - t_ref < TRFC_PS)       err(`SE_TRFC, "command inside tRFC after REF");
+                if (edge_n - e_mrs < TMRD_CLK)     err(`SE_TMRD, "command inside tMRD after MRS/EMRS");
+            end
             case (cmd)
                 C_NOP: begin
-                    if (!init_done) nop_edges = nop_edges + 1;
+                    if (!was_done) nop_edges = nop_edges + 1;
                 end
                 C_ACT: begin
                     bsel = dram_ba;
-                    if (bank_open[bsel]) err(`SE_ACT_OPEN, "ACT to an open bank");
+                    if (bank_open[bsel])                       err(`SE_ACT_OPEN, "ACT to an open bank");
+                    if (t_now - t_pre[bsel] < TRP_PS)          err(`SE_TRP, "ACT before tRP after PRE");
+                    if (t_now - t_act[bsel] < TRC_PS)          err(`SE_TRC, "ACT to ACT (same bank) before tRC");
+                    if (edge_n - e_act_any < TRRD_CLK)         err(`SE_TRRD, "ACT to ACT before tRRD");
+                    if (t_now - t_wr_last[bsel] < TDAL_PS)     err(`SE_TDAL, "ACT before tDAL after the last written word");
                     bank_open[bsel] = 1'b1;
                     bank_row[bsel]  = dram_a;
                     t_act[bsel]     = t_now;
+                    tras_flag[bsel] = 1'b0;
+                    t_wr_last[bsel] = -64'sd10_000_000_000_000;
+                    e_wr_last[bsel] = -1000;
                     e_act_any       = edge_n;
                     t_act_any       = t_now;
                 end
@@ -307,20 +396,33 @@ module sdram_chip_model #(
                     end
                 end
                 C_REF: begin
-                    for (bi = 0; bi < 4; bi = bi + 1)
-                        if (bank_open[bi]) err(`SE_REF_OPEN, "REF with an open bank");
-                    if (rs_open(0) || ws_open(0)) err(`SE_REF_OPEN, "REF with an open burst");
-                    t_ref = t_now;
+                    for (bi = 0; bi < 4; bi = bi + 1) begin
+                        if (bank_open[bi])                      err(`SE_REF_OPEN, "REF with an open bank");
+                        if (t_now - t_pre[bi] < TRP_PS)         err(`SE_TRP, "REF before tRP after PRE");
+                        if (t_now - t_act[bi] < TRC_PS)         err(`SE_ACT_REF, "REF before tRC after ACT");
+                    end
+                    if (rs_open(0) || ws_open(0))               err(`SE_REF_OPEN, "REF with an open burst");
+                    if (init_done && !tref_flag && (t_now - row_ts[ref_ctr] > TREF_LIMIT_PS))
+                        err(`SE_TREF, "row refreshed after the refresh limit");
+                    row_ts[ref_ctr] = t_now;
+                    ref_ctr   = (ref_ctr + 1) % 8192;
+                    tref_flag = 1'b0;
+                    refreshes = refreshes + 1;
+                    t_ref     = t_now;
                 end
                 C_MRS: begin
-                    for (bi = 0; bi < 4; bi = bi + 1)
-                        if (bank_open[bi]) err(`SE_REF_OPEN, "MRS with an open bank");
+                    for (bi = 0; bi < 4; bi = bi + 1) begin
+                        if (bank_open[bi])                      err(`SE_REF_OPEN, "MRS with an open bank");
+                    end
+                    check_trp_all("MRS before tRP");
                     if (was_done) err(`SE_MRS_LATE, "mode set after init_done");
                     e_mrs = edge_n;
                 end
                 C_RD, C_WR: begin
-                    if (!bank_open[dram_ba]) err(`SE_COL_CLOSED, "column command to a closed bank");
-                    if (a10) err(`SE_A10_COL, "A10=1 on a column command");
+                    if (!bank_open[dram_ba])                    err(`SE_COL_CLOSED, "column command to a closed bank");
+                    if (t_now - t_act[dram_ba] < TRCD_PS)       err(`SE_TRCD, "column command before tRCD");
+                    if (edge_n - e_col_last < TCCD_CLK)         err(`SE_TCCD, "column command inside tCCD");
+                    if (a10)                                    err(`SE_A10_COL, "A10=1 on a column command");
                     end_streams(edge_n, 1'b1, 1'b1);
                     e_col_last = edge_n;
                     if (cmd == C_RD) begin
