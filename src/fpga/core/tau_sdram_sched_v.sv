@@ -31,6 +31,12 @@
 //     and BATCH_WORDS words from one port and is not interrupted (even by an urgent port);
 //   * reads return in command order through a descriptor FIFO (port, words, last, tag).
 `default_nettype none
+// Lint: constant width conversions of parameter arithmetic, loop temporaries in clocked blocks and reserved/unused
+// inputs are intended.
+/* verilator lint_off WIDTHEXPAND */
+/* verilator lint_off WIDTHTRUNC */
+/* verilator lint_off BLKSEQ */
+/* verilator lint_off UNUSEDSIGNAL */
 module tau_sdram_sched_v #(
     parameter integer NPORTS = 6,
     parameter integer QDEPTH = 4,
