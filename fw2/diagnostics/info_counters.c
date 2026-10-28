@@ -20,6 +20,10 @@ extern uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max; extern uint32_t gfx_fenc
 extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo; extern uint32_t gfx_hw_ovf, gfx_hw_uf, gfx_hw_fence_st;
 #if P2_DIAG
 #include "../cores/meter_cost_core.h"
+#if P2_DIAG
+#include "sdram_soak.h"
+static uint32_t soak_lvl_row;   /* refreshed with the table (counters_refresh) */
+#endif
 mcost_t meter_cost[8];           /* per meter (the index of meter_stats.max_cyc): the cost of its ordinary ticks, forced repaints left out; rows "M ..." */
 extern uint32_t gfx_stall_cyc, gfx_fence_cyc;   /* fw2/gfx/gfx.c, T0 counters */
 static uint32_t mc_t0, mc_stall0, mc_fence0;
@@ -140,6 +144,14 @@ const cnt_t counters_table[] = {
     { "GFX FENCE CYC", CK_U32, CU_NONE,  &gfx_fence_cyc },          /* CPU cycles spent in fences (the marker round trip, 256-cycle polls) */
     { "GFX FENCE TMO", CK_U32, CU_NONE,  &gfx_fence_tmo },          /* fences that gave up after 50 ms */
     { "GFX HW FENCE", CK_U32, CU_NONE,   &gfx_hw_fence_st },        /* Talos T3: 0 not probed, 1 the mailbox fence (no T3 block, or the hardware fence timed out), 2 the hardware FENCE command */
+    { "SOAK LEVEL",   CK_U32, CU_NONE,   &soak_lvl_row },            /* the SDRAM soak (Check page, X): 0 off, 1..3 = 16 k / 64 k / 128 k operations a second beside whatever plays */
+    { "SOAK PASSES",  CK_U32, CU_NONE,   &soak_st.pass },
+    { "SOAK OPS",     CK_U32, CU_NONE,   &soak_st.ops },
+    { "SOAK FAILS",   CK_U32, CU_NONE,   &soak_st.fails },            /* words that read back wrong: must stay 0 */
+    { "SOAK TMO",     CK_U32, CU_NONE,   &soak_st.tmo },              /* mailbox timeouts */
+    { "SOAK 1ST ADR", CK_HEX32, CU_NONE, &soak_st.first_addr },
+    { "SOAK 1ST EXP", CK_HEX32, CU_NONE, &soak_st.first_exp },
+    { "SOAK 1ST GOT", CK_HEX32, CU_NONE, &soak_st.first_got },
     { "GFX Q OVF",    CK_U32, CU_NONE,   &gfx_hw_ovf },             /* Talos T3: commands dropped because the queue was full (read after each hardware fence; 0 = the poll before every push works) */
     { "GFX SCAN LATE", CK_U32, CU_NONE,  &gfx_hw_uf },              /* Talos T3: scanout lines whose fill was late (the instrument for "scanout always wins"; 0 on a healthy build) */
     { "GFX B1 ISSUE", CK_U32, CU_NONE,   &gfx_bench[0] },           /* Check > GFX ISSUE: CPU cycles per command to issue 1,000 one-pixel rectangles (the CPU's cost per command) */
@@ -383,6 +395,9 @@ void counters_init(void) { mc_update(&uptime_clk, cycles(), CLK_HZ); }
 
 void counters_refresh(void)
 {
+#if P2_DIAG
+    soak_lvl_row = soak_level();
+#endif
     {   /* the audio side: one writer here, read through the table */
         extern uint32_t counters_aout_init;
         aout_snap_t s = aout_snap(); const aout_stats_t *a = &aout_stats;

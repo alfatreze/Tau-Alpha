@@ -79,6 +79,7 @@ SECTIONS {
 		*/info_page.o(.text .text.*)
 		*/report_page.o(.text .text.*)
 		*/check_page.o(.text .text.*)
+		*/sdram_soak.o(.text .text.*)
 		*/blit_check.o(.text .text.*)
 		*/font.o(.text .text.*)
 		*/icon.o(.text .text.*)

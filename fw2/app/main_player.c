@@ -10,6 +10,9 @@
 #include "../diagnostics/about_page.h"
 #if P2_DIAG
 #include "../diagnostics/check_page.h"
+#if P2_DIAG
+#include "../diagnostics/sdram_soak.h"
+#endif
 #endif
 #include "../diagnostics/report_page.h"
 #include "../aout/aout.h"
@@ -148,6 +151,9 @@ int main(void)
             uint32_t sv[SF_COUNT]; settings_seed(sv); mp3play_settings_get(sv); appearance_get(sv); mp3play_last_get(&sv[SF_LAST0]); if (settings_service(sv, mp.playing && !mp.held)) { mp3play_settings_set(sv); appearance_set(sv); }
             aout_poll((int)mp.playing);
         }
+#if P2_DIAG
+        if (soak_run) soak_step();                                                         /* the SDRAM soak (Check page, X): a slice of pattern write / verify beside playback */
+#endif
         loops++; counters_loops = loops; counters_keys = keys;
         if (th_changed || font_changed) { th_changed = 0; font_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
         if (!blank.blanked) { views_mark(); views_flush(); }                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
