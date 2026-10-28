@@ -20,6 +20,7 @@ module tau_sdram_sv_arb #(
     input  wire          rst,
     input  wire [NP-1:0] cand,          // port has a piece that may be granted now
     input  wire [NP-1:0] urgent,        // urgent & URGENT_CAPABLE (masked by the caller)
+    input  wire [NP-1:0] early,         // urgent_early & capable: served first among the non-urgent ports
     input  wire          cont_ok,       // the last-granted port's next piece is in the same row and may go back to back
     input  wire [2:0]    last_port,
     input  wire          grant,
@@ -42,14 +43,17 @@ module tau_sdram_sv_arb #(
     integer k;
     reg [2:0] pp;
     reg       found;
-    reg       u_found;
-    reg [2:0] u_p;
+    reg       u_found, e_found;
+    reg [2:0] u_p, e_p;
     always @* begin
         sel_v = 1'b0; sel_p = 3'd0; sel_wrr = 1'b0;
-        u_found = 1'b0; u_p = 3'd0;
+        u_found = 1'b0; u_p = 3'd0; e_found = 1'b0; e_p = 3'd0;
         for (k = NP - 1; k >= 0; k = k - 1) begin
 `ifndef MUT_NOURG
             if (urgent[k] & cand[k]) begin u_found = 1'b1; u_p = k[2:0]; end
+`endif
+`ifndef MUT_NOEARLY
+            if (early[k] & cand[k]) begin e_found = 1'b1; e_p = k[2:0]; end
 `endif
         end
         found = 1'b0; pp = 3'd0;
@@ -60,6 +64,7 @@ module tau_sdram_sv_arb #(
             end
         end
         if (u_found)           begin sel_v = 1'b1; sel_p = u_p;       sel_wrr = 1'b0; end
+        else if (e_found)      begin sel_v = 1'b1; sel_p = e_p;       sel_wrr = 1'b0; end
         else if (cont_ok)      begin sel_v = 1'b1; sel_p = last_port; sel_wrr = 1'b0; end
         else if (found)        begin sel_v = 1'b1; sel_p = pp;        sel_wrr = 1'b1; end
     end
