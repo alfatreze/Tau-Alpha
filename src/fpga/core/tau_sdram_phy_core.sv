@@ -10,6 +10,11 @@
 // registered into the pin registers at that edge (E); the chip samples it half a clock later (chip clock = ~clk).
 // All times are integer picoseconds converted to clocks at elaboration (ceil of the exact ratio).
 `default_nettype none
+// Lint: the initial values give the pins their reset state before the first clock (CKE high from the first cycle); the
+// constant width conversions of parameter arithmetic are intended.
+/* verilator lint_off PROCASSINIT */
+/* verilator lint_off WIDTHTRUNC */
+/* verilator lint_off WIDTHEXPAND */
 module tau_sdram_phy_core #(
     parameter integer CLK_HZ              = 100_000_000,
     parameter integer CL                  = 2,

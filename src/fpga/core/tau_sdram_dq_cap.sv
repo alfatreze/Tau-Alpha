@@ -6,6 +6,7 @@
 // Quartus: the first-stage register must sit in the I/O cell (FAST_INPUT_REGISTER ON); for the falling edge use the
 // ALTDDIO_IN macro (define TAU_SDRAM_ALTDDIO_IN to select it). The behavioural code is what simulation runs.
 `default_nettype none
+/* verilator lint_off PROCASSINIT */
 module tau_sdram_dq_cap #(
     parameter integer CAP_MODE = 1
 ) (
