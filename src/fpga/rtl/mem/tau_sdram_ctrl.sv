@@ -118,7 +118,8 @@ module tau_sdram_ctrl #(
   localparam SETTING_T_RP_MIN_PRECHARGE_CMD_PERIOD_NANO_SEC = 18;
 
   // tRFC - Min autorefresh period
-  localparam SETTING_T_RFC_MIN_AUTOREFRESH_PERIOD_NANO_SEC = 80;
+  // S0 (docs/features/SDRAM_PART_FACTS.md): the datasheet's tRFC is 97.5 ns (AS4C32M16MS -6); this was 80, which the CEIL macro turned into 9 cycles = 90 ns, 7.5 ns short. 98 ns gives 10 cycles = 100 ns.
+  localparam SETTING_T_RFC_MIN_AUTOREFRESH_PERIOD_NANO_SEC = 98;
 
   // tRC - Min active to active command period for the same bank
   localparam SETTING_T_RC_MIN_ACTIVE_TO_ACTIVE_PERIOD_NANO_SEC = 60;

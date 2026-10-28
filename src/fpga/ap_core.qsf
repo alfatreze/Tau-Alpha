@@ -613,6 +613,18 @@ set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[8]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[9]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[10]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[11]
+# S0 (docs/features/SDRAM_CONTROLLER_REVIEW_2026-10-28.md, D-T09): the SDRAM outputs come straight from registers that drive only the pin, so ask the fitter to place those registers in the
+# I/O cells (clock-to-pad about 2 ns instead of 8 to 9 ns of routing and a fabric register): same logical cycle, same behaviour, and the margin against the chip's setup at the slow corner
+# moves by 2 to 3 ns (measured before and after with tools/sdram_sta_probe.tcl). The input side is NOT changed here (it needs a capture register in the RTL: later).
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ba[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dqm[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cke
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ras_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cas_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to dbg_tx
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to cram1_we_n
 set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to cram1_wait
