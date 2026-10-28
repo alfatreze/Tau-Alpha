@@ -1,7 +1,24 @@
 // Tau V SDRAM scheduler (reference implementation v1). MIT licence.
 // Clean-room, from docs/features/SDRAM_CONTROLLER_CONTRACT.md v0.6 (sections 0, 3, 4, 5, 7.3, 8).
-// CHECKPOINT 3: queues, arbitration, open-row table, ACT/PRE look-ahead, reads and writes (chained column commands,
-// BST termination, write data pull with W_LEAD and a skid FIFO). Refresh, preemption, aged rows: next checkpoint.
+// CHECKPOINT 4: queues, arbitration, open-row table, ACT/PRE look-ahead, reads and writes (chained column commands,
+// BST termination, write data pull with W_LEAD and a skid FIFO), refresh in idle gaps / forced at a debt level,
+// preemption, aged-row closing, urgent-wait counters.
+//
+// URGENT BOUND (documented for the interface document; measured against it by sim/sdram_sched_v, test urgent_bound).
+//   An urgent read request (port 0, the scan-out) that is pending at cycle u sees its first word on `r_valid` no later than
+//     W = L_MAX + PULL_AHEAD + max(OVH_CONF + TURN, OVH_REF) + RD_LAT + PORT_REG
+//   cycles after u, where (default values at 100 MHz, CL2, W_LEAD 2):
+//     L_MAX      128  the longest uninterruptible grant: a read piece (max grant 128) or a write batch (BATCH_WORDS 128)
+//     PULL_AHEAD   4  = W_LEAD + 2: a write grant is committed this many cycles before the end of the burst in progress
+//                     and then runs to its end, so a grant can start after the urgent request arrived
+//     OVH_CONF    10  = 1 (BST) + max(tWR, tRAS) 5 + tRP 2 + tRCD 2: close another row and open the urgent one
+//     TURN         3  read to write turnaround (BST + 3), relevant only to an urgent write
+//     OVH_REF     17  = 1 (BST) + 1 (PREA) + tRP 2 + 1 (REF) + tRFC 10 + tRCD 2: a refresh that was started (or is forced at the
+//                     debt level REF_HARD_DEBT, even while an urgent request waits) just before the request arrived
+//     RD_LAT       4  PHY read latency (CL2, FALL capture)
+//     PORT_REG     2  request queue register and return path
+//   = 128 + 4 + 17 + 4 + 2 = 155 cycles = 1.55 us (the contract's estimate was L_MAX + 27 = 155). Every term is a parameter.
+//   A write grant is never interrupted; the urgent port waits for it (included in L_MAX).
 //
 // Structure (one command per clock):
 //   * every cycle the arbiter proposes a target T = the next piece (a read piece, or the first piece of a write
@@ -32,7 +49,12 @@ module tau_sdram_sched_v #(
     parameter integer BATCH_REQS = 4,
     parameter integer BATCH_WORDS = 128,
     parameter integer WR_HI_REQ = 2,                 // dagger: a batch port becomes eligible at this many queued requests
-    parameter integer WR_DEFER_NS = 1000             // dagger: ... or when its head has waited this long (write done <= 2 us)
+    parameter integer WR_DEFER_NS = 1000,            // dagger: ... or when its head has waited this long (write done <= 2 us)
+    parameter integer REF_SOFT_DEBT = 4,             // dagger: refresh between grants at this debt when no urgent request waits
+    parameter integer REF_HARD_DEBT = 7,             // refresh at the next burst boundary at this debt, whatever waits (PHY max 8)
+    parameter integer L_MAX = 128,                   // documented urgent bound terms (see the header)
+    parameter integer TWR_C = 2, parameter integer TRAS_C = 5, parameter integer TRP_C = 2, parameter integer TRCD_C = 2,
+    parameter integer TRFC_C = 10, parameter integer TURN_C = 3, parameter integer RD_LAT = 4, parameter integer PORT_REG = 2
 ) (
     input  wire                 clk,
     input  wire                 rst,
@@ -63,6 +85,8 @@ module tau_sdram_sched_v #(
     output wire [NPORTS*32-1:0] cnt_words,
     output wire [NPORTS*32-1:0] cnt_busy,
     output wire [NPORTS*16-1:0] cnt_bad,
+    output wire [NPORTS*16-1:0] cnt_worst_wait,
+    output wire [NPORTS*16-1:0] cnt_urgent_over,
     output wire [3:0]           dbg_err,
     // PHY command interface (contract section 3.3)
     output reg  [2:0]           cmd,
@@ -76,14 +100,25 @@ module tau_sdram_sched_v #(
     input  wire [3:0]           ok_wr,
     input  wire [3:0]           ok_pre,
     input  wire                 ok_bst,
+    input  wire                 ok_prea,
+    input  wire                 ok_ref,
     input  wire                 init_done,
+    input  wire                 ref_due,
+    input  wire [3:0]           ref_debt,
+    output wire                 preempt_ack,
     input  wire                 rvalid,
     input  wire [15:0]          rdata,
     input  wire [3:0]           row_aged,
     input  wire                 preempt,
     input  wire                 banks_closed
 );
-    localparam [2:0] K_NOP = 3'd0, K_ACT = 3'd1, K_RD = 3'd2, K_WR = 3'd3, K_PRE = 3'd4, K_BST = 3'd7;
+    localparam [2:0] K_NOP = 3'd0, K_ACT = 3'd1, K_RD = 3'd2, K_WR = 3'd3, K_PRE = 3'd4, K_PREA = 3'd5, K_REF = 3'd6, K_BST = 3'd7;
+    localparam [1:0] RF_NONE = 2'd0, RF_PREA = 2'd1, RF_REF = 2'd2;
+    localparam integer OVH_CONF = 1 + ((TWR_C > TRAS_C) ? TWR_C : TRAS_C) + TRP_C + TRCD_C;
+    localparam integer OVH_REF  = 1 + 1 + TRP_C + 1 + TRFC_C + TRCD_C;
+    localparam integer OVH_MAX  = ((OVH_CONF + TURN_C) > OVH_REF) ? (OVH_CONF + TURN_C) : OVH_REF;
+    localparam integer URGENT_BOUND_CLK = L_MAX + (W_LEAD + 2) + OVH_MAX + RD_LAT + PORT_REG;      // first r_valid, from the urgent request
+    localparam integer URGENT_ISSUE_BOUND = URGENT_BOUND_CLK - RD_LAT - PORT_REG;                   // the column command
     localparam integer STARVE_CLK   = (CLK_HZ / 1000) * (SAME_ROW_BREAK_NS / 1000) / 1000;
     localparam integer WR_DEFER_CLK = (CLK_HZ / 1000) * (WR_DEFER_NS / 1000) / 1000;
     localparam integer PULL_AHEAD   = W_LEAD + 2;
@@ -109,6 +144,9 @@ module tau_sdram_sched_v #(
     reg  [31:0]          req_cnt_q [0:NPORTS-1];
     reg  [31:0]          word_cnt_q [0:NPORTS-1];
     reg  [31:0]          busy_cnt_q [0:NPORTS-1];
+    reg  [15:0]          worst_q [0:NPORTS-1];
+    reg  [15:0]          uover_q [0:NPORTS-1];
+    reg  [15:0]          uwc_q [0:NPORTS-1];
     genvar p;
     generate
         for (p = 0; p < NPORTS; p = p + 1) begin : g_p
@@ -127,6 +165,8 @@ module tau_sdram_sched_v #(
             assign cnt_requests[p*32 +: 32]  = req_cnt_q[p];
             assign cnt_words[p*32 +: 32]     = word_cnt_q[p];
             assign cnt_busy[p*32 +: 32]      = busy_cnt_q[p];
+            assign cnt_worst_wait[p*16 +: 16]   = worst_q[p];
+            assign cnt_urgent_over[p*16 +: 16]  = uover_q[p];
         end
     endgenerate
 
@@ -197,7 +237,13 @@ module tau_sdram_sched_v #(
     wire        t_hit  = t_open && o_row[t_bank] == t_row && !row_aged[t_bank];
 
     wire        boundary = cur_v && (cur_left == 10'd0);
-    wire        run_ok   = init_done & ~preempt;
+    // refresh: one per idle gap (no urgent request waiting), between grants from REF_SOFT_DEBT, forced from REF_HARD_DEBT
+    reg  [1:0]  rfm;
+    wire        uw      = |(urgent & URGENT_CAPABLE[NPORTS-1:0] & hv);
+    wire        rf_go   = init_done & ~preempt & ref_due & ((ref_debt >= REF_HARD_DEBT[3:0]) |
+                          (~uw & ((ref_debt >= REF_SOFT_DEBT[3:0]) | ~(|hv))));
+    wire        run_ok   = init_done & ~preempt & (rfm == RF_NONE) & ~rf_go;
+    assign      preempt_ack = preempt & ~cur_v & init_done;
     wire [9:0]  need_pulled = (pq_n < W_LEAD[9:0] + 10'd1) ? pq_n : (W_LEAD[9:0] + 10'd1);
     wire        rd_ok    = ok_rd[t_bank] && (rq_cnt < RDQ_DEPTH[RQW-1:0] - 1);
     wire        wr_ok    = ok_wr[t_bank] && lk_v && (pq_pulled >= need_pulled) && (wf_cnt != {WFW{1'b0}});
@@ -230,9 +276,20 @@ module tau_sdram_sched_v #(
                 if (hv[k] && k[2:0] != t_p && hbank[k*2 +: 2] == b[1:0] && o_v[b] && hrow[k*13 +: 13] == o_row[b])
                     others_want[b] = 1'b1;
     end
+    reg [3:0] aged_pre;                 // an aged row that may be closed now
+    integer ab;
+    always @* begin
+        aged_pre = 4'd0;
+        for (ab = 0; ab < 4; ab = ab + 1)
+            aged_pre[ab] = row_aged[ab] & o_v[ab] & ok_pre[ab] & ~(cur_v & (cur_bank == ab[1:0]));
+    end
     always @* begin
         cmd = K_NOP; cmd_ba = 2'd0; cmd_a = 13'd0;
-        if (boundary) begin
+        if (rfm == RF_PREA) begin
+            if (ok_prea) cmd = K_PREA;
+        end else if (rfm == RF_REF) begin
+            if (ok_ref) cmd = K_REF;
+        end else if (boundary) begin
             if (issue) begin cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col}; end
             else begin cmd = K_BST; end
         end else if (issue) begin
@@ -245,6 +302,12 @@ module tau_sdram_sched_v #(
                     cmd = K_PRE; cmd_ba = t_bank;
                 end
             end
+        end
+        if (cmd == K_NOP && init_done && !preempt && rfm == RF_NONE && !(cur_v && boundary)) begin
+            if (aged_pre[0]) begin cmd = K_PRE; cmd_ba = 2'd0; end
+            else if (aged_pre[1]) begin cmd = K_PRE; cmd_ba = 2'd1; end
+            else if (aged_pre[2]) begin cmd = K_PRE; cmd_ba = 2'd2; end
+            else if (aged_pre[3]) begin cmd = K_PRE; cmd_ba = 2'd3; end
         end
     end
 
@@ -322,12 +385,13 @@ module tau_sdram_sched_v #(
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
-            err_q <= 4'd0; o_v <= 4'd0;
+            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE;
             last_port <= 3'd0; last_v <= 1'b0; last_bank <= 2'd0; last_row <= 13'd0;
             done_b_q <= {NPORTS{1'b0}}; done_w_q <= {NPORTS{1'b0}};
             for (i = 0; i < NPORTS; i = i + 1) begin
                 inflight[i] <= 6'd0; pidx[i] <= 10'd0; bad_q[i] <= 16'd0; req_cnt_q[i] <= 32'd0; word_cnt_q[i] <= 32'd0;
                 busy_cnt_q[i] <= 32'd0; done_b_tag[i] <= 8'd0; done_w_tag[i] <= 8'd0;
+                worst_q[i] <= 16'd0; uover_q[i] <= 16'd0; uwc_q[i] <= 16'd0;
             end
         end else begin
             // ---- burst in progress
@@ -340,8 +404,16 @@ module tau_sdram_sched_v #(
             end else if (cur_v && cur_left != 10'd0) begin
                 cur_left <= cur_left - 10'd1;
             end
+            // ---- refresh sequence
+            if (banks_closed) rfm <= RF_NONE;
+            else case (rfm)
+                RF_NONE: if (rf_go && (boundary || !cur_v)) rfm <= RF_PREA;
+                RF_PREA: if (cmd == K_PREA) rfm <= RF_REF;
+                RF_REF:  if (cmd == K_REF) rfm <= RF_NONE;
+                default: rfm <= RF_NONE;
+            endcase
             // ---- open-row table
-            if (banks_closed) o_v <= 4'd0;
+            if (banks_closed || cmd == K_PREA) o_v <= 4'd0;
             else if (cmd == K_ACT) begin o_v[cmd_ba] <= 1'b1; o_row[cmd_ba] <= cmd_a; end
             else if (cmd == K_PRE) o_v[cmd_ba] <= 1'b0;
             // ---- write commitment, pull cursor
@@ -397,6 +469,13 @@ module tau_sdram_sched_v #(
                 inflight[i] <= infl_n;
                 if (issue && t_p == i) word_cnt_q[i] <= word_cnt_q[i] + {22'd0, t_n};
                 if (cur_v && cur_port == i) busy_cnt_q[i] <= busy_cnt_q[i] + 32'd1;
+                // worst wait (grant minus request) and urgent waits above the documented bound
+                if (issue_p[i] && wc[i] > worst_q[i]) worst_q[i] <= wc[i];
+                if (urg[i] && !issue_p[i]) begin if (uwc_q[i] != 16'hffff) uwc_q[i] <= uwc_q[i] + 16'd1; end
+                else uwc_q[i] <= 16'd0;
+                if (issue_p[i] && urg[i] && uwc_q[i] > URGENT_ISSUE_BOUND) begin
+                    if (uover_q[i] != 16'hffff) uover_q[i] <= uover_q[i] + 16'd1;
+                end
             end
         end
     end

@@ -21,12 +21,32 @@ WANT="${1:-all}"
 pass=0; fail=0
 
 TESTS=$(cat <<'EOF'
-basic | REFIPS=600000000 |
-lengths | REFIPS=600000000 | lengths_cl2
-splits | REFIPS=600000000 |
-be | REFIPS=600000000 |
-order | REFIPS=600000000 |
-all_ports | REFIPS=600000000 | all_ports_cl2
+basic | |
+lengths | | lengths_cl2
+lengths | CLSEL=3 LMAX_T=256 | lengths_cl3
+lengths | W_LEAD=1 LMAX_T=200 | lengths_wlead1
+lengths | W_LEAD=3 LMAX_T=200 | lengths_wlead3
+splits | |
+be | |
+order | |
+all_ports | | all_ports_cl2
+all_ports | CLSEL=3 | all_ports_cl3
+all_ports | BANK_HASH=0 | all_ports_hash0
+all_ports | BANK_HASH=1 | all_ports_hash1
+all_ports | BANK_HASH=3 | all_ports_hash3
+all_ports | QDEPTH=2 WF_DEPTH=6 | all_ports_small
+bad_req | |
+refresh_load | |
+refresh_urgent | |
+refresh_urgent | SOFTD=8 | refresh_urgent_forced
+urgent_bound | |
+urgent_bound | REFIPS=1500000 | urgent_bound_refresh
+aged_row | REFIPS=600000000 |
+preempt | SOFTD=9 HARDD=9 |
+batching | |
+wrr | |
+twod | |
+reset_mid | |
 EOF
 )
 MUTANTS=$(cat <<'EOF'

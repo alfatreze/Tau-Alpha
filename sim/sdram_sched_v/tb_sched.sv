@@ -20,6 +20,8 @@ module tb_sched #(
     parameter integer INITCYC   = 200,
     parameter integer REFIPS    = 7_800_000,
     parameter integer DEBTMAX   = 8,
+    parameter integer SOFTD     = 4,
+    parameter integer HARDD     = 7,
     parameter integer LMAX_T    = 512,
     parameter integer NRAND     = 20000,
     parameter integer TMO_CYC   = 4000000
@@ -52,7 +54,7 @@ module tb_sched #(
     wire [NP*16-1:0] r_data;
     wire [NP*8-1:0]  done_tag;
     wire [NP*32-1:0] cnt_requests, cnt_words, cnt_busy;
-    wire [NP*16-1:0] cnt_bad;
+    wire [NP*16-1:0] cnt_bad, cnt_worst_wait, cnt_urgent_over;
     wire [3:0]       dbg_err;
     wire [2:0]  cmd;  wire [1:0] cmd_ba; wire [12:0] cmd_a;
     wire        wvalid; wire [15:0] wdata; wire [1:0] be;
@@ -74,16 +76,17 @@ module tb_sched #(
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we), .dram_dqm(c_dqm),
         .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dq), .fpga_oe(phy.u_core.dq_oe), .cap_clk(clk));
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
-                        .ENABLE_2D(EN2D)) dut (
+                        .ENABLE_2D(EN2D), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
         .clk(clk), .rst(rst), .req_valid(req_valid), .req_ready(req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
         .req_skew(req_skew), .urgent(urgent), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
         .r_valid(r_valid), .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag),
-        .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .dbg_err(dbg_err),
+        .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .cnt_worst_wait(cnt_worst_wait),
+        .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err),
         .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be),
-        .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_bst(ok_bst), .init_done(init_done),
+        .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_bst(ok_bst), .ok_prea(ok_prea), .ok_ref(ok_ref), .init_done(init_done),
+        .ref_due(ref_due), .ref_debt(ref_debt), .preempt_ack(preempt_ack),
         .rvalid(rvalid), .rdata(rdata), .row_aged(row_aged), .preempt(preempt), .banks_closed(banks_closed));
-    assign preempt_ack = 1'b0;
 
     // ------------------------------------------------------------------------------------------------
     // request table
@@ -101,6 +104,7 @@ module tb_sched #(
     integer         rq_bem  [0:NRQ-1];
     integer         rq_rel  [0:NRQ-1];
     integer         rq_dep  [0:NRQ-1];
+    integer         rq_gap  [0:NRQ-1];
     reg             rq_bad  [0:NRQ-1];
     reg             rq_acc  [0:NRQ-1];
     reg             rq_done [0:NRQ-1];
@@ -108,7 +112,13 @@ module tb_sched #(
     integer         rq_fcyc [0:NRQ-1];
     integer         rq_dcyc [0:NRQ-1];
     integer         nrq = 0, ndone = 0, nacc = 0;
-    integer         cur_gen = 1, cur_bem = 0;
+    integer         exp_req [0:7], exp_words [0:7], exp_bad [0:7];
+    reg             skip_cnt_check = 1'b0;
+    initial begin : init_exp
+        integer z;
+        for (z = 0; z < 8; z = z + 1) begin exp_req[z] = 0; exp_words[z] = 0; exp_bad[z] = 0; end
+    end
+    integer         cur_gen = 1, cur_bem = 0, cur_gap = 0;
     integer         last_rq;
     integer         tb_fail = 0;
     reg [8*40-1:0]  tname;
@@ -132,7 +142,7 @@ module tb_sched #(
         begin
             i = nrq;
             rq_port[i] = port; rq_we[i] = we; rq_addr[i] = addr; rq_len[i] = len; rq_2d[i] = 1'b0; rq_w[i] = 0; rq_h[i] = 0; rq_str[i] = 0;
-            rq_skew[i] = 2'b00; rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep;
+            rq_skew[i] = (BANK_HASH == 3) ? (addr[21:20] ^ addr[23:22] ^ addr[17:16]) : 2'b00; rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep; rq_gap[i] = cur_gap;
             rq_bad[i] = (len == 0) || (len > 512); rq_acc[i] = 1'b0; rq_done[i] = 1'b0; rq_acyc[i] = -1; rq_fcyc[i] = -1; rq_dcyc[i] = -1;
             if (addr[24] || addr[19:16] != 4'd0) begin $display("tb: test address %h outside the shadow range", addr); tb_fail = tb_fail + 1; end
             nrq = nrq + 1; last_rq = i;
@@ -201,6 +211,7 @@ module tb_sched #(
     integer words_wr = 0, words_rd = 0, nbad_done = 0;
     reg     quiet = 1'b0;                // no new client activity (set by tests while they wait)
     reg     cli_stop = 1'b0;             // stop issuing new requests
+    reg     keep_nxt = 1'b0;             // reset test: the clients do not restart their request lists
     reg     expect_fault = 1'b0;         // fault-path tests: the PHY is allowed to fault
     reg     expect_no_done = 1'b0;
 
@@ -233,7 +244,7 @@ module tb_sched #(
     always @(posedge clk) begin
         if (rst) begin
             for (p = 0; p < NP; p = p + 1) begin
-                cur_rq[p] = -1; nxt[p] = 0; cq_h[p] = 0; cq_t[p] = 0; rx_h[p] = 0; rx_t[p] = 0; rx_k[p] = 0; wx_h[p] = 0; wx_t[p] = 0; wx_k[p] = 0;
+                cur_rq[p] = -1; nxt[p] = keep_nxt ? nrq : 0; cq_h[p] = 0; cq_t[p] = 0; rx_h[p] = 0; rx_t[p] = 0; rx_k[p] = 0; wx_h[p] = 0; wx_t[p] = 0; wx_k[p] = 0;
             end
             req_valid <= 0;
         end else begin
@@ -242,6 +253,7 @@ module tb_sched #(
                 if (req_valid[p] && req_ready[p]) begin
                     i = cur_rq[p];
                     rq_acc[i] = 1'b1; rq_acyc[i] = cyc; nacc = nacc + 1;
+                    if (rq_bad[i]) exp_bad[p] = exp_bad[p] + 1; else begin exp_req[p] = exp_req[p] + 1; exp_words[p] = exp_words[p] + rq_total(i); end
                     cq_buf[p*128 + (cq_t[p] % 128)] = i; cq_t[p] = cq_t[p] + 1;
                     if (!rq_bad[i]) begin
                         if (rq_we[i]) begin
@@ -263,7 +275,7 @@ module tb_sched #(
                     while (nxt[p] < nrq && rq_port[nxt[p]] != p) nxt[p] = nxt[p] + 1;
                     if (nxt[p] < nrq) begin
                         i = nxt[p];
-                        if (cyc >= rq_rel[i] && (rq_dep[i] < 0 || rq_done[rq_dep[i]])) begin
+                        if (cyc >= rq_rel[i] && (rq_dep[i] < 0 || (rq_done[rq_dep[i]] && cyc >= rq_dcyc[rq_dep[i]] + rq_gap[i]))) begin
                             cur_rq[p] = i; nxt[p] = nxt[p] + 1;
                             req_valid[p] <= 1'b1; req_we[p] <= rq_we[i]; req_addr[p*25 +: 25] <= rq_addr[i];
                             req_len[p*10 +: 10] <= rq_len[i]; req_tag[p*8 +: 8] <= i[7:0];
@@ -334,6 +346,20 @@ module tb_sched #(
     // ------------------------------------------------------------------------------------------------
     // monitors on the command stream (chained bursts, refresh counting, direction changes, urgent latency)
     // ------------------------------------------------------------------------------------------------
+    integer debt_max = 0, run_words = 0, run_max = 0, run_cnt = 0, bc_seen = 0, bst_in_burst = 0;
+    always @(posedge clk) if (!rst) begin
+        if (ref_debt > debt_max) debt_max = ref_debt;
+        if (banks_closed) bc_seen = bc_seen + 1;
+        if (cmd == 3'd3) run_words = run_words + dut.t_n;
+        else if (cmd == 3'd2) begin if (run_words > run_max) run_max = run_words; run_words = 0; end
+    end
+    integer bt_words = 0, bt_max = 0, bt_reqs_c = 0, bt_rmax = 0, bt_n = 0;
+    always @(posedge clk) if (!rst && dut.do_lock) begin
+        if (dut.lock_a) begin bt_n = bt_n + 1; bt_words = dut.lk_n; bt_reqs_c = dut.lk_lst ? 1 : 0; end
+        else begin bt_words = bt_words + dut.lk_n; bt_reqs_c = bt_reqs_c + (dut.lk_lst ? 1 : 0); end
+        if (bt_words > bt_max) bt_max = bt_words;
+        if (bt_reqs_c > bt_rmax) bt_rmax = bt_reqs_c;
+    end
     integer n_act = 0, n_pre = 0, n_rd = 0, n_wr = 0, n_bst = 0, n_dirchg = 0, n_ref = 0, n_prea = 0;
     reg last_dir_v = 0, last_dir_w = 0;
     always @(posedge clk) if (!rst && init_done) begin
@@ -382,11 +408,25 @@ module tb_sched #(
             if (!expect_fault && (phy_fault !== 1'b0 || fault_count !== 16'd0)) begin
                 $display("  PHY fault: count=%0d cause=%0d", fault_count, fault_cause); tb_fail = tb_fail + 1;
             end
-            if (chip.err_count != 0) begin
+            if (keep_nxt || skip_cnt_check) begin
+                if (chip.err_count != 2 || chip.err_mask != 64'h100) begin
+                    $display("  after a reset the chip model must flag exactly the two late mode register sets: count %0d mask %h", chip.err_count, chip.err_mask); tb_fail = tb_fail + 1;
+                end
+            end else if (chip.err_count != 0) begin
                 $display("  chip model errors: %0d (first code %0d, mask %h)", chip.err_count, chip.err_first, chip.err_mask); tb_fail = tb_fail + 1;
             end
             if (dq_conflicts !== 16'd0) begin $display("  PHY dq_conflicts = %0d", dq_conflicts); tb_fail = tb_fail + 1; end
             if (dbg_err != 4'd0) begin $display("  scheduler internal error flags %b", dbg_err); tb_fail = tb_fail + 1; end
+            if (!skip_cnt_check) begin : cntchk
+                integer z;
+                for (z = 0; z < NP; z = z + 1) begin
+                    if (cnt_requests[z*32 +: 32] != exp_req[z] || cnt_words[z*32 +: 32] != exp_words[z] || cnt_bad[z*16 +: 16] != exp_bad[z]) begin
+                        $display("  counters port %0d: requests %0d/%0d words %0d/%0d bad %0d/%0d (dut/expected)", z, cnt_requests[z*32 +: 32], exp_req[z],
+                                 cnt_words[z*32 +: 32], exp_words[z], cnt_bad[z*16 +: 16], exp_bad[z]);
+                        tb_fail = tb_fail + 1;
+                    end
+                end
+            end
             if (chip.mem_collisions != 0) begin $display("  chip store collisions %0d", chip.mem_collisions); tb_fail = tb_fail + 1; end
         end
     endtask
@@ -408,6 +448,8 @@ module tb_sched #(
     // tests
     // ------------------------------------------------------------------------------------------------
     integer L, r, off, wp, rp, wi, ri, n1, pp;
+    integer ub_first, ub_max, ub_form;
+    reg [31:0] wrr_c0 [0:7]; integer wrr_c1 [0:7];
     integer cursor [0:15];
     integer wtab [0:NP*64-1]; reg [24:0] waddr [0:NP*64-1]; integer wlen [0:NP*64-1];
     localparam NPER = 40;
@@ -495,6 +537,197 @@ module tb_sched #(
                         add_rq(pp, 1'b0, waddr[r * NPER + off], wlen[r * NPER + off], 0, wtab[r * NPER + off]);
                     end
                 end
+                run_all(TMO_CYC);
+            end
+
+            "bad_req": begin     // lengths 0 and 513..1023 complete at once with done (in order); counters count them
+                for (pp = 0; pp < NP; pp = pp + 1) begin
+                    cur_gen = 50 + pp;
+                    add_rq(pp, 1'b1, A(9, pp * 3000), 512, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000), 0, 0, -1);
+                    add_rq(pp, 1'b1, A(9, pp * 3000 + 600), 513, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000), 100, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000), 1023, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000), 1000, 0, -1);
+                    add_rq(pp, 1'b1, A(9, pp * 3000), 0, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000), 512, 0, -1);
+                    add_rq(pp, 1'b0, A(9, pp * 3000 + 1), 1, 0, -1);
+                end
+                run_all(TMO_CYC);
+            end
+            "refresh_load": begin    // heavy traffic on every port with the real refresh interval: refresh without a PHY fault
+                for (pp = 0; pp < NP; pp = pp + 1) cursor[pp] = 0;
+                for (n1 = 0; n1 < NPER; n1 = n1 + 1) begin
+                    for (pp = 0; pp < NP; pp = pp + 1) begin
+                        L = 1 + urand(200); cur_gen = pp * 1000 + n1; cur_bem = 0;
+                        add_rq(pp, 1'b1, A(8 + pp, cursor[pp]), L, 0, -1);
+                        wtab[pp * NPER + n1] = last_rq; waddr[pp * NPER + n1] = A(8 + pp, cursor[pp]); wlen[pp * NPER + n1] = L;
+                        cursor[pp] = cursor[pp] + L + 1;
+                    end
+                end
+                for (n1 = 0; n1 < 3 * NPER; n1 = n1 + 1) begin
+                    for (pp = 0; pp < NP; pp = pp + 1) begin
+                        r = urand(NP); off = urand(NPER);
+                        add_rq(pp, 1'b0, waddr[r * NPER + off], wlen[r * NPER + off], 0, wtab[r * NPER + off]);
+                    end
+                end
+                run_all(TMO_CYC);
+                $display("  refreshes %0d  max debt %0d  cycles %0d", n_ref, debt_max, cyc);
+                if (n_ref < 10) begin $display("  too few refreshes"); tb_fail = tb_fail + 1; end
+                if (debt_max > HARDD + 1) begin $display("  debt reached %0d", debt_max); tb_fail = tb_fail + 1; end
+            end
+            "refresh_urgent": begin  // the scan-out (port 0, urgent) streams without a gap: refresh must still happen at the debt limit
+                cur_gen = 7; cur_bem = 0;
+                add_rq(3, 1'b1, A(10, 0), 128, 0, -1); wi = last_rq;
+                for (n1 = 0; n1 < 100; n1 = n1 + 1) add_rq(0, 1'b0, A(10, 0), 128, 0, wi);
+                for (n1 = 0; n1 < 100; n1 = n1 + 1) add_rq(1, 1'b0, A(10, 0), 64, 0, wi);
+                urg_mode = 6'b000001;
+                run_all(TMO_CYC);
+                $display("  refreshes %0d  max debt %0d  cycles %0d", n_ref, debt_max, cyc);
+                if (n_ref < 10) begin $display("  too few refreshes"); tb_fail = tb_fail + 1; end
+                if (debt_max > HARDD + 1) begin $display("  debt reached %0d", debt_max); tb_fail = tb_fail + 1; end
+            end
+            "urgent_bound": begin    // the measured wait of urgent reads against the documented formula, under conflicting background load
+                cur_gen = 3; cur_bem = 0;
+                for (L = 0; L < 20; L = L + 1) begin
+                    add_rq(3, 1'b1, A(10, L * 400), 400, 0, -1); wi = last_rq;
+                end
+                for (pp = 1; pp < NP; pp = pp + 1) begin
+                    for (L = 0; L < 60; L = L + 1) begin
+                        off = urand(7000);
+                        if (pp == 2 || (pp == 3 && L % 2 == 0)) begin
+                            cur_gen = 90 + pp * 100 + L;
+                            add_rq(pp, 1'b1, A(8 + pp, urand(30000)), 1 + urand((pp == 2) ? 32 : 128), 0, wi);
+                        end else add_rq(pp, 1'b0, A(10, off), 1 + urand((pp == 1) ? 64 : 128), 0, wi);
+                    end
+                end
+                ub_first = nrq;
+                for (L = 0; L < 150; L = L + 1) begin
+                    cur_gap = urand(200);
+                    add_rq(0, 1'b0, A(10, urand(7000)), 1 + urand(128), 0, (L == 0) ? wi : last_rq);
+                end
+                urg_mode = 6'b000001;
+                run_all(TMO_CYC);
+                ub_max = 0;
+                for (L = ub_first; L < nrq; L = L + 1) if (rq_fcyc[L] - rq_acyc[L] > ub_max) ub_max = rq_fcyc[L] - rq_acyc[L];
+                ub_form = 128 + (W_LEAD + 2) + 17 + (CLSEL + 2) + 2;
+                $display("  urgent wait: measured max %0d cycles, formula %0d; DUT worst wait port 0 %0d, over-bound count %0d, refreshes %0d", ub_max, ub_form,
+                         cnt_worst_wait[15:0], cnt_urgent_over[15:0], n_ref);
+                if (ub_max > ub_form) begin $display("  urgent wait above the formula"); tb_fail = tb_fail + 1; end
+                if (ub_max < 40) begin $display("  the test did not stress the bound"); tb_fail = tb_fail + 1; end
+                if (cnt_urgent_over[15:0] != 16'd0) begin $display("  DUT counted urgent waits above the bound"); tb_fail = tb_fail + 1; end
+            end
+            "aged_row": begin        // a row left open longer than 60 us is closed by the scheduler (no forced close, no tRAS(max) error)
+                cur_gen = 4;
+                add_rq(3, 1'b1, A(2, 0), 16, 0, -1); wi = last_rq;
+                add_rq(4, 1'b0, A(2, 0), 16, 0, wi);
+                run_all(2000);
+                repeat (12000) @(posedge clk);
+                if (dut.o_v != 4'd0) begin $display("  a row is still open after 120 us"); tb_fail = tb_fail + 1; end
+                if (n_pre < 1) begin $display("  no PRE issued"); tb_fail = tb_fail + 1; end
+            end
+            "preempt": begin         // the scheduler never refreshes by itself: the PHY preempts at the debt limit, the scheduler
+                                     // acknowledges, clears its row table on banks_closed and carries on with correct data
+                expect_fault = 1'b1;
+                for (pp = 0; pp < NP; pp = pp + 1) cursor[pp] = 0;
+                for (n1 = 0; n1 < NPER; n1 = n1 + 1) begin
+                    for (pp = 0; pp < NP; pp = pp + 1) begin
+                        L = 1 + urand(200); cur_gen = pp * 1000 + n1; cur_bem = 0;
+                        add_rq(pp, 1'b1, A(8 + pp, cursor[pp]), L, 0, -1);
+                        wtab[pp * NPER + n1] = last_rq; waddr[pp * NPER + n1] = A(8 + pp, cursor[pp]); wlen[pp * NPER + n1] = L;
+                        cursor[pp] = cursor[pp] + L + 1;
+                    end
+                end
+                for (n1 = 0; n1 < 3 * NPER; n1 = n1 + 1) begin
+                    for (pp = 0; pp < NP; pp = pp + 1) begin
+                        r = urand(NP); off = urand(NPER);
+                        add_rq(pp, 1'b0, waddr[r * NPER + off], wlen[r * NPER + off], 0, wtab[r * NPER + off]);
+                    end
+                end
+                run_all(TMO_CYC);
+                $display("  banks_closed pulses %0d, fault cause %0d, max debt %0d", bc_seen, fault_cause, debt_max);
+                if (bc_seen < 2) begin $display("  the PHY never forced a refresh"); tb_fail = tb_fail + 1; end
+                if (fault_cause != 4'd9) begin $display("  first fault cause %0d, expected 9 (refresh debt)", fault_cause); tb_fail = tb_fail + 1; end
+            end
+            "batching": begin        // the decoder write port (2): writes are collected into batches of at most 4 requests / 128 words
+                cur_gen = 5;
+                for (n1 = 0; n1 < 12; n1 = n1 + 1) begin add_rq(3, 1'b1, A(10, 512 * n1), 512, 0, -1); wi = last_rq; end
+                run_all(TMO_CYC);
+                for (n1 = 0; n1 < 48; n1 = n1 + 1) begin
+                    cur_gen = 200 + n1;
+                    add_rq(2, 1'b1, A(11, n1 * 40), 32, 0, -1);
+                    if (n1 % 2 == 0) add_rq(1, 1'b0, A(10, (n1 % 5) * 1024 + (n1 * 7) % 200), 64, 0, wi);
+                    add_rq(1, 1'b0, A(10, ((n1 + 2) % 5) * 1024 + (n1 * 11) % 200), 64, 0, wi);
+                end
+                run_all(TMO_CYC);
+                if (bt_words > bt_max) bt_max = bt_words;
+                $display("  largest write batch: %0d words, %0d requests; batches %0d; direction changes %0d, WR %0d RD %0d", bt_max, bt_rmax, bt_n, n_dirchg, n_wr, n_rd);
+                if (bt_max > 128 || bt_rmax > 4) begin $display("  a write batch exceeded 4 requests / 128 words"); tb_fail = tb_fail + 1; end
+                if (bt_max < 64) begin $display("  no batching seen"); tb_fail = tb_fail + 1; end
+            end
+            "wrr": begin             // weighted round robin: single-piece reads from every port in changing rows
+                cur_gen = 6;
+                for (n1 = 0; n1 < 30; n1 = n1 + 1) begin
+                    add_rq(3, 1'b1, A(10, 1024 * n1), 512, 0, -1);
+                    add_rq(3, 1'b1, A(10, 1024 * n1 + 512), 512, 0, -1); wi = last_rq;
+                end
+                for (n1 = 0; n1 < 400; n1 = n1 + 1)
+                    for (pp = 0; pp < NP; pp = pp + 1)
+                        add_rq(pp, 1'b0, A(10, 1024 * urand(30) + 3 * pp), 16, 0, wi);
+                while (!rq_done[wi]) @(posedge clk);
+                for (pp = 0; pp < NP; pp = pp + 1) wrr_c0[pp] = cnt_words[pp*32 +: 32];
+                repeat (3000) @(posedge clk);
+                for (pp = 0; pp < NP; pp = pp + 1) wrr_c1[pp] = (cnt_words[pp*32 +: 32] - wrr_c0[pp]) / 16;
+                $display("  grants in 3000 cycles per port (weights 4 4 4 2 1 1): %0d %0d %0d %0d %0d %0d", wrr_c1[0], wrr_c1[1], wrr_c1[2], wrr_c1[3], wrr_c1[4], wrr_c1[5]);
+                if (wrr_c1[0] < 20) begin $display("  too few grants"); tb_fail = tb_fail + 1; end
+                for (pp = 0; pp < 3; pp = pp + 1) if (wrr_c1[pp] * 5 < wrr_c1[0] * 4 || wrr_c1[pp] * 4 > wrr_c1[0] * 5) begin $display("  port %0d share off", pp); tb_fail = tb_fail + 1; end
+                if (wrr_c1[3] * 8 < wrr_c1[0] * 3 || wrr_c1[3] * 8 > wrr_c1[0] * 5) begin $display("  port 3 share off"); tb_fail = tb_fail + 1; end
+                for (pp = 4; pp < 6; pp = pp + 1) if (wrr_c1[pp] * 8 < wrr_c1[0] * 1 || wrr_c1[pp] * 8 > wrr_c1[0] * 3) begin $display("  port %0d share off", pp); tb_fail = tb_fail + 1; end
+                run_all(TMO_CYC);
+            end
+            "twod": begin            // 2D reads: whole-request r_last/done, rows crossing pages, rejects
+                cur_gen = 8; cur_bem = 0;
+                for (n1 = 0; n1 < 24; n1 = n1 + 1) begin add_rq(3, 1'b1, A(9, n1 * 500), 500, 0, -1); wi = last_rq; end
+                add_2d(1, A(9, 100), 10, 19, 400, 0, wi);
+                add_2d(1, A(9, 1020), 5, 5, 1021, 0, wi);
+                add_2d(1, A(9, 0), 1, 63, 1, 0, wi);
+                add_2d(1, A(9, 3), 63, 8, 1024, 0, wi);
+                add_2d(1, A(9, 700), 32, 16, 64, 0, wi);
+                add_2d(1, A(9, 5), 8, 8, 0, 0, wi);
+                add_2d(1, A(9, 1000), 63, 8, 30, 0, wi);
+                add_rq(1, 1'b0, A(9, 200), 100, 0, wi);
+                add_2d(1, A(9, 1023), 3, 3, 1022, 0, wi);
+                add_2d(1, A(9, 0), 33, 16, 10, 0, wi);       // area 528: rejected
+                add_2d(1, A(9, 0), 4, 0, 10, 0, wi);         // rejected
+                add_2d(1, A(9, 0), 0, 4, 10, 0, wi);         // rejected
+                add_2d(4, A(9, 0), 4, 4, 10, 0, wi);         // port without 2D: rejected
+                add_rq(1, 1'b0, A(9, 500), 7, 0, wi);
+                for (n1 = 0; n1 < 30; n1 = n1 + 1) add_rq(4, 1'b0, A(9, 50 * n1), 40, 0, wi);       // competition on another port
+                for (n1 = 0; n1 < 30; n1 = n1 + 1) add_2d(1, A(9, 40 * n1 + 1), 7 + n1 % 5, 3 + n1 % 7, 100 + 13 * n1, 0, wi);
+                run_all(TMO_CYC);
+            end
+            "reset_mid": begin       // a reset in the middle of traffic: no done after it, the unit restarts and works
+                skip_cnt_check = 1'b1;
+                cur_gen = 9;
+                add_rq(3, 1'b1, A(15, 0), 1000, 0, -1);
+                run_all(TMO_CYC);
+                for (pp = 0; pp < NP; pp = pp + 1) cursor[pp] = 0;
+                for (n1 = 0; n1 < 12; n1 = n1 + 1)
+                    for (pp = 0; pp < NP; pp = pp + 1) begin
+                        L = 1 + urand(100); cur_gen = pp * 100 + n1;
+                        if (pp % 2 == 0) begin add_rq(pp, 1'b1, A(8 + pp, cursor[pp]), L, 0, -1); cursor[pp] = cursor[pp] + L; end
+                        else add_rq(pp, 1'b0, A(15, urand(800)), L, 0, -1);
+                    end
+                repeat (300) @(posedge clk);
+                keep_nxt = 1'b1; rst <= 1'b1;
+                repeat (4) @(posedge clk);
+                rst <= 1'b0;
+                ndone = nrq;
+                n1 = 0; while (!init_done && n1 < 20000) begin @(posedge clk); n1 = n1 + 1; end
+                repeat (50) @(posedge clk);
+                keep_nxt = 1'b0;
+                for (pp = 0; pp < NP; pp = pp + 1) begin cur_gen = 777 + pp; add_rq(pp, 1'b1, A(14, pp * 300), 100, 0, -1); wi = last_rq; add_rq(pp, 1'b0, A(14, pp * 300), 100, 0, wi); end
+                for (pp = 0; pp < NP; pp = pp + 1) nxt[pp] = nrq - 2 * NP;
                 run_all(TMO_CYC);
             end
             default: begin $display("unknown test %0s", tname); tb_fail = tb_fail + 1; end
