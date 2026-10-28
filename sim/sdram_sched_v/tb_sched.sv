@@ -21,6 +21,9 @@ module tb_sched #(
     parameter integer REFIPS    = 7_800_000,
     parameter integer DEBTMAX   = 8,
     parameter integer SOFTD     = 4,
+    parameter [7:0]   UECAP     = 8'h00,
+    parameter integer BWCAP4    = 0,
+    parameter integer BWWIN     = 0,
     parameter integer HARDD     = 7,
     parameter integer LMAX_T    = 512,
     parameter integer NRAND     = 20000,
@@ -45,7 +48,9 @@ module tb_sched #(
     reg  [NP*8-1:0]  req_tag = 0;
     reg  [NP*6-1:0]  req_w = 0, req_h = 0;
     reg  [NP*11-1:0] req_stride = 0;
-    reg  [NP*2-1:0]  req_skew = 0;
+    reg  [1:0]       skt [0:7];                 // the region skew table the test programs (BANK_HASH 3)
+    reg              sk_we = 0; reg [2:0] sk_idx = 0; reg [2:0] sk_base = 0; reg [1:0] sk_val = 0;
+    wire [NP-1:0]    urgent_early;
     reg  [NP*16-1:0] w_data = 0;
     reg  [NP*2-1:0]  w_be = 0;
     wire [NP-1:0]    urgent;
@@ -76,10 +81,10 @@ module tb_sched #(
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we), .dram_dqm(c_dqm),
         .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dq), .fpga_oe(phy.u_core.dq_oe), .cap_clk(clk));
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
-                        .ENABLE_2D(EN2D), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
+                        .ENABLE_2D(EN2D), .URGENT_EARLY_CAPABLE(UECAP), .BW_CAP_WORDS(BWCAP4 << 64), .BW_WINDOW_CYCLES(BWWIN), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
         .clk(clk), .rst(rst), .req_valid(req_valid), .req_ready(req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
-        .req_skew(req_skew), .urgent(urgent), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
+        .urgent(urgent), .urgent_early(urgent_early), .sk_we(sk_we), .sk_idx(sk_idx), .sk_base(sk_base), .sk_val(sk_val), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
         .r_valid(r_valid), .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag),
         .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .cnt_worst_wait(cnt_worst_wait),
         .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err),
@@ -99,7 +104,6 @@ module tb_sched #(
     integer         rq_w    [0:NRQ-1];
     integer         rq_h    [0:NRQ-1];
     integer         rq_str  [0:NRQ-1];
-    reg  [1:0]      rq_skew [0:NRQ-1];
     integer         rq_gen  [0:NRQ-1];
     integer         rq_bem  [0:NRQ-1];
     integer         rq_rel  [0:NRQ-1];
@@ -142,7 +146,7 @@ module tb_sched #(
         begin
             i = nrq;
             rq_port[i] = port; rq_we[i] = we; rq_addr[i] = addr; rq_len[i] = len; rq_2d[i] = 1'b0; rq_w[i] = 0; rq_h[i] = 0; rq_str[i] = 0;
-            rq_skew[i] = (BANK_HASH == 3) ? (addr[21:20] ^ addr[23:22] ^ addr[17:16]) : 2'b00; rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep; rq_gap[i] = cur_gap;
+            rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep; rq_gap[i] = cur_gap;
             rq_bad[i] = (len == 0) || (len > 512); rq_acc[i] = 1'b0; rq_done[i] = 1'b0; rq_acyc[i] = -1; rq_fcyc[i] = -1; rq_dcyc[i] = -1;
             if (addr[24] || addr[19:16] != 4'd0) begin $display("tb: test address %h outside the shadow range", addr); tb_fail = tb_fail + 1; end
             nrq = nrq + 1; last_rq = i;
@@ -183,12 +187,12 @@ module tb_sched #(
         begin sidx = {a[23:20], a[15:0]}; end
     endfunction
     // the contract's bank function, written independently of the scheduler
-    function [1:0] tb_bank(input [24:0] a, input [1:0] sk);
+    function [1:0] tb_bank(input [24:0] a);
         begin
             case (BANK_HASH)
                 0: tb_bank = a[11:10];
                 1: tb_bank = a[11:10] ^ a[21:20];
-                3: tb_bank = a[11:10] ^ sk;
+                3: tb_bank = a[11:10] ^ skt[a[24:22]];
                 default: tb_bank = a[11:10] ^ a[21:20] ^ a[23:22];
             endcase
         end
@@ -207,7 +211,9 @@ module tb_sched #(
     reg [NP-1:0] urg_mode = 0;           // urgent[p] = urg_mode[p] & the port has requests outstanding
     reg [NP-1:0] urg_force = 0;          // urgent[p] forced high
     reg [NP-1:0] pend = 0;
+    reg [NP-1:0] ue_mode = 0;
     assign urgent = (urg_mode & pend) | urg_force;
+    assign urgent_early = ue_mode & pend;
     integer words_wr = 0, words_rd = 0, nbad_done = 0;
     reg     quiet = 1'b0;                // no new client activity (set by tests while they wait)
     reg     cli_stop = 1'b0;             // stop issuing new requests
@@ -228,7 +234,7 @@ module tb_sched #(
                 a = rq_waddr(i, k);
                 bw = bepat(a, rq_bem[i]);
                 if (bw != 2'b00) begin
-                    pk = chip.peek(tb_bank(a, rq_skew[i]), a[24:12], a[9:0]);
+                    pk = chip.peek(tb_bank(a), a[24:12], a[9:0]);
                     d = sh_d[sidx(a)];
                     if (bw[0] && (pk[7:0]  !== d[7:0]))  nb = nb + 1;
                     if (bw[1] && (pk[15:8] !== d[15:8])) nb = nb + 1;
@@ -280,7 +286,7 @@ module tb_sched #(
                             req_valid[p] <= 1'b1; req_we[p] <= rq_we[i]; req_addr[p*25 +: 25] <= rq_addr[i];
                             req_len[p*10 +: 10] <= rq_len[i]; req_tag[p*8 +: 8] <= i[7:0];
                             req_2d[p] <= rq_2d[i]; req_w[p*6 +: 6] <= rq_w[i]; req_h[p*6 +: 6] <= rq_h[i];
-                            req_stride[p*11 +: 11] <= rq_str[i]; req_skew[p*2 +: 2] <= rq_skew[i];
+                            req_stride[p*11 +: 11] <= rq_str[i];
                         end
                     end
                 end
@@ -390,6 +396,11 @@ module tb_sched #(
             @(posedge clk); #1;
             repeat (3) @(posedge clk);
             rst <= 1'b0;
+            skt[0] = 2'd0; skt[1] = 2'd1; skt[2] = 2'd2; skt[3] = 2'd3; skt[4] = 2'd2; skt[5] = 2'd1; skt[6] = 2'd3; skt[7] = 2'd0;
+            for (n = 0; n < 8; n = n + 1) begin
+                @(posedge clk); sk_we <= 1'b1; sk_idx <= n; sk_base <= n; sk_val <= skt[n];
+            end
+            @(posedge clk); sk_we <= 1'b0;
             n = 0;
             while (!init_done && n < 40000) begin @(posedge clk); n = n + 1; end
             if (!init_done) begin $display("  init_done never rose"); tb_fail = tb_fail + 1; end
