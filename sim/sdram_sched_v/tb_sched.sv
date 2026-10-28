@@ -360,6 +360,12 @@ module tb_sched #(
         if (bt_words > bt_max) bt_max = bt_words;
         if (bt_reqs_c > bt_rmax) bt_rmax = bt_reqs_c;
     end
+    reg la_mon = 1'b0; integer pre_in_burst = 0;
+    integer rd_cyc [0:1023]; integer rd_nn [0:1023]; integer nrd_log = 0;
+    always @(posedge clk) if (!rst && init_done) begin
+        if (cmd == 3'd2 && nrd_log < 1024) begin rd_cyc[nrd_log] = cyc; rd_nn[nrd_log] = dut.t_n; nrd_log = nrd_log + 1; end
+        if (la_mon && cmd == 3'd4 && dut.cur_v && dut.cur_left != 10'd0) pre_in_burst = pre_in_burst + 1;
+            end
     integer n_act = 0, n_pre = 0, n_rd = 0, n_wr = 0, n_bst = 0, n_dirchg = 0, n_ref = 0, n_prea = 0;
     reg last_dir_v = 0, last_dir_w = 0;
     always @(posedge clk) if (!rst && init_done) begin
@@ -729,6 +735,41 @@ module tb_sched #(
                 for (pp = 0; pp < NP; pp = pp + 1) begin cur_gen = 777 + pp; add_rq(pp, 1'b1, A(14, pp * 300), 100, 0, -1); wi = last_rq; add_rq(pp, 1'b0, A(14, pp * 300), 100, 0, wi); end
                 for (pp = 0; pp < NP; pp = pp + 1) nxt[pp] = nrq - 2 * NP;
                 run_all(TMO_CYC);
+            end
+
+            "chain": begin           // a request of 8 pieces in one open row: the read commands are back to back (no idle data cycle)
+                cur_gen = 11;
+                add_rq(3, 1'b1, A(2, 0), 512, 0, -1); wi = last_rq;
+                add_rq(3, 1'b1, A(3, 0), 512, 0, -1); wi = last_rq;
+                add_rq(3, 1'b1, A(3, 512), 512, 0, -1); wi = last_rq;
+                run_all(TMO_CYC);
+                n1 = nrd_log;
+                add_rq(1, 1'b0, A(2, 0), 512, 0, wi);
+                run_all(TMO_CYC);
+                if (nrd_log - n1 != 8) begin $display("  %0d read commands for a 512-word request on a 64-word port, expected 8", nrd_log - n1); tb_fail = tb_fail + 1; end
+                for (L = n1 + 1; L < nrd_log; L = L + 1)
+                    if (rd_cyc[L] - rd_cyc[L-1] != rd_nn[L-1]) begin
+                        $display("  read command %0d is %0d cycles after the previous one of %0d words", L - n1, rd_cyc[L] - rd_cyc[L-1], rd_nn[L-1]); tb_fail = tb_fail + 1;
+                    end
+                // overhead report (not a gate): 40 requests of 16 words in one open row on port 1
+                n1 = nrd_log;
+                for (L = 0; L < 40; L = L + 1) add_rq(1, 1'b0, A(3, (L % 64) * 16), 16, 0, wi);
+                run_all(TMO_CYC);
+                $display("  overhead: %0d cycles for 40 x 16 words = %0d per request over the data time", rd_cyc[nrd_log-1] + 16 - rd_cyc[n1], (rd_cyc[nrd_log-1] + 16 - rd_cyc[n1] - 640) / 40);
+            end
+            "lookahead": begin       // no PRE while a burst streams when another head wants the row that would be closed (BANK_HASH 0)
+                cur_gen = 12;
+                add_rq(3, 1'b1, A(0, 0), 64, 0, -1);
+                add_rq(3, 1'b1, A(0, 4096), 64, 0, -1);
+                add_rq(3, 1'b1, A(0, 1024), 128, 0, -1); wi = last_rq;
+                add_rq(1, 1'b0, A(0, 0), 4, 0, wi); ri = last_rq;
+                run_all(TMO_CYC);
+                la_mon = 1'b1;
+                cur_gap = 0; add_rq(3, 1'b0, A(0, 1024), 128, 0, ri);
+                cur_gap = 6; add_rq(4, 1'b0, A(0, 4096), 8, 0, ri);
+                cur_gap = 6; add_rq(5, 1'b0, A(0, 0), 8, 0, ri);
+                run_all(TMO_CYC);
+                if (pre_in_burst != 0) begin $display("  %0d PRE commands while a burst streamed and another head wanted the row", pre_in_burst); tb_fail = tb_fail + 1; end
             end
             default: begin $display("unknown test %0s", tname); tb_fail = tb_fail + 1; end
         endcase

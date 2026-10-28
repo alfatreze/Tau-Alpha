@@ -51,14 +51,22 @@ module tau_sdram_sv_pq #(
                 0:       bank_of = a[11:10];
                 1:       bank_of = a[11:10] ^ a[21:20];
                 3:       bank_of = a[11:10] ^ sk;
+`ifdef MUT_HASH_DROP
+                default: bank_of = a[11:10] ^ a[21:20];
+`else
                 default: bank_of = a[11:10] ^ a[21:20] ^ a[23:22];
+`endif
             endcase
         end
     endfunction
 
     // request validity (contract 4 and 5)
     wire [11:0] area  = req_w * req_h;
+`ifdef MUT_BADREQ
+    wire        bad1d = (req_len == 10'd0) || (req_len > 10'd600);
+`else
     wire        bad1d = (req_len == 10'd0) || (req_len > 10'd512);
+`endif
     wire        bad2d = (EN_2D == 0) || req_we || (req_w == 6'd0) || (req_h == 6'd0) || (area > 12'd512);
     wire        bad_n = req_2d ? bad2d : bad1d;
 
@@ -85,7 +93,11 @@ module tau_sdram_sv_pq #(
     wire [10:0] room   = 11'd1024 - {1'b0, h_addr[9:0]};
     wire [9:0]  maxg   = e_we[0] ? MAXG_WR[9:0] : MAXG_RD[9:0];
     wire [9:0]  m1     = (e_rem[0] < maxg) ? e_rem[0] : maxg;
+`ifdef MUT_NO_PAGE_SPLIT
+    wire [9:0]  plen   = m1;
+`else
     wire [9:0]  plen   = ({1'b0, m1} < room) ? m1 : room[9:0];
+`endif
     wire        plast  = (e_rem[0] == plen) && (!e_2d[0] || e_rows[0] == 6'd1);
     wire        hv     = (cnt_q != 4'd0);
     assign hd_v    = hv & ~e_bad[0];
@@ -125,8 +137,13 @@ module tau_sdram_sv_pq #(
                     e_rem[0]  <= rem_n;
                 end else begin                                   // 2D: next row (not the last piece)
                     e_rows[0] <= e_rows[0] - 6'd1;
+`ifdef MUT_2D_STRIDE
+                    e_rb[0]   <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
+                    e_addr[0] <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
+`else
                     e_rb[0]   <= e_rb[0] + {14'd0, e_str[0]};
                     e_addr[0] <= e_rb[0] + {14'd0, e_str[0]};
+`endif
                     e_rem[0]  <= {4'd0, e_w[0]};
                 end
             end

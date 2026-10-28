@@ -26,7 +26,11 @@ module tau_sdram_sv_arb #(
     reg [2:0] ptr_q;
     reg [3:0] rem_q;
     function [3:0] wt(input [2:0] p);
+`ifdef MUT_FLATW
+        begin wt = 4'd1; end
+`else
         begin wt = WEIGHT[p*4 +: 4]; end
+`endif
     endfunction
 
     integer k;
@@ -38,7 +42,9 @@ module tau_sdram_sv_arb #(
         sel_v = 1'b0; sel_p = 3'd0; sel_wrr = 1'b0;
         u_found = 1'b0; u_p = 3'd0;
         for (k = NP - 1; k >= 0; k = k - 1) begin
+`ifndef MUT_NOURG
             if (urgent[k] & cand[k]) begin u_found = 1'b1; u_p = k[2:0]; end
+`endif
         end
         found = 1'b0; pp = 3'd0;
         if (cand[ptr_q] && rem_q != 4'd0) begin found = 1'b1; pp = ptr_q; end
