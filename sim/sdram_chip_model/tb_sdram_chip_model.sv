@@ -158,7 +158,8 @@ module tb_sdram_chip_model #(
         begin for (k = 0; k < n; k = k + 1) cyc(K_NOP, 2'b00, 13'd0, 2'b11, 16'd0, 16'd0); end
     endtask
     task act(input [1:0] b, input [12:0] row);   cyc(K_ACT, b, row, 2'b00, 16'd0, 16'd0); endtask
-    task rd (input [1:0] b, input [9:0] col);    cyc(K_RD,  b, {3'b000, col}, 2'b00, 16'd0, 16'd0); endtask
+    integer rd_a, meas_lat;
+    task rd (input [1:0] b, input [9:0] col);    begin cyc(K_RD,  b, {3'b000, col}, 2'b00, 16'd0, 16'd0); rd_a = a_cyc; end endtask
     task rda(input [1:0] b, input [9:0] col);    cyc(K_RD,  b, {2'b00, 1'b1, col}, 2'b00, 16'd0, 16'd0); endtask   // A10 = 1 (illegal)
     task wr (input [1:0] b, input [9:0] col, input [15:0] d);  cyc(K_WR, b, {3'b000, col}, 2'b00, d, 16'hffff); endtask
     task wr_m(input [1:0] b, input [9:0] col, input [15:0] d, input [1:0] m); cyc(K_WR, b, {3'b000, col}, m, d, 16'hffff); endtask
@@ -181,6 +182,57 @@ module tb_sdram_chip_model #(
     function [15:0] pat(input [1:0] b, input [12:0] r, input [9:0] c);
         begin pat = {b, r[3:0], c[9:0]} ^ 16'h5a3c; end
     endfunction
+
+
+    // write n pattern words (WR + n-1 data cycles); the burst stays open (end it with bst)
+    task wr_pat(input [1:0] b, input [12:0] r, input [9:0] c0, input integer n);
+        integer k;
+        begin
+            wr(b, c0, pat(b, r, c0));
+            for (k = 1; k < n; k = k + 1) wd(pat(b, r, c0 + k));
+        end
+    endtask
+    // find the controller-cycle latency (from the cycle in which the RD was presented) at which the pattern appears
+    task scan_read(input [1:0] b, input [12:0] r, input [9:0] c0, input integer n);
+        integer j, k; reg okm;
+        begin
+            meas_lat = -1;
+            for (j = 1; j < 14 && meas_lat < 0; j = j + 1) begin
+                okm = 1'b1;
+                for (k = 0; k < n; k = k + 1) if (rdata_vis[(rd_a + j + k) & 8191] !== pat(b, r, c0 + k)) okm = 1'b0;
+                if (okm) meas_lat = j;
+            end
+        end
+    endtask
+    // a read burst of n words with DQM low, ended by BST (DQM low: CL3 words are still in flight)
+    task read_n(input [1:0] b, input [12:0] r, input [9:0] c0, input integer n);
+        begin rd(b, c0); nop(n - 1); bstl; nop(CLSEL + 3); end
+    endtask
+    // read n words, then a write: the contract's read-to-write turnaround. The read is ended by the WR itself
+    // (use_bst = 0) or by a BST at r+n (use_bst = 1). woff = the WR's cycle offset from the RD cycle.
+    task turnaround(input integer n, input integer woff, input integer use_bst);
+        integer o, L;
+        begin
+            L = CLSEL + n - 1;                                   // offset of the last wanted slot
+            rd(2'd0, 10'd0);
+            for (o = 1; o < woff; o = o + 1) begin
+                if (use_bst && o == n) cyc(K_BST, 2'b00, 13'd0, 2'b00, 16'd0, 16'd0);
+                else if (!use_bst && o >= L - 1) cyc(K_NOP, 2'b00, 13'd0, 2'b11, 16'd0, 16'd0);   // DQM high from L-1
+                else cyc(K_NOP, 2'b00, 13'd0, 2'b00, 16'd0, 16'd0);
+            end
+            wr(2'd0, 10'd200, 16'h7E57); wd(16'h7E58);
+            bst; nopm(4);
+        end
+    endtask
+    // tests share one prepared bank: init, ACT b0 row 5, 16 pattern words at col 0
+    task prep_bank;
+        begin
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16'd16);
+            bst; nopm(2);
+        end
+    endtask
 
     // power-up and the contract's init sequence (real 100 us wait; 10,000 NOP edges)
     task init_seq(input integer cl);
@@ -475,6 +527,80 @@ module tb_sdram_chip_model #(
             nop(2); bstl; nop(6);                                                      // BST at r+8
             check(chip.last_rd_n == 8 && chip.last_rd_launched == 5, "8 slots, 3 masked");
             expect_clean;
+        end else if (tname == "rw_data") begin                    // end-to-end: write 16 words, read 8 back at the capture register
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            scan_read(0, 13'd5, 10'd4, 8);
+            $display("RD_LAT measured = %0d cycles (CL=%0d, CAP_MODE=%0d, RD cmd presented in cycle a, rdata valid in cycle a+RD_LAT)", meas_lat, CLSEL, CAPMODE);
+            check(meas_lat == CLSEL + 2, "RD_LAT = CL + 2 (FALL: falling capture + one rising transfer register)");
+            check(chip.last_rd_n == 8 && chip.last_rd_launched == 8, "exact burst length");
+            check(chip.cap_words_bad == 0 && chip.cap_words_ok == 8, "all 8 words captured inside their window");
+            check(chip.min_su_margin == ((CLSEL == 3) ? TAC3 : TAC2) * -1 + P_PS && chip.min_h_margin == TOH, "FALL margins: P - tAC setup, tOH hold");
+            chip.report;
+            expect_clean;
+        end else if (tname == "rw_data_rise") begin            // RISE capture with a typical (not worst-case) tAC: run with TAC2/TAC3 overrides
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            scan_read(0, 13'd5, 10'd4, 8);
+            $display("RD_LAT measured = %0d cycles (CL=%0d, CAP_MODE=%0d)", meas_lat, CLSEL, CAPMODE);
+            check(meas_lat > 0, "data found at the rising-edge capture register");
+            chip.report;
+            expect_clean;
+        end else if (tname == "n_cap_rise_worst") begin       // worst-case tAC 8 ns: no rising edge inside the CL2 window (contract section 1)
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            chip.report;
+            expect_err(`SE_CAPTURE);
+        end else if (tname == "cap_delay_ok") begin           // FALL with a board delay of 0..1500 ps still has window
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            scan_read(0, 13'd5, 10'd4, 8);
+            check(meas_lat == CLSEL + 2, "data at CL + 2");
+            chip.report;
+            expect_clean;
+        end else if (tname == "n_cap_delay_late") begin       // delay up to 2500 ps: the falling edge is before the data is valid
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            chip.report;
+            expect_err(`SE_CAPTURE);
+        end else if (tname == "n_cap_skew_hold") begin        // capture clock 2 ns late: past tOH
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            chip.report;
+            expect_err(`SE_CAPTURE);
+        end else if (tname == "wr_rd_turn") begin             // write then read the same words: RD at w+n (tCDL 1), the FPGA drive ends first
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 4);
+            rd(0, 10'd0);                                    // w+4: the READ interrupts nothing, the write burst ended at its 4th word
+            nop(3); bstl; nop(CLSEL + 3);
+            scan_read(0, 13'd5, 10'd0, 4);
+            check(meas_lat == CLSEL + 2, "read-back data");
+            expect_clean;
+        end else if (tname == "turn_rw") begin                 // contract 3.5: DQM high from L-1, WR at L+2 (CL2) / BST then WR at L+2 (CL3)
+            prep_bank;
+            turnaround(4, CLSEL + 4 + 1, CLSEL == 3);
+            check(chip.peek(0, 5, 200) == 17'h17E57, "write after the turnaround landed");
+            expect_clean;
+        end else if (tname == "turn_rw_tight") begin           // the earliest conflict-free WR: CL2 L+2, CL3 (tHZ 5 ns) L+1, both with a BST ending the read
+            prep_bank;
+            turnaround(4, (CLSEL == 3) ? CLSEL + 4 : CLSEL + 5, 1);
+            check(chip.peek(0, 5, 200) == 17'h17E57, "write after the turnaround landed");
+            expect_clean;
+        end else if (tname == "n_turn_rw_early") begin         // one clock earlier (L+1): the FPGA enables while the chip may still drive
+            prep_bank;
+            turnaround(4, (CLSEL == 3) ? CLSEL + 3 : CLSEL + 4, CLSEL == 3);   // CL2: L+1; CL3 (tHZ 5 ns): L (one clock earlier than the CL2 limit)
+            expect_err(`SE_BUS_CONFLICT);
+        end else if (tname == "n_turn_cl3_wrterm") begin       // CL3, the WR itself ends the read: slot w+2 is not covered by DQM
+            prep_bank;
+            turnaround(4, CLSEL + 4 + 1, 0);
+            expect_err(`SE_BUS_CONFLICT);
+        end else if (tname == "n_oe_during_read") begin        // an FPGA output enable left on while the chip reads
+            prep_bank;
+            rd(0, 10'd0);
+            cyc(K_NOP, 2'b00, 13'd0, 2'b00, 16'd0, 16'hffff);
+            nop(6); bstl; nop(4);
+            expect_err(`SE_BUS_CONFLICT);
         end else if (tname == "n_bst_after_bst") begin
             init_seq(2);
             act(0, 13'd5); nop(1);
