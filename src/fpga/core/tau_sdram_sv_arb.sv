@@ -6,6 +6,12 @@
 // limit; (3) weighted round robin per piece. `grant` (with `grant_wrr` = the grant came from rule 3) updates the
 // round-robin state. The result `sel_*` is a pure function of the registered state and the inputs.
 `default_nettype none
+// Lint: constant width conversions of parameter arithmetic, loop temporaries in clocked blocks and reserved/unused
+// inputs are intended.
+/* verilator lint_off WIDTHEXPAND */
+/* verilator lint_off WIDTHTRUNC */
+/* verilator lint_off BLKSEQ */
+/* verilator lint_off UNUSEDSIGNAL */
 module tau_sdram_sv_arb #(
     parameter integer NP     = 6,
     parameter [8*4-1:0] WEIGHT = {4'd1, 4'd1, 4'd1, 4'd1, 4'd2, 4'd4, 4'd4, 4'd4}   // port 0 is the LSB nibble

@@ -92,6 +92,10 @@ if [ "$WANT" = all ] || [ "$WANT" = tests ]; then
     run_unit unit_arb tb_arb "$HERE/tb_arb.sv" "$RTL/tau_sdram_sv_arb.sv"
     run_unit unit_queue tb_queue "$HERE/tb_queue.sv" "$RTL/tau_sdram_sv_pq.sv"
 fi
+if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
+    if verilator --lint-only -Wall --top-module tau_sdram_sched_v "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" > "$OUT/lint.log" 2>&1; then
+        echo "PASS lint (verilator -Wall)"; pass=$((pass+1)); else echo "FAIL lint"; head -20 "$OUT/lint.log"; fail=$((fail+1)); fi
+fi
 while IFS='|' read -r name params label; do
     name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"; [ -z "$label" ] && label="$name"
     [ -z "$name" ] && continue

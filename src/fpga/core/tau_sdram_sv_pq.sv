@@ -7,6 +7,12 @@
 // piece of a request pops the entry. A rejected request (bad length or bad 2D geometry) is queued like any other (so
 // completion stays in order) with `hd_bad` set; the owner retires it with `pop_bad`.
 `default_nettype none
+// Lint: constant width conversions of parameter arithmetic, loop temporaries in clocked blocks and reserved/unused
+// inputs are intended.
+/* verilator lint_off WIDTHEXPAND */
+/* verilator lint_off WIDTHTRUNC */
+/* verilator lint_off BLKSEQ */
+/* verilator lint_off UNUSEDSIGNAL */
 module tau_sdram_sv_pq #(
     parameter integer DEPTH     = 4,
     parameter integer EN_2D     = 0,        // this port accepts 2D read requests
