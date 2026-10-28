@@ -56,6 +56,23 @@ rd_counts | CLSEL=3 | rd_counts_cl3
 rd_dqm_mask | | rd_dqm_mask_cl2
 rd_dqm_mask | CLSEL=3 | rd_dqm_mask_cl3
 n_bst_after_bst |
+rw_data | | rw_data_cl2
+rw_data | CLSEL=3 | rw_data_cl3
+rw_data_rise | CAPMODE=0 TAC2=4000 | rw_data_rise_cl2_tac4
+n_cap_rise_worst | CAPMODE=0
+cap_delay_ok | DMAX=1500
+n_cap_delay_late | DMAX=2500
+n_cap_skew_hold | CAPSKEW=2000
+wr_rd_turn | | wr_rd_turn_cl2
+wr_rd_turn | CLSEL=3 | wr_rd_turn_cl3
+turn_rw | | turn_rw_cl2
+turn_rw | CLSEL=3 | turn_rw_cl3
+turn_rw_tight | | turn_rw_tight_cl2
+turn_rw_tight | CLSEL=3 | turn_rw_tight_cl3
+n_turn_rw_early | | n_turn_rw_early_cl2
+n_turn_rw_early | CLSEL=3 | n_turn_rw_early_cl3
+n_turn_cl3_wrterm | CLSEL=3
+n_oe_during_read |
 EOF
 )
 LONGTESTS=$(cat <<'EOF'

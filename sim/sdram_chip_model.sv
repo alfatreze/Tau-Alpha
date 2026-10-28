@@ -128,7 +128,7 @@ module sdram_chip_model #(
         end
     endfunction
 
-    task err(input integer code, input [8*40-1:0] msg);
+    task err(input integer code, input [8*64-1:0] msg);
         begin
             err_count = err_count + 1;
             err_mask[code] = 1'b1;
@@ -460,6 +460,138 @@ module sdram_chip_model #(
         end
     endtask
 
+
+    // ---------------------------------------------------------------------------------------------------------
+    // picosecond analysis of the DQ bus
+    //   chip side : at chip edge E the chip launches the word of capture slot E+1. The pin is unknown from
+    //               E + tOH + dmin (first word: E + tLZ + dmin, when the output leaves high-Z) and valid from
+    //               E + tAC + dmax until the next edge's tOH + dmin. After the last word the output goes high-Z
+    //               at E' + tHZ + dmax (E' = the first edge that launches nothing).
+    //   FPGA side : fpga_oe (per bit) is the FPGA output enable as seen at the pin.
+    //   conflict  : chip drive window (win) and FPGA output enable both high = SE_BUS_CONFLICT.
+    //   capture   : every launched, unmasked word must have at least one edge of the capture clock (rising or
+    //               falling edge of cap_clk plus CAP_SKEW_PS, selected by CAP_MODE) inside
+    //               [E + tAC + dmax + FPGA_SU, E + P + tOH + dmin - FPGA_H].
+    // ---------------------------------------------------------------------------------------------------------
+    reg  [1:0]  drv_en, drv_x, win, lane_drv;     // drv_*: pin state (delayed); win: drive window; lane_drv: logical
+    reg  [15:0] drv_val;
+    initial begin drv_en = 2'b00; drv_x = 2'b00; win = 2'b00; lane_drv = 2'b00; drv_val = 16'h0000; end
+    assign dram_dq[7:0]  = drv_en[0] ? (drv_x[0] ? 8'bxxxxxxxx : drv_val[7:0])  : 8'bzzzzzzzz;
+    assign dram_dq[15:8] = drv_en[1] ? (drv_x[1] ? 8'bxxxxxxxx : drv_val[15:8]) : 8'bzzzzzzzz;
+
+    // bus conflict: evaluated at every change of the chip drive window or of the FPGA output enable
+    always @(win or fpga_oe) begin
+        if (win[0] === 1'b1 && ((|fpga_oe[7:0]) === 1'b1))
+            err(`SE_BUS_CONFLICT, "FPGA drives DQ[7:0] while the chip may drive");
+        if (win[1] === 1'b1 && ((|fpga_oe[15:8]) === 1'b1))
+            err(`SE_BUS_CONFLICT, "FPGA drives DQ[15:8] while the chip may drive");
+    end
+
+    // capture-edge record (the FPGA's capture clock, in ps including the register clock skew)
+    longint cap_t [0:7];
+    integer cap_n, ci;
+    initial begin cap_n = 0; for (ci = 0; ci < 8; ci = ci + 1) cap_t[ci] = -64'sd10_000_000_000_000; end
+    task rec_cap;
+        begin cap_t[cap_n % 8] = $time + CAP_SKEW_PS; cap_n = cap_n + 1; end
+    endtask
+    always @(posedge cap_clk) if (CAP_MODE == 0) rec_cap;
+    always @(negedge cap_clk) if (CAP_MODE != 0) rec_cap;
+
+    // launch records of the last 4 chip edges (evaluated two edges later, when the window has closed)
+    longint lr_t   [0:3];
+    reg [1:0] lr_lane [0:3];
+    integer lr_k   [0:3];
+    longint lr_rdt [0:3];
+    integer lri;
+    initial for (lri = 0; lri < 4; lri = lri + 1) begin lr_t[lri] = 0; lr_lane[lri] = 2'b00; lr_k[lri] = 0; lr_rdt[lri] = 0; end
+    longint min_su_margin, min_h_margin;                 // smallest margin beyond FPGA_SU/FPGA_H seen on a found edge
+    longint win_vs_rel, win_ve_rel;                      // word-0 valid window relative to the READ's controller launch edge
+    integer cap_words_ok, cap_words_bad;
+    initial begin
+        min_su_margin = 64'sd1_000_000_000; min_h_margin = 64'sd1_000_000_000;
+        win_vs_rel = 0; win_ve_rel = 0; cap_words_ok = 0; cap_words_bad = 0;
+    end
+
+    task drive_step;
+        integer ln, tac, thz, xd, vd;
+        reg [7:0] byt;
+        begin
+            tac = (mr_cl == 3) ? TAC_CL3_PS : TAC_CL2_PS;
+            thz = (mr_cl == 3) ? THZ_CL3_PS : THZ_CL2_PS;
+            vd  = tac + DMAX_PS;
+            for (ln = 0; ln < 2; ln = ln + 1) begin
+                byt = (ln == 0) ? lau_word[7:0] : lau_word[15:8];
+                if (lau_lane[ln]) begin
+                    xd = (lane_drv[ln] ? TOH_PS : TLZ_PS) + DMIN_PS;
+                    if (!lane_drv[ln]) win[ln] <= #(xd) 1'b1;
+                    drv_en[ln]  <= #(xd) 1'b1;
+                    drv_x[ln]   <= #(xd) 1'b1;
+                    if (ln == 0) drv_val[7:0]  <= #(vd) byt; else drv_val[15:8] <= #(vd) byt;
+                    drv_x[ln]   <= #(vd) 1'b0;
+                    lane_drv[ln] = 1'b1;
+                end else if (lane_drv[ln]) begin
+                    drv_x[ln]  <= #(TOH_PS + DMIN_PS) 1'b1;
+                    drv_en[ln] <= #(thz + DMAX_PS) 1'b0;
+                    drv_x[ln]  <= #(thz + DMAX_PS) 1'b0;
+                    win[ln]    <= #(thz + DMAX_PS) 1'b0;
+                    lane_drv[ln] = 1'b0;
+                end
+            end
+            // launch records
+            lr_t[edge_n % 4]    = t_now;
+            lr_lane[edge_n % 4] = lau_lane;
+            lr_k[edge_n % 4]    = (lau_stream >= 0) ? lau_k : -1;
+            lr_rdt[edge_n % 4]  = (lau_stream >= 0) ? rq_t[lau_stream] : 64'sd0;
+        end
+    endtask
+
+    // evaluate the launch made two edges ago: its valid window has closed, so every capture edge in it is recorded
+    task capture_step;
+        integer q, tac, kk; longint vs, ve, pp, found, ct, ctrl_launch;
+        reg ok;
+        begin
+            if (CAP_CHECK_EN != 0 && edge_n >= 2) begin
+                q   = (edge_n - 2) % 4;
+                if (lr_lane[q] != 2'b00) begin
+                    tac = (mr_cl == 3) ? TAC_CL3_PS : TAC_CL2_PS;
+                    pp  = t_now - t_prev;                              // the clock period
+                    vs  = lr_t[q] + tac + DMAX_PS + FPGA_SU_PS;
+                    ve  = lr_t[q] + pp + TOH_PS + DMIN_PS - FPGA_H_PS;
+                    ok  = 1'b0; found = 0;
+                    for (kk = 0; kk < 8; kk = kk + 1) begin
+                        ct = cap_t[kk];
+                        if (ct >= vs && ct <= ve && !ok) begin ok = 1'b1; found = ct; end
+                    end
+                    if (lr_k[q] == 0) begin
+                        ctrl_launch = lr_rdt[q] - pp / 2;                // READ launch edge at the FPGA (clock is inverted)
+                        win_vs_rel  = vs - FPGA_SU_PS - ctrl_launch;
+                        win_ve_rel  = ve + FPGA_H_PS - ctrl_launch;
+                        if (ok) last_rd_cap_half = ((found - ctrl_launch) * 2 + pp / 2) / pp;
+                    end
+                    if (ok) begin
+                        cap_words_ok = cap_words_ok + 1;
+                        if (found - vs < min_su_margin) min_su_margin = found - vs;
+                        if (ve - found < min_h_margin)  min_h_margin  = ve - found;
+                    end else begin
+                        cap_words_bad = cap_words_bad + 1;
+                        err(`SE_CAPTURE, "no capture edge inside the valid window of a read word");
+                    end
+                end
+            end
+        end
+    endtask
+
+    task report;
+        begin
+            $display("[CHIPMODEL] CL=%0d CAP_MODE=%0d delay=%0d..%0d ps: word0 window rel. to launch edge [%0d, %0d] ps, last capture at %0d half-cycles from launch",
+                     mr_cl, CAP_MODE, DMIN_PS, DMAX_PS, win_vs_rel, win_ve_rel, last_rd_cap_half);
+            $display("[CHIPMODEL] capture words ok=%0d bad=%0d, min margin setup=%0d hold=%0d ps (beyond FPGA_SU/FPGA_H)",
+                     cap_words_ok, cap_words_bad, min_su_margin, min_h_margin);
+            $display("[CHIPMODEL] errors=%0d mask=%h refreshes=%0d wr_words=%0d rd_words=%0d uninit_reads=%0d",
+                     err_count, err_mask, refreshes, wr_words, rd_words, uninit_reads);
+        end
+    endtask
+
     always @(posedge dram_clk) begin
         edge_n = edge_n + 1;
         t_prev = t_now;
@@ -589,5 +721,7 @@ module sdram_chip_model #(
         end
         write_step;
         read_launch_step;
+        drive_step;
+        capture_step;
     end
 endmodule
