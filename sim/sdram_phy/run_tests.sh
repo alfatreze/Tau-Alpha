@@ -21,9 +21,52 @@ init | INITCYC=10000 | init_cl2_real_wait
 init | CLSEL=3 INITCYC=10000 | init_cl3_real_wait
 init | | init_short
 init | TOP=1 | init_top
+legal_min | | legal_min_cl2
+legal_min | CLSEL=3 | legal_min_cl3
+silent_bst | |
+n_act_open | |
+n_rd_closed | |
+n_wr_closed | |
+n_a10_rd | |
+n_a10_wr | |
+n_trcd | |
+n_tras | |
+n_trp | |
+n_trc | TRC_X=80000 |
+n_trrd | |
+n_ref_open | |
+n_trfc_act | |
+n_trfc_ref | |
+n_wr_in_read | |
+legal_rd_ref | |
+n_turn | | n_turn_cl2
+n_turn | CLSEL=3 | n_turn_cl3
+n_tdpl | |
+n_prea_young | |
+n_pre_closed | |
+n_init_offer | |
+n_wrap_rd | |
+n_wrap_wr | |
+fault_sticky | |
+rand | RDCHK=0 | rand_cl2
+rand | RDCHK=0 CLSEL=3 | rand_cl3
 EOF
 )
 MUTANTS=$(cat <<'EOF'
+MUT_A10 | n_a10_rd | |
+MUT_TRCD | n_trcd | |
+MUT_TRAS | n_tras | |
+MUT_TRP | n_trp | |
+MUT_TRC | n_trc | TRC_X=80000 |
+MUT_TRRD | n_trrd | |
+MUT_TRFC | n_trfc_act | |
+MUT_ACT_OPEN | n_act_open | |
+MUT_COL_CLOSED | n_rd_closed | |
+MUT_REF_OPEN | n_ref_open | |
+MUT_TDPL | n_tdpl | |
+MUT_TURN | n_turn | |
+MUT_WR_IN_READ | n_wr_in_read | |
+MUT_NOWRAP | n_wrap_rd | |
 EOF
 )
 

@@ -38,8 +38,10 @@ module tb_sdram_phy #(
     parameter integer REFIPS      = 7_800_000,
     parameter integer ROWFORCE    = 90000,
     parameter integer TMO         = 136,
+    parameter integer RDCHK       = 1,       // 1: the random driver checks rvalid/rdata (needs the read path)
     parameter longint TREFPS      = 64'd64_000_000_000
 );
+    localparam integer RD_LAT_X = ((CAPMODE == 1) ? CLSEL + 2 : CLSEL + 1) + RDEX;
     // ------------------------------------------------------------------------------------------------------
     // clocks and reset
     // ------------------------------------------------------------------------------------------------------
@@ -265,9 +267,185 @@ module tb_sdram_phy #(
     endtask
 
     // ------------------------------------------------------------------------------------------------------
+    // helpers for the negative (illegal-offer) tests
+    // ------------------------------------------------------------------------------------------------------
+    // after an illegal offer: exactly n faults, first cause c, the chip saw nothing wrong, no DQ conflict
+    task expect_fault(input integer n, input integer c);
+        begin
+            nop(4);
+            if (fault_count !== n[15:0]) begin $display("  expected fault_count %0d, got %0d", n, fault_count); tb_fail = tb_fail + 1; end
+            if (c >= 0 && fault_cause !== c[3:0]) begin $display("  expected fault_cause %0d, got %0d", c, fault_cause); tb_fail = tb_fail + 1; end
+            if ((n != 0) != (phy_fault === 1'b1)) begin $display("  phy_fault = %b", phy_fault); tb_fail = tb_fail + 1; end
+            if (chip.err_count != 0) begin
+                $display("  the illegal offer reached the chip: %0d chip errors (first code %0d, mask %h)", chip.err_count, chip.err_first, chip.err_mask);
+                tb_fail = tb_fail + 1;
+            end
+            if (dq_conflicts !== 16'd0) begin $display("  PHY dq_conflicts = %0d", dq_conflicts); tb_fail = tb_fail + 1; end
+        end
+    endtask
+
+    // ------------------------------------------------------------------------------------------------------
+    // random legal driver (offers only what the permits allow) with a shadow memory and a read checker
+    // ------------------------------------------------------------------------------------------------------
+    reg [15:0] sh_d [0:1023];
+    reg [1:0]  sh_v [0:1023];
+    reg        b_open [0:3];
+    reg [12:0] b_row  [0:3];
+    reg        w_act;  reg [1:0] w_bank; reg [12:0] w_row; integer w_col;
+    reg        r_act;  reg [1:0] r_bank; reg [12:0] r_row; integer r_col;
+    integer    seed = 1;
+    integer    n_rd_checked, n_rd_bad, n_rd_words;
+    reg        exp_v [0:8191];
+    reg [15:0] exp_d [0:8191];
+    reg [1:0]  exp_m [0:8191];
+    integer    ncmd [0:7];
+    integer    rdchk_on;
+
+    function integer shi(input [1:0] b, input [12:0] r, input integer c);
+        begin shi = {b, r[1:0], c[5:0]}; end
+    endfunction
+    function integer urand(input integer m);
+        integer v;
+        begin v = $random(seed); if (v < 0) v = -v; urand = v % m; end
+    endfunction
+
+    task rnd_init;
+        integer k;
+        begin
+            for (k = 0; k < 1024; k = k + 1) begin sh_v[k] = 2'b00; sh_d[k] = 16'h0; end
+            for (k = 0; k < 8192; k = k + 1) begin exp_v[k] = 1'b0; exp_d[k] = 16'h0; exp_m[k] = 2'b00; end
+            for (k = 0; k < 4; k = k + 1) begin b_open[k] = 1'b0; b_row[k] = 13'd0; end
+            for (k = 0; k < 8; k = k + 1) ncmd[k] = 0;
+            w_act = 1'b0; r_act = 1'b0; n_rd_checked = 0; n_rd_bad = 0; n_rd_words = 0; rdchk_on = 1;
+        end
+    endtask
+
+    task sh_write(input [1:0] b, input [12:0] r, input integer col, input [15:0] d, input [1:0] bem);
+        integer ix;
+        begin
+            ix = shi(b, r, col);
+            if (bem[0]) begin sh_d[ix][7:0] = d[7:0]; sh_v[ix][0] = 1'b1; end
+            if (bem[1]) begin sh_d[ix][15:8] = d[15:8]; sh_v[ix][1] = 1'b1; end
+        end
+    endtask
+
+    // check the read outputs of the cycle that has just completed (a_cyc): rvalid must match the expectation exactly
+    task rd_check;
+        integer j; reg [15:0] g;
+        begin
+            j = a_cyc & 8191;
+            if (rdchk_on != 0) begin
+                if (rv_vis[j] !== exp_v[j]) begin
+                    if (n_rd_bad < 5) $display("  rvalid mismatch in cycle %0d: got %b expected %b", a_cyc, rv_vis[j], exp_v[j]);
+                    n_rd_bad = n_rd_bad + 1;
+                end else if (exp_v[j]) begin
+                    g = rd_vis[j];
+                    n_rd_checked = n_rd_checked + 1;
+                    if ((exp_m[j][0] && g[7:0] !== exp_d[j][7:0]) || (exp_m[j][1] && g[15:8] !== exp_d[j][15:8])) begin
+                        if (n_rd_bad < 5) $display("  read data mismatch in cycle %0d: got %h expected %h (lanes %b)", a_cyc, g, exp_d[j], exp_m[j]);
+                        n_rd_bad = n_rd_bad + 1;
+                    end
+                end
+            end
+            exp_v[j] = 1'b0;                 // slot reused by a later cycle
+        end
+    endtask
+
+    // one cycle of the random driver. pw / pr / pref enable writes, reads and refreshes.
+    reg [2:0]  d_cmd; reg [1:0] d_ba; reg [12:0] d_a; reg d_wv; reg [15:0] d_wd; reg [1:0] d_be;
+    reg        t_rd, t_wr, got;
+    integer    pick, bsel, ix2;
+    task rnd_step(input integer pw, input integer pr, input integer pref);
+        begin
+            d_cmd = K_NOP; d_ba = 2'b00; d_a = 13'd0; d_wv = 1'b0; d_wd = 16'h0; d_be = 2'b11;
+            if (w_act) begin
+                d_wv = (urand(8) != 0); d_wd = urand(65536); d_be = (urand(6) == 0) ? urand(4) : 2'b11;
+            end
+            pick = urand(16); bsel = urand(4); got = 1'b0;
+            case (pick)
+                0, 1, 2: if (ok_act[bsel]) begin d_cmd = K_ACT; d_ba = bsel; d_a = urand(4); end
+                3, 4, 5: if (pr != 0 && ok_rd[bsel]) begin d_cmd = K_RD; d_ba = bsel; d_a = urand(8); end
+                6, 7, 8: if (pw != 0 && ok_wr[bsel]) begin d_cmd = K_WR; d_ba = bsel; d_a = urand(8); end
+                9:  if (ok_pre[bsel]) begin d_cmd = K_PRE; d_ba = bsel; end
+                10: if (ok_prea) begin d_cmd = K_PREA; end
+                11: if (pref != 0 && ok_ref) begin d_cmd = K_REF; end
+                12, 13: if (ok_bst) begin d_cmd = K_BST; end
+                default: ;
+            endcase
+            if ((w_act && w_col >= 56) || (r_act && r_col >= 56)) begin
+                if (ok_bst) begin d_cmd = K_BST; d_ba = 2'b00; d_a = 13'd0; end
+            end
+            if (d_cmd == K_WR) begin d_wv = 1'b1; d_wd = urand(65536); d_be = (urand(6) == 0) ? urand(4) : 2'b11; end
+            // does this cycle end the read / write burst that is open?
+            t_rd = r_act && (d_cmd == K_BST || d_cmd == K_PREA || d_cmd == K_RD || d_cmd == K_WR || (d_cmd == K_PRE && d_ba == r_bank));
+            t_wr = w_act && (d_cmd == K_BST || d_cmd == K_PREA || d_cmd == K_RD || d_cmd == K_WR || (d_cmd == K_PRE && d_ba == w_bank));
+            // a data beat of the open write burst is written unless this cycle ends it (a new WR starts its own)
+            if (w_act && !t_wr && d_wv && d_be != 2'b00) begin
+                sh_write(w_bank, w_row, w_col, d_wd, d_be);
+            end else if (w_act && !t_wr) begin
+                d_wv = d_wv;     // masked or invalid beat: nothing written
+            end
+            if (w_act && !t_wr) w_col = w_col + 1;
+            if (t_wr) w_act = 1'b0;
+            // a word of the open read burst is requested this cycle unless the cycle ends it
+            if (r_act && !t_rd) begin
+                ix2 = shi(r_bank, r_row, r_col);
+                exp_v[(cycn + RD_LAT_X) & 8191] = 1'b1; exp_d[(cycn + RD_LAT_X) & 8191] = sh_d[ix2];
+                exp_m[(cycn + RD_LAT_X) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
+                r_col = r_col + 1;
+            end
+            if (t_rd) r_act = 1'b0;
+            if (d_cmd == K_WR) begin
+                w_act = 1'b1; w_bank = d_ba; w_row = b_row[d_ba]; w_col = d_a[5:0];
+                sh_write(w_bank, w_row, w_col, d_wd, d_be); w_col = w_col + 1;
+            end
+            if (d_cmd == K_RD) begin
+                r_act = 1'b1; r_bank = d_ba; r_row = b_row[d_ba]; r_col = d_a[5:0];
+                ix2 = shi(r_bank, r_row, r_col);
+                exp_v[(cycn + RD_LAT_X) & 8191] = 1'b1; exp_d[(cycn + RD_LAT_X) & 8191] = sh_d[ix2];
+                exp_m[(cycn + RD_LAT_X) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
+                r_col = r_col + 1;
+            end
+            if (d_cmd == K_ACT) begin b_open[d_ba] = 1'b1; b_row[d_ba] = d_a; end
+            if (d_cmd == K_PRE) b_open[d_ba] = 1'b0;
+            if (d_cmd == K_PREA) begin b_open[0] = 1'b0; b_open[1] = 1'b0; b_open[2] = 1'b0; b_open[3] = 1'b0; end
+            ncmd[d_cmd] = ncmd[d_cmd] + 1;
+            cyc(d_cmd, d_ba, d_a, d_wv, d_wd, d_be);
+            rd_check;
+        end
+    endtask
+
+    // compare the chip's memory with the shadow memory
+    integer mem_bad;
+    task mem_compare;
+        integer k, bb, rr, cc; reg [15:0] w;
+        begin
+            mem_bad = 0;
+            for (k = 0; k < 1024; k = k + 1) begin
+                bb = k >> 8; rr = (k >> 6) & 3; cc = k & 63;
+                if (sh_v[k] != 2'b00) begin
+                    w = chip.mem_rd(bb, rr, cc, 2'b11);
+                    if ((sh_v[k][0] && w[7:0] !== sh_d[k][7:0]) || (sh_v[k][1] && w[15:8] !== sh_d[k][15:8])) begin
+                        if (mem_bad < 5) $display("  chip memory mismatch b%0d r%0d c%0d: chip %h shadow %h (lanes %b)", bb, rr, cc, w, sh_d[k], sh_v[k]);
+                        mem_bad = mem_bad + 1;
+                    end
+                end
+            end
+            if (mem_bad != 0) tb_fail = tb_fail + 1;
+        end
+    endtask
+
+    // ------------------------------------------------------------------------------------------------------
     // tests
     // ------------------------------------------------------------------------------------------------------
+    function [16:0] pkf(input integer b, input integer r, input integer c);
+        begin pkf = chip.peek(b, r, c); end
+    endfunction
+    function [15:0] mrd(input integer b, input integer r, input integer c);
+        begin mrd = chip.mem_rd(b, r, c, 2'b11); end
+    endfunction
     integer ti;
+    integer nrand;
     initial begin
         if (!$value$plusargs("TEST=%s", tname)) tname = "init";
         // ---- init ----
@@ -278,6 +456,123 @@ module tb_sdram_phy #(
             check(chip.mr_cl == CLSEL, "chip CL");
             check(chip.refreshes == 2, "two init refreshes");
             check(rd_lat == ((CAPMODE == 1) ? CLSEL + 2 : CLSEL + 1) + RDEX, "rd_lat");
+            check(refreshes == 2, "PHY refresh counter after init");
+            expect_clean;
+        // ---- legal commands at the minimum spacing: every permit must be open exactly in time, the chip stays silent ----
+        end else if (tname == "legal_min") begin
+            powerup;
+            act(0, 13'd5);                                  // c0
+            nop(1);                                         // c1
+            wr(0, 10'd0, 16'h1111, 2'b11);                  // c2   tRCD 2
+            cyc(K_ACT, 2'd1, 13'd6, 1'b1, 16'h2222, 2'b11); // c3   tRRD, write beat rides with the ACT
+            wb(16'h3333, 2'b11);                            // c4
+            wb(16'h4444, 2'b11);                            // c5
+            bst;                                            // c6   BST at w+n
+            pre(0);                                         // c7   last word c5 + 2
+            nop(1);                                         // c8
+            act(0, 13'd7);                                  // c9   tRP, tRC, tDAL (c5 + 4)
+            wr(1, 10'd0, 16'h5555, 2'b11);                  // c10  bank 1 opened at c3
+            wb(16'h6666, 2'b01);                            // c11  low byte only
+            bst;                                            // c12
+            nop(1);                                         // c13
+            prea;                                           // c14  bank 0: tRAS from c9 = c14, bank 1: last word c11 + 2 = c13
+            nop(1);                                         // c15
+            refr;                                           // c16  tRP 2, tRC from c9
+            nop(9);                                         // c17..c25
+            act(2, 13'd9);                                  // c26  tRFC 10
+            nop(1);
+            wr(2, 10'd3, 16'h7777, 2'b10);
+            bst;
+            expect_clean;
+            check(pkf(0, 5, 0) == 17'h11111, "b0 r5 c0");
+            check(pkf(0, 5, 1) == 17'h12222, "b0 r5 c1 (the beat that rides with the ACT)");
+            check(pkf(0, 5, 2) == 17'h13333, "b0 r5 c2");
+            check(pkf(0, 5, 3) == 17'h14444, "b0 r5 c3");
+            check(pkf(1, 6, 0) == 17'h15555, "b1 r6 c0");
+            check(mrd(1, 6, 1) === 16'hxx66, "b1 r6 c1 low byte only");
+            check(mrd(2, 9, 3) === 16'h77xx, "b2 r9 c3 high byte only");
+            check(refreshes == 3, "refresh counter");
+        // ---- silent BST ----
+        end else if (tname == "silent_bst") begin
+            powerup;
+            bst; nop(2); bst;
+            expect_fault(0, -1);
+        // ---- illegal offers: each becomes NOP + fault and never reaches the chip ----
+        end else if (tname == "n_act_open") begin
+            powerup; act(0, 13'd5); nop(7); act(0, 13'd6); expect_fault(1, 1);
+        end else if (tname == "n_rd_closed") begin
+            powerup; rd(0, 10'd0); expect_fault(1, 2);
+        end else if (tname == "n_wr_closed") begin
+            powerup; wr(0, 10'd0, 16'h1234, 2'b11); expect_fault(1, 3);
+        end else if (tname == "n_a10_rd") begin
+            powerup; act(0, 13'd5); nop(2); rda(0, 10'd0); expect_fault(1, 11);
+        end else if (tname == "n_a10_wr") begin
+            powerup; act(0, 13'd5); nop(2); wra(0, 10'd0, 16'h1234); expect_fault(1, 11);
+        end else if (tname == "n_trcd") begin
+            powerup; act(0, 13'd5); rd(0, 10'd0); rd(0, 10'd0); nop(2); bst; expect_fault(1, 2);
+        end else if (tname == "n_tras") begin
+            powerup; act(0, 13'd5); nop(3); pre(0); pre(0); expect_fault(1, 4);
+        end else if (tname == "n_trp") begin
+            powerup; act(0, 13'd5); nop(4); pre(0); act(0, 13'd6); act(0, 13'd6); expect_fault(1, 1);
+        end else if (tname == "n_trc") begin                 // run with TRC_X = 80000 (tRC 8 clocks, above tRAS + tRP)
+            powerup; act(0, 13'd5); nop(4); pre(0); nop(1); act(0, 13'd6); act(0, 13'd6); expect_fault(1, 1);
+        end else if (tname == "n_trrd") begin
+            powerup; act(0, 13'd5); act(1, 13'd6); act(1, 13'd6); expect_fault(1, 1);
+        end else if (tname == "n_ref_open") begin
+            powerup; act(0, 13'd5); nop(7); refr; expect_fault(1, 6);
+        end else if (tname == "n_trfc_act") begin
+            powerup; refr; nop(8); act(0, 13'd5); act(0, 13'd5); expect_fault(1, 1);
+        end else if (tname == "n_trfc_ref") begin
+            powerup; refr; nop(8); refr; refr; expect_fault(1, 6);
+        end else if (tname == "n_wr_in_read") begin
+            powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(2); wr(0, 10'd4, 16'h4321, 2'b11); bst; expect_fault(1, 3);
+        end else if (tname == "legal_rd_ref") begin
+            powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(2); bst; pre(0); nop(1); refr; nop(10); act(0, 13'd5); nop(1); expect_fault(0, -1);
+        end else if (tname == "n_turn") begin                 // RD, BST at r+4, WR at BST+2 (illegal) then BST+3 (legal)
+            powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(3); bst; nop(1);
+            wr(0, 10'd200, 16'h7E57, 2'b11); wr(0, 10'd200, 16'h7E57, 2'b11); wb(16'h7E58, 2'b11); bst;
+            expect_fault(1, 3);
+            check(pkf(0, 5, 200) == 17'h17E57, "write after the turnaround landed");
+        end else if (tname == "n_tdpl") begin
+            powerup; act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'h0a0a, 2'b11); wb(16'h0b0b, 2'b11); wb(16'h0c0c, 2'b11); wb(16'h0d0d, 2'b11);
+            pre(0); pre(0);
+            expect_fault(1, 4);
+            check(pkf(0, 5, 3) == 17'h10d0d, "last word before the PRE");
+            check(pkf(0, 5, 4) === 17'h0xxxx || pkf(0, 5, 4) === 17'h0xxxx, "no word after");
+        end else if (tname == "n_prea_young") begin
+            powerup; act(0, 13'd5); nop(1); act(1, 13'd6); nop(1); prea; nop(2); prea; expect_fault(1, 5);
+        end else if (tname == "n_pre_closed") begin
+            powerup; pre(1); expect_fault(1, 4);
+        end else if (tname == "n_init_offer") begin
+            @(posedge clk); #1; nop(3); rst = 1'b0; nop(5); act(0, 13'd1); wait_init; expect_fault(1, 12);
+        end else if (tname == "n_wrap_rd") begin
+            powerup; act(0, 13'd5); nop(1); rd(0, 10'd1020); nop(3); nop(1); expect_fault(1, 8);
+        end else if (tname == "n_wrap_wr") begin
+            powerup; act(0, 13'd5); nop(1); wr(0, 10'd1022, 16'haaaa, 2'b11); wb(16'hbbbb, 2'b11); wb(16'hcccc, 2'b11);
+            expect_fault(1, 8);
+            check(pkf(0, 5, 1023) == 17'h1bbbb, "last word below the wrap");
+            check(pkf(0, 5, 1022) == 17'h1aaaa, "first word");
+        end else if (tname == "fault_sticky") begin
+            powerup; pre(1); nop(5);
+            check(phy_fault === 1'b1, "fault set");
+            do_reset(3); wait_init;
+            check(phy_fault === 1'b0 && fault_count === 16'd0 && fault_cause === 4'd0, "reset clears the fault");
+        // ---- random legal driver: permits against the chip model ----
+        end else if (tname == "rand") begin
+            if (!$value$plusargs("SEED=%d", seed)) seed = 7;
+            nrand = 4000;
+            powerup; rnd_init;
+            rdchk_on = RDCHK;
+            for (ti = 0; ti < nrand; ti = ti + 1) rnd_step(1, 1, 1);
+            // drain: end the bursts
+            if (ok_bst) bst;
+            nop(10);
+            mem_compare;
+            $display("  random: acts %0d rd %0d wr %0d pre %0d prea %0d ref %0d bst %0d; read words %0d checked %0d bad %0d",
+                     ncmd[1], ncmd[2], ncmd[3], ncmd[4], ncmd[5], ncmd[6], ncmd[7], n_rd_words, n_rd_checked, n_rd_bad);
+            check(ncmd[1] > 50 && ncmd[3] > 50 && ncmd[2] > 50, "random driver covered the commands");
+            check(n_rd_bad == 0, "read data / rvalid");
             expect_clean;
         end else begin
             $display("unknown test %0s", tname); tb_fail = tb_fail + 1;
