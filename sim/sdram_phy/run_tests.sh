@@ -2,6 +2,7 @@
 # Run the SDRAM PHY tests (iverilog + vvp) against the chip model. MIT licence.
 #   sim/sdram_phy/run_tests.sh            all tests (fast set)
 #   sim/sdram_phy/run_tests.sh mutants    the mutation tests only
+#   sim/sdram_phy/run_tests.sh long       the 66 ms no-scheduler refresh run (minutes)
 #   sim/sdram_phy/run_tests.sh <label>    one test
 # Each line of TESTS is:  name | iverilog -P overrides (parameters of tb_sdram_phy) | label
 # Each line of MUTANTS is: mutant define | test name | -P overrides | label ; the test must FAIL with the mutant compiled in.
@@ -86,6 +87,10 @@ rand | CLSEL=3 NRAND=40000 | rand_long_cl3
 rand | NRAND=40000 CAPMODE=0 TAC2=4000 RDEX=2 | rand_long_cl2_rise_x2
 EOF
 )
+LONGTESTS=$(cat <<'EOF'
+tref_idle | TREFPS=64000000000 | tref_idle
+EOF
+)
 MUTANTS=$(cat <<'EOF'
 MUT_A10 | n_a10_rd | |
 MUT_TRCD | n_trcd | |
@@ -132,6 +137,14 @@ while IFS='|' read -r name params label; do
         if [ $rc -eq 0 ]; then echo "PASS $label"; pass=$((pass+1)); else echo "FAIL $label"; tail -15 "$OUT/$label.log"; fail=$((fail+1)); fi
     fi
 done <<< "$TESTS"
+while IFS='|' read -r name params label; do
+    name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"; [ -z "$label" ] && label="$name"
+    [ -z "$name" ] && continue
+    if [ "$WANT" = long ] || [ "$WANT" = "$label" ]; then
+        build_run "$label" "$name" "$params" ""; rc=$?
+        if [ $rc -eq 0 ]; then echo "PASS $label"; pass=$((pass+1)); else echo "FAIL $label"; tail -15 "$OUT/$label.log"; fail=$((fail+1)); fi
+    fi
+done <<< "$LONGTESTS"
 while IFS='|' read -r def name params label; do
     def="$(echo "$def" | xargs)"; name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"
     [ -z "$def" ] && continue

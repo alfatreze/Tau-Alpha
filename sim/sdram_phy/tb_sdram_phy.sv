@@ -796,6 +796,14 @@ module tb_sdram_phy #(
             rd(0, 10'd0); a_first = rd_a; nop(3); bst; nop(RD_LAT_X + 4);
             check_burst(a_first, 4, 0, 13'd5, 10'd0);
             expect_clean;
+        // ---- long run: no scheduler at all for 66 ms; the PHY alone must keep every row inside the refresh limit ----
+        end else if (tname == "tref_idle") begin
+            powerup;
+            for (ti = 0; ti < 6_600_000; ti = ti + 1) nop(1);
+            check(chip.err_count == 0, "no chip error in 66 ms with no scheduler (tREF)");
+            check(chip.refreshes > 8192, "more than 8192 refreshes");
+            check(chip.err_mask[`SE_TREF] === 1'b0, "no tREF error");
+            $display("  refreshes %0d, forced events (fault_count) %0d", refreshes, fault_count);
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
             if (!$value$plusargs("SEED=%d", seed)) seed = 7;
