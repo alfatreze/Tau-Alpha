@@ -21,6 +21,9 @@ module tb_sched #(
     parameter integer REFIPS    = 7_800_000,
     parameter integer DEBTMAX   = 8,
     parameter integer SOFTD     = 4,
+    parameter [7:0]   UECAP     = 8'h00,
+    parameter integer BWCAP4    = 0,
+    parameter integer BWWIN     = 0,
     parameter integer HARDD     = 7,
     parameter integer LMAX_T    = 512,
     parameter integer NRAND     = 20000,
@@ -45,7 +48,9 @@ module tb_sched #(
     reg  [NP*8-1:0]  req_tag = 0;
     reg  [NP*6-1:0]  req_w = 0, req_h = 0;
     reg  [NP*11-1:0] req_stride = 0;
-    reg  [NP*2-1:0]  req_skew = 0;
+    reg  [1:0]       skt [0:7];                 // the region skew table the test programs (BANK_HASH 3)
+    reg              sk_we = 0; reg [2:0] sk_idx = 0; reg [2:0] sk_base = 0; reg [1:0] sk_val = 0;
+    wire [NP-1:0]    urgent_early;
     reg  [NP*16-1:0] w_data = 0;
     reg  [NP*2-1:0]  w_be = 0;
     wire [NP-1:0]    urgent;
@@ -76,10 +81,10 @@ module tb_sched #(
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we), .dram_dqm(c_dqm),
         .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dq), .fpga_oe(phy.u_core.dq_oe), .cap_clk(clk));
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
-                        .ENABLE_2D(EN2D), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
+                        .ENABLE_2D(EN2D), .URGENT_EARLY_CAPABLE(UECAP), .BW_CAP_WORDS(BWCAP4 << 64), .BW_WINDOW_CYCLES(BWWIN), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
         .clk(clk), .rst(rst), .req_valid(req_valid), .req_ready(req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
-        .req_skew(req_skew), .urgent(urgent), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
+        .urgent(urgent), .urgent_early(urgent_early), .sk_we(sk_we), .sk_idx(sk_idx), .sk_base(sk_base), .sk_val(sk_val), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
         .r_valid(r_valid), .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag),
         .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .cnt_worst_wait(cnt_worst_wait),
         .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err),
@@ -99,7 +104,6 @@ module tb_sched #(
     integer         rq_w    [0:NRQ-1];
     integer         rq_h    [0:NRQ-1];
     integer         rq_str  [0:NRQ-1];
-    reg  [1:0]      rq_skew [0:NRQ-1];
     integer         rq_gen  [0:NRQ-1];
     integer         rq_bem  [0:NRQ-1];
     integer         rq_rel  [0:NRQ-1];
@@ -114,6 +118,7 @@ module tb_sched #(
     integer         nrq = 0, ndone = 0, nacc = 0;
     integer         exp_req [0:7], exp_words [0:7], exp_bad [0:7];
     reg             skip_cnt_check = 1'b0;
+    reg             no_cnt = 1'b0;
     initial begin : init_exp
         integer z;
         for (z = 0; z < 8; z = z + 1) begin exp_req[z] = 0; exp_words[z] = 0; exp_bad[z] = 0; end
@@ -142,7 +147,7 @@ module tb_sched #(
         begin
             i = nrq;
             rq_port[i] = port; rq_we[i] = we; rq_addr[i] = addr; rq_len[i] = len; rq_2d[i] = 1'b0; rq_w[i] = 0; rq_h[i] = 0; rq_str[i] = 0;
-            rq_skew[i] = (BANK_HASH == 3) ? (addr[21:20] ^ addr[23:22] ^ addr[17:16]) : 2'b00; rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep; rq_gap[i] = cur_gap;
+            rq_gen[i] = cur_gen; rq_bem[i] = cur_bem; rq_rel[i] = rel; rq_dep[i] = dep; rq_gap[i] = cur_gap;
             rq_bad[i] = (len == 0) || (len > 512); rq_acc[i] = 1'b0; rq_done[i] = 1'b0; rq_acyc[i] = -1; rq_fcyc[i] = -1; rq_dcyc[i] = -1;
             if (addr[24] || addr[19:16] != 4'd0) begin $display("tb: test address %h outside the shadow range", addr); tb_fail = tb_fail + 1; end
             nrq = nrq + 1; last_rq = i;
@@ -183,12 +188,12 @@ module tb_sched #(
         begin sidx = {a[23:20], a[15:0]}; end
     endfunction
     // the contract's bank function, written independently of the scheduler
-    function [1:0] tb_bank(input [24:0] a, input [1:0] sk);
+    function [1:0] tb_bank(input [24:0] a);
         begin
             case (BANK_HASH)
                 0: tb_bank = a[11:10];
                 1: tb_bank = a[11:10] ^ a[21:20];
-                3: tb_bank = a[11:10] ^ sk;
+                3: tb_bank = a[11:10] ^ skt[a[24:22]];
                 default: tb_bank = a[11:10] ^ a[21:20] ^ a[23:22];
             endcase
         end
@@ -207,7 +212,9 @@ module tb_sched #(
     reg [NP-1:0] urg_mode = 0;           // urgent[p] = urg_mode[p] & the port has requests outstanding
     reg [NP-1:0] urg_force = 0;          // urgent[p] forced high
     reg [NP-1:0] pend = 0;
+    reg [NP-1:0] ue_mode = 0;
     assign urgent = (urg_mode & pend) | urg_force;
+    assign urgent_early = ue_mode & pend;
     integer words_wr = 0, words_rd = 0, nbad_done = 0;
     reg     quiet = 1'b0;                // no new client activity (set by tests while they wait)
     reg     cli_stop = 1'b0;             // stop issuing new requests
@@ -228,7 +235,7 @@ module tb_sched #(
                 a = rq_waddr(i, k);
                 bw = bepat(a, rq_bem[i]);
                 if (bw != 2'b00) begin
-                    pk = chip.peek(tb_bank(a, rq_skew[i]), a[24:12], a[9:0]);
+                    pk = chip.peek(tb_bank(a), a[24:12], a[9:0]);
                     d = sh_d[sidx(a)];
                     if (bw[0] && (pk[7:0]  !== d[7:0]))  nb = nb + 1;
                     if (bw[1] && (pk[15:8] !== d[15:8])) nb = nb + 1;
@@ -280,7 +287,7 @@ module tb_sched #(
                             req_valid[p] <= 1'b1; req_we[p] <= rq_we[i]; req_addr[p*25 +: 25] <= rq_addr[i];
                             req_len[p*10 +: 10] <= rq_len[i]; req_tag[p*8 +: 8] <= i[7:0];
                             req_2d[p] <= rq_2d[i]; req_w[p*6 +: 6] <= rq_w[i]; req_h[p*6 +: 6] <= rq_h[i];
-                            req_stride[p*11 +: 11] <= rq_str[i]; req_skew[p*2 +: 2] <= rq_skew[i];
+                            req_stride[p*11 +: 11] <= rq_str[i];
                         end
                     end
                 end
@@ -390,6 +397,11 @@ module tb_sched #(
             @(posedge clk); #1;
             repeat (3) @(posedge clk);
             rst <= 1'b0;
+            skt[0] = 2'd0; skt[1] = 2'd1; skt[2] = 2'd2; skt[3] = 2'd3; skt[4] = 2'd2; skt[5] = 2'd1; skt[6] = 2'd3; skt[7] = 2'd0;
+            for (n = 0; n < 8; n = n + 1) begin
+                @(posedge clk); sk_we <= 1'b1; sk_idx <= n; sk_base <= n; sk_val <= skt[n];
+            end
+            @(posedge clk); sk_we <= 1'b0;
             n = 0;
             while (!init_done && n < 40000) begin @(posedge clk); n = n + 1; end
             if (!init_done) begin $display("  init_done never rose"); tb_fail = tb_fail + 1; end
@@ -423,7 +435,7 @@ module tb_sched #(
             end
             if (dq_conflicts !== 16'd0) begin $display("  PHY dq_conflicts = %0d", dq_conflicts); tb_fail = tb_fail + 1; end
             if (dbg_err != 4'd0) begin $display("  scheduler internal error flags %b", dbg_err); tb_fail = tb_fail + 1; end
-            if (!skip_cnt_check) begin : cntchk
+            if (!skip_cnt_check && !no_cnt) begin : cntchk
                 integer z;
                 for (z = 0; z < NP; z = z + 1) begin
                     if (cnt_requests[z*32 +: 32] != exp_req[z] || cnt_words[z*32 +: 32] != exp_words[z] || cnt_bad[z*16 +: 16] != exp_bad[z]) begin
@@ -770,6 +782,67 @@ module tb_sched #(
                 cur_gap = 6; add_rq(5, 1'b0, A(0, 0), 8, 0, ri);
                 run_all(TMO_CYC);
                 if (pre_in_burst != 0) begin $display("  %0d PRE commands while a burst streamed and another head wanted the row", pre_in_burst); tb_fail = tb_fail + 1; end
+            end
+
+            "raw_order": begin       // a read accepted after a write to the same words (other port, before the write's done) returns the new data
+                cur_gen = 1;
+                add_rq(3, 1'b1, A(6, 0), 300, 0, -1);
+                run_all(TMO_CYC);
+                for (n1 = 0; n1 < 6; n1 = n1 + 1) begin
+                    cur_gen = 2 + n1; cur_bem = 0; cur_gap = 0;
+                    add_rq(2, 1'b1, A(6, 0), 200, cyc + 2, -1);                  // the decoder write port: its batch is deferred
+                    add_rq(1, 1'b0, A(6, 50), 100, cyc + 30, -1);                // accepted later, long before the write's done
+                    add_rq(4, 1'b0, A(6, 0), 200, cyc + 20, -1);
+                    add_rq(0, 1'b0, A(6, 190), 20, cyc + 40, -1);
+                    add_rq(5, 1'b0, A(6, 120), 1, cyc + 60, -1);
+                    run_all(TMO_CYC);
+                end
+            end
+            "skew_regions": begin    // BANK_HASH 3: four regions with different skews (table programmed by the test), cross-port read after done
+                for (r = 0; r < 4; r = r + 1) begin
+                    cur_gen = 30 + r; cur_bem = 0;
+                    add_rq(3, 1'b1, A(4 * r, 100), 300, 0, -1); wi = last_rq;
+                    add_rq(4, 1'b0, A(4 * r, 100), 300, 0, wi);
+                    add_rq(1, 1'b0, A(4 * r, 250), 100, 0, wi);
+                    cur_gen = 40 + r;
+                    add_rq(5, 1'b1, A(4 * r + 1, 1000), 400, 0, -1); wi = last_rq;
+                    add_rq(2, 1'b0, A(4 * r + 1, 1000), 400, 0, wi);
+                end
+                run_all(TMO_CYC);
+            end
+            "urgent_early": begin    // port 5 raises urgent_early: served first among the non-urgent ports, within one grant plus overhead
+                cur_gen = 3;
+                for (L = 0; L < 10; L = L + 1) begin add_rq(3, 1'b1, A(10, L * 400), 400, 0, -1); wi = last_rq; end
+                for (pp = 1; pp < 5; pp = pp + 1)
+                    for (L = 0; L < 40; L = L + 1) add_rq(pp, 1'b0, A(10, 1024 * urand(3) + urand(300)), (pp == 1) ? 64 : 128, 0, wi);
+                ub_first = nrq;
+                for (L = 0; L < 40; L = L + 1) begin cur_gap = urand(150); add_rq(5, 1'b0, A(10, urand(3000)), 32, 0, (L == 0) ? wi : last_rq); end
+                ue_mode = 6'b100000;
+                run_all(TMO_CYC);
+                ub_max = 0;
+                for (L = ub_first; L < nrq; L = L + 1) if (rq_fcyc[L] - rq_acyc[L] > ub_max) ub_max = rq_fcyc[L] - rq_acyc[L];
+                ub_form = 128 + (W_LEAD + 2) + 17 + (CLSEL + 2) + 2;
+                $display("  urgent_early wait: measured max %0d cycles (one grant plus overhead %0d)", ub_max, ub_form);
+                if (ub_max > ub_form) begin $display("  urgent_early port waited more than one grant"); tb_fail = tb_fail + 1; end
+            end
+            "bw_cap": begin          // port 4 capped at BWCAP4 words per BWWIN cycles while port 3 and others saturate the bus
+                cur_gen = 3;
+                for (L = 0; L < 8; L = L + 1) begin add_rq(3, 1'b1, A(10, L * 500), 500, 0, -1); wi = last_rq; end
+                for (L = 0; L < 300; L = L + 1) begin
+                    add_rq(3, 1'b0, A(10, 1024 * urand(3) + urand(300)), 128, 0, wi);
+                    add_rq(4, 1'b0, A(10, 1024 * urand(3) + urand(300)), 128, 0, wi);
+                end
+                while (!rq_done[wi]) @(posedge clk);
+                wrr_c0[4] = cnt_words[4*32 +: 32]; wrr_c0[3] = cnt_words[3*32 +: 32];
+                repeat (20000) @(posedge clk);
+                wrr_c1[4] = cnt_words[4*32 +: 32] - wrr_c0[4]; wrr_c1[3] = cnt_words[3*32 +: 32] - wrr_c0[3];
+                $display("  words in 20000 cycles: port 4 (capped %0d per %0d cycles) %0d, port 3 %0d", BWCAP4, BWWIN, wrr_c1[4], wrr_c1[3]);
+                if (wrr_c1[4] > 11 * (BWCAP4 + 127)) begin $display("  the capped port exceeded its cap"); tb_fail = tb_fail + 1; end
+                if (wrr_c1[4] == 0 || wrr_c1[3] < 8000) begin $display("  the caps starved a port or the bus was not saturated"); tb_fail = tb_fail + 1; end
+                cli_stop = 1'b1;
+                repeat (400) @(posedge clk);
+                ndone = nrq;                       // the remaining requests are abandoned (skip the counter check)
+                no_cnt = 1'b1;
             end
             default: begin $display("unknown test %0s", tname); tb_fail = tb_fail + 1; end
         endcase

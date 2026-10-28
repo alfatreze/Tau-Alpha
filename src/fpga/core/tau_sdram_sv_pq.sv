@@ -16,9 +16,10 @@
 module tau_sdram_sv_pq #(
     parameter integer DEPTH     = 4,
     parameter integer EN_2D     = 0,        // this port accepts 2D read requests
-    parameter integer BANK_HASH = 2,        // 0 plain, 1 ^[21:20], 2 ^[21:20]^[23:22], 3 client skew
+    parameter integer BANK_HASH = 2,        // 0 plain, 1 ^[21:20], 2 ^[21:20]^[23:22], 3 per-region skew table
     parameter integer MAXG_RD   = 128,
-    parameter integer MAXG_WR   = 128
+    parameter integer MAXG_WR   = 128,
+    parameter integer SKR       = 8             // skew region table entries
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -33,7 +34,15 @@ module tau_sdram_sv_pq #(
     input  wire [5:0]  req_w,
     input  wire [5:0]  req_h,
     input  wire [10:0] req_stride,
-    input  wire [1:0]  req_skew,
+    input  wire [SKR-1:0]   sk_vld,         // region table (BANK_HASH 3): entry valid, base = addr[24:22], 2-bit skew
+    input  wire [SKR*3-1:0] sk_base,
+    input  wire [SKR*2-1:0] sk_val,
+    input  wire [26:0] push_stamp,          // acceptance order stamp (global counter and port)
+    output wire [DEPTH-1:0]    ent_v,       // entry holds a good request
+    output wire [DEPTH-1:0]    ent_we,
+    output wire [DEPTH*27-1:0] ent_lo,      // conservative address range of what is still to be moved
+    output wire [DEPTH*27-1:0] ent_hi,
+    output wire [DEPTH*27-1:0] ent_st,
     // head
     output wire [3:0]  count,
     output wire        hd_v,                // head exists and is a good request
@@ -84,7 +93,7 @@ module tau_sdram_sv_pq #(
     reg [5:0]        e_rows [0:DEPTH-1];     // rows left including the current one
     reg [10:0]       e_str  [0:DEPTH-1];
     reg [24:0]       e_rb   [0:DEPTH-1];     // address of the start of the current row
-    reg [1:0]        e_sk   [0:DEPTH-1];
+    reg [26:0]       e_st   [0:DEPTH-1];
     reg [3:0]        cnt_q;
     reg              ready_q;
 
@@ -109,7 +118,31 @@ module tau_sdram_sv_pq #(
     assign hd_v    = hv & ~e_bad[0];
     assign hd_bad  = hv & e_bad[0];
     assign hd_we   = e_we[0];
-    assign hd_bank = bank_of(h_addr, e_sk[0]);
+    reg [1:0] skew_h;
+    integer si;
+    always @* begin
+        skew_h = 2'd0;
+        for (si = SKR - 1; si >= 0; si = si - 1)
+            if (sk_vld[si] && sk_base[si*3 +: 3] == h_addr[24:22]) skew_h = sk_val[si*2 +: 2];
+    end
+`ifdef MUT_SKEW_IGN
+    assign hd_bank = bank_of(h_addr, 2'd0);
+`else
+    assign hd_bank = bank_of(h_addr, skew_h);
+`endif
+    genvar ge;
+    generate
+        for (ge = 0; ge < DEPTH; ge = ge + 1) begin : g_ent
+            assign ent_v[ge]  = (ge < cnt_q) && !e_bad[ge];
+            assign ent_we[ge] = e_we[ge];
+            wire [26:0] a0 = e_2d[ge] ? {2'b0, e_rb[ge]} : {2'b0, e_addr[ge]};
+            wire [26:0] span = e_2d[ge] ? ({21'd0, e_rows[ge] - 6'd1} * {16'd0, e_str[ge]} + {21'd0, e_w[ge]} - 27'd1)
+                                        : ({17'd0, e_rem[ge]} - 27'd1);
+            assign ent_lo[ge*27 +: 27] = a0;
+            assign ent_hi[ge*27 +: 27] = a0 + span;
+            assign ent_st[ge*27 +: 27] = e_st[ge];
+        end
+    endgenerate
     assign hd_row  = h_addr[24:12];
     assign hd_col  = h_addr[9:0];
     assign hd_plen = plen;
@@ -135,7 +168,7 @@ module tau_sdram_sv_pq #(
                 for (i = 0; i < DEPTH - 1; i = i + 1) begin
                     e_we[i] <= e_we[i+1]; e_2d[i] <= e_2d[i+1]; e_bad[i] <= e_bad[i+1];
                     e_addr[i] <= e_addr[i+1]; e_rem[i] <= e_rem[i+1]; e_tag[i] <= e_tag[i+1]; e_w[i] <= e_w[i+1];
-                    e_rows[i] <= e_rows[i+1]; e_str[i] <= e_str[i+1]; e_rb[i] <= e_rb[i+1]; e_sk[i] <= e_sk[i+1];
+                    e_rows[i] <= e_rows[i+1]; e_str[i] <= e_str[i+1]; e_rb[i] <= e_rb[i+1]; e_st[i] <= e_st[i+1];
                 end
             end else if (do_adv) begin
                 if (rem_n != 10'd0) begin
@@ -167,7 +200,7 @@ module tau_sdram_sv_pq #(
                         e_rows[i] <= req_h;
                         e_str[i]  <= req_stride;
                         e_rb[i]   <= req_addr;
-                        e_sk[i]   <= req_skew;
+                        e_st[i]   <= push_stamp;
                     end
                 end
             end

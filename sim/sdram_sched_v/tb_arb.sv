@@ -4,11 +4,12 @@ module tb_arb;
     reg clk = 0; always #5 clk = ~clk;
     reg rst = 1;
     reg [5:0] cand = 0, urgent = 0;
+    reg [5:0] early = 0;
     reg cont_ok = 0; reg [2:0] last_port = 0;
     reg grant = 0; reg [2:0] grant_port = 0; reg grant_wrr = 0;
     wire sel_v, sel_wrr; wire [2:0] sel_p;
     // weights: port 0 is the least significant nibble: p0=4 p1=4 p2=4 p3=2 p4=1 p5=1
-    tau_sdram_sv_arb #(.NP(6), .WEIGHT({4'd1,4'd1,4'd1,4'd1,4'd2,4'd4,4'd4,4'd4}) ) dut (.clk(clk), .rst(rst), .cand(cand), .urgent(urgent),
+    tau_sdram_sv_arb #(.NP(6), .WEIGHT({4'd1,4'd1,4'd1,4'd1,4'd2,4'd4,4'd4,4'd4}) ) dut (.clk(clk), .rst(rst), .cand(cand), .urgent(urgent), .early(early),
         .cont_ok(cont_ok), .last_port(last_port), .grant(grant), .grant_port(grant_port), .grant_wrr(grant_wrr),
         .sel_v(sel_v), .sel_p(sel_p), .sel_wrr(sel_wrr));
     integer fail = 0, i;
@@ -28,6 +29,10 @@ module tb_arb;
         urgent = 0; cont_ok = 1; last_port = 4; cand = 6'b111111; #1; chk(sel_p == 4 && !sel_wrr, "continuation");
         urgent = 6'b000001; #1; chk(sel_p == 0, "urgent beats continuation");
         cont_ok = 0; urgent = 0;
+        early = 6'b100000; cand = 6'b111111; #1; chk(sel_p == 5 && !sel_wrr, "urgent_early served first among the non-urgent");
+        urgent = 6'b000010; #1; chk(sel_p == 1, "urgent beats urgent_early");
+        urgent = 0; cont_ok = 1; last_port = 2; #1; chk(sel_p == 5, "urgent_early beats continuation");
+        early = 0; cont_ok = 0;
         // weighted round robin, all candidates: shares 4:4:4:2:1:1
         cand = 6'b111111; n0 = 0; n1 = 0; n2 = 0; n3 = 0; n4 = 0; n5 = 0;
         for (i = 0; i < 160; i = i + 1) begin #1; count_sel; do_grant; end
