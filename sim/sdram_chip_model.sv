@@ -66,6 +66,9 @@ module sdram_chip_model #(
     parameter integer CL_DEFAULT     = 2,       // used until the MRS is seen
     parameter integer BST_NO_BURST_IS_ERROR = 1,
     parameter integer MEM_LOG2       = 16,      // sparse store: 2^MEM_LOG2 direct-mapped words (collision = error print)
+    parameter integer MEM_COMPACT    = 0,       // 1 (needs MEM_LOG2 = 20): exact, collision-free store for a test that only uses
+                                                //   rows with row[12] = 0 and row[7:4] = 0 (all banks, all columns); added by the
+                                                //   sched_v tests, default 0 = the original hash
     parameter integer VERBOSE        = 1
 ) (
     input  wire        dram_clk,        // chip clock (inverse of the controller clock)
@@ -348,7 +351,10 @@ module sdram_chip_model #(
     end
     function integer mhash(input [24:0] a);
         reg [24:0] h;
-        begin h = a ^ (a >> MEM_LOG2) ^ (a >> (2 * MEM_LOG2)); mhash = h & (MEM_N - 1); end
+        begin
+            if (MEM_COMPACT != 0) begin h = 25'd0; h[19:0] = {a[24:23], a[21:18], a[13:10], a[9:0]}; mhash = h & (MEM_N - 1); end
+            else begin h = a ^ (a >> MEM_LOG2) ^ (a >> (2 * MEM_LOG2)); mhash = h & (MEM_N - 1); end
+        end
     endfunction
     task mem_wr(input integer b, input integer r, input integer c, input integer lane, input [7:0] v);
         reg [24:0] a; integer h;
