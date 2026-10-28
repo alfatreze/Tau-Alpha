@@ -198,7 +198,7 @@ module tb_replay #(
     integer limit_pics = 0, skip_pics = 0, skipping = 0, limit_mbs = 0, period_ovr = 0, ahead_ovr = -1, tmo = 200000, maxcyc = 0;
     reg opt_nofuse = 0, opt_norel = 0, opt_no_scan = 0, opt_no_cpu = 0, opt_no_dma = 0, opt_nochipchk = 0, opt_nopreload = 0, opt_verbose = 0;
     reg opt_mut_nofence = 0, opt_mut_nobarrier = 0, opt_mut_norelgate = 0;
-    integer mut_drop = 0, mut_wcorrupt = 0, mut_rcorrupt = 0, mut_nolast = 0, mut_stall = 0;
+    integer mut_scanstall = 0, mut_drop = 0, mut_wcorrupt = 0, mut_rcorrupt = 0, mut_nolast = 0, mut_stall = 0;
     integer sc_cap = 1200, sc_start = 600, sc_line = 600;
     integer T0 = 0;                                          // cycle of the stream's time zero
 
@@ -292,7 +292,7 @@ module tb_replay #(
     // the feeder: ports 1 and 2 from the file, strictly in file order
     // ------------------------------------------------------------------------------------------------
     integer fps1000 = 30000, ahead = 1, mbrate = 67500, period_c = 3333333;
-    integer fd_done = 0, fd_go = 0, fd_wait_rel = 0, fd_blocked = 0, after_end = 0;
+    integer first_pic = -1, fd_wake = 0, fd_done = 0, fd_go = 0, fd_wait_rel = 0, fd_blocked = 0, after_end = 0;
     integer pic_n = -1, pic_ty = 0, pic_rel_c = 0, pic_begin = 0, prev_reached = 0, pic_mbs = 0, pic_lastrel = 0;
     integer pic_recs = 0, pic_reqs = 0, pic_words = 0, pic_cmd0 = 0, npics = 0, skip_pic = 0, last_mb = -1;
     integer tot_recs = 0, tot_reqs = 0, tot_mbs = 0, tot_pics_late = 0, tot_pics_over = 0, busy_max = 0, lag_max = 0;
@@ -305,6 +305,7 @@ module tb_replay #(
 
     task present(input integer p, input we, input [24:0] a, input integer len, input is2d, input integer w, input integer h, input integer str);
         begin
+            if (p == 1 || p == 2) begin if (dec_out(0) == 0) progress_cyc = cyc; end
             sl_v[p] = 1'b1; sl_we[p] = we; sl_addr[p] = a; sl_len[p] = is2d ? w * h : len; sl_2d[p] = is2d;
             sl_w[p] = w; sl_h[p] = h; sl_str[p] = str; sl_id[p] = req_id[p]; req_id[p] = req_id[p] + 1;
             if (!addr_ok(a) || !addr_ok(a + (is2d ? (h - 1) * str + w : len) - 1)) begin
@@ -319,7 +320,11 @@ module tb_replay #(
     task pic_end_report(input integer reached);
         integer begin_c, busy, dl, late, lag, over;
         begin
-            if (opt_norel) begin begin_c = prev_reached; dl = 0; late = 0; lag = 0; end
+            if (opt_norel) begin
+                begin_c = prev_reached; lag = 0;
+                // flat-out run with an explicit budget (+period_cycles): picture n must be reached by T0 + (n - first + 1 + ahead) x period
+                dl = T0 + (pic_n - first_pic + 1 + ahead) * period_ovr; late = (period_ovr > 0 && reached > dl) ? 1 : 0;
+            end
             else begin
                 begin_c = (T0 + pic_rel_c > prev_reached) ? T0 + pic_rel_c : prev_reached;
                 dl = pic_dl_c + T0; late = (reached > dl) ? 1 : 0;
@@ -331,8 +336,8 @@ module tb_replay #(
             if (over) tot_pics_over = tot_pics_over + 1;
             if (busy > busy_max) busy_max = busy;
             if (lag > lag_max) lag_max = lag;
-            $display("PIC n=%0d type=%0d begin=%0d reached=%0d busy=%0d period=%0d deadline=%0d late=%0d over90=%0d lag=%0d mbs=%0d recs=%0d reqs=%0d words=%0d cmds=%0d",
-                     pic_n, pic_ty, begin_c - T0, reached - T0, busy, period_c, opt_norel ? 0 : dl - T0, late, over, lag, pic_mbs, pic_recs, pic_reqs, pic_words, n_cmd - pic_cmd0);
+            $display("PIC n=%0d type=%0d begin=%0d reached=%0d busy=%0d period=%0d deadline=%0d late=%0d over90=%0d lag=%0d span=%0d mbs=%0d recs=%0d reqs=%0d words=%0d cmds=%0d",
+                     pic_n, pic_ty, begin_c - T0, reached - T0, busy, period_c, (opt_norel && period_ovr <= 0) ? 0 : dl - T0, late, over, lag, opt_norel ? 0 : pic_lastrel - pic_rel_c, pic_mbs, pic_recs, pic_reqs, pic_words, n_cmd - pic_cmd0);
             prev_reached = reached;
         end
     endtask
@@ -341,7 +346,8 @@ module tb_replay #(
         reg stop;
         begin
             stop = 1'b0; fd_wait_rel = 0; fd_blocked = 0;
-            if (fd_go && !fd_done) begin
+            if (fd_go && !fd_done && cyc >= fd_wake) begin
+                fd_wake = 0;
                 while (!stop && !fd_done) begin
                     if (!fd_eof && (rb_t - rb_h) < 128) rb_fill;
                     if (rb_t == rb_h) fd_done = 1;
@@ -359,8 +365,9 @@ module tb_replay #(
                                     if (skip_pics > 0 && rf_addr(fr) < skip_pics) begin skipping = 1; rb_h = rb_h + 1; end   // fast-forward (shards)
                                     else begin
                                         if (skipping) begin skipping = 0; prev_reached = cyc; if (!opt_norel) T0 = cyc - frelc; end
-                                        if (!opt_norel && !opt_mut_norelgate && cyc < T0 + frelc) begin stop = 1'b1; fd_wait_rel = 1; end
+                                        if (!opt_norel && !opt_mut_norelgate && cyc < T0 + frelc) begin stop = 1'b1; fd_wait_rel = 1; fd_wake = T0 + frelc; end
                                         else begin
+                                            if (first_pic < 0) first_pic = rf_addr(fr);
                                             pic_n = rf_addr(fr); pic_ty = rf_aux(fr); pic_rel_c = frelc; pic_mbs = 0; pic_lastrel = 0;
                                             pic_recs = 0; pic_reqs = 0; pic_words = 0; pic_cmd0 = n_cmd; skip_pic = 0; last_mb = -1;
                                             pic_dl_c = (period_ovr > 0) ? (pic_n + ahead + 1) * period_ovr : 0;
@@ -393,7 +400,7 @@ module tb_replay #(
                             end else if (skip_pic || (limit_mbs > 0 && rf_aux(fr) >= limit_mbs)) begin   // quick mode: drop the rest of the picture
                                 skip_pic = 1; rb_h = rb_h + 1;
                             end else if (sl_v[1] || sl_v[2]) begin stop = 1'b1; fd_blocked = 1; end   // the previous record is not accepted yet
-                            else if (!opt_norel && !opt_mut_norelgate && cyc < T0 + frelc) begin stop = 1'b1; fd_wait_rel = 1; end
+                            else if (!opt_norel && !opt_mut_norelgate && cyc < T0 + frelc) begin stop = 1'b1; fd_wait_rel = 1; fd_wake = T0 + frelc; end
                             else if ((ffl & 2) && !opt_mut_nofence && dec_rd_acc != dec_rd_last) begin stop = 1'b1; fd_blocked = 1; end
                             else begin
                                 // monitors, independent of the gating above
@@ -506,7 +513,7 @@ module tb_replay #(
                     if (p == 1) dec_rd_acc = dec_rd_acc + 1;
                     if (p == 2) dec_wr_acc = dec_wr_acc + 1;
                     if (p == 0) begin sc_out = sc_out + sl_len[p]; end
-                    sl_v[p] = 1'b0; req_valid[p] <= 1'b0; progress_cyc = cyc;
+                    sl_v[p] = 1'b0; req_valid[p] <= 1'b0; if (p == 1 || p == 2) progress_cyc = cyc;
                 end
             end
             // ---------------- write data pull (answered exactly W_LEAD cycles later)
@@ -560,7 +567,7 @@ module tb_replay #(
                             rx_k[p] = 0; q_rd[p] = q_rd[p] + 1; if (p == 0) sc_p0_prev_last = cyc;
                             if (p == 1) dec_rd_last = dec_rd_last + 1;
                         end
-                        progress_cyc = cyc;
+                        if (p == 1) progress_cyc = cyc;
                     end
                 end else if (r_last[p]) fail1("r_last without r_valid");
             end
@@ -592,7 +599,7 @@ module tb_replay #(
                         q_dn[p] = q_dn[p] + 1;
                         if (p == 1) dec_rd_dn = dec_rd_dn + 1;
                         if (p == 2) dec_wr_dn = dec_wr_dn + 1;
-                        progress_cyc = cyc;
+                        if (p == 1 || p == 2) progress_cyc = cyc;
                     end
                 end
             end
@@ -662,6 +669,7 @@ module tb_replay #(
     always @* begin
         shim_drop  = 0; shim_stall = 0; shim_nolast = 0; shim_wflip = 0; shim_rflip = 0;
         if (mut_drop > 0 && sh_acc1 == mut_drop) shim_drop[1] = 1'b1;
+        if (mut_scanstall > 0 && cyc - T0 > 3000 && cyc - T0 < 3000 + mut_scanstall) shim_stall[0] = 1'b1;
         if (mut_stall > 0 && (cyc % mut_stall) != 0) begin shim_stall[1] = 1'b1; shim_stall[2] = 1'b1; end
         if (mut_wcorrupt > 0 && wfp[W_LEAD - 1]) shim_wflip[2*16] = 1'b1;
         if (mut_rcorrupt > 0 && d_r_valid[1] && sh_rv1 == mut_rcorrupt) shim_rflip[16 + 3] = 1'b1;
@@ -701,15 +709,12 @@ module tb_replay #(
         end
     endtask
 
-    // watchdog: no request accepted, no word delivered and no completion for `tmo` cycles while the decoder or a generated port waits
-    always @(posedge clk) if (fd_go && !fd_done) begin
-        if (fd_wait_rel && dec_out(0) == 0 && !sl_v[1] && !sl_v[2]) stall_cnt = 0;
-        else if (cyc - progress_cyc > tmo) begin
-            if (!end_flag) begin
-                n_hang = n_hang + 1;
-                $display("  HANG: no progress for %0d cycles (outstanding dec reads %0d writes %0d, pending slots %0d %0d)", tmo, dec_rd_acc - dec_rd_dn, dec_wr_acc - dec_wr_dn, sl_v[1], sl_v[2]);
-                end_flag = 1;
-            end
+    // watchdog: the decoder has a request pending or outstanding and nothing moved on ports 1 and 2 for `tmo` cycles
+    always @(posedge clk) if (fd_go && !fd_done && !end_flag) begin
+        if ((dec_out(0) != 0 || sl_v[1] || sl_v[2]) && cyc - progress_cyc > tmo) begin
+            n_hang = n_hang + 1;
+            $display("  HANG: no progress for %0d cycles (outstanding decoder reads %0d writes %0d, pending request %0d %0d)", tmo, dec_rd_acc - dec_rd_dn, dec_wr_acc - dec_wr_dn, sl_v[1], sl_v[2]);
+            end_flag = 1;
         end
     end
 
@@ -790,6 +795,7 @@ module tb_replay #(
         if ($value$plusargs("mut_rcorrupt=%d", v)) mut_rcorrupt = v;
         if ($value$plusargs("mut_nolast=%d", v)) mut_nolast = v;
         if ($value$plusargs("mut_stall=%d", v)) mut_stall = v;
+        if ($value$plusargs("mut_scanstall=%d", v)) mut_scanstall = v;
         opt_nofuse = $test$plusargs("nofuse"); opt_norel = $test$plusargs("norelease");
         opt_no_scan = $test$plusargs("no_scan"); opt_no_cpu = $test$plusargs("no_cpu"); opt_no_dma = $test$plusargs("no_dma");
         opt_nochipchk = $test$plusargs("nochipchk"); opt_nopreload = $test$plusargs("nopreload"); opt_verbose = $test$plusargs("verbose");

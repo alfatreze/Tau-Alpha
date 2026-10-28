@@ -2,6 +2,7 @@
 # Build and run the SDRAM replay harness (iverilog + vvp). MIT licence.
 #   sim/sdram_replay/run_replay.sh [--stub] [-P NAME=VAL ...] [-D DEFINE ...] TARGET [plusargs...]
 # TARGET is clip | allbi | static | scenechange | pan | random | a path to a .treq file.
+# --build-only  compile and stop (run_full.sh builds once before it starts the parallel shards)
 # --stub        replace PHY + sched_v + chip model with replay_stub.sv (about 50x faster; harness development only)
 # -P / -D       iverilog parameter override of tb_replay / define (sched_v parameters, see tb_replay.sv)
 # plusargs      passed to vvp unchanged (+limit_pictures=N +limit_mbs=N +nofuse +norelease +period_cycles=N ...), see README.md
@@ -25,10 +26,11 @@ data_dir() {
 }
 DATA="$(data_dir)"
 
-STUB=0; PARAMS=(); DEFS=()
+STUB=0; BUILD_ONLY=0; PARAMS=(); DEFS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --stub) STUB=1; shift;;
+        --build-only) BUILD_ONLY=1; shift;;
         -P) PARAMS+=("-Ptb_replay.$2"); shift 2;;
         -D) DEFS+=("-D$2"); shift 2;;
         *) break;;
@@ -58,6 +60,7 @@ BIN="${BIN%.vvp}_$KEY.vvp"
 if [ ! -f "$BIN" ] || [ -n "$(find "${SRC[@]}" -newer "$BIN" 2>/dev/null)" ]; then
     "$IVERILOG" -g2012 -I "$ROOT/sim/sdram_chip_model" ${DEFS[@]+"${DEFS[@]}"} ${PARAMS[@]+"${PARAMS[@]}"} -s tb_replay -o "$BIN" "${SRC[@]}" || exit 2
 fi
+[ "$BUILD_ONLY" = 1 ] && exit 0
 LOG="${REPLAY_LOG:-$OUT/$LABEL.log}"
 "$VVP" "$BIN" "+treq=$TREQ" "+scan=$SCAN" "$@" 2>&1 | tee "$LOG"
 grep -q "^VERDICT PASS" "$LOG"
