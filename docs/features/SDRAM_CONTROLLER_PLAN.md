@@ -1,5 +1,8 @@
 # The shared SDRAM controller: review of Tau V's requirements and the plan (2026-10-28)
 
+> **REVISED 2026-10-28 after two expert reviews: read `docs/features/SDRAM_CONTROLLER_REVIEW_2026-10-28.md` first.** Several statements below are wrong or withdrawn: the old controller does NOT have fast I/O registers or an SDC (finding 1); recommendation 1 (fixed BL8) is withdrawn (finding 4); the write interface is a pull with a fixed lead, not ready/valid (finding 5); the +2 overhead target is NOT proven by the replay (finding 3); 133/150 MHz is not a parameter change (finding 6); the premise of one controller is replaced by a shared PHY with a scheduler per project (section 2 of the review), pending the owner's decision. The work breakdown W0 to W5 is superseded by steps S0 to S6 in the review.
+
+
 Status: **plan, nothing built.** Inputs: Tau V's `tau-nu/.claude/worktrees/codec-alternatives/docs/SDRAM_CONTROLLER_REQUIREMENTS.md` (v1, 2026-10-28, read in place), the Talos 2 documents (`TALOS2_REIMPLEMENTATION_PLAN.md` section 7, `docs/research/TALOS2_PLAN_REVIEW_2026-10-26_EXHAUSTIVE.md` R6 and R8), decisions D-T01, D-T06, D-T07, and what DEV 195..198 measured. Owner direction (2026-10-28): move the controller up the order (it was last and optional, D-T01/D-T06) and make it one controller shared with Tau V, whose video decoder needs more from it than the player does; recorded as D-T08.
 
 ## 1. Why this is worth doing for the player too
