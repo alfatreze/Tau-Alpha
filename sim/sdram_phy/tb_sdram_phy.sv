@@ -38,6 +38,7 @@ module tb_sdram_phy #(
     parameter integer REFIPS      = 7_800_000,
     parameter integer ROWFORCE    = 90000,
     parameter integer TMO         = 136,
+    parameter integer NRAND       = 4000,    // cycles of the random driver
     parameter integer RDCHK       = 1,       // 1: the random driver checks rvalid/rdata (needs the read path)
     parameter longint TREFPS      = 64'd64_000_000_000
 );
@@ -375,6 +376,13 @@ module tb_sdram_phy #(
             if ((w_act && w_col >= 56) || (r_act && r_col >= 56)) begin
                 if (ok_bst) begin d_cmd = K_BST; d_ba = 2'b00; d_a = 13'd0; end
             end
+            // the refresh duty of a real scheduler: when the debt is high, end bursts, close the banks, refresh
+            if (pref != 0 && ref_debt >= 4'd3) begin
+                if (ok_bst) begin d_cmd = K_BST; d_ba = 2'b00; d_a = 13'd0; end
+                else if ((b_open[0] || b_open[1] || b_open[2] || b_open[3]) && ok_prea) begin d_cmd = K_PREA; d_ba = 2'b00; d_a = 13'd0; end
+                else if (!(b_open[0] || b_open[1] || b_open[2] || b_open[3]) && ok_ref) begin d_cmd = K_REF; d_ba = 2'b00; d_a = 13'd0; end
+                else begin d_cmd = K_NOP; d_ba = 2'b00; d_a = 13'd0; end
+            end
             if (d_cmd == K_WR) begin d_wv = 1'b1; d_wd = urand(65536); d_be = (urand(6) == 0) ? urand(4) : 2'b11; end
             // does this cycle end the read / write burst that is open?
             t_rd = r_act && (d_cmd == K_BST || d_cmd == K_PREA || d_cmd == K_RD || d_cmd == K_WR || (d_cmd == K_PRE && d_ba == r_bank));
@@ -450,7 +458,9 @@ module tb_sdram_phy #(
             for (k = 1; k < n; k = k + 1) wb(pat(b, r, c0 + k), 2'b11);
         end
     endtask
-    integer a_chain, a_first;
+    integer a_chain, a_first, ev_n, k_bc;
+    integer ev_cyc [0:7];
+    reg [3:0] dprev;
     // the n words of a read burst offered in cycle a0 must be on rdata with rvalid in cycles a0 + RD_LAT + k
     task check_burst(input integer a0, input integer n, input [1:0] b, input [12:0] r, input [9:0] c0);
         integer k, j;
@@ -486,7 +496,7 @@ module tb_sdram_phy #(
     function [15:0] mrd(input integer b, input integer r, input integer c);
         begin mrd = chip.mem_rd(b, r, c, 2'b11); end
     endfunction
-    integer ti;
+    integer ti = 0;
     integer nrand;
     initial begin
         if (!$value$plusargs("TEST=%s", tname)) tname = "init";
@@ -645,12 +655,153 @@ module tb_sdram_phy #(
             check(chip.err_mask[`SE_CAPTURE], "capture error flagged for RISE at tAC 8 ns");
             check(phy_fault === 1'b0, "no PHY fault");
             $display("TEST %0s PASS", tname); if (tb_fail != 0) $display("TEST %0s FAIL", tname); $finish;
+        // ---- refresh debt ----
+        end else if (tname == "refresh_debt") begin
+            powerup;
+            ev_n = 0; dprev = ref_debt;
+            for (ti = 0; ti < 780 * 3 + 40; ti = ti + 1) begin
+                nop(1);
+                if (ref_debt != dprev) begin if (ev_n < 8) ev_cyc[ev_n] = a_cyc; ev_n = ev_n + 1; dprev = ref_debt; end
+            end
+            check(ev_n == 3, "three debt increments in 2380 cycles");
+            check(ev_cyc[1] - ev_cyc[0] == 780 && ev_cyc[2] - ev_cyc[1] == 780, "debt increments every 780 cycles");
+            check(ref_debt == 3 && ref_due === 1'b1, "debt 3, ref_due");
+            refr; nop(1); check(ref_debt == 2, "REF takes one away");
+            nop(9); refr; nop(9); refr; nop(10); check(ref_debt == 0 && ref_due === 1'b0, "debt 0 after three REF");
+            check(refreshes == 5, "PHY refresh counter");
+            nop(20);
+            check(chip.refreshes == refreshes, "chip saw every REF");
+            expect_clean;
+        // ---- preemption, no scheduler at all ----
+        end else if (tname == "preempt_timeout") begin
+            powerup;
+            while (!preempt && ti < 2000) begin nop(1); ti = ti + 1; end
+            check(preempt === 1'b1 && ref_debt == DEBTMAX, "preempt at the debt limit");
+            ev_n = 0;
+            while (preempt && ev_n < 1000) begin nop(1); ev_n = ev_n + 1; end
+            check(ev_n >= TMO && ev_n <= TMO + 3, "preempt waits PREEMPT_TIMEOUT");
+            k_bc = 0;
+            while (!banks_closed && k_bc < 100) begin nop(1); k_bc = k_bc + 1; end
+            check(banks_closed === 1'b1, "banks_closed pulse");
+            nop(1);
+            check(banks_closed === 1'b0, "banks_closed is one cycle");
+            check(fault_count == 1 && fault_cause == 4'd9 && phy_fault === 1'b1, "forced refresh is a fault, cause 9");
+            check(refreshes == 3, "one forced REF");
+            nop(30);
+            check(chip.err_count == 0, "chip clean after the forced sequence");
+            check(chip.refreshes == refreshes, "chip saw the REF");
+        end else if (tname == "preempt_ack") begin      // a read burst is open; the scheduler ends it and acknowledges
+            powerup;
+            act(0, 13'd5); nop(1); rd(0, 10'd0);
+            while (!preempt && ti < 2000) begin nop(1); ti = ti + 1; end
+            check(preempt === 1'b1, "preempt raised");
+            bst; cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); u_ack = 1'b1; nop(1); u_ack = 1'b0;     // ack in a NOP cycle
+            check(preempt === 1'b0, "preempt drops after the ack");
+            k_bc = 0;
+            while (!banks_closed && k_bc < 100) begin nop(1); k_bc = k_bc + 1; end
+            check(k_bc < 30, "banks_closed well before the timeout");
+            nop(1);
+            check(fault_count == 1 && fault_cause == 4'd9, "forced refresh counted");
+            k_bc = 0;
+            while (!ok_act[0] && k_bc < 60) begin nop(1); k_bc = k_bc + 1; end
+            check(ok_act[0] === 1'b1, "ACT permitted again after tRFC");
+            act(0, 13'd7); nop(1); wr(0, 10'd0, 16'h5151, 2'b11); bst;
+            nop(30);
+            check(chip.err_count == 0, "chip clean");
+            check(pkf(0, 7, 0) == 17'h15151, "normal operation after the forced refresh");
+        end else if (tname == "preempt_wburst") begin    // a write burst is open, no ack: the PHY ends it
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'h2000, 2'b11);
+            ti = 0;
+            while (!banks_closed && ti < 1000) begin wb(16'h2001 + ti, 2'b11); ti = ti + 1; end
+            check(banks_closed === 1'b1, "banks_closed after a forced close of a write burst");
+            nop(30);
+            check(chip.err_count == 0, "chip clean");
+            check(pkf(0, 5, 3) == 17'h12003, "data before the forced BST was written");
+            check(fault_count >= 1 && fault_cause == 4'd9, "forced refresh counted");
+            check(dq_conflicts == 0, "no DQ conflict");
+        end else if (tname == "preempt_young_row") begin // the forced PREA must wait for tRAS of a row opened just before
+            powerup;
+            while (!preempt && ti < 2000) begin nop(1); ti = ti + 1; end
+            act(0, 13'd5); cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); u_ack = 1'b1; nop(1); u_ack = 1'b0;
+            k_bc = 0;
+            while (!banks_closed && k_bc < 100) begin nop(1); k_bc = k_bc + 1; end
+            check(banks_closed === 1'b1, "banks_closed");
+            nop(30);
+            check(chip.err_count == 0, "chip clean (PREA waited for tRAS)");
+        // ---- aged rows ----
+        end else if (tname == "aged_row") begin
+            powerup;
+            act(0, 13'd5); k_bc = a_cyc;
+            while (row_aged[0] !== 1'b1 && ti < 8000) begin nop(1); ti = ti + 1; end
+            check(a_cyc - k_bc >= 6000 && a_cyc - k_bc <= 6003, "row_aged at 60 us");
+            while (!preempt && ti < 12000) begin nop(1); ti = ti + 1; end
+            check(a_cyc - k_bc >= 9000 && a_cyc - k_bc <= 9004, "forced close at 90 us");
+            while (!banks_closed && ti < 12000) begin nop(1); ti = ti + 1; end
+            check(banks_closed === 1'b1, "banks_closed after the aged-row close");
+            check(fault_count == 1 && fault_cause == 4'd10, "aged row is a fault, cause 10");
+            nop(30);
+            check(chip.err_count == 0, "chip clean (no tRAS(max) violation)");
+        end else if (tname == "aged_row_sched") begin    // the scheduler closes the aged row itself: no fault
+            powerup;
+            act(0, 13'd5);
+            while (row_aged[0] !== 1'b1 && ti < 8000) begin nop(1); ti = ti + 1; end
+            check(row_aged[0] === 1'b1, "row_aged request");
+            pre(0); nop(3);
+            check(row_aged[0] === 1'b0, "row_aged clears");
+            for (ti = 0; ti < 6000; ti = ti + 1) begin nop(1); if (preempt) tb_fail = tb_fail + 1; end
+            expect_clean;
+        // ---- reset in a burst ----
+        end else if (tname == "reset_rburst" || tname == "reset_wburst") begin
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16); bst; nop(2);
+            if (tname == "reset_rburst") begin rd(0, 10'd0); nop(7); end
+            else begin wr(0, 10'd32, 16'h3200, 2'b11); wb(16'h3201, 2'b11); wb(16'h3202, 2'b11); end
+            do_reset(2);
+            check(init_done === 1'b0 && ok_act === 4'd0 && !rvalid, "reset: init restarts, permits closed");
+            wait_init;
+            check(init_done === 1'b1, "init_done again");
+            check(refreshes == 2 && fault_count == 0, "counters restarted");
+            // the chip model sees a second init: only the two mode-register commands after init_done are flagged
+            check(chip.err_count == 2 && chip.err_mask == 64'h100, "only MRS_LATE twice from the second init");
+            // normal operation after the re-init (bank state was lost: ACT again)
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd4); nop(3); bst; nop(RD_LAT_X + 4);
+            check_burst(rd_a, 4, 0, 13'd5, 10'd4);
+            check(chip.err_count == 2, "no further chip errors");
+            check(phy_fault === 1'b0 && dq_conflicts == 0, "no PHY fault");
+        // ---- turnaround ----
+        end else if (tname == "turn_rw") begin            // earliest conflict-free WR after a read, found by polling the permit
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16); bst; nop(2);
+            for (ti = 1; ti <= 8; ti = ti + 3) begin
+                rd(0, 10'd0); nop(ti - 1); bst;               // BST at r + ti
+                k_bc = 1;
+                while (!ok_wr[0] && k_bc < 12) begin nop(1); k_bc = k_bc + 1; end
+                check(k_bc == 3, "earliest WR is BST + 3 (permit)");
+                wr(0, 10'd200 + ti, 16'h7000 + ti, 2'b11); wb(16'h7100 + ti, 2'b11); bst;
+                nop(1);
+                check(pkf(0, 5, 200 + ti) == {1'b1, 16'h7000 + ti[15:0]}, "write after the read landed");
+                check(pkf(0, 5, 201 + ti) == {1'b1, 16'h7100 + ti[15:0]}, "second word landed");
+                nop(2);
+            end
+            expect_clean;
+        end else if (tname == "wr_rd_turn") begin         // RD directly at w + n (tCDL 1)
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 4);
+            rd(0, 10'd0); a_first = rd_a; nop(3); bst; nop(RD_LAT_X + 4);
+            check_burst(a_first, 4, 0, 13'd5, 10'd0);
+            expect_clean;
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
             if (!$value$plusargs("SEED=%d", seed)) seed = 7;
-            nrand = 4000;
             powerup; rnd_init;
             rdchk_on = RDCHK;
+            nrand = NRAND;
             for (ti = 0; ti < nrand; ti = ti + 1) rnd_step(1, 1, 1);
             // drain: end the bursts
             if (ok_bst) bst;
