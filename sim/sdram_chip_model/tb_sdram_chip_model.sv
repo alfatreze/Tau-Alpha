@@ -601,6 +601,50 @@ module tb_sdram_chip_model #(
             cyc(K_NOP, 2'b00, 13'd0, 2'b00, 16'd0, 16'hffff);
             nop(6); bstl; nop(4);
             expect_err(`SE_BUS_CONFLICT);
+        end else if (tname == "multibank") begin               // two banks interleaved, tRRD, read-back from both
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            act(1, 13'd6);                                    // tRRD 2 clk after bank 0
+            wr_pat(0, 13'd5, 10'd0, 4); bst; nopm(1);
+            wr_pat(1, 13'd6, 10'd8, 4); bst; nopm(1);
+            read_n(0, 13'd5, 10'd0, 4);
+            scan_read(0, 13'd5, 10'd0, 4);
+            check(meas_lat == CLSEL + 2, "bank 0 read-back");
+            read_n(1, 13'd6, 10'd8, 4);
+            scan_read(1, 13'd6, 10'd8, 4);
+            check(meas_lat == CLSEL + 2, "bank 1 read-back");
+            pre(0); nopm(1); pre(1); nopm(1);
+            expect_clean;
+        end else if (tname == "legal_ref_burst") begin         // 8 REFs at the minimum tRFC spacing, then an ACT
+            init_seq(CLSEL);
+            for (ti = 0; ti < 8; ti = ti + 1) begin refr; nopm(9); end
+            act(0, 13'd1); nop(1);
+            check(chip.refreshes == 10, "2 init + 8 refreshes");
+            expect_clean;
+        end else if (tname == "n_wdata_x") begin               // write data with the FPGA output enable off: the chip would store X
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            cyc(K_WR, 2'b00, 13'd0, 2'b00, 16'h1234, 16'h0000);
+            bst; nopm(3);
+            expect_err(`SE_WDATA_X);
+        end else if (tname == "n_tccd") begin                  // run with TCCD=2: back-to-back column commands
+            init_seq(CLSEL);
+            act(0, 13'd5); nop(1);
+            rd(0, 10'd0); rd(0, 10'd8); bstl; nop(4);
+            expect_err(`SE_TCCD);
+        end else if (tname == "n_tck") begin                   // run with P_PS=8000: 125 MHz at CL2 (tCK(min) 9 ns)
+            init_seq(CLSEL);
+            nopm(4);
+            expect_err(`SE_TCK);
+        end else if (tname == "legal_tref_full") begin         // real 64 ms: one REF per 7.8 us (780 clk) for 66 ms, no TREF error
+            init_seq(CLSEL);
+            for (ti = 0; ti < 8450; ti = ti + 1) begin refr; nopm(779); end
+            check(chip.refreshes > 8192, "more than one full sweep of 8192 rows");
+            expect_clean;
+        end else if (tname == "n_tref_full") begin             // real limit: no REF for 64 ms + 62.4 us + margin
+            init_seq(CLSEL);
+            nopm(6_450_000);
+            expect_err(`SE_TREF);
         end else if (tname == "n_bst_after_bst") begin
             init_seq(2);
             act(0, 13'd5); nop(1);
@@ -611,5 +655,5 @@ module tb_sdram_chip_model #(
         end
         finish_test;
     end
-    initial begin #2_000_000_000; $display("TEST %0s FAIL (timeout)", tname); $finish; end
+    initial begin #200_000_000_000; $display("TEST %0s FAIL (timeout)", tname); $finish; end
 endmodule

@@ -73,9 +73,17 @@ n_turn_rw_early | | n_turn_rw_early_cl2
 n_turn_rw_early | CLSEL=3 | n_turn_rw_early_cl3
 n_turn_cl3_wrterm | CLSEL=3
 n_oe_during_read |
+multibank | | multibank_cl2
+multibank | CLSEL=3 | multibank_cl3
+legal_ref_burst |
+n_wdata_x |
+n_tccd | TCCD=2
+n_tck | P_PS=8000
 EOF
 )
 LONGTESTS=$(cat <<'EOF'
+legal_tref_full |
+n_tref_full |
 EOF
 )
 
@@ -95,14 +103,14 @@ run_one() {
         echo "FAIL $label"; tail -15 "$OUT/$label.log"; fail=$((fail+1))
     fi
 }
-run_list() {
+run_list() {   # $1 = list text is read from stdin; $2 = fast|long
     while IFS='|' read -r name params label; do
         name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"; [ -z "$label" ] && label="$name"
         [ -z "$name" ] && continue
-        if [ "$WANT" = all ] || [ "$WANT" = long ] || [ "$WANT" = "$label" ]; then run_one "$name" "$params" "$label"; fi
+        if [ "$WANT" = "$label" ] || [ "$WANT" = "$2" ] || { [ "$WANT" = all ] && [ "$2" = fast ]; }; then run_one "$name" "$params" "$label"; fi
     done
 }
-run_list <<< "$TESTS"
-if [ "$WANT" = long ]; then run_list <<< "$LONGTESTS"; fi
+run_list fast fast <<< "$TESTS"
+run_list long long <<< "$LONGTESTS"
 echo "sdram_chip_model: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
