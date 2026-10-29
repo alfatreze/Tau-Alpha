@@ -15,7 +15,7 @@ VVP="${VVP:-vvp}"
 mkdir -p "$OUT"
 T=tb_sdram_phy
 RTL="$ROOT/src/fpga/core"
-SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv" "$HERE/$T.sv")
+SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_dq_cap_dual.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv" "$HERE/$T.sv")
 
 TESTS=$(cat <<'EOF'
 init | INITCYC=10000 | init_cl2_real_wait

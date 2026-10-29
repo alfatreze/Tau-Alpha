@@ -27,7 +27,15 @@ module tau_sdram_phy #(
     parameter integer REFRESH_DEBT_MAX    = 8,
     parameter integer INIT_WAIT_CYCLES    = 10_000,
     parameter integer PREEMPT_TIMEOUT     = 136,
-    parameter integer SIM_SHORT_INIT      = 0
+    parameter integer SIM_SHORT_INIT      = 0,
+    parameter integer CALIBRATE           = 0,
+    parameter integer CAL_BANK            = 3,
+    parameter integer CAL_ROW             = 8191,
+    parameter integer CAL_LEN             = 64,
+    parameter integer BIST                = 0,
+    parameter integer BIST_PAGE_LO        = 0,
+    parameter integer BIST_PAGE_HI        = 32767,
+    parameter integer PERF                = 0
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -59,6 +67,20 @@ module tau_sdram_phy #(
     output wire [31:0] refreshes,
     output wire [15:0] dq_conflicts,
     output wire [4:0]  rd_lat,
+    // optional features (see tau_sdram_phy_core.sv; unused inputs may be left unconnected when the parameter is 0)
+    input  wire        idle_ok,
+    output wire [7:0]  cal_window,
+    output wire [3:0]  cal_best,
+    output wire        cal_done,
+    output wire        cal_fault,
+    input  wire        bist_start,
+    output wire        bist_busy,
+    output wire        bist_done,
+    output wire [31:0] bist_errors,
+    output wire [24:0] bist_first_addr,
+    input  wire        perf_snap,
+    input  wire        perf_clear,
+    output wire [511:0] perf_snapshot,
     // pins
     output wire [12:0] dram_a,
     output wire [1:0]  dram_ba,
@@ -89,7 +111,9 @@ module tau_sdram_phy #(
         .THZ_CL2_PS(THZ_CL2_PS), .THZ_CL3_PS(THZ_CL3_PS), .OE_ON_MIN_PS(OE_ON_MIN_PS), .DQ_BOARD_MAX_PS(DQ_BOARD_MAX_PS),
         .OPEN_ROW_MAX_NS(OPEN_ROW_MAX_NS), .ROW_FORCE_NS(ROW_FORCE_NS),
         .REFRESH_INTERVAL_PS(REFRESH_INTERVAL_PS), .REFRESH_DEBT_MAX(REFRESH_DEBT_MAX),
-        .INIT_WAIT_CYCLES(INIT_WAIT_CYCLES), .PREEMPT_TIMEOUT(PREEMPT_TIMEOUT), .SIM_SHORT_INIT(SIM_SHORT_INIT)
+        .INIT_WAIT_CYCLES(INIT_WAIT_CYCLES), .PREEMPT_TIMEOUT(PREEMPT_TIMEOUT), .SIM_SHORT_INIT(SIM_SHORT_INIT),
+        .CALIBRATE(CALIBRATE), .CAL_BANK(CAL_BANK), .CAL_ROW(CAL_ROW), .CAL_LEN(CAL_LEN), .BIST(BIST),
+        .BIST_PAGE_LO(BIST_PAGE_LO), .BIST_PAGE_HI(BIST_PAGE_HI), .PERF(PERF)
     ) u_core (
         .clk(clk), .rst(rst), .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be),
         .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_prea(ok_prea), .ok_ref(ok_ref),
@@ -97,6 +121,9 @@ module tau_sdram_phy #(
         .fault_count(fault_count), .fault_cause(fault_cause), .row_aged(row_aged), .preempt(preempt),
         .preempt_ack(preempt_ack), .banks_closed(banks_closed), .ref_due(ref_due), .ref_debt(ref_debt),
         .refreshes(refreshes), .dq_conflicts(dq_conflicts), .rd_lat(rd_lat),
+        .idle_ok(idle_ok), .cal_window(cal_window), .cal_best(cal_best), .cal_done(cal_done), .cal_fault(cal_fault),
+        .bist_start(bist_start), .bist_busy(bist_busy), .bist_done(bist_done), .bist_errors(bist_errors),
+        .bist_first_addr(bist_first_addr), .perf_snap(perf_snap), .perf_clear(perf_clear), .perf_snapshot(perf_snapshot),
         .pin_cke(dram_cke), .pin_ras_n(dram_ras_n), .pin_cas_n(dram_cas_n), .pin_we_n(dram_we_n),
         .pin_dqm(dram_dqm), .pin_ba(dram_ba), .pin_a(dram_a), .dq_o(dq_o), .dq_oe(dq_oe), .dq_i(dq_i)
     );
