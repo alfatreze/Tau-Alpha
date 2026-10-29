@@ -7,7 +7,7 @@ set -u
 cd "$(dirname "$0")/../.."
 R=src/fpga/core
 RTL="$R/tau_sdram_phy.sv $R/tau_sdram_phy_core.sv $R/tau_sdram_dq_cap.sv $R/tau_sdram_dq_cap_dual.sv $R/tau_sdram_clk_out.sv \
-$R/tau_sdram_sched_v.sv $R/tau_sdram_sv_pq.sv $R/tau_sdram_sv_arb.sv"
+$R/tau_sdram_sched_v.sv $R/tau_sdram_sv_pq.sv $R/tau_sdram_sv_arb.sv $R/tau_sdram_sv_tm.sv"
 P=tools/sdram_probe
 rc=0
 for D in "" "-DPROBE_CALIBRATE" "-DPROBE_BIST" "-DPROBE_PERF" "-DPROBE_CALIBRATE -DPROBE_BIST -DPROBE_PERF"; do
