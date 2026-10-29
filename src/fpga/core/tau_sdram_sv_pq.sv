@@ -159,10 +159,25 @@ module tau_sdram_sv_pq #(
     assign hd_v = r_v; assign hd_bad = r_bad; assign hd_we = r_we; assign hd_last = r_last; assign hd_2d = r_2d; assign hd_bank = r_bank;
     assign hd_row = r_row; assign hd_col = r_col; assign hd_plen = r_plen; assign hd_tag = r_tag;
     wire do_adv = adv & hd_v;
-    wire pop    = (do_adv & plast) | (pop_bad & hd_bad);
+    // next-state values are precomputed into registers (valid two cycles after the head changed; an advance never follows an
+    // advance by less than that): the 25-bit address adders are not in the advance path
+    reg [24:0] nxt_a, nxt_rb; reg [9:0] nxt_rem;
+    always @(posedge clk) begin
+        nxt_a   <= h_addr + {15'd0, r_plen};
+        nxt_rem <= e_rem[0] - r_plen;
+`ifdef MUT_2D_STRIDE
+        nxt_rb  <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
+`else
+        nxt_rb  <= e_rb[0] + {14'd0, e_str[0]};
+`endif
+    end
+    wire pop    = (do_adv & r_last) | (pop_bad & hd_bad);
     wire [3:0] cnt_n = cnt_q + {3'd0, push} - {3'd0, pop};
-    wire [9:0] rem_n = e_rem[0] - plen;
+    wire [9:0] rem_n = nxt_rem;
 
+    // conservative upper row of the request: one row above the start (1D, len <= 512) or start + h/2 + 1 (2D: h * 2048 bound); 13-bit only
+    wire [13:0] hi_s = {1'b0, req_addr[24:12]} + (req_2d ? {8'd0, req_h[5:1]} : 14'd0) + 14'd1;
+    wire [12:0] hi_c = hi_s[13] ? 13'h1fff : hi_s[12:0];
     integer i;
     reg [3:0] widx;
     always @(posedge clk) begin
@@ -180,17 +195,12 @@ module tau_sdram_sv_pq #(
                 end
             end else if (do_adv) begin
                 if (rem_n != 10'd0) begin
-                    e_addr[0] <= h_addr + {15'd0, plen};
+                    e_addr[0] <= nxt_a;
                     e_rem[0]  <= rem_n;
                 end else begin                                   // 2D: next row (not the last piece)
                     e_rows[0] <= e_rows[0] - 6'd1;
-`ifdef MUT_2D_STRIDE
-                    e_rb[0]   <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
-                    e_addr[0] <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
-`else
-                    e_rb[0]   <= e_rb[0] + {14'd0, e_str[0]};
-                    e_addr[0] <= e_rb[0] + {14'd0, e_str[0]};
-`endif
+                    e_rb[0]   <= nxt_rb;
+                    e_addr[0] <= nxt_rb;
                     e_rem[0]  <= {4'd0, e_w[0]};
                 end
             end
@@ -209,7 +219,7 @@ module tau_sdram_sv_pq #(
                         e_str[i]  <= req_stride;
                         e_rb[i]   <= req_addr;
                         e_lo[i]   <= req_addr[24:12];
-                        e_hi[i]   <= req_2d ? (req_addr + {3'd0, req_h, 11'd0}) >> 12 : (req_addr + {15'd0, req_len} - 25'd1) >> 12;
+                        e_hi[i]   <= hi_c;
                     end
                 end
             end
