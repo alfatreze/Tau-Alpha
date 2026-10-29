@@ -273,7 +273,7 @@ module tb_sdram_baseline #(
         integer q; reg [24:0] ad;
         begin
             for (q = 0; q < nwords; q = q + 1) begin
-                ad = A(rnd(2), rnd(8), rnd(1000));
+                ad = rnd(2) ? A(1, rnd(4), rnd(1000)) : A(0, rnd(8), rnd(1000));   // only rows the initial fill wrote
                 case (rnd(4))
                     0: wr_op(ad, rnd(65536), 2'b11, 1, 1'b0);
                     1: wr_op(ad, rnd(65536), 2'b01, 1, 1'b0);
