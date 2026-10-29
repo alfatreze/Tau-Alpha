@@ -223,6 +223,7 @@ module tb_a_unit #(
                 $display("  fills %0d: first word max %0d cycles, total max %0d cycles, over 10 us %0d, CPU ops %0d (max latency %0.0f ns)", fill_n, fill_max_first, fill_max_total, fill_late, cpu_n_w + cpu_n_r, cpu_lat_max);
                 if (fill_max_first > 170) fail1("fill first word beyond the urgent bound + adapter");
                 if (fill_late != 0) fail1("a fill took more than 10 us");
+                if (cnt_requests[31:0] != fill_n) fail1("fills not counted on the urgent port 0");
             end
             "refresh": begin  // sustained load against a refresh interval of REFIPS: the debt never overruns (PHY fault), data intact
                 for (r = 0; r < 150; r = r + 1) begin
