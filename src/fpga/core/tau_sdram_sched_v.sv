@@ -39,7 +39,7 @@
 /* verilator lint_off UNUSEDSIGNAL */
 module tau_sdram_sched_v #(
     parameter integer NPORTS = 6,
-    parameter integer QDEPTH = 4,
+    parameter integer QDEPTH = 2,
     parameter integer BANK_HASH = 2,
     parameter [7:0]   URGENT_CAPABLE = 8'h01,
     parameter [7:0]   URGENT_EARLY_CAPABLE = 8'h00,  // ports with the second (early) watermark level
@@ -55,7 +55,11 @@ module tau_sdram_sched_v #(
     parameter integer SAME_ROW_BREAK_NS = 60000,
     parameter integer W_LEAD = 2,
     parameter integer WF_DEPTH = 8,
-    parameter integer RDQ_DEPTH = 16,
+    parameter integer RDQ_DEPTH = 8,
+    parameter integer CNT_EN = 1,                    // 0: requests/words/busy/worst-wait/urgent-over counters removed (bad stays)
+    parameter integer LOOKAHEAD = 1,                 // 1: ACT/PRE for the next target while a burst streams
+    parameter integer RAW_CHECK = 1,                 // 1: a read waits for an older overlapping write of another port
+    parameter integer SAME_ROW_CONT = 1,             // 1: same-row pieces of the last port go back to back
     parameter integer BATCH_REQS = 4,
     parameter integer BATCH_WORDS = 128,
     parameter integer WR_HI_REQ = 2,                 // dagger: a batch port becomes eligible at this many queued requests
@@ -175,7 +179,7 @@ module tau_sdram_sched_v #(
     reg [23:0] acc_cnt;
     always @(posedge clk) acc_cnt <= rst ? 24'd0 : acc_cnt + 24'd1;
     wire [NPORTS*QDEPTH-1:0]    e_v, e_we;
-    wire [NPORTS*QDEPTH*27-1:0] e_lo, e_hi, e_st;
+    wire [NPORTS*QDEPTH*13-1:0] e_lo, e_hi;
     genvar p;
     generate
         for (p = 0; p < NPORTS; p = p + 1) begin : g_p
@@ -184,9 +188,9 @@ module tau_sdram_sched_v #(
                 .clk(clk), .rst(rst), .req_valid(req_valid[p]), .req_ready(req_ready[p]), .req_we(req_we[p]),
                 .req_addr(req_addr[p*25 +: 25]), .req_len(req_len[p*10 +: 10]), .req_tag(req_tag[p*8 +: 8]),
                 .req_2d(req_2d[p]), .req_w(req_w[p*6 +: 6]), .req_h(req_h[p*6 +: 6]), .req_stride(req_stride[p*11 +: 11]),
-                .sk_vld(sk_vld), .sk_base(sk_basev), .sk_val(sk_valv), .push_stamp({acc_cnt, p[2:0]}),
-                .ent_v(e_v[p*QDEPTH +: QDEPTH]), .ent_we(e_we[p*QDEPTH +: QDEPTH]), .ent_lo(e_lo[p*QDEPTH*27 +: QDEPTH*27]),
-                .ent_hi(e_hi[p*QDEPTH*27 +: QDEPTH*27]), .ent_st(e_st[p*QDEPTH*27 +: QDEPTH*27]), .count(hcnt[p*4 +: 4]), .hd_v(hv[p]), .hd_bad(hbad[p]), .hd_we(hwe[p]),
+                .sk_vld(sk_vld), .sk_base(sk_basev), .sk_val(sk_valv),
+                .ent_v(e_v[p*QDEPTH +: QDEPTH]), .ent_we(e_we[p*QDEPTH +: QDEPTH]), .ent_lo(e_lo[p*QDEPTH*13 +: QDEPTH*13]),
+                .ent_hi(e_hi[p*QDEPTH*13 +: QDEPTH*13]), .count(hcnt[p*4 +: 4]), .hd_v(hv[p]), .hd_bad(hbad[p]), .hd_we(hwe[p]),
                 .hd_bank(hbank[p*2 +: 2]), .hd_row(hrow[p*13 +: 13]), .hd_col(hcol[p*10 +: 10]),
                 .hd_plen(hplen[p*10 +: 10]), .hd_last(hlast[p]), .hd_tag(htag[p*8 +: 8]), .hd_2d(h2d[p]),
                 .adv(adv[p]), .pop_bad(retire[p]), .accepted(acc[p]), .accepted_bad(acc_bad[p]));
@@ -222,28 +226,28 @@ module tau_sdram_sched_v #(
         for (q = 0; q < NPORTS; q = q + 1)
             gated[q] = BATCH_PORTS[q] & hwe[q] & (hcnt[q*4 +: 4] < WR_HI_REQ[3:0]) & (wc[q] < WR_DEFER_CLK[15:0]);
     end
-    // ordering: a read is never granted ahead of an older (accepted earlier) write of another port whose address range
-    // overlaps; the write goes first (reads behind it wait, so an urgent read can wait for such a write)
+    // ordering: a read is not granted while another port holds a queued write whose 4K-word row range overlaps the read's
+    // (conservative, no ordering stamps and no multipliers: a newer overlapping write also holds the read back, which cannot deadlock
+    // because writes are never held back by reads)
     reg [NPORTS-1:0] blocked;
     integer hq, he;
-    reg [26:0] r_lo, r_hi, r_st, w_lo, w_hi, w_st, dff;
+    reg [12:0] r_lo, r_hi, w_lo, w_hi;
     always @* begin
-        blocked = {NPORTS{1'b0}}; w_lo = 27'd0; w_hi = 27'd0; w_st = 27'd0; dff = 27'd0;
+        blocked = {NPORTS{1'b0}}; w_lo = 13'd0; w_hi = 13'd0;
         for (q = 0; q < NPORTS; q = q + 1) begin
-            r_lo = e_lo[(q*QDEPTH)*27 +: 27]; r_hi = e_hi[(q*QDEPTH)*27 +: 27]; r_st = e_st[(q*QDEPTH)*27 +: 27];
+            r_lo = e_lo[(q*QDEPTH)*13 +: 13]; r_hi = e_hi[(q*QDEPTH)*13 +: 13];
             if (hv[q] && !hwe[q]) begin
                 for (hq = 0; hq < NPORTS; hq = hq + 1)
                     for (he = 0; he < QDEPTH; he = he + 1) begin
-                        w_lo = e_lo[(hq*QDEPTH+he)*27 +: 27]; w_hi = e_hi[(hq*QDEPTH+he)*27 +: 27]; w_st = e_st[(hq*QDEPTH+he)*27 +: 27];
-                        dff = r_st - w_st;
-                        if (hq != q && e_v[hq*QDEPTH+he] && e_we[hq*QDEPTH+he] && dff != 27'd0 && !dff[26] &&
-                            w_lo <= r_hi && r_lo <= w_hi)
+                        w_lo = e_lo[(hq*QDEPTH+he)*13 +: 13]; w_hi = e_hi[(hq*QDEPTH+he)*13 +: 13];
+                        if (hq != q && e_v[hq*QDEPTH+he] && e_we[hq*QDEPTH+he] && w_lo <= r_hi && r_lo <= w_hi)
                             blocked[q] = 1'b1;
                     end
             end
 `ifdef MUT_NO_RAW
             blocked[q] = 1'b0;
 `endif
+            if (RAW_CHECK == 0) blocked[q] = 1'b0;
         end
     end
     // bandwidth caps: words per window per port (non-urgent competition only)
@@ -260,27 +264,77 @@ module tau_sdram_sched_v #(
 `endif
         end
     endgenerate
-    wire [NPORTS-1:0] hv_u  = hv & ~blocked;
-    wire [NPORTS-1:0] cand0 = hv_u & (~gated | {NPORTS{~(|(hv_u & ~gated))}});
+    // ---------------------------------------------------------------------------------------------------
+    // decision pipeline: every stage is a register bank fed by a few logic levels
+    //   A: per-port flags from the registered head pieces (RAW block, batch gate, cap, row hit, same row, other-wants)
+    //   B: candidate / urgent / early / continuation vectors and the batch-continuation flag
+    //   C: arbitration result (urgent > early > continuation > WRR); batch continuation overrides
+    //   D: the target T: its piece fields and row-hit flag selected by port
+    // A table or head change (an issue, ACT, PRE, PREA, banks_closed) makes the stages stale for up to 5 cycles: T is blanked
+    // (`blank_q`) meanwhile, so nothing is decided from stale data. Commands are decided in the cycle of the offer from registers
+    // and the PHY permits only.
+    // ---------------------------------------------------------------------------------------------------
+    reg [NPORTS-1:0] blocked_q, gated_q, capped_q, hhit_q, hopen_q, hsame_q, hfit_q;
+    reg [3:0]        ow_q;
+    reg              uw_q;
+    reg  [2:0]  last_port; reg last_v; reg [1:0] last_bank; reg [12:0] last_row;
+    reg  [3:0]  o_v;
+    reg  [12:0] o_row [0:3];
+    reg         cur_v, cur_we; reg [2:0] cur_port;
+    reg [2:0]   bt_port; reg [3:0] bt_reqs; reg [9:0] bt_words;
+    reg  [1:0]  rfm;
+    integer sa;
+    always @(posedge clk) begin
+        blocked_q <= blocked; gated_q <= gated; capped_q <= capped;
+        uw_q <= |(urgent & URGENT_CAPABLE[NPORTS-1:0] & hv);
+        for (sa = 0; sa < NPORTS; sa = sa + 1) begin
+            hopen_q[sa] <= o_v[hbank[sa*2 +: 2]];
+            hhit_q[sa]  <= o_v[hbank[sa*2 +: 2]] && o_row[hbank[sa*2 +: 2]] == hrow[sa*13 +: 13] && !row_aged[hbank[sa*2 +: 2]];
+            hsame_q[sa] <= (hbank[sa*2 +: 2] == last_bank) && (hrow[sa*13 +: 13] == last_row);
+            hfit_q[sa]  <= ({1'b0, bt_words} + {1'b0, hplen[sa*10 +: 10]}) <= BATCH_WORDS[10:0];
+        end
+    end
+    reg [3:0] ow_c;
+    integer ok_, ob;
+    always @* begin
+        ow_c = 4'd0;
+        for (ob = 0; ob < 4; ob = ob + 1)
+            for (ok_ = 0; ok_ < NPORTS; ok_ = ok_ + 1)
+                if (hv[ok_] && hbank[ok_*2 +: 2] == ob[1:0] && o_v[ob] && hrow[ok_*13 +: 13] == o_row[ob]) ow_c[ob] = 1'b1;
+    end
+    always @(posedge clk) ow_q <= ow_c;
+
+    wire [NPORTS-1:0] hv_u  = hv & ~blocked_q;
+    wire [NPORTS-1:0] cand0 = hv_u & (~gated_q | {NPORTS{~(|(hv_u & ~gated_q))}});
     wire [NPORTS-1:0] urg   = urgent & URGENT_CAPABLE[NPORTS-1:0] & cand0;
-    wire [NPORTS-1:0] cand_nc = cand0 & ~capped;
+    wire [NPORTS-1:0] cand_nc = cand0 & ~capped_q;
     wire [NPORTS-1:0] cand  = (|cand_nc) ? (cand_nc | urg) : cand0;
     wire [NPORTS-1:0] early = urgent_early & URGENT_EARLY_CAPABLE[NPORTS-1:0] & cand;
-    reg  [2:0]  last_port; reg last_v; reg [1:0] last_bank; reg [12:0] last_row;
-    wire        cont_ok = last_v && cand[last_port] && hbank[last_port*2 +: 2] == last_bank &&
-                          hrow[last_port*13 +: 13] == last_row && !(|(starved & ~(8'd1 << last_port)));
+    wire        cont_c  = (SAME_ROW_CONT != 0) && last_v && cand[last_port] && hsame_q[last_port] && !(|(starved & ~(8'd1 << last_port)));
+`ifdef MUT_BATCHUNL
+    wire        bc_c    = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port);
+`else
+    wire        bc_c    = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port) && (bt_reqs < BATCH_REQS[3:0]) && hfit_q[cur_port];
+`endif
+    reg [NPORTS-1:0] cand_q, urg_q, early_q; reg cont_q, bc_q;
+    always @(posedge clk) begin
+        cand_q <= cand; urg_q <= urg; early_q <= early; cont_q <= cont_c; bc_q <= bc_c;
+    end
     wire sel_v, sel_wrr; wire [2:0] sel_p;
-    reg  grant_ev; reg [2:0] grant_pt;
-    tau_sdram_sv_arb #(.NP(NPORTS), .WEIGHT(WEIGHT)) u_arb (.clk(clk), .rst(rst), .cand(cand), .urgent(urg), .early(early),
-        .cont_ok(cont_ok), .last_port(last_port), .grant(grant_ev), .grant_port(grant_pt), .grant_wrr(sel_wrr),
+    reg  grant_ev; reg [2:0] grant_pt; wire t_wrr;
+    tau_sdram_sv_arb #(.NP(NPORTS), .WEIGHT(WEIGHT)) u_arb (.clk(clk), .rst(rst), .cand(cand_q), .urgent(urg_q), .early(early_q),
+        .cont_ok(cont_q), .last_port(last_port), .grant(grant_ev), .grant_port(grant_pt), .grant_wrr(t_wrr),
         .sel_v(sel_v), .sel_p(sel_p), .sel_wrr(sel_wrr));
+    reg c_v_q, c_wrr_q, c_bc_q; reg [2:0] c_p_q;
+    always @(posedge clk) begin
+        c_v_q <= bc_q ? 1'b1 : sel_v; c_p_q <= bc_q ? cur_port : sel_p; c_wrr_q <= bc_q ? 1'b0 : sel_wrr; c_bc_q <= bc_q;
+    end
 
     // ---------------------------------------------------------------------------------------------------
     // state of the burst in progress (cur), the committed write piece (pq_*), write FIFO, read descriptors
     // ---------------------------------------------------------------------------------------------------
-    reg         cur_v, cur_we, cur_last; reg [1:0] cur_bank; reg [2:0] cur_port; reg [9:0] cur_left; reg [7:0] cur_tag;
+    reg         cur_last; reg [1:0] cur_bank; reg [9:0] cur_left; reg [7:0] cur_tag;
     reg         pq_v, pq_iss, pq_last; reg [2:0] pq_port; reg [9:0] pq_n, pq_pulled;
-    reg [2:0]   bt_port; reg [3:0] bt_reqs; reg [9:0] bt_words;
     reg [15:0]  wf_d [0:WF_DEPTH-1];
     reg [1:0]   wf_b [0:WF_DEPTH-1];
     reg [WFW-1:0] wf_rp, wf_wp, wf_cnt;
@@ -290,36 +344,53 @@ module tau_sdram_sched_v #(
     reg [RQW-1:0] rq_rp, rq_wp, rq_cnt;
     reg [9:0]   rd_rem; reg rd_act;
     reg [3:0]   err_q;
-    reg [3:0]   o_v;
-    reg [12:0]  o_row [0:3];
 
     // ---------------------------------------------------------------------------------------------------
     // target T
     // ---------------------------------------------------------------------------------------------------
     wire        lk_v  = pq_v & ~pq_iss;
-    wire [2:0]  t_p   = lk_v ? pq_port : sel_p;
-    wire        t_v   = lk_v ? hv[pq_port] : sel_v;
-    wire        t_we  = hwe[t_p];
-    wire [1:0]  t_bank = hbank[t_p*2 +: 2];
-    wire [12:0] t_row  = hrow[t_p*13 +: 13];
-    wire [9:0]  t_col  = hcol[t_p*10 +: 10];
-    wire [9:0]  t_n    = hplen[t_p*10 +: 10];
-    wire        t_last = hlast[t_p];
-    wire [7:0]  t_tag  = htag[t_p*8 +: 8];
-    wire        t_open = o_v[t_bank];
-    wire        t_hit  = t_open && o_row[t_bank] == t_row && !row_aged[t_bank];
+    reg  [3:0]  blank_q;                  // after an issue: the head advanced, stages A..D are stale
+    reg  [2:0]  tq_q;                     // after a table change: the row-hit flags of stages A..D are stale (column issue and prep wait)
+    reg         fh_v, fh_kill, td_fhm;    // fast open-row cache: the bank of the last ACT and its row (always current)
+    reg  [1:0]  fh_bank; reg [12:0] fh_row;
+    reg         pa_v; reg [1:0] pa_bank; reg [12:0] pa_row;   // ACT to follow the PRE just issued for the target
+    reg         td_v; reg [2:0] td_p; reg td_we, td_last, td_hit, td_open, td_wrr, td_bc;
+    reg  [1:0]  td_bank; reg [12:0] td_row; reg [9:0] td_col, td_n; reg [7:0] td_tag;
+    wire [2:0]  d_p = lk_v ? pq_port : c_p_q;
+    wire        d_v = lk_v ? hv[pq_port] : c_v_q;
+    always @(posedge clk) begin
+        td_v <= d_v; td_p <= d_p; td_we <= hwe[d_p]; td_last <= hlast[d_p]; td_bank <= hbank[d_p*2 +: 2];
+        td_row <= hrow[d_p*13 +: 13]; td_col <= hcol[d_p*10 +: 10]; td_n <= hplen[d_p*10 +: 10]; td_tag <= htag[d_p*8 +: 8];
+        td_fhm <= fh_v && fh_bank == hbank[d_p*2 +: 2] && fh_row == hrow[d_p*13 +: 13];
+        td_hit <= hhit_q[d_p]; td_open <= hopen_q[d_p]; td_wrr <= lk_v ? 1'b0 : c_wrr_q; td_bc <= lk_v ? 1'b0 : c_bc_q;
+    end
+    wire        t_v    = td_v & (blank_q == 4'd0);
+    wire [2:0]  t_p    = td_p;
+    wire        t_we   = td_we;
+    wire [1:0]  t_bank = td_bank;
+    wire [12:0] t_row  = td_row;
+    wire [9:0]  t_col  = td_col;
+    wire [9:0]  t_n    = td_n;
+    wire        t_last = td_last;
+    wire [7:0]  t_tag  = td_tag;
+    wire        quiet  = (tq_q == 3'd0);
+    wire        fh_ok  = td_fhm & ~fh_kill;
+    wire        t_open = (td_open & quiet) | fh_ok;
+    wire        t_hit  = (td_hit & quiet & !row_aged[td_bank]) | (fh_ok & !row_aged[td_bank]);
+    assign      t_wrr  = td_wrr;
 
     wire        boundary = cur_v && (cur_left == 10'd0);
     // refresh: one per idle gap (no urgent request waiting), between grants from REF_SOFT_DEBT, forced from REF_HARD_DEBT
-    reg  [1:0]  rfm;
-    wire        uw      = |(urgent & URGENT_CAPABLE[NPORTS-1:0] & hv);
+    wire        uw      = uw_q;
 `ifdef MUT_NOHARD
     wire        rf_go   = init_done & ~preempt & ref_due & ((1'b0) |
 `else
     wire        rf_go   = init_done & ~preempt & ref_due & ((ref_debt >= REF_HARD_DEBT[3:0]) |
 `endif
                           (~uw & ((ref_debt >= REF_SOFT_DEBT[3:0]) | ~(|hv))));
-    wire        run_ok   = init_done & ~preempt & (rfm == RF_NONE) & ~rf_go;
+    reg         rf_go_q;
+    always @(posedge clk) rf_go_q <= rf_go;
+    wire        run_ok   = init_done & ~preempt & (rfm == RF_NONE) & ~rf_go_q;
     assign      preempt_ack = preempt & ~cur_v & init_done;
     wire [9:0]  need_pulled = (pq_n < W_LEAD[9:0] + 10'd1) ? pq_n : (W_LEAD[9:0] + 10'd1);
     wire        rd_ok    = ok_rd[t_bank] && (rq_cnt < RDQ_DEPTH[RQW-1:0] - 1);
@@ -334,33 +405,20 @@ module tau_sdram_sched_v #(
     wire        rd_issue = issue && !t_we;
 
     // write commitment (lock): first piece of a grant near the boundary or when idle; continuation of a batch at once
-`ifdef MUT_BATCHUNL
-    wire        bc_ok  = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port);
-`else
-    wire        bc_ok  = cur_v && cur_we && hv[cur_port] && hwe[cur_port] && (bt_port == cur_port) &&
-                         (bt_reqs < BATCH_REQS[3:0]) && ({1'b0, bt_words} + {1'b0, hplen[cur_port*10 +: 10]} <= BATCH_WORDS[10:0]);
-`endif
     wire        pq_free = ~pq_v;
     wire        near    = !cur_v || (cur_left <= PULL_AHEAD[9:0]);
-    wire        lock_b  = run_ok && pq_free && bc_ok;
-    wire        lock_a  = run_ok && pq_free && !bc_ok && t_v && t_we && near;
-    wire        do_lock = lock_b | lock_a;
-    wire [2:0]  lk_pt   = lock_b ? cur_port : sel_p;
-    wire [9:0]  lk_n    = hplen[lk_pt*10 +: 10];
-    wire        lk_lst  = hlast[lk_pt];
+    wire        do_lock = run_ok && pq_free && t_v && t_we && (near || td_bc);
+    wire        lock_b  = do_lock && td_bc;
+    wire        lock_a  = do_lock && !td_bc;
+    wire [2:0]  lk_pt   = t_p;
+    wire [9:0]  lk_n    = t_n;
+    wire        lk_lst  = t_last;
 
     // ---------------------------------------------------------------------------------------------------
     // command selection
     // ---------------------------------------------------------------------------------------------------
-    reg [3:0] others_want;
+    wire [3:0] others_want = ow_q;
     integer k, b;
-    always @* begin
-        others_want = 4'd0;
-        for (b = 0; b < 4; b = b + 1)
-            for (k = 0; k < NPORTS; k = k + 1)
-                if (hv[k] && k[2:0] != t_p && hbank[k*2 +: 2] == b[1:0] && o_v[b] && hrow[k*13 +: 13] == o_row[b])
-                    others_want[b] = 1'b1;
-    end
     reg [3:0] aged_pre;                 // an aged row that may be closed now
     integer ab;
     always @* begin
@@ -387,7 +445,9 @@ module tau_sdram_sched_v #(
 `endif
         end else if (issue) begin
             cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col};
-        end else if (run_ok && t_v) begin
+        end else if (run_ok && pa_v && ok_act[pa_bank] && (LOOKAHEAD != 0 || !cur_v)) begin
+            cmd = K_ACT; cmd_ba = pa_bank; cmd_a = pa_row;
+        end else if (run_ok && t_v && (quiet || fh_ok) && (LOOKAHEAD != 0 || !cur_v)) begin
             if (!t_open) begin
                 if (ok_act[t_bank]) begin cmd = K_ACT; cmd_ba = t_bank; cmd_a = t_row; end
             end else if (!t_hit) begin
@@ -425,7 +485,8 @@ module tau_sdram_sched_v #(
         for (di = 0; di < W_LEAD; di = di + 1) infl = infl + {3'd0, dl_v[di]};
     end
     wire        pull_want = pq_v && (pq_pulled < pq_n);
-    wire        pull      = pull_want && (({1'b0, wf_cnt} + {2'b0, infl} + 1'b1 - {{WFW{1'b0}}, wf_pop}) <= WF_DEPTH);
+    // the pull does not look at this cycle's pop (keeps w_next independent of the command decision); steady state still pulls every cycle
+    wire        pull      = pull_want && (({1'b0, wf_cnt} + {2'b0, infl} + 1'b1) <= WF_DEPTH);
     assign      w_next    = pull ? ({{(NPORTS-1){1'b0}}, 1'b1} << pq_port) : {NPORTS{1'b0}};
     generate
         for (p = 0; p < NPORTS; p = p + 1) begin : g_wi
@@ -480,7 +541,7 @@ module tau_sdram_sched_v #(
     always @* begin
         grant_ev = 1'b0; grant_pt = t_p;
         if (rd_issue) begin grant_ev = 1'b1; grant_pt = t_p; end
-        else if (lock_a) begin grant_ev = 1'b1; grant_pt = sel_p; end
+        else if (lock_a) begin grant_ev = 1'b1; grant_pt = t_p; end
     end
 
     // ---------------------------------------------------------------------------------------------------
@@ -496,7 +557,7 @@ module tau_sdram_sched_v #(
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
-            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0;
+            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0; blank_q <= 4'd7; tq_q <= 3'd4; fh_v <= 1'b0; fh_kill <= 1'b0; pa_v <= 1'b0;
             last_port <= 3'd0; last_v <= 1'b0; last_bank <= 2'd0; last_row <= 13'd0;
             done_b_q <= {NPORTS{1'b0}}; done_w_q <= {NPORTS{1'b0}};
             for (i = 0; i < NPORTS; i = i + 1) begin
@@ -515,10 +576,22 @@ module tau_sdram_sched_v #(
             end else if (cur_v && cur_left != 10'd0) begin
                 cur_left <= cur_left - 10'd1;
             end
+            // ---- stale-stage blanking
+            if (issue) blank_q <= 4'd5;
+            else if (blank_q != 4'd0) blank_q <= blank_q - 4'd1;
+            if (banks_closed || cmd == K_ACT || cmd == K_PRE || cmd == K_PREA) tq_q <= 3'd4;
+            else if (tq_q != 3'd0) tq_q <= tq_q - 3'd1;
+            fh_kill <= banks_closed || cmd == K_ACT || cmd == K_PRE || cmd == K_PREA;
+            if (banks_closed || cmd == K_PREA) fh_v <= 1'b0;
+            else if (cmd == K_ACT) begin fh_v <= 1'b1; fh_bank <= cmd_ba; fh_row <= cmd_a; end
+            else if (cmd == K_PRE && fh_bank == cmd_ba) fh_v <= 1'b0;
+            if (banks_closed || cmd == K_PREA) pa_v <= 1'b0;
+            else if (cmd == K_ACT && pa_v && cmd_ba == pa_bank) pa_v <= 1'b0;
+            else if (cmd == K_PRE && !(rfm != RF_NONE) && !boundary && t_v) begin pa_v <= 1'b1; pa_bank <= cmd_ba; pa_row <= t_row; end
             // ---- refresh sequence
             if (banks_closed) rfm <= RF_NONE;
             else case (rfm)
-                RF_NONE: if (rf_go && (boundary || !cur_v)) rfm <= RF_PREA;
+                RF_NONE: if (rf_go_q && (boundary || !cur_v)) rfm <= RF_PREA;
                 RF_PREA: if (cmd == K_PREA) rfm <= RF_REF;
                 RF_REF:  if (cmd == K_REF) rfm <= RF_NONE;
                 default: rfm <= RF_NONE;
@@ -578,20 +651,21 @@ module tau_sdram_sched_v #(
             for (i = 0; i < NPORTS; i = i + 1) begin
                 if (retire[i]) done_b_tag[i] <= htag[i*8 +: 8];
                 if (retire[i] && bad_q[i] != 16'hffff) bad_q[i] <= bad_q[i] + 16'd1;
-                if (acc[i] && !acc_bad[i]) req_cnt_q[i] <= req_cnt_q[i] + 32'd1;
+                if (CNT_EN != 0 && acc[i] && !acc_bad[i]) req_cnt_q[i] <= req_cnt_q[i] + 32'd1;
                 infl_n = inflight[i];
                 if (issue && t_last && t_p == i) infl_n = infl_n + 6'd1;
                 if ((rd_done && f_port == i) || (wd_ev && wd_p == i)) infl_n = infl_n - 6'd1;
                 inflight[i] <= infl_n;
-                if (issue && t_p == i) word_cnt_q[i] <= word_cnt_q[i] + {22'd0, t_n};
-                if (cur_v && cur_port == i) busy_cnt_q[i] <= busy_cnt_q[i] + 32'd1;
+                if (CNT_EN != 0 && issue && t_p == i) word_cnt_q[i] <= word_cnt_q[i] + {22'd0, t_n};
+                if (CNT_EN != 0 && cur_v && cur_port == i) busy_cnt_q[i] <= busy_cnt_q[i] + 32'd1;
                 if (rst || (BW_WINDOW_CYCLES != 0 && bw_win == BW_WINDOW_CYCLES - 1)) bw_used_v[i*16 +: 16] <= 16'd0;
                 else if (issue_p[i]) bw_used_v[i*16 +: 16] <= bw_used_v[i*16 +: 16] + {6'd0, t_n};
                 // worst wait (grant minus request) and urgent waits above the documented bound
-                if (issue_p[i] && wc[i] > worst_q[i]) worst_q[i] <= wc[i];
-                if (urg[i] && !issue_p[i]) begin if (uwc_q[i] != 16'hffff) uwc_q[i] <= uwc_q[i] + 16'd1; end
+                if (CNT_EN != 0 && issue_p[i] && wc[i] > worst_q[i]) worst_q[i] <= wc[i];
+                if (CNT_EN == 0) uwc_q[i] <= 16'd0;
+                else if (urg[i] && !issue_p[i]) begin if (uwc_q[i] != 16'hffff) uwc_q[i] <= uwc_q[i] + 16'd1; end
                 else uwc_q[i] <= 16'd0;
-                if (issue_p[i] && urg[i] && uwc_q[i] > URGENT_ISSUE_BOUND) begin
+                if (CNT_EN != 0 && issue_p[i] && urg[i] && uwc_q[i] > URGENT_ISSUE_BOUND) begin
                     if (uover_q[i] != 16'hffff) uover_q[i] <= uover_q[i] + 16'd1;
                 end
             end

@@ -615,7 +615,7 @@ module tb_sched #(
                         off = urand(7000);
                         if (pp == 2 || (pp == 3 && L % 2 == 0)) begin
                             cur_gen = 90 + pp * 100 + L;
-                            add_rq(pp, 1'b1, A(8 + pp, urand(30000)), 1 + urand((pp == 2) ? 32 : 128), 0, wi);
+                            add_rq(pp, 1'b1, A(10 + pp, urand(30000)), 1 + urand((pp == 2) ? 32 : 128), 0, wi);
                         end else add_rq(pp, 1'b0, A(10, off), 1 + urand((pp == 1) ? 64 : 128), 0, wi);
                     end
                 end

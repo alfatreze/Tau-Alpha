@@ -37,12 +37,10 @@ module tau_sdram_sv_pq #(
     input  wire [SKR-1:0]   sk_vld,         // region table (BANK_HASH 3): entry valid, base = addr[24:22], 2-bit skew
     input  wire [SKR*3-1:0] sk_base,
     input  wire [SKR*2-1:0] sk_val,
-    input  wire [26:0] push_stamp,          // acceptance order stamp (global counter and port)
     output wire [DEPTH-1:0]    ent_v,       // entry holds a good request
     output wire [DEPTH-1:0]    ent_we,
-    output wire [DEPTH*27-1:0] ent_lo,      // conservative address range of what is still to be moved
-    output wire [DEPTH*27-1:0] ent_hi,
-    output wire [DEPTH*27-1:0] ent_st,
+    output wire [DEPTH*13-1:0] ent_lo,      // conservative 4K-word row range of the whole request
+    output wire [DEPTH*13-1:0] ent_hi,
     // head
     output wire [3:0]  count,
     output wire        hd_v,                // head exists and is a good request
@@ -93,7 +91,8 @@ module tau_sdram_sv_pq #(
     reg [5:0]        e_rows [0:DEPTH-1];     // rows left including the current one
     reg [10:0]       e_str  [0:DEPTH-1];
     reg [24:0]       e_rb   [0:DEPTH-1];     // address of the start of the current row
-    reg [26:0]       e_st   [0:DEPTH-1];
+    reg [12:0]       e_lo   [0:DEPTH-1];
+    reg [12:0]       e_hi   [0:DEPTH-1];
     reg [3:0]        cnt_q;
     reg              ready_q;
 
@@ -104,6 +103,7 @@ module tau_sdram_sv_pq #(
     assign count = cnt_q;
 
     // head piece
+    wire c_v, c_bad, c_we, c_last, c_2d; wire [1:0] c_bank; wire [12:0] c_row; wire [9:0] c_col, c_plen; wire [7:0] c_tag;
     wire [24:0] h_addr = e_addr[0];
     wire [10:0] room   = 11'd1024 - {1'b0, h_addr[9:0]};
     wire [9:0]  maxg   = e_we[0] ? MAXG_WR[9:0] : MAXG_RD[9:0];
@@ -115,9 +115,9 @@ module tau_sdram_sv_pq #(
 `endif
     wire        plast  = (e_rem[0] == plen) && (!e_2d[0] || e_rows[0] == 6'd1);
     wire        hv     = (cnt_q != 4'd0);
-    assign hd_v    = hv & ~e_bad[0];
-    assign hd_bad  = hv & e_bad[0];
-    assign hd_we   = e_we[0];
+    assign c_v = hv & ~e_bad[0];
+    assign c_bad = hv & e_bad[0];
+    assign c_we = e_we[0];
     reg [1:0] skew_h;
     integer si;
     always @* begin
@@ -126,30 +126,35 @@ module tau_sdram_sv_pq #(
             if (sk_vld[si] && sk_base[si*3 +: 3] == h_addr[24:22]) skew_h = sk_val[si*2 +: 2];
     end
 `ifdef MUT_SKEW_IGN
-    assign hd_bank = bank_of(h_addr, 2'd0);
+    assign c_bank = bank_of(h_addr, 2'd0);
 `else
-    assign hd_bank = bank_of(h_addr, skew_h);
+    assign c_bank = bank_of(h_addr, skew_h);
 `endif
     genvar ge;
     generate
         for (ge = 0; ge < DEPTH; ge = ge + 1) begin : g_ent
             assign ent_v[ge]  = (ge < cnt_q) && !e_bad[ge];
             assign ent_we[ge] = e_we[ge];
-            wire [26:0] a0 = e_2d[ge] ? {2'b0, e_rb[ge]} : {2'b0, e_addr[ge]};
-            wire [26:0] span = e_2d[ge] ? ({21'd0, e_rows[ge] - 6'd1} * {16'd0, e_str[ge]} + {21'd0, e_w[ge]} - 27'd1)
-                                        : ({17'd0, e_rem[ge]} - 27'd1);
-            assign ent_lo[ge*27 +: 27] = a0;
-            assign ent_hi[ge*27 +: 27] = a0 + span;
-            assign ent_st[ge*27 +: 27] = e_st[ge];
+            assign ent_lo[ge*13 +: 13] = e_lo[ge];
+            assign ent_hi[ge*13 +: 13] = e_hi[ge];
         end
     endgenerate
-    assign hd_row  = h_addr[24:12];
-    assign hd_col  = h_addr[9:0];
-    assign hd_plen = plen;
-    assign hd_last = plast;
-    assign hd_tag  = e_tag[0];
-    assign hd_2d   = e_2d[0];
+    assign c_row = h_addr[24:12];
+    assign c_col = h_addr[9:0];
+    assign c_plen = plen;
+    assign c_last = plast;
+    assign c_tag = e_tag[0];
+    assign c_2d = e_2d[0];
 
+    // the head piece is registered (one cycle behind the entry state): the scheduler's decision pipeline blanks itself after an
+    // advance (see tau_sdram_sched_v.sv); this takes the piece-length arithmetic out of the decision path
+    reg  r_v, r_bad, r_we, r_last, r_2d; reg [1:0] r_bank; reg [12:0] r_row; reg [9:0] r_col, r_plen; reg [7:0] r_tag;
+    always @(posedge clk) begin
+        if (rst) begin r_v <= 1'b0; r_bad <= 1'b0; r_we <= 1'b0; r_last <= 1'b0; r_2d <= 1'b0; r_bank <= 2'd0; r_row <= 13'd0; r_col <= 10'd0; r_plen <= 10'd0; r_tag <= 8'd0; end
+        else begin r_v <= c_v; r_bad <= c_bad; r_we <= c_we; r_last <= c_last; r_2d <= c_2d; r_bank <= c_bank; r_row <= c_row; r_col <= c_col; r_plen <= c_plen; r_tag <= c_tag; end
+    end
+    assign hd_v = r_v; assign hd_bad = r_bad; assign hd_we = r_we; assign hd_last = r_last; assign hd_2d = r_2d; assign hd_bank = r_bank;
+    assign hd_row = r_row; assign hd_col = r_col; assign hd_plen = r_plen; assign hd_tag = r_tag;
     wire do_adv = adv & hd_v;
     wire pop    = (do_adv & plast) | (pop_bad & hd_bad);
     wire [3:0] cnt_n = cnt_q + {3'd0, push} - {3'd0, pop};
@@ -168,7 +173,7 @@ module tau_sdram_sv_pq #(
                 for (i = 0; i < DEPTH - 1; i = i + 1) begin
                     e_we[i] <= e_we[i+1]; e_2d[i] <= e_2d[i+1]; e_bad[i] <= e_bad[i+1];
                     e_addr[i] <= e_addr[i+1]; e_rem[i] <= e_rem[i+1]; e_tag[i] <= e_tag[i+1]; e_w[i] <= e_w[i+1];
-                    e_rows[i] <= e_rows[i+1]; e_str[i] <= e_str[i+1]; e_rb[i] <= e_rb[i+1]; e_st[i] <= e_st[i+1];
+                    e_rows[i] <= e_rows[i+1]; e_str[i] <= e_str[i+1]; e_rb[i] <= e_rb[i+1]; e_lo[i] <= e_lo[i+1]; e_hi[i] <= e_hi[i+1];
                 end
             end else if (do_adv) begin
                 if (rem_n != 10'd0) begin
@@ -191,7 +196,7 @@ module tau_sdram_sv_pq #(
                 for (i = 0; i < DEPTH; i = i + 1) begin
                     if (widx == i[3:0]) begin
                         e_we[i]   <= req_we & ~req_2d;           // 2D writes are rejected (bad2d)
-                        e_2d[i]   <= req_2d;
+                        e_2d[i]   <= req_2d & (EN_2D != 0);
                         e_bad[i]  <= bad_n;
                         e_addr[i] <= req_addr;
                         e_rem[i]  <= req_2d ? {4'd0, req_w} : req_len;
@@ -200,7 +205,8 @@ module tau_sdram_sv_pq #(
                         e_rows[i] <= req_h;
                         e_str[i]  <= req_stride;
                         e_rb[i]   <= req_addr;
-                        e_st[i]   <= push_stamp;
+                        e_lo[i]   <= req_addr[24:12];
+                        e_hi[i]   <= req_2d ? (req_addr + {3'd0, req_h, 11'd0}) >> 12 : (req_addr + {15'd0, req_len} - 25'd1) >> 12;
                     end
                 end
             end
