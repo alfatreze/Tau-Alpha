@@ -195,8 +195,6 @@ module tau_sdram_sched_v #(
             sk_vld[sk_idx] <= 1'b1; sk_basev[sk_idx*3 +: 3] <= sk_base; sk_valv[sk_idx*2 +: 2] <= sk_val;
         end
     end
-    reg [23:0] acc_cnt;
-    always @(posedge clk) acc_cnt <= rst ? 24'd0 : acc_cnt + 24'd1;
     wire [NPORTS*QDEPTH-1:0]    e_v, e_we;
     wire [NPORTS*QDEPTH*13-1:0] e_lo, e_hi;
     genvar p;
