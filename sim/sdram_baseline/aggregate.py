@@ -12,6 +12,7 @@ CHIPERR = re.compile(r"\[CHIPERR (\d+)\] t=(\d+) edge=(\d+) (\S+): (.*)")
 def parse(out_json, log_path):
     classes = {}
     bench = []
+    init_seen = [False]
     with open(log_path, "w") as log:
         for line in sys.stdin:
             m = CHIPERR.match(line)
@@ -23,8 +24,14 @@ def parse(out_json, log_path):
                 c["msgs"][msg.strip()] = c["msgs"].get(msg.strip(), 0) + 1
                 # keep the first time of each distinct message
                 c.setdefault("msg_first", {}).setdefault(msg.strip(), int(t))
+                if len(c.setdefault("samples", [])) < 3:
+                    c["samples"].append([int(t), int(edge), msg.strip()])
             else:
                 log.write(line)
+                if line.startswith("[BENCH] init_complete") and not init_seen[0]:
+                    init_seen[0] = True      # the errors counted so far were raised during the init sequence
+                    for cc in classes.values():
+                        cc["count_in_init"] = cc["count"]
                 if line.startswith("[BENCH]") or line.startswith("[CHIPMODEL]"):
                     bench.append(line.rstrip())
     json.dump({"classes": classes, "bench": bench}, open(out_json, "w"), indent=1)
