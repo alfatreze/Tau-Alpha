@@ -100,6 +100,51 @@ if [ "$WANT" = all ] || [ "$WANT" = tests ]; then
     run_unit unit_arb tb_arb "$HERE/tb_arb.sv" "$RTL/tau_sdram_sv_arb.sv"
     run_unit unit_queue tb_queue "$HERE/tb_queue.sv" "$RTL/tau_sdram_sv_pq.sv"
 fi
+MINSRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
+        "$RTL/tau_sdram_sched_min.sv" "$HERE/tb_min.sv")
+min_run() {   # label test params defines ; returns 0 pass / 1 fail
+    local label="$1" name="$2" params="$3" defs="$4" args=() dargs=()
+    for p in $params; do args+=("-Ptb_min.$p"); done
+    for d in $defs; do dargs+=("-D$d"); done
+    "$IVERILOG" -g2012 -I "$ROOT/sim/sdram_chip_model" ${dargs[@]+"${dargs[@]}"} ${args[@]+"${args[@]}"} -s tb_min -o "$OUT/$label.vvp" "${MINSRC[@]}" 2> "$OUT/$label.cc.log" || return 2
+    "$VVP" "$OUT/$label.vvp" +TEST="$name" > "$OUT/$label.log" 2>&1
+    grep -q "^TEST $name PASS" "$OUT/$label.log"
+}
+MINTESTS=$(cat <<'EOF'
+basic |
+lengths |
+lengths | BANK_HASH=0 LMAX_T=100 | lengths_hash0
+bad |
+refresh |
+aged | REFIPS=600000000
+EOF
+)
+MINMUTS=$(cat <<'EOF'
+MUT_MIN_NOSPLIT | basic
+MUT_MIN_BAD | bad
+MUT_MIN_NOREF | refresh
+MUT_MIN_NOBST | basic
+MUT_MIN_DONE | basic
+EOF
+)
+if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = min ]; then
+    while IFS='|' read -r name params label; do
+        name="$(echo "$name" | xargs)"; params="$(echo "$params" | xargs)"; label="$(echo "$label" | xargs)"; [ -z "$name" ] && continue
+        [ -z "$label" ] && label="$name"; label="min_$label"
+        min_run "$label" "$name" "$params" ""; rc=$?
+        if [ $rc -eq 0 ]; then echo "PASS $label"; pass=$((pass+1)); else echo "FAIL $label"; tail -5 "$OUT/$label.log"; fail=$((fail+1)); fi
+    done <<< "$MINTESTS"
+fi
+if [ "$WANT" = all ] || [ "$WANT" = mutants ] || [ "$WANT" = minmut ]; then
+    while IFS='|' read -r def name; do
+        def="$(echo "$def" | xargs)"; name="$(echo "$name" | xargs)"; [ -z "$def" ] && continue
+        min_run "min_$def" "$name" "" "$def"; rc=$?
+        if [ $rc -eq 1 ]; then echo "KILLED min_$def (test $name fails)"; pass=$((pass+1)); else echo "SURVIVED/ERROR min_$def"; fail=$((fail+1)); fi
+    done <<< "$MINMUTS"
+fi
+if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
+    verilator --lint-only -Wall --top-module tau_sdram_sched_min "$RTL/tau_sdram_sched_min.sv" > "$OUT/lint_min.log" 2>&1 && { echo "PASS lint min"; pass=$((pass+1)); } || { echo "FAIL lint min"; head "$OUT/lint_min.log"; fail=$((fail+1)); }
+fi
 if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
     if verilator --lint-only -Wall --top-module tau_sdram_sched_v "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" > "$OUT/lint.log" 2>&1; then
         echo "PASS lint (verilator -Wall)"; pass=$((pass+1)); else echo "FAIL lint"; head -20 "$OUT/lint.log"; fail=$((fail+1)); fi
