@@ -40,11 +40,13 @@ def main() -> int:
     ap.add_argument("output_files", type=Path)
     ap.add_argument("--log", type=Path)
     ap.add_argument("--expect-rbf-sha256")
+    ap.add_argument("--revision", default="ap_core", help="project revision = file stem of the reports (default ap_core; sdram_probe for tools/sdram_probe.py)")
+    ap.add_argument("--pin-prefix", default="cram", help="pins whose I/O-cell register packing is listed (default cram; dram for the SDRAM probe)")
     args = ap.parse_args()
     out = args.output_files
     bad = 0
 
-    fit_summary = out / "ap_core.fit.summary"
+    fit_summary = out / f"{args.revision}.fit.summary"
     if fit_summary.exists():
         text = fit_summary.read_text(errors="replace")
         for key in ("Fitter Status", "Logic utilization", "Total registers", "Total RAM Blocks", "Total DSP"):
@@ -63,7 +65,7 @@ def main() -> int:
         print(f"   packing warnings 176279: {log.count('(176279)')} | 176225: {log.count('(176225)')}")
         bad |= errors > 0
 
-    sta = out / "ap_core.sta.summary"
+    sta = out / f"{args.revision}.sta.summary"
     if sta.exists():
         entries = re.findall(r"Type\s*:\s*(.*?)\nSlack\s*:\s*(-?[\d.]+)", sta.read_text())
         worst = {}
@@ -80,7 +82,7 @@ def main() -> int:
     else:
         print("   timing summary missing: timing analysis has not finished")
 
-    fit_rpt = out / "ap_core.fit.rpt"
+    fit_rpt = out / f"{args.revision}.fit.rpt"
     if fit_rpt.exists():
         lines = fit_rpt.read_text(errors="replace").split("\n")
         for title in ("Bidir Pins", "Output Pins"):
@@ -90,15 +92,15 @@ def main() -> int:
             cols = [c for c in ("Input Register", "Output Register", "Output Enable Register") if c in header]
             counts, unpacked = Counter(), set()
             for r in rows:
-                if r[0].startswith("cram"):
+                if r[0].startswith(args.pin_prefix):
                     counts[tuple(r[header.index(c)] for c in cols)] += 1
                     if "Output Register" in header and r[header.index("Output Register")] == "no":
                         unpacked.add(re.sub(r"\[\d+\]", "[*]", r[0]))
             print(f"   {title} {cols}: {dict(counts)}")
             if title == "Output Pins" and unpacked:
-                print("     output register not packed:", sorted(unpacked), "(cram*_clk/cre are constants)")
+                print("     output register not packed:", sorted(unpacked), "(cram*_clk/cre are constants)" if args.pin_prefix == "cram" else "")
 
-    rbf = out / "ap_core.rbf"
+    rbf = out / f"{args.revision}.rbf"
     if rbf.exists():
         digest = hashlib.sha256(rbf.read_bytes()).hexdigest()
         print("   RBF sha256:", digest)
