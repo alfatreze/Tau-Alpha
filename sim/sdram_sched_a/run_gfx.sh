@@ -23,8 +23,8 @@ run() {   # stack
     local s="$1"; shift
     iverilog -g2012 -DSIM -I "$ROOT/sim/sdram_chip_model" -I "$RTL" -Ptb_a_gfx.STACK=$s -Ptb_a_gfx.NCMD=$NCMD "$@" -s tb_a_gfx -o "$OUT/gfx_$s.vvp" "${SRC[@]}" 2> "$OUT/gfx_$s.cc.log" \
         || { echo "COMPILE FAIL stack $s"; head -20 "$OUT/gfx_$s.cc.log"; return 2; }
-    vvp "$OUT/gfx_$s.vvp" $PLUS > "$OUT/gfx_$s.log" 2>&1
-    grep -E "^(RESULT|TEST|  FAIL)" "$OUT/gfx_$s.log"
+    vvp "$OUT/gfx_$s.vvp" $PLUS ${PLUSEXTRA:-} > "$OUT/gfx_$s.log" 2>&1
+    grep -E "^(RESULT|IDLE|TEST|  FAIL|  note)" "$OUT/gfx_$s.log"
 }
 r0=$(run 0 "$@"); echo "$r0"
 crc=$(echo "$r0" | sed -n 's/.*crc=\([0-9a-f]*\).*/\1/p' | head -1)

@@ -15,6 +15,8 @@ module tb_a_gfx #(
     parameter integer STACK = 2,
     parameter integer NCMD = 150,
     parameter integer CPU_HAMMER = 1,
+    parameter integer PAGESAFE = 0,            // 1: no access crosses a 1024-word page, ops RECT/CHAR/COPY/BAR/RRECT only (the old controller's full-page bursts wrap at the page end: COL_WRAP)
+    parameter integer CPU_EXTRA = 0,           // sdram cycles the CPU hammer keeps running after the last command was pushed (CPU latency with little engine traffic)
     parameter integer FIXOP = -1,              // >= 0: every command has this opcode (RECT 1, CHAR 2, COPY 3, BLIT 4, SBLIT 6, CBLIT 7): per-class cycle counts
     parameter integer SEED = 32'h7a1a5a11,
     parameter integer QD = 1,
@@ -86,6 +88,18 @@ module tb_a_gfx #(
     reg  [9:0]  t_rdlen = 10'd1;
     wire [9:0]  s_rdlen = bm ? t_rdlen : g_rdlen;
     wire [15:0] s_wsq  = bm ? t_wsq : g_wsq;
+
+    // request trace of the graphics master (+TRACE): the same command stream must give the same requests on every stack
+    reg trace_on = 0; initial trace_on = $test$plusargs("TRACE");
+    always @(posedge clk) if (trace_on && !bm && (g_wr || g_rd)) $display("REQ %s a=%h len=%0d d=%h be=%b str=%b fill=%b", g_wr ? "W" : "R", g_addr, g_wr ? g_len : g_rdlen, g_data, g_be, g_str, g_fill);
+
+    integer dbg_t0 = 0, dbg_t1 = 0; initial begin if (!$value$plusargs("DBGT0=%d", dbg_t0)) dbg_t0 = 0; if (!$value$plusargs("DBGT1=%d", dbg_t1)) dbg_t1 = 0; end
+    always @(posedge clk) if (dbg_t1 != 0 && $time >= dbg_t0 && $time <= dbg_t1)
+        $display("DBG t=%0t astate=%0d fifo_empty=%b inflight=%b rect_act=%b rows=%0d q_op=%0d wr=%b rd=%b avail=%b ready=%b rd_ptr=%0d", $time, gfx.u_talos.astate, gfx.u_talos.fifo_empty, gfx.u_talos.inflight,
+                 gfx.u_talos.rect_active, gfx.u_talos.rect_rows, gfx.u_talos.q_op, g_wr, g_rd, p_av, p_rdy, gfx.u_talos.rd_ptr);
+    reg [7:0] dbg_rdp_q; always @(posedge clk) begin dbg_rdp_q <= gfx.u_talos.rd_ptr;
+        if (trace_on && gfx.u_talos.rd_ptr !== dbg_rdp_q) $display("POP t=%0t rd_ptr=%0d->%0d q_op=%0d q_addr=%h q_w=%0d q_h=%0d astate=%0d inflight=%b", $time, dbg_rdp_q, gfx.u_talos.rd_ptr, gfx.u_talos.q_op, gfx.u_talos.q_addr, gfx.u_talos.q_w, gfx.u_talos.q_h, gfx.u_talos.astate, gfx.u_talos.inflight); end
+    always @(posedge clk_sys) if (trace_on && cmd_push) $display("PUSH op=%0d addr=%h w=%0d h=%0d full=%b free=%0d t=%0t", cmd_op, cmd_addr, cmd_w, cmd_h, cmd_full, gfx_free, $time);
 
     // ------------------------------------------------------------------ the CPU hammer (mailbox)
     reg sys_start = 0, sys_write = 0; reg [24:0] sys_addr = 0; reg [31:0] sys_wdata = 0; reg [3:0] sys_be = 4'hf;
@@ -173,7 +187,7 @@ module tb_a_gfx #(
         reg [15:0] dq_ret; always @(dq_pin) dq_ret <= dq_pin;
         assign dq_ctrl = u_ctrl.dq_output ? 16'hzzzz : dq_ret;
         reg [15:0] fpga_oe = 16'h0000; always @(u_ctrl.dq_output) begin if (u_ctrl.dq_output) fpga_oe <= #(1000) 16'hffff; else fpga_oe <= #(1000) 16'h0000; end
-        sdram_chip_model #(.CAP_MODE(0), .MEM_LOG2(20), .MEM_COMPACT(0), .VERBOSE(0), .CLKOUT_MIN_PS(0), .CLKOUT_MAX_PS(0), .DQIN_MIN_PS(0), .DQIN_MAX_PS(0)) u_chip (
+        sdram_chip_model #(.CAP_MODE(0), .MEM_LOG2(20), .MEM_COMPACT(0), .VERBOSE(1), .CLKOUT_MIN_PS(0), .CLKOUT_MAX_PS(0), .DQIN_MIN_PS(0), .DQIN_MAX_PS(0)) u_chip (
             .dram_clk(dram_clk), .dram_cke(dram_cke), .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
             .dram_dqm(dram_dqm), .dram_ba(dram_ba), .dram_a(dram_a), .dram_dq(dq_pin), .fpga_oe(fpga_oe), .cap_clk(clk));
         integer kk; initial begin wait (u_chip.init_stage == 4); #1; u_chip.init_stage = 5; u_chip.init_done = 1'b1; for (kk = 0; kk < 8192; kk = kk + 1) u_chip.row_ts[kk] = $time; end
@@ -214,25 +228,31 @@ module tb_a_gfx #(
     function integer rnd(input integer n); rnd = $unsigned($random(seed)) % n; endfunction
     integer nfence = 0;
     task push_one;
-        reg [3:0] op;
+        reg [3:0] op; integer pn;
         begin
             op = rnd(9); if (FIXOP >= 0) op = FIXOP;
+            if (PAGESAFE != 0 && FIXOP < 0) case (op) 0: op = 1; 4: op = 3; 6: op = 2; 7: op = 8; default: ; endcase
             @(posedge clk_sys);
-            while (cmd_full) @(posedge clk_sys);
+            while (cmd_full || gfx_free < 9'd8) @(posedge clk_sys);
             cmd_op <= op;
-            cmd_addr <= (rnd(8) == 0) ? rnd(1 << 18) : (rnd(360) * 512 + rnd(380));
-            cmd_w <= (rnd(6) == 0) ? rnd(512) : rnd(100);
-            cmd_h <= (rnd(6) == 0) ? rnd(40) : rnd(10);
-            cmd_fg <= rnd(65536) & 16'hFFFB; cmd_bg <= rnd(65536);      // fg[2] = 0: a COPY/BLIT source offset stays below 2^18
+            cmd_addr <= (rnd(8) == 0 && PAGESAFE == 0) ? rnd(1 << 18) : (rnd(360) * 512 + rnd(380));
+            // never a zero-work command (w or h 0): tau_talos pops on consecutive cycles after a command that needs no work and
+            // then reads the PREVIOUS entry (cmd_q lags rd_ptr by a cycle): the next queued command is lost (a FENCE is repeated).
+            // A latent Talos bug found by this bench with an ideal memory; recorded in SDRAM_SCHED_A_NOTES.md, not fixed here.
+            cmd_w <= (rnd(6) == 0 && PAGESAFE == 0) ? 1 + rnd(511) : 1 + rnd(99);
+            cmd_h <= (rnd(6) == 0) ? 1 + rnd(39) : 1 + rnd(9);
+            cmd_fg <= rnd(65536) & 16'hFFFB; cmd_bg <= (PAGESAFE != 0) ? ((rnd(65536) & 16'hFE00) | rnd(380)) : rnd(65536);      // fg[2] = 0: a COPY/BLIT source offset stays below 2^18
             cmd_glyph <= rnd(128); cmd_glyph_hi <= rnd(4);
             cmd_sx <= rnd(4); cmd_sy <= rnd(4);
             cmd_push <= 1'b1;
             @(posedge clk_sys);
             cmd_push <= 1'b0;
             if (rnd(12) == 0) begin
-                while (cmd_full) @(posedge clk_sys);
+                // a FENCE needs no work: push it alone (same Talos issue), then wait for it to retire
+                pn = 0; while (!gfx_idle && pn < 4000000) begin @(posedge clk_sys); pn = pn + 1; end
                 cmd_op <= 4'd9; cmd_push <= 1'b1; nfence = nfence + 1;       // FENCE
                 @(posedge clk_sys); cmd_push <= 1'b0;
+                pn = 0; while (!gfx_idle && pn < 4000000) begin @(posedge clk_sys); pn = pn + 1; end
             end
         end
     endtask
@@ -256,7 +276,8 @@ module tb_a_gfx #(
 
     // ------------------------------------------------------------------ bench master tasks (p0 protocol; only while bm = 1)
     integer got; reg collect = 0; reg [15:0] rbuf [0:1023];
-    always @(posedge clk) if (collect && p_da) begin if (got < 1024) rbuf[got] = p_q; got = got + 1; end
+    integer rbase = 0;                            // a read cut short (old controller: refresh, page end) is continued after the words already taken
+    always @(posedge clk) if (collect && p_da) begin if (rbase + got < 1024) rbuf[rbase + got] = p_q; got = got + 1; end
     task m_wait_av; begin while (p_av !== 1'b1) @(posedge clk); end endtask
     task m_stream_write(input [24:0] addr, input integer len);
         begin
@@ -271,7 +292,7 @@ module tb_a_gfx #(
             done_w = 0;
             while (done_w < len) begin
                 m_wait_av; @(posedge clk);
-                got = 0; collect = 1; t_addr <= addr + done_w; t_rd <= 1; t_rdlen <= len - done_w;
+                got = 0; rbase = done_w; collect = 1; t_addr <= addr + done_w; t_rd <= 1; t_rdlen <= len - done_w;
                 @(posedge clk); t_rd <= 0;
                 // the old controller may cut a read short (refresh, page end): end the burst when the wanted words have arrived
                 begin : wt integer guard; guard = 0; while (got < len - done_w && guard < 4000) begin @(posedge clk); guard = guard + 1; if (STACK == 1 && p_av === 1'b1 && got > 0) disable wt; end end
@@ -341,8 +362,10 @@ module tb_a_gfx #(
             push_one;
             if (rnd(10) == 0) repeat (rnd(400)) @(posedge clk_sys);
         end
+        repeat (CPU_EXTRA) @(posedge clk);
+        repeat (6) @(posedge clk_sys);              // the last push is counted in the DUT one edge after the bench drops cmd_push
         n = 0; while (!gfx_idle && n < 40_000_000) begin @(posedge clk_sys); n = n + 1; end
-        t_idle = cyc;
+        t_idle = cyc; $display("IDLE stack=%0d cycles=%0d", STACK, t_idle - t_start);
         cpu_run = 0; begin : drain integer d; d = 0; while (sys_busy === 1'b1 && d < 5000) begin @(posedge clk_sys); d = d + 1; end end
         repeat (200) @(posedge clk);
         wr_idle0 = chip_wr_words;
@@ -369,10 +392,11 @@ module tb_a_gfx #(
             end
         end
         if (cpu_bad != 0) begin $display("  FAIL: %0d CPU words differ from the shadow", cpu_bad); fails = fails + 1; end
-        if (chip_err != 0) begin $display("  FAIL: %0d chip errors", chip_err); fails = fails + 1; end
+        if (chip_err != 0 && STACK == 2) begin $display("  FAIL: %0d chip errors", chip_err); fails = fails + 1; end
+        if (chip_err != 0 && STACK == 1) $display("  note: the OLD controller drew %0d chip-model errors (the baseline's findings: CKE at start, EMRS, tRFC ...)", chip_err);
         if ($value$plusargs("REFCRC=%h", ref_crc_arg) && ref_crc_arg !== crc) begin $display("  FAIL: image checksum %h differs from the reference %h", crc, ref_crc_arg); fails = fails + 1; end
-        $display("RESULT stack=%0d cmds=%0d cycles_to_idle=%0d cpu_ops=%0d cpu_avg_ns=%0.0f cpu_max_ns=%0.0f underflow=%0d fences=%0d crc=%h", STACK, NCMD, t_idle - t_start, cpu_ops,
-                 cpu_ops ? cpu_lat_sum / cpu_ops : 0.0, cpu_lat_max, uf_idle, gfx_fence, crc);
+        $display("RESULT stack=%0d cmds=%0d cycles_to_idle=%0d cpu_ops=%0d cpu_avg_ns=%0.0f cpu_max_ns=%0.0f underflow=%0d ovf=%0d fences=%0d crc=%h", STACK, NCMD, t_idle - t_start, cpu_ops,
+                 cpu_ops ? cpu_lat_sum / cpu_ops : 0.0, cpu_lat_max, uf_idle, gfx_ovf, gfx_fence, crc);
         if (fails == 0) $display("TEST gfx PASS"); else $display("TEST gfx FAIL (%0d)", fails);
         $finish;
     end

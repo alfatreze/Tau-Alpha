@@ -114,7 +114,7 @@ module tau_sdram_a_gfx_if (
     assign wsrc_addr = {1'b0, w_idx[19:10]};
     reg [15:0] wd_q;
 `ifdef MUT_A_WLEAD
-    assign w_data = l_stream ? wsrc_q : l_data;       // one cycle late relative to W_LEAD: the data of the previous word
+    assign w_data = l_stream ? wsrc_q : l_data;       // mutant: no extra register, the data is one cycle early (W_LEAD 1)
 `else
     always @(posedge clk) wd_q <= l_stream ? wsrc_q : l_data;
     assign w_data = wd_q;
