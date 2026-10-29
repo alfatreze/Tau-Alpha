@@ -79,6 +79,13 @@ turn_rw | CLSEL=3 | turn_rw_cl3
 wr_rd_turn | | wr_rd_turn_cl2
 wr_rd_turn | CLSEL=3 | wr_rd_turn_cl3
 n_wr_in_read | CLSEL=3 | n_wr_in_read_cl3
+cal | CALIB=1 EXPW=7 EXPB=1 | cal_some_cl2
+cal | CALIB=1 CLSEL=3 TAC3=8000 EXPW=7 EXPB=1 | cal_some_cl3
+cal | CALIB=1 TAC2=4000 EXPW=63 EXPB=1 | cal_all
+cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 | cal_none
+cal | CALIB=1 TOP=1 EXPW=7 EXPB=1 | cal_top
+cal_reset | CALIB=1 EXPW=7 EXPB=1 |
+rand | CALIB=1 | rand_cal
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
 rand | RDEX=1 CLSEL=3 | rand_cl3_x1
@@ -113,6 +120,10 @@ MUT_NOPREEMPT | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_NOPULSE | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_PREA_EARLY | preempt_young_row | DEBTMAX=3 REFIPS=200000 |
 MUT_NOAGE | aged_row | REFIPS=1000000000 |
+MUT_CAL_NOCMP | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_BEST | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_NOSEL | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_NOFAULT | cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 |
 EOF
 )
 

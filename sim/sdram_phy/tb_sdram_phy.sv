@@ -38,6 +38,17 @@ module tb_sdram_phy #(
     parameter integer REFIPS      = 7_800_000,
     parameter integer ROWFORCE    = 90000,
     parameter integer TMO         = 136,
+    parameter integer CALIB       = 0,       // optional features (contract 3.7b)
+    parameter integer CALROW      = 8191,
+    parameter integer CALBANK     = 3,
+    parameter integer CALLEN      = 64,
+    parameter integer BISTON      = 0,
+    parameter integer BLO         = 0,
+    parameter integer BHI         = 1,
+    parameter integer PERFON      = 0,
+    parameter integer MEMC        = 0,       // chip model MEM_COMPACT (1: exact store for small rows)
+    parameter integer EXPW        = 7,       // expected cal_window
+    parameter integer EXPB        = 1,       // expected cal_best
     parameter integer NRAND       = 4000,    // cycles of the random driver
     parameter integer RDCHK       = 1,       // 1: the random driver checks rvalid/rdata (needs the read path)
     parameter longint TREFPS      = 64'd64_000_000_000
@@ -61,6 +72,7 @@ module tb_sdram_phy #(
     reg [15:0] u_wd  = 16'd0;
     reg [1:0]  u_be  = 2'b11;
     reg        u_ack = 1'b0;
+    reg        u_idle = 1'b0, u_bist = 1'b0, u_psnap = 1'b0, u_pclr = 1'b0;
 
     wire [3:0] ok_act, ok_rd, ok_wr, ok_pre;
     wire       ok_prea, ok_ref, ok_bst, init_done, rvalid, phy_fault, preempt, banks_closed, ref_due;
@@ -68,6 +80,11 @@ module tb_sdram_phy #(
     wire [3:0] fault_cause, row_aged, ref_debt;
     wire [31:0] refreshes;
     wire [4:0] rd_lat;
+    wire [7:0] cal_window; wire [3:0] cal_best; wire cal_done, cal_fault;
+    wire       bist_busy, bist_done; wire [31:0] bist_errors; wire [24:0] bist_first_addr;
+    wire [511:0] perf_snapshot;
+    integer rdl = 0;
+    always @(rd_lat) rdl = rd_lat;
 
     // ------------------------------------------------------------------------------------------------------
     // PHY + pins + chip model
@@ -96,7 +113,8 @@ module tb_sdram_phy #(
             tau_sdram_phy_core #(
                 .CLK_HZ((1_000_000_000 / P_PS) * 1000), .CL(CLSEL), .RD_EXTRA(RDEX), .CAP_MODE(CAPMODE),
                 .TRC_PS(TRC_X), .INIT_WAIT_CYCLES(INITCYC), .SIM_SHORT_INIT(INITCYC < 10000),
-                .REFRESH_DEBT_MAX(DEBTMAX), .REFRESH_INTERVAL_PS(REFIPS), .ROW_FORCE_NS(ROWFORCE), .PREEMPT_TIMEOUT(TMO)
+                .REFRESH_DEBT_MAX(DEBTMAX), .REFRESH_INTERVAL_PS(REFIPS), .ROW_FORCE_NS(ROWFORCE), .PREEMPT_TIMEOUT(TMO),
+                .CALIBRATE(CALIB), .CAL_BANK(CALBANK), .CAL_ROW(CALROW), .CAL_LEN(CALLEN), .BIST(BISTON), .BIST_PAGE_LO(BLO), .BIST_PAGE_HI(BHI), .PERF(PERFON)
             ) dut (
                 .clk(clk), .rst(rst), .cmd(u_cmd), .cmd_ba(u_ba), .cmd_a(u_a), .wvalid(u_wv), .wdata(u_wd), .be(u_be),
                 .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_prea(ok_prea), .ok_ref(ok_ref),
@@ -104,6 +122,9 @@ module tb_sdram_phy #(
                 .fault_count(fault_count), .fault_cause(fault_cause), .row_aged(row_aged), .preempt(preempt),
                 .preempt_ack(u_ack), .banks_closed(banks_closed), .ref_due(ref_due), .ref_debt(ref_debt),
                 .refreshes(refreshes), .dq_conflicts(dq_conflicts), .rd_lat(rd_lat),
+                .idle_ok(u_idle), .cal_window(cal_window), .cal_best(cal_best), .cal_done(cal_done), .cal_fault(cal_fault),
+                .bist_start(u_bist), .bist_busy(bist_busy), .bist_done(bist_done), .bist_errors(bist_errors),
+                .bist_first_addr(bist_first_addr), .perf_snap(u_psnap), .perf_clear(u_pclr), .perf_snapshot(perf_snapshot),
                 .pin_cke(w_cke), .pin_ras_n(w_ras), .pin_cas_n(w_cas), .pin_we_n(w_we), .pin_dqm(w_dqm),
                 .pin_ba(w_ba), .pin_a(w_a), .dq_o(w_dq_o), .dq_oe(w_dq_oe), .dq_i(dram_dq)
             );
@@ -137,7 +158,8 @@ module tb_sdram_phy #(
             tau_sdram_phy #(
                 .CLK_HZ((1_000_000_000 / P_PS) * 1000), .CL(CLSEL), .RD_EXTRA(RDEX), .CAP_MODE(CAPMODE),
                 .TRC_PS(TRC_X), .INIT_WAIT_CYCLES(INITCYC), .SIM_SHORT_INIT(INITCYC < 10000),
-                .REFRESH_DEBT_MAX(DEBTMAX), .REFRESH_INTERVAL_PS(REFIPS), .ROW_FORCE_NS(ROWFORCE), .PREEMPT_TIMEOUT(TMO)
+                .REFRESH_DEBT_MAX(DEBTMAX), .REFRESH_INTERVAL_PS(REFIPS), .ROW_FORCE_NS(ROWFORCE), .PREEMPT_TIMEOUT(TMO),
+                .CALIBRATE(CALIB), .CAL_BANK(CALBANK), .CAL_ROW(CALROW), .CAL_LEN(CALLEN), .BIST(BISTON), .BIST_PAGE_LO(BLO), .BIST_PAGE_HI(BHI), .PERF(PERFON)
             ) dut (
                 .clk(clk), .rst(rst), .cmd(u_cmd), .cmd_ba(u_ba), .cmd_a(u_a), .wvalid(u_wv), .wdata(u_wd), .be(u_be),
                 .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_prea(ok_prea), .ok_ref(ok_ref),
@@ -145,6 +167,9 @@ module tb_sdram_phy #(
                 .fault_count(fault_count), .fault_cause(fault_cause), .row_aged(row_aged), .preempt(preempt),
                 .preempt_ack(u_ack), .banks_closed(banks_closed), .ref_due(ref_due), .ref_debt(ref_debt),
                 .refreshes(refreshes), .dq_conflicts(dq_conflicts), .rd_lat(rd_lat),
+                .idle_ok(u_idle), .cal_window(cal_window), .cal_best(cal_best), .cal_done(cal_done), .cal_fault(cal_fault),
+                .bist_start(u_bist), .bist_busy(bist_busy), .bist_done(bist_done), .bist_errors(bist_errors),
+                .bist_first_addr(bist_first_addr), .perf_snap(u_psnap), .perf_clear(u_pclr), .perf_snapshot(perf_snapshot),
                 .dram_a(c_a), .dram_ba(c_ba), .dram_dq(dram_dq), .dram_dqm(c_dqm), .dram_clk(c_clk),
                 .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we)
             );
@@ -156,7 +181,7 @@ module tb_sdram_phy #(
         .TAC_CL2_PS(TAC2), .TAC_CL3_PS(TAC3), .THZ_CL2_PS(THZ2), .THZ_CL3_PS(THZ3), .TOH_PS(TOH), .TLZ_PS(TLZ),
         .TRC_PS(TRC_X), .TREF_PS(TREFPS), .INIT_NOP_MIN(INITCYC), .INIT_WAIT_PS(INITCYC * P_PS),
         .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
-        .CL_DEFAULT(CLSEL)
+        .CL_DEFAULT(CLSEL), .MEM_LOG2(MEMC ? 20 : 16), .MEM_COMPACT(MEMC)
     ) chip (
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we),
         .dram_dqm(c_dqm), .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dram_dq), .fpga_oe(c_oe), .cap_clk(clk)
@@ -398,8 +423,8 @@ module tb_sdram_phy #(
             // a word of the open read burst is requested this cycle unless the cycle ends it
             if (r_act && !t_rd) begin
                 ix2 = shi(r_bank, r_row, r_col);
-                exp_v[(cycn + RD_LAT_X) & 8191] = 1'b1; exp_d[(cycn + RD_LAT_X) & 8191] = sh_d[ix2];
-                exp_m[(cycn + RD_LAT_X) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
+                exp_v[(cycn + rdl) & 8191] = 1'b1; exp_d[(cycn + rdl) & 8191] = sh_d[ix2];
+                exp_m[(cycn + rdl) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
                 r_col = r_col + 1;
             end
             if (t_rd) r_act = 1'b0;
@@ -410,8 +435,8 @@ module tb_sdram_phy #(
             if (d_cmd == K_RD) begin
                 r_act = 1'b1; r_bank = d_ba; r_row = b_row[d_ba]; r_col = d_a[5:0];
                 ix2 = shi(r_bank, r_row, r_col);
-                exp_v[(cycn + RD_LAT_X) & 8191] = 1'b1; exp_d[(cycn + RD_LAT_X) & 8191] = sh_d[ix2];
-                exp_m[(cycn + RD_LAT_X) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
+                exp_v[(cycn + rdl) & 8191] = 1'b1; exp_d[(cycn + rdl) & 8191] = sh_d[ix2];
+                exp_m[(cycn + rdl) & 8191] = sh_v[ix2]; n_rd_words = n_rd_words + 1;
                 r_col = r_col + 1;
             end
             if (d_cmd == K_ACT) begin b_open[d_ba] = 1'b1; b_row[d_ba] = d_a; end
@@ -466,8 +491,8 @@ module tb_sdram_phy #(
         integer k, j;
         begin
             for (k = 0; k < n; k = k + 1) begin
-                j = (a0 + RD_LAT_X + k) & 8191;
-                if (rv_vis[j] !== 1'b1) begin $display("  rvalid low for word %0d (cycle %0d)", k, a0 + RD_LAT_X + k); tb_fail = tb_fail + 1; end
+                j = (a0 + rdl + k) & 8191;
+                if (rv_vis[j] !== 1'b1) begin $display("  rvalid low for word %0d (cycle %0d)", k, a0 + rdl + k); tb_fail = tb_fail + 1; end
                 else if (rd_vis[j] !== pat(b, r, c0 + k)) begin
                     $display("  word %0d: got %h expected %h", k, rd_vis[j], pat(b, r, c0 + k)); tb_fail = tb_fail + 1;
                 end
@@ -479,11 +504,11 @@ module tb_sdram_phy #(
         integer k, j, cnt;
         begin
             cnt = 0;
-            for (k = -3; k < RD_LAT_X + n + 6; k = k + 1) begin
+            for (k = -3; k < rdl + n + 6; k = k + 1) begin
                 j = (a0 + k) & 8191;
                 if (rv_vis[j] === 1'b1) begin
                     cnt = cnt + 1;
-                    if (k < RD_LAT_X || k >= RD_LAT_X + n) begin $display("  stray rvalid at offset %0d", k); tb_fail = tb_fail + 1; end
+                    if (k < rdl || k >= rdl + n) begin $display("  stray rvalid at offset %0d", k); tb_fail = tb_fail + 1; end
                 end
             end
             if (cnt != n) begin $display("  rvalid high in %0d cycles, expected %0d", cnt, n); tb_fail = tb_fail + 1; end
@@ -616,7 +641,7 @@ module tb_sdram_phy #(
             act(0, 13'd5); nop(1);
             wr_pat(0, 13'd5, 10'd0, 16);
             bst; nop(2);
-            rd(0, 10'd4); nop(7); bst; nop(RD_LAT_X + 4);
+            rd(0, 10'd4); nop(7); bst; nop(rdl + 4);
             check(rd_lat == RD_LAT_X, "rd_lat port");
             check_burst(rd_a, 8, 0, 13'd5, 10'd4);
             check_one_valid_run(rd_a, 8);
@@ -627,7 +652,7 @@ module tb_sdram_phy #(
             act(0, 13'd5); nop(1);
             wr_pat(0, 13'd5, 10'd0, 16);
             bst; nop(2);
-            rd(0, 10'd0); a_first = rd_a; nop(3); rd(0, 10'd8); a_chain = a_cyc; nop(3); bst; nop(RD_LAT_X + 4);
+            rd(0, 10'd0); a_first = rd_a; nop(3); rd(0, 10'd8); a_chain = a_cyc; nop(3); bst; nop(rdl + 4);
             check_burst(a_first, 4, 0, 13'd5, 10'd0);
             check_burst(a_chain, 4, 0, 13'd5, 10'd8);
             check_one_valid_run(a_first, 8);
@@ -650,7 +675,7 @@ module tb_sdram_phy #(
             act(0, 13'd5); nop(1);
             wr_pat(0, 13'd5, 10'd0, 16);
             bst; nop(2);
-            rd(0, 10'd4); nop(7); bst; nop(RD_LAT_X + 4);
+            rd(0, 10'd4); nop(7); bst; nop(rdl + 4);
             nop(4);
             check(chip.err_mask[`SE_CAPTURE], "capture error flagged for RISE at tAC 8 ns");
             check(phy_fault === 1'b0, "no PHY fault");
@@ -768,7 +793,7 @@ module tb_sdram_phy #(
             check(chip.err_count == 2 && chip.err_mask == 64'h100, "only MRS_LATE twice from the second init");
             // normal operation after the re-init (bank state was lost: ACT again)
             act(0, 13'd5); nop(1);
-            rd(0, 10'd4); nop(3); bst; nop(RD_LAT_X + 4);
+            rd(0, 10'd4); nop(3); bst; nop(rdl + 4);
             check_burst(rd_a, 4, 0, 13'd5, 10'd4);
             check(chip.err_count == 2, "no further chip errors");
             check(phy_fault === 1'b0 && dq_conflicts == 0, "no PHY fault");
@@ -793,7 +818,7 @@ module tb_sdram_phy #(
             powerup;
             act(0, 13'd5); nop(1);
             wr_pat(0, 13'd5, 10'd0, 4);
-            rd(0, 10'd0); a_first = rd_a; nop(3); bst; nop(RD_LAT_X + 4);
+            rd(0, 10'd0); a_first = rd_a; nop(3); bst; nop(rdl + 4);
             check_burst(a_first, 4, 0, 13'd5, 10'd0);
             expect_clean;
         // ---- long run: no scheduler at all for 66 ms; the PHY alone must keep every row inside the refresh limit ----
@@ -804,6 +829,41 @@ module tb_sdram_phy #(
             check(chip.refreshes > 8192, "more than 8192 refreshes");
             check(chip.err_mask[`SE_TREF] === 1'b0, "no tREF error");
             $display("  refreshes %0d, forced events (fault_count) %0d", refreshes, fault_count);
+        // ---- CALIBRATE ----
+        end else if (tname == "cal") begin
+            powerup;
+            check(cal_done === 1'b1 && init_done === 1'b1, "cal_done before init_done");
+            check(cal_window == EXPW[7:0], "cal_window");
+            check(cal_best == EXPB[3:0], "cal_best");
+            check(cal_fault === (EXPW == 0), "cal_fault");
+            check(pkf(CALBANK, CALROW, 0) !== 17'hxxxxx && pkf(CALBANK, CALROW, 0) >= 17'h10000, "pattern was written to the reserved row");
+            if (EXPW != 0) begin
+                check(rd_lat == ((EXPB < 3) ? CLSEL + 2 + EXPB : CLSEL + 1 + EXPB - 3), "chosen setting applied (rd_lat)");
+                act(0, 13'd5); nop(1);
+                wr_pat(0, 13'd5, 10'd0, 16);
+                bst; nop(2);
+                rd(0, 10'd4); nop(7); bst; nop(rdl + 4);
+                check_burst(rd_a, 8, 0, 13'd5, 10'd4);
+                check_one_valid_run(rd_a, 8);
+                expect_clean;
+            end else begin
+                check(phy_fault === 1'b1 && fault_cause == 4'd13 && fault_count == 1, "cal fault: sticky, cause 13");
+                nop(10);
+                // the PHY still works with its parameter setting (the chip flags the capture of the model's edge)
+                check(init_done === 1'b1, "init_done still rises");
+                check((chip.err_mask & ~(64'd1 << `SE_CAPTURE)) == 64'd0, "chip: only capture errors");
+                check(dq_conflicts == 0, "no DQ conflict");
+            end
+            $display("  cal: window %b best %0d rd_lat %0d", cal_window, cal_best, rd_lat);
+        end else if (tname == "cal_reset") begin
+            powerup;
+            check(cal_done === 1'b1, "first calibration");
+            do_reset(2);
+            check(cal_done === 1'b0 && init_done === 1'b0, "reset restarts the calibration");
+            wait_init;
+            check(cal_done === 1'b1 && cal_window == EXPW[7:0], "calibration repeated");
+            check(chip.err_count == 2 && chip.err_mask == 64'h100, "only the two late MRS from the second init");
+            check(phy_fault === 1'b0, "no PHY fault");
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
             if (!$value$plusargs("SEED=%d", seed)) seed = 7;

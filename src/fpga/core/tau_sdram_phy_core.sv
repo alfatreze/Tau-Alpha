@@ -845,16 +845,28 @@ module tau_sdram_phy_core #(
             wire [1:0] lo = m[0] ? 2'd0 : (m[1] ? 2'd1 : 2'd2);
             wire [1:0] hi = m[2] ? 2'd2 : (m[1] ? 2'd1 : 2'd0);
             wire [1:0] mid = (lo + hi) >> 1;
+`ifdef MUT_CAL_BEST
+            wire [1:0] bext = lo;
+`else
             wire [1:0] bext = m[mid] ? mid : lo;
+`endif
             wire       none = (m == 3'd0);
+`ifdef MUT_CAL_NOSEL
+            assign cal_set_v    = (cs_q == CS_SET);
+`else
             assign cal_set_v    = (cs_q == CS_SET) | ((cs_q == CS_END) & ~none);
+`endif
             assign cal_set_rise = (cs_q == CS_SET) ? (ck_q >= 3'd3) : pick_rise;
             assign cal_set_ext  = (cs_q == CS_SET) ? ((ck_q >= 3'd3) ? ck_q[1:0] - 2'd3 : ck_q[1:0]) : bext;
             assign cal_v = fv; assign cal_cmd = fcmd; assign cal_ba = CAL_BANK; assign cal_a = fa; assign cal_wv = fwv; assign cal_wd = fwd;
             assign cal_end = (cs_q == CS_END);
             assign cal_busy_w = (cs_q != CS_OFF);
             assign n_cal_busy_w = (n_cs != CS_OFF);
+`ifdef MUT_CAL_NOFAULT
+            assign f_cal = 1'b0;
+`else
             assign f_cal = (cs_q == CS_END) & none;
+`endif
             always @(posedge clk) begin
                 if (rst) begin
                     cs_q <= CS_OFF; cc_q <= 11'd0; ck_q <= 3'd0; pass_q <= 6'd0; nchk_q <= 11'd0; err_q <= 1'b0;
@@ -863,7 +875,9 @@ module tau_sdram_phy_core #(
                     cs_q <= n_cs; cc_q <= n_cc; ck_q <= n_ck;
                     if (cs_q == CS_SET) begin err_q <= 1'b0; nchk_q <= 11'd0; end
                     if (cs_q >= CS_RD && cs_q <= CS_DR && rvalid) begin
+`ifndef MUT_CAL_NOCMP
                         if (rdata !== calpat(nchk_q[9:0])) err_q <= 1'b1;
+`endif
                         if (nchk_q != 11'h7ff) nchk_q <= nchk_q + 1'b1;
                     end
                     if (cs_q == CS_DR && cc_q == 11'd0) begin
