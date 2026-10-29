@@ -1,0 +1,51 @@
+# Quartus / SDC changes the Tau Alpha scheduler path (TAU_SDRAM_SCHED_A) needs. MIT licence.
+# A SNIPPET FOR THE OWNER TO REVIEW AND APPLY: this file is not read by Quartus; src/fpga/ap_core.qsf and
+# src/fpga/core/core_constraints.sdc were NOT edited (the old controller is the default build, D-T08). Nothing here has been
+# through Quartus or on a Pocket. Companion of tau_sdram_phy_assignments.txt (read its section 0 on register names).
+# Instance path of the PHY in the core: ic|u_game|u_sdram_sched_a|u_phy  (the name u_sdram_sched_a is in core_game.vh;
+# `ic|...` is the prefix of the core's other constraints; CHECK the real prefix in the first fit report).
+#
+# A. Build-time selection: one project macro, default absent (= the old controller):
+#      set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_SCHED_A=1"
+#    plus the PHY's two primitive macros (the chip clock through ALTDDIO_OUT, the read capture is the RISE register in the
+#    core fabric/IO cell, ALTDDIO_IN only for CAP_MODE FALL and therefore NOT needed):
+#      set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_ALTDDIO_OUT=1"
+#
+# B. Sources (add next to the existing SDRAM lines; tau_sdram_ctrl.sv, tau_sdram_arbiter.sv and tau_sdram_cpu_bridge.sv stay
+#    listed: the old path is the #else of the same block):
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_phy.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_phy_core.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_dq_cap.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_dq_cap_dual.sv     (the PHY instantiates both under a parameter)
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_clk_out.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sched_v.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_pq.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_arb.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_tm.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_a_gfx_if.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_a_cpu.sv
+#      set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sched_a.sv
+#
+# C. Pin registers and the DQ capture register (sections 1-3 of tau_sdram_phy_assignments.txt, with the instance path above):
+#      set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_a[*]      (also dram_ba[*], dram_dqm[*], dram_cke,
+#                                                                                dram_ras_n, dram_cas_n, dram_we_n, dram_dq[*])
+#      set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
+#      set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
+#    The old controller's assignments for the same pins stay valid for it (they are on the pins, not on instances).
+#
+# D. SDC (src/fpga/core/core_constraints.sdc). The output delays of the SDRAM block are the same numbers; the command and DQM
+#    group changes from 0.8 / -1.8 to 1.8 / -1.8 (contract: tSU 1.5 + 0.3 margin; the old line used the datasheet's 0.5), and the
+#    READ side is added. Copy the block of tools/sdram_probe/sdram_probe.sdc (section "INPUT side") with the core's instance
+#    prefix:
+#      set_input_delay -clock sdram_clk_pin -max 8.0 [get_ports {dram_dq[*]}]
+#      set_input_delay -clock sdram_clk_pin -min 1.8 [get_ports {dram_dq[*]}]
+#      set cap_rise_regs [get_registers -nowarn {*u_cap|g_rise.cap_r[*] *u_cap|g_rise.cap_r_r[*] *u_cap|cap_r[*] *u_cap|cap_r_r[*]}]
+#      # CHECK the collection size is 16 in the report (a pattern that matches nothing silently drops the multicycle, B-916)
+#      set_multicycle_path -setup 2 -end -from [get_clocks sdram_clk_pin] -to $cap_rise_regs
+#      set_multicycle_path -hold  1 -end -from [get_clocks sdram_clk_pin] -to $cap_rise_regs
+#    The existing set_clock_groups -asynchronous already separates clk_sys from the SDRAM clock, which the CPU mailbox
+#    (tau_sdram_a_cpu: toggle + 3-flop synchronisers, payload held stable) relies on. The mailbox payload registers
+#    (req_*_sys) feed the SDRAM-clock request fields directly: that path is a clock-domain crossing by design (stable for the
+#    whole trip), as it was in tau_sdram_cpu_bridge into op_*; it is covered by the asynchronous clock groups.
+#
+# E. Do NOT define any MUT_* macro (simulation mutants of the sched_a modules and of tau_sdram_sched_v).

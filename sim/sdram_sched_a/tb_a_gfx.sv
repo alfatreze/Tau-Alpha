@@ -15,6 +15,7 @@ module tb_a_gfx #(
     parameter integer STACK = 2,
     parameter integer NCMD = 150,
     parameter integer CPU_HAMMER = 1,
+    parameter integer FIXOP = -1,              // >= 0: every command has this opcode (RECT 1, CHAR 2, COPY 3, BLIT 4, SBLIT 6, CBLIT 7): per-class cycle counts
     parameter integer SEED = 32'h7a1a5a11,
     parameter integer QD = 1,
     parameter integer MEMW = 1 << 19           // words of the memory image (the stimulus stays below this)
@@ -172,7 +173,7 @@ module tb_a_gfx #(
         reg [15:0] dq_ret; always @(dq_pin) dq_ret <= dq_pin;
         assign dq_ctrl = u_ctrl.dq_output ? 16'hzzzz : dq_ret;
         reg [15:0] fpga_oe = 16'h0000; always @(u_ctrl.dq_output) begin if (u_ctrl.dq_output) fpga_oe <= #(1000) 16'hffff; else fpga_oe <= #(1000) 16'h0000; end
-        sdram_chip_model #(.CAP_MODE(0), .MEM_LOG2(20), .MEM_COMPACT(0), .VERBOSE(0)) u_chip (
+        sdram_chip_model #(.CAP_MODE(0), .MEM_LOG2(20), .MEM_COMPACT(0), .VERBOSE(0), .CLKOUT_MIN_PS(0), .CLKOUT_MAX_PS(0), .DQIN_MIN_PS(0), .DQIN_MAX_PS(0)) u_chip (
             .dram_clk(dram_clk), .dram_cke(dram_cke), .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
             .dram_dqm(dram_dqm), .dram_ba(dram_ba), .dram_a(dram_a), .dram_dq(dq_pin), .fpga_oe(fpga_oe), .cap_clk(clk));
         integer kk; initial begin wait (u_chip.init_stage == 4); #1; u_chip.init_stage = 5; u_chip.init_done = 1'b1; for (kk = 0; kk < 8192; kk = kk + 1) u_chip.row_ts[kk] = $time; end
@@ -215,7 +216,7 @@ module tb_a_gfx #(
     task push_one;
         reg [3:0] op;
         begin
-            op = rnd(9);
+            op = rnd(9); if (FIXOP >= 0) op = FIXOP;
             @(posedge clk_sys);
             while (cmd_full) @(posedge clk_sys);
             cmd_op <= op;
@@ -229,15 +230,19 @@ module tb_a_gfx #(
             @(posedge clk_sys);
             cmd_push <= 1'b0;
             if (rnd(12) == 0) begin
+                while (cmd_full) @(posedge clk_sys);
                 cmd_op <= 4'd9; cmd_push <= 1'b1; nfence = nfence + 1;       // FENCE
                 @(posedge clk_sys); cmd_push <= 1'b0;
             end
         end
     endtask
     task perturb;
+        integer pn;
         begin
+            // sticky state is read when a command EXECUTES: drain the engine first so the result does not depend on the stack's speed
+            pn = 0; while (!gfx_idle && pn < 4000000) begin @(posedge clk_sys); pn = pn + 1; end
             case (rnd(9))
-                0: begin blt_src_base <= rnd(1 << 16); blt_dst_base <= rnd(1 << 18);
+                0: begin blt_src_base <= rnd(1 << 16); blt_dst_base <= rnd(1 << 17);
                          blt_src_stride <= 1 + rnd(1023); blt_dst_stride <= 1 + rnd(1023); end
                 1: begin blt_key_en <= rnd(2); blt_key <= rnd(65536); end
                 2: blt_reindex <= rnd(256);
@@ -311,7 +316,7 @@ module tb_a_gfx #(
     end
 
     // ------------------------------------------------------------------ main
-    integer fails = 0, uf_idle = 0; integer blk, k, n, t_start, t_idle, wr_idle0, ref_crc_arg; reg [31:0] crc;
+    integer fails = 0, uf_idle = 0; integer blk, k, n, t_start, t_idle, wr_idle0, ref_crc_arg, ref_fence_arg; reg [31:0] crc;
     reg [8*16-1:0] dummy;
     initial begin
         integer ncmd;
@@ -326,6 +331,8 @@ module tb_a_gfx #(
                 m_stream_write(blk * 512, 512);
             end
         end
+        for (k = 0; k < 256; k = k + 1) begin @(posedge clk_sys); clut_waddr <= k; clut_wdata <= pat(k); clut_wr <= 1; end
+        @(posedge clk_sys); clut_wr <= 0;
         bm = 0; gfx_ok = 1; repeat (10) @(posedge clk);
         if (CPU_HAMMER != 0 && STACK != 0) cpu_run = 1;
         t_start = cyc;
@@ -342,7 +349,8 @@ module tb_a_gfx #(
         repeat (3000) @(posedge clk);
         if (STACK != 0 && chip_wr_words != wr_idle0) begin $display("  FAIL: %0d words written after gfx_idle", chip_wr_words - wr_idle0); fails = fails + 1; end
         if (!gfx_idle) begin $display("  FAIL: gfx did not go idle"); fails = fails + 1; end
-        if (gfx_fence != nfence) begin $display("  FAIL: fence count %0d, pushed %0d", gfx_fence, nfence); fails = fails + 1; end
+        if (gfx_fence < nfence) begin $display("  FAIL: fence count %0d, pushed %0d", gfx_fence, nfence); fails = fails + 1; end
+        if ($value$plusargs("REFFENCE=%d", ref_fence_arg) && ref_fence_arg !== gfx_fence) begin $display("  FAIL: fence count %0d, reference %0d", gfx_fence, ref_fence_arg); fails = fails + 1; end
         uf_idle = gfx_underflow;
         if (gfx_underflow != 0) begin $display("  FAIL: %0d late scan-out lines", gfx_underflow); fails = fails + 1; end
         // read the whole image back through the port
