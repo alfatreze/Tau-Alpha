@@ -14,11 +14,15 @@
 module tb_sdram_phy #(
     parameter integer P_PS        = 10000,   // controller clock period
     parameter integer CLSEL       = 2,
-    parameter integer CAPMODE     = 1,       // 0 rising, 1 falling
-    parameter integer RDEX        = 0,       // RD_EXTRA
+    parameter integer CAPMODE     = 0,       // 0 rising (default since B-915), 1 falling
+    parameter integer RDEX        = 1,       // RD_EXTRA (RISE: 1 = the edge 2 cycles after the launch)
     parameter integer TOP         = 0,       // 1: instantiate tau_sdram_phy (tri-state, DDIO clock), no pin envelope
     parameter integer DMIN        = 0,
     parameter integer DMAX        = 0,
+    parameter integer CLKMIN      = 3200,    // FPGA I/O path (B-915); IDEAL tests set all four to 0
+    parameter integer CLKMAX      = 3600,
+    parameter integer DQMIN       = 2300,
+    parameter integer DQMAX       = 2700,
     parameter integer TAC2        = 8000,
     parameter integer TAC3        = 5000,
     parameter integer THZ2        = 8000,
@@ -54,6 +58,9 @@ module tb_sdram_phy #(
     parameter longint TREFPS      = 64'd64_000_000_000
 );
     localparam integer RD_LAT_X = ((CAPMODE == 1) ? CLSEL + 2 : CLSEL + 1) + RDEX;
+    // earliest WR after the read-ending command: CL - 1 + ceil((P/2 + tHZ + PHY DQ_BOARD_MAX_PS (3600) - OE_ON_MIN_PS (1500)) / P)
+    localparam integer TURN_X0 = (P_PS / 2 + ((CLSEL == 3) ? THZ3 : THZ2) + 3600 - 1500 + P_PS - 1) / P_PS;
+    localparam integer RWX = CLSEL - 1 + ((TURN_X0 < 1) ? 1 : TURN_X0);
     // ------------------------------------------------------------------------------------------------------
     // clocks and reset
     // ------------------------------------------------------------------------------------------------------
@@ -180,7 +187,7 @@ module tb_sdram_phy #(
     sdram_chip_model #(
         .TAC_CL2_PS(TAC2), .TAC_CL3_PS(TAC3), .THZ_CL2_PS(THZ2), .THZ_CL3_PS(THZ3), .TOH_PS(TOH), .TLZ_PS(TLZ),
         .TRC_PS(TRC_X), .TREF_PS(TREFPS), .INIT_NOP_MIN(INITCYC), .INIT_WAIT_PS(INITCYC * P_PS),
-        .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
+        .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CLKOUT_MIN_PS(CLKMIN), .CLKOUT_MAX_PS(CLKMAX), .DQIN_MIN_PS(DQMIN), .DQIN_MAX_PS(DQMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
         .CL_DEFAULT(CLSEL), .MEM_LOG2(MEMC ? 20 : 16), .MEM_COMPACT(MEMC)
     ) chip (
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we),
@@ -701,7 +708,7 @@ module tb_sdram_phy #(
         end else if (tname == "legal_rd_ref") begin
             powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(2); bst; pre(0); nop(1); refr; nop(10); act(0, 13'd5); nop(1); expect_fault(0, -1);
         end else if (tname == "n_turn") begin                 // RD, BST at r+4, WR at BST+2 (illegal) then BST+3 (legal)
-            powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(3); bst; nop(1);
+            powerup; act(0, 13'd5); nop(1); rd(0, 10'd0); nop(3); bst; nop(RWX - 2);
             wr(0, 10'd200, 16'h7E57, 2'b11); wr(0, 10'd200, 16'h7E57, 2'b11); wb(16'h7E58, 2'b11); bst;
             expect_fault(1, 3);
             check(pkf(0, 5, 200) == 17'h17E57, "write after the turnaround landed");
@@ -742,6 +749,17 @@ module tb_sdram_phy #(
             check_one_valid_run(rd_a, 8);
             expect_clean;
             $display("  RD_LAT = %0d (CL %0d, CAP_MODE %0d, RD_EXTRA %0d)", rd_lat, CLSEL, CAPMODE, RDEX);
+        end else if (tname == "rd_mis") begin           // a wrong RD_EXTRA (latency) makes the data miss its rvalid: the setting matters
+            powerup;
+            act(0, 13'd5); nop(1);
+            wr_pat(0, 13'd5, 10'd0, 16);
+            bst; nop(2);
+            rd(0, 10'd4); nop(7); bst; nop(rdl + 4);
+            k_bc = 0;
+            for (ti = 0; ti < 8; ti = ti + 1)
+                if (rd_vis[(rd_a + rdl + ti) & 8191] !== pat(0, 13'd5, 10'd4 + ti)) k_bc = k_bc + 1;
+            check(k_bc > 0, "misaligned latency gives wrong data");
+            $display("  misaligned words: %0d of 8", k_bc);
         end else if (tname == "rd_chain") begin       // RD at r+n ends the first burst after exactly n words, no gap
             powerup;
             act(0, 13'd5); nop(1);
@@ -901,7 +919,7 @@ module tb_sdram_phy #(
                 rd(0, 10'd0); nop(ti - 1); bst;               // BST at r + ti
                 k_bc = 1;
                 while (!ok_wr[0] && k_bc < 12) begin nop(1); k_bc = k_bc + 1; end
-                check(k_bc == 3, "earliest WR is BST + 3 (permit)");
+                check(k_bc == RWX, "earliest WR is BST + RWX (permit)");
                 wr(0, 10'd200 + ti, 16'h7000 + ti, 2'b11); wb(16'h7100 + ti, 2'b11); bst;
                 nop(1);
                 check(pkf(0, 5, 200 + ti) == {1'b1, 16'h7000 + ti[15:0]}, "write after the read landed");

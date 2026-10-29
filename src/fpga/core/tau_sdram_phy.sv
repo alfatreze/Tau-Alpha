@@ -4,8 +4,8 @@
 module tau_sdram_phy #(
     parameter integer CLK_HZ              = 100_000_000,
     parameter integer CL                  = 2,
-    parameter integer RD_EXTRA            = 0,
-    parameter integer CAP_MODE            = 1,            // 1 = FALL, 0 = RISE
+    parameter integer RD_EXTRA            = 1,
+    parameter integer CAP_MODE            = 0,            // 0 = RISE (default), 1 = FALL
     parameter integer TRCD_PS             = 18000,
     parameter integer TRP_PS              = 18000,
     parameter integer TRAS_PS             = 42000,
@@ -20,7 +20,7 @@ module tau_sdram_phy #(
     parameter integer THZ_CL2_PS          = 8000,
     parameter integer THZ_CL3_PS          = 5000,
     parameter integer OE_ON_MIN_PS        = 1500,
-    parameter integer DQ_BOARD_MAX_PS     = 0,
+    parameter integer DQ_BOARD_MAX_PS     = 3600,
     parameter integer OPEN_ROW_MAX_NS     = 60000,
     parameter integer ROW_FORCE_NS        = 90000,
     parameter integer REFRESH_INTERVAL_PS = 7_800_000,

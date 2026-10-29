@@ -18,8 +18,8 @@
 module tau_sdram_phy_core #(
     parameter integer CLK_HZ              = 100_000_000,
     parameter integer CL                  = 2,
-    parameter integer RD_EXTRA            = 0,            // 0..2 extra read pipeline stages after the capture register
-    parameter integer CAP_MODE            = 1,            // 1 = FALL (falling edge capture), 0 = RISE
+    parameter integer RD_EXTRA            = 1,            // RISE: cycles after the first rising edge that capture the word (default 1: the edge 2 cycles after the launch); FALL: pipeline stages after the capture
+    parameter integer CAP_MODE            = 0,            // 0 = RISE (default since B-915), 1 = FALL (kept for an ideal chip clock / pad)
     // times in ps (contract section 2)
     parameter integer TRCD_PS             = 18000,
     parameter integer TRP_PS              = 18000,
@@ -35,7 +35,7 @@ module tau_sdram_phy_core #(
     parameter integer THZ_CL2_PS          = 8000,         // chip: read data to high-Z
     parameter integer THZ_CL3_PS          = 5000,
     parameter integer OE_ON_MIN_PS        = 1500,         // FPGA: earliest DQ output-enable turn-on after the clock edge (assumption)
-    parameter integer DQ_BOARD_MAX_PS     = 0,            // board delay added to the chip's high-Z time
+    parameter integer DQ_BOARD_MAX_PS     = 3600,         // chip clock arrives late at the chip (B-915: ~3.6 ns) + board delay: added to the chip's high-Z time
     parameter integer OPEN_ROW_MAX_NS     = 60000,        // row_aged request
     parameter integer ROW_FORCE_NS        = 90000,        // forced close (fault)
     parameter integer REFRESH_INTERVAL_PS = 7_800_000,
@@ -631,13 +631,15 @@ module tau_sdram_phy_core #(
     generate
         if (CALIBRATE == 0) begin : g_rd_fixed
             tau_sdram_dq_cap #(.CAP_MODE(CAP_MODE)) u_cap (.clk(clk), .d(dq_i), .q(cap_q));
-            assign rdata = (RD_EXTRA == 0) ? cap_q : ((RD_EXTRA == 1) ? rx1_q : rx2_q);
+            // RISE: the register recaptures every cycle, RD_EXTRA only says in which cycle the word is there (rvalid
+            // latency); FALL: RD_EXTRA stages after the capture register delay data and rvalid together
+            assign rdata = (CAP_MODE == 0) ? cap_q : ((RD_EXTRA == 0) ? cap_q : ((RD_EXTRA == 1) ? rx1_q : rx2_q));
             assign rvalid = vp_q[RD_LAT - 1];
             assign rd_lat = RD_LAT[4:0];
         end else begin : g_rd_sel
             // run-time selectable capture edge and stage count (CALIBRATE = 1)
             tau_sdram_dq_cap_dual u_cap (.clk(clk), .sel_rise(sel_rise_q), .d(dq_i), .q(cap_q));
-            assign rdata = (ext_q == 2'd0) ? cap_q : ((ext_q == 2'd1) ? rx1_q : rx2_q);
+            assign rdata = sel_rise_q ? cap_q : ((ext_q == 2'd0) ? cap_q : ((ext_q == 2'd1) ? rx1_q : rx2_q));
             wire [4:0] lat = (sel_rise_q ? CL + 1 : CL + 2) + {3'd0, ext_q};
             assign rvalid = vp_q[lat - 1'b1];
             assign rd_lat = lat;

@@ -49,18 +49,22 @@ n_init_offer | |
 n_wrap_rd | |
 n_wrap_wr | |
 fault_sticky | |
-rd_data | | rd_data_cl2_fall
-rd_data | CLSEL=3 | rd_data_cl3_fall
-rd_data | RDEX=1 | rd_data_cl2_fall_x1
-rd_data | RDEX=2 | rd_data_cl2_fall_x2
-rd_data | CLSEL=3 RDEX=2 | rd_data_cl3_fall_x2
-rd_data | CAPMODE=0 TAC2=4000 | rd_data_cl2_rise
-rd_data | CAPMODE=0 TAC2=4000 RDEX=1 | rd_data_cl2_rise_x1
-rd_data | CAPMODE=0 TAC2=4000 RDEX=2 | rd_data_cl2_rise_x2
-rd_data | CLSEL=3 CAPMODE=0 TAC3=4000 | rd_data_cl3_rise
-rd_data | DMAX=1500 | rd_data_cl2_fall_board
-rd_data | TOP=1 | rd_data_top
-n_rise_worst | CAPMODE=0 |
+rd_data | | rd_data_cl2_rise_real
+rd_data | CLSEL=3 | rd_data_cl3_rise_real
+rd_data | TOP=1 | rd_data_top_real
+rd_data | CAPMODE=1 RDEX=0 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl2_fall_ideal
+rd_data | CAPMODE=1 RDEX=1 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl2_fall_ideal_x1
+rd_data | CAPMODE=1 RDEX=2 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl2_fall_ideal_x2
+rd_data | CAPMODE=1 RDEX=2 CLSEL=3 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl3_fall_ideal_x2
+rd_data | CAPMODE=0 RDEX=0 TAC2=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl2_rise_ideal_tac4
+rd_data | CAPMODE=0 RDEX=0 CLSEL=3 TAC3=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl3_rise_ideal_tac4
+rd_data | CAPMODE=1 RDEX=0 DMAX=1500 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_cl2_fall_ideal_board
+rd_data | CAPMODE=1 RDEX=0 TOP=1 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rd_data_top_fall_ideal
+rd_mis | RDEX=0 | rd_mis_rise_x0
+rd_mis | RDEX=2 | rd_mis_rise_x2
+n_rise_worst | CAPMODE=0 RDEX=0 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | n_rise_worst_ideal
+n_rise_worst | CAPMODE=1 RDEX=0 | n_fall_real
+n_rise_worst | CAPMODE=0 RDEX=1 DMIN=3000 DMAX=3000 | n_rise_real_late
 rd_chain | | rd_chain_cl2
 rd_chain | CLSEL=3 | rd_chain_cl3
 wr_gap | |
@@ -79,12 +83,13 @@ turn_rw | CLSEL=3 | turn_rw_cl3
 wr_rd_turn | | wr_rd_turn_cl2
 wr_rd_turn | CLSEL=3 | wr_rd_turn_cl3
 n_wr_in_read | CLSEL=3 | n_wr_in_read_cl3
-cal | CALIB=1 EXPW=7 EXPB=1 | cal_some_cl2
-cal | CALIB=1 CLSEL=3 TAC3=8000 EXPW=7 EXPB=1 | cal_some_cl3
-cal | CALIB=1 TAC2=4000 EXPW=63 EXPB=1 | cal_all
-cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 | cal_none
-cal | CALIB=1 TOP=1 EXPW=7 EXPB=1 | cal_top
-cal_reset | CALIB=1 EXPW=7 EXPB=1 |
+cal | CALIB=1 EXPW=16 EXPB=4 | cal_real_cl2
+cal | CALIB=1 CLSEL=3 EXPW=16 EXPB=4 | cal_real_cl3
+cal | CALIB=1 CAPMODE=1 RDEX=0 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 EXPW=7 EXPB=1 | cal_ideal_fall_only
+cal | CALIB=1 CAPMODE=1 RDEX=0 TAC2=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 EXPW=15 EXPB=1 | cal_ideal_all
+cal | CALIB=1 DMIN=3000 DMAX=3000 EXPW=0 EXPB=0 | cal_none
+cal | CALIB=1 TOP=1 EXPW=16 EXPB=4 | cal_top
+cal_reset | CALIB=1 EXPW=16 EXPB=4 |
 rand | CALIB=1 | rand_cal
 perf_hist | PERFON=1 |
 perf_turn | PERFON=1 |
@@ -99,10 +104,10 @@ bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
-rand | RDEX=1 CLSEL=3 | rand_cl3_x1
-rand | CAPMODE=0 TAC2=4000 | rand_cl2_rise
+rand | CAPMODE=1 RDEX=0 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rand_cl2_fall_ideal
+rand | CAPMODE=0 RDEX=0 TAC2=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rand_cl2_rise_ideal
 rand | CLSEL=3 NRAND=40000 | rand_long_cl3
-rand | NRAND=40000 CAPMODE=0 TAC2=4000 RDEX=2 | rand_long_cl2_rise_x2
+rand | NRAND=40000 CAPMODE=1 RDEX=2 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 | rand_long_cl2_fall_ideal_x2
 EOF
 )
 LONGTESTS=$(cat <<'EOF'
@@ -141,10 +146,10 @@ MUT_BIST_NOCHK | bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 MUT_BIST_RANGE | bist_stuck_p1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 MUT_BIST_NOWAIT | bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 MUT_BIST_NOQUIET | bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
-MUT_CAL_NOCMP | cal | CALIB=1 EXPW=7 EXPB=1 |
-MUT_CAL_BEST | cal | CALIB=1 EXPW=7 EXPB=1 |
-MUT_CAL_NOSEL | cal | CALIB=1 EXPW=7 EXPB=1 |
-MUT_CAL_NOFAULT | cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 |
+MUT_CAL_NOCMP | cal | CALIB=1 EXPW=16 EXPB=4 |
+MUT_CAL_BEST | cal | CALIB=1 CAPMODE=1 RDEX=0 TAC2=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 EXPW=15 EXPB=1 |
+MUT_CAL_NOSEL | cal | CALIB=1 CAPMODE=1 RDEX=0 TAC2=4000 CLKMIN=0 CLKMAX=0 DQMIN=0 DQMAX=0 EXPW=15 EXPB=1 |
+MUT_CAL_NOFAULT | cal | CALIB=1 DMIN=3000 DMAX=3000 EXPW=0 EXPB=0 |
 EOF
 )
 
