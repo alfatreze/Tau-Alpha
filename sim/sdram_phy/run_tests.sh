@@ -90,6 +90,13 @@ perf_hist | PERFON=1 |
 perf_turn | PERFON=1 |
 perf_rand | PERFON=1 NRAND=6000 | perf_rand_cl2
 perf_rand | PERFON=1 NRAND=6000 CLSEL=3 | perf_rand_cl3
+bist_clean | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_clean | BISTON=1 BLO=0 BHI=1 MEMC=1 CLSEL=3 | bist_clean_cl3
+bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_stuck1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_stuck_p1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
 rand | RDEX=1 CLSEL=3 | rand_cl3_x1
@@ -129,6 +136,11 @@ MUT_PERF_BIN | perf_hist | PERFON=1 |
 MUT_PERF_HITSWAP | perf_turn | PERFON=1 |
 MUT_PERF_TURN | perf_turn | PERFON=1 |
 MUT_PERF_IDLE | perf_rand | PERFON=1 NRAND=6000 |
+MUT_BIST_NOINV | bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOCHK | bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_RANGE | bist_stuck_p1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOWAIT | bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOQUIET | bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 MUT_CAL_NOCMP | cal | CALIB=1 EXPW=7 EXPB=1 |
 MUT_CAL_BEST | cal | CALIB=1 EXPW=7 EXPB=1 |
 MUT_CAL_NOSEL | cal | CALIB=1 EXPW=7 EXPB=1 |

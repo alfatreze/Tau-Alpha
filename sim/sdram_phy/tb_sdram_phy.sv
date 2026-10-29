@@ -348,6 +348,34 @@ module tb_sdram_phy #(
     function integer iabs(input integer v); begin iabs = (v < 0) ? -v : v; end endfunction
 
     // ------------------------------------------------------------------------------------------------------
+    // BIST helpers and the injected chip faults (a stuck bit in the chip model's store)
+    // ------------------------------------------------------------------------------------------------------
+    reg     inj_en = 1'b0;
+    integer inj_addr = 0, inj_bit = 0;
+    reg     inj_val = 1'b0;
+    reg [24:0] inj_a25;
+    always @(posedge clk) if (inj_en) begin
+        inj_a25 = inj_addr;
+        chip.mem_d[chip.mhash(inj_a25)][inj_bit] = inj_val;
+    end
+    function [15:0] bd(input [24:0] a, input i);
+        reg [15:0] x;
+        begin x = a[15:0] ^ {1'b0, a[24:10]} ^ 16'h3C5A; bd = i ? ~x : x; end
+    endfunction
+    integer bk, b_busy_seen, b_perm_bad;
+    task bist_go(input integer maxc);
+        begin
+            u_bist = 1'b1; nop(1); u_bist = 1'b0;
+            bk = 0; b_busy_seen = 0; b_perm_bad = 0;
+            while (!bist_done && bk < maxc) begin
+                nop(1); bk = bk + 1;
+                if (bist_busy) begin b_busy_seen = b_busy_seen + 1; if (ok_act != 0 || ok_rd != 0 || ok_wr != 0 || ok_ref) b_perm_bad = b_perm_bad + 1; end
+            end
+            nop(4);
+        end
+    endtask
+
+    // ------------------------------------------------------------------------------------------------------
     // power-up: hold reset for a few cycles, then let the PHY run its init by itself
     // ------------------------------------------------------------------------------------------------------
     task powerup;
@@ -982,6 +1010,55 @@ module tb_sdram_phy #(
             check(pw(2) + pw(3) == m_rd + m_wr, "every column command is a hit or a miss");
             u_pclr = 1'b1; nop(1); u_pclr = 1'b0; nop(2); u_psnap = 1'b1; nop(1); u_psnap = 1'b0; nop(2);
             check(pw(0) == 0 && pw(2) == 0 && pw(3) == 0 && pw(7) < 8, "perf_clear zeroes the counters");
+            expect_clean;
+        // ---- BIST ----
+        end else if (tname == "bist_clean") begin
+            powerup; u_idle = 1'b1;
+            bist_go(30000);
+            check(bist_done === 1'b1 && bist_busy === 1'b0, "BIST finished");
+            check(b_busy_seen > 8000, "bist_busy was high for the run");
+            check(b_perm_bad == 0, "all permits 0 while the PHY owns the bus");
+            check(bist_errors == 0, "no errors on a good chip");
+            check(mrd(0, 0, 5) === ~bd({2'd0, 13'd0, 10'd5}, 1'b0), "final pattern (complement) in page 0");
+            check(mrd(1, 0, 900) === ~bd({2'd1, 13'd0, 10'd900}, 1'b0), "final pattern (complement) in page 1");
+            check(ref_debt <= 2, "the engine kept the refresh duty");
+            // the scheduler gets the bus back
+            check(ok_act[0] === 1'b1, "ACT permitted after the BIST");
+            act(0, 13'd3); nop(1); rd(0, 10'd0); nop(2); bst; nop(10);
+            expect_clean;
+            $display("  BIST: %0d busy cycles, errors %0d", b_busy_seen, bist_errors);
+        end else if (tname == "bist_stuck0" || tname == "bist_stuck1" || tname == "bist_stuck_p1" || tname == "bist_two") begin
+            powerup; u_idle = 1'b1;
+            if (tname == "bist_stuck0") begin inj_addr = 100; inj_bit = 3; inj_val = 1'b0; end          // bank 0 row 0 col 100
+            if (tname == "bist_stuck1") begin inj_addr = 100; inj_bit = 4; inj_val = 1'b1; end
+            if (tname == "bist_stuck_p1") begin inj_addr = (1 << 23) | 7; inj_bit = 15; inj_val = 1'b1; end  // bank 1 row 0 col 7
+            inj_en = 1'b1;
+            if (tname == "bist_stuck_p1") begin inj_bit = 14; inj_val = 1'b0; end
+            bist_go(30000);
+            check(bist_done === 1'b1, "BIST finished");
+            if (tname == "bist_two") begin end
+            check(bist_errors == 1, "one stuck bit is one failing word");
+            check(bist_first_addr == inj_addr[24:0], "first failing address");
+            expect_clean;
+            $display("  BIST: errors %0d first %0h", bist_errors, bist_first_addr);
+        end else if (tname == "bist_wait") begin      // idle_ok = 0: the start is remembered, nothing runs; then it runs
+            powerup; u_idle = 1'b0;
+            u_bist = 1'b1; nop(1); u_bist = 1'b0; nop(1500);
+            check(bist_busy === 1'b0 && ok_act[0] === 1'b1, "no run while idle_ok is 0");
+            u_idle = 1'b1; nop(5);
+            check(bist_busy === 1'b1, "the remembered start runs once idle_ok rises");
+            bk = 0; while (!bist_done && bk < 30000) begin nop(1); bk = bk + 1; end
+            check(bist_done === 1'b1 && bist_errors == 0, "finished clean");
+            expect_clean;
+        end else if (tname == "bist_waitquiet") begin // a row is open: the BIST waits until the scheduler has closed it
+            powerup; u_idle = 1'b1;
+            act(0, 13'd5); nop(1);
+            u_bist = 1'b1; nop(1); u_bist = 1'b0; nop(50);
+            check(bist_busy === 1'b0, "no run with a bank open");
+            pre(0); nop(12);
+            check(bist_busy === 1'b1, "runs after the banks are closed");
+            bk = 0; while (!bist_done && bk < 30000) begin nop(1); bk = bk + 1; end
+            check(bist_errors == 0, "finished clean");
             expect_clean;
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
