@@ -1,0 +1,192 @@
+# Quartus project of the SDRAM PHY + scheduler synthesis/fit probe (contract 7.5). MIT licence.
+# NOT a core: top = tau_sdram_probe_top, read tools/sdram_probe/README.md. Staged by tools/sdram_probe.py into a flat
+# directory (this file, the .qpf, the .sdc, the top and probe_report.tcl at the root; the RTL copied to rtl/), so the
+# paths below are relative to that stage directory. The variant macros (PROBE_CALIBRATE / PROBE_BIST / PROBE_PERF) and
+# the SEED are appended at the end by `sdram_probe.py launch`.
+# The device and the global fit settings are those of src/fpga/ap_core.qsf.
+
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name DEVICE_FILTER_PACKAGE FBGA
+set_global_assignment -name DEVICE_FILTER_PIN_COUNT 484
+set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 8
+set_global_assignment -name TOP_LEVEL_ENTITY tau_sdram_probe_top
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+
+set_global_assignment -name SAFE_STATE_MACHINE ON
+set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP ON
+set_global_assignment -name SYNTH_PROTECT_SDC_CONSTRAINT ON
+set_global_assignment -name PRE_MAPPING_RESYNTHESIS ON
+set_global_assignment -name OPTIMIZATION_TECHNIQUE SPEED
+set_global_assignment -name MUX_RESTRUCTURE OFF
+set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
+set_global_assignment -name ECO_OPTIMIZE_TIMING ON
+set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
+set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC ON
+set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
+set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_RETIMING ON
+set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
+set_global_assignment -name FITTER_EFFORT "AUTO FIT"
+set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
+set_global_assignment -name ROUTER_CLOCKING_TOPOLOGY_ANALYSIS ON
+set_global_assignment -name TIMING_ANALYZER_MULTICORNER_ANALYSIS ON
+
+# chip clock through ALTDDIO_OUT, FALL read capture through ALTDDIO_IN (tau_sdram_clk_out.sv, tau_sdram_dq_cap.sv)
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_ALTDDIO_OUT=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_ALTDDIO_IN=1"
+
+# sources (staged copies)
+set_global_assignment -name SYSTEMVERILOG_FILE tau_sdram_probe_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_phy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_phy_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_dq_cap.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_dq_cap_dual.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_clk_out.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_sched_v.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_sv_pq.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tau_sdram_sv_arb.sv
+set_global_assignment -name QIP_FILE rtl/mf_pllbase.qip
+set_global_assignment -name SDC_FILE sdram_probe.sdc
+
+# clock input: the 74.25 MHz pin of the Pocket, as in the core
+set_location_assignment PIN_V15 -to clk_74a
+set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to clk_74a
+
+# the client side of the wrapper is virtual: no I/O cell, no pin
+set_instance_assignment -name VIRTUAL_PIN ON -to v_*
+
+# ---- dram_* pins, copied from src/fpga/ap_core.qsf (locations, 1.8 V standard, 4 mA drive, series 50 ohm on dram_clk) ----
+# pin locations
+set_location_assignment PIN_D17 -to dram_a[0]
+set_location_assignment PIN_D12 -to dram_a[1]
+set_location_assignment PIN_F12 -to dram_a[2]
+set_location_assignment PIN_E14 -to dram_a[3]
+set_location_assignment PIN_F13 -to dram_a[4]
+set_location_assignment PIN_E16 -to dram_a[5]
+set_location_assignment PIN_E15 -to dram_a[6]
+set_location_assignment PIN_F14 -to dram_a[7]
+set_location_assignment PIN_J18 -to dram_a[8]
+set_location_assignment PIN_G17 -to dram_a[9]
+set_location_assignment PIN_C13 -to dram_a[10]
+set_location_assignment PIN_F15 -to dram_a[11]
+set_location_assignment PIN_J17 -to dram_a[12]
+set_location_assignment PIN_C16 -to dram_ba[0]
+set_location_assignment PIN_E12 -to dram_ba[1]
+set_location_assignment PIN_B16 -to dram_cas_n
+set_location_assignment PIN_G18 -to dram_cke
+set_location_assignment PIN_G12 -to dram_clk
+set_location_assignment PIN_C15 -to dram_dq[0]
+set_location_assignment PIN_B15 -to dram_dq[1]
+set_location_assignment PIN_A15 -to dram_dq[2]
+set_location_assignment PIN_B13 -to dram_dq[3]
+set_location_assignment PIN_A14 -to dram_dq[4]
+set_location_assignment PIN_B12 -to dram_dq[5]
+set_location_assignment PIN_A13 -to dram_dq[6]
+set_location_assignment PIN_A12 -to dram_dq[7]
+set_location_assignment PIN_J13 -to dram_dq[8]
+set_location_assignment PIN_G15 -to dram_dq[9]
+set_location_assignment PIN_G16 -to dram_dq[10]
+set_location_assignment PIN_G13 -to dram_dq[11]
+set_location_assignment PIN_H13 -to dram_dq[12]
+set_location_assignment PIN_J19 -to dram_dq[13]
+set_location_assignment PIN_G11 -to dram_dq[14]
+set_location_assignment PIN_K20 -to dram_dq[15]
+set_location_assignment PIN_D13 -to dram_dqm[0]
+set_location_assignment PIN_H18 -to dram_dqm[1]
+set_location_assignment PIN_B11 -to dram_ras_n
+set_location_assignment PIN_C11 -to dram_we_n
+# I/O standard
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[0]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[1]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[2]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[3]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[4]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[5]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[6]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[7]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[8]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[9]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[10]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[11]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_a[12]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_ba[0]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_ba[1]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_cas_n
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_cke
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_clk
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[0]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[1]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[2]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[3]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[4]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[5]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[6]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[7]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[8]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[9]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[10]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[11]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[12]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[13]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[14]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dq[15]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dqm[0]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_dqm[1]
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_ras_n
+set_instance_assignment -name IO_STANDARD "1.8 V" -to dram_we_n
+# drive strength
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[3]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[4]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[5]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[6]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[7]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[8]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[9]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[10]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[11]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_a[12]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_ba[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_ba[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_cas_n
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_cke
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[3]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[4]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[5]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[6]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[7]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[8]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[9]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[10]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[11]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[12]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[13]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[14]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dq[15]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dqm[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_dqm[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_ras_n
+set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to dram_we_n
+# output termination
+set_instance_assignment -name OUTPUT_TERMINATION "SERIES 50 OHM WITHOUT CALIBRATION" -to dram_clk
+
+# ---- registers in the I/O cells (tau_sdram_phy_assignments.txt, items 1-3; same lines as ap_core.qsf) ----
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ba[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dqm[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cke
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_ras_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_cas_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
+# one output-enable register per DQ bit, not merged (instance path of THIS hierarchy: u_phy|u_core; the original
+# snippet assumed u_sdram_phy|u_core). A path that matches nothing is only a warning in Quartus.
+set_instance_assignment -name REMOVE_DUPLICATE_REGISTERS OFF -to u_phy|u_core|oe_q[*]
+set_instance_assignment -name PRESERVE_REGISTER ON -to u_phy|u_core|oe_q[*]

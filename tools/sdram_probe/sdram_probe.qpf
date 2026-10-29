@@ -1,0 +1,3 @@
+# Quartus project file of the SDRAM probe (see sdram_probe.qsf). MIT licence.
+QUARTUS_VERSION = "18.1"
+PROJECT_REVISION = "sdram_probe"
