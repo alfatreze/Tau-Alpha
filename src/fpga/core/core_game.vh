@@ -698,6 +698,8 @@ wire        fb_p0_wr_req, fb_p0_rd_req, fb_p0_end_burst_req;
 wire        fb_p0_available, fb_p0_ready, fb_p0_data_available;
 wire [10:0] fb_wsrc_addr;
 wire [15:0] fb_wsrc_q;
+wire        fb_p0_is_fill;           // tau_gfx sideband for tau_sdram_sched_a (open on the old path)
+wire [9:0]  fb_p0_rd_len;
 
 wire [24:0] cpu_p0_addr;
 wire [15:0] cpu_p0_data, cpu_p0_q;
@@ -752,6 +754,61 @@ tau_sdram_bridge_mux u_sdram_bridge_mux (
     .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done), .bridge_rdata(soc_sdram_rdata)
 );
 
+`ifdef TAU_SDRAM_SCHED_A
+// ---- Tau Alpha scheduler path (D-T08: selectable, the old controller below stays the default) ----------------------------------
+// docs/features/SDRAM_SCHED_A_NOTES.md. PHY + tau_sdram_sched_v (3 ports: scan-out fill, draw engine, CPU) + two thin client
+// adapters. The DRAM pins are the same; the PHY needs the I/O assignments and SDC of tau_sdram_phy_assignments.txt /
+// tau_sdram_sched_a_assignments.txt (owner review) and the macros TAU_SDRAM_ALTDDIO_OUT / TAU_SDRAM_ALTDDIO_IN.
+wire        sa_rst_sdram, sa_busy;
+wire        sa_cpu_req_valid, sa_cpu_req_ready, sa_cpu_req_we, sa_cpu_w_next, sa_cpu_r_valid, sa_cpu_r_last, sa_cpu_done;
+wire [24:0] sa_cpu_req_addr;
+wire [9:0]  sa_cpu_req_len, sa_cpu_w_idx;
+wire [15:0] sa_cpu_w_data, sa_cpu_r_data;
+wire [1:0]  sa_cpu_w_be;
+wire        sa_phy_fault;
+wire [15:0] sa_dbg_pmiss, sa_phy_fault_count;
+wire [31:0] sa_refreshes;
+wire [95:0] sa_cnt_requests, sa_cnt_words, sa_cnt_busy;
+wire [47:0] sa_cnt_bad, sa_cnt_worst_wait, sa_cnt_urgent_over;
+tau_sdram_a_cpu u_sdram_cpu_bridge (
+    .clk_sys(clk_sys), .rst_sys(cpu_reset),
+    .sys_start(sdram_mux_start), .sys_wb_start(sdram_mux_wb_start), .sys_write(sdram_mux_write),
+    .sys_addr(sdram_mux_addr), .sys_wdata(sdram_mux_wdata),
+    .sys_byte_en(sdram_mux_be), .sys_busy(soc_sdram_busy),
+    .sys_done(soc_sdram_done), .sys_rdata(soc_sdram_rdata),
+    .clk_sdram(clk_sdram), .rst_sdram(sa_rst_sdram),
+    .req_valid(sa_cpu_req_valid), .req_ready(sa_cpu_req_ready), .req_we(sa_cpu_req_we), .req_addr(sa_cpu_req_addr),
+    .req_len(sa_cpu_req_len), .w_next(sa_cpu_w_next), .w_idx(sa_cpu_w_idx), .w_data(sa_cpu_w_data), .w_be(sa_cpu_w_be),
+    .r_valid(sa_cpu_r_valid), .r_data(sa_cpu_r_data), .r_last(sa_cpu_r_last), .done(sa_cpu_done)
+);
+tau_sdram_sched_a #(.CNT_EN(0)) u_sdram_sched_a (
+    .clk(clk_sdram), .rst_in(~pll_locked), .rst_out(sa_rst_sdram), .init_done(sdram_init_complete), .busy(sa_busy),
+    .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en), .p0_wr_len(fb_p0_wr_len),
+    .p0_wr_stream(fb_p0_wr_stream), .p0_wr_req(fb_p0_wr_req), .p0_rd_req(fb_p0_rd_req),
+    .p0_end_burst_req(fb_p0_end_burst_req), .p0_is_fill(fb_p0_is_fill), .p0_rd_len(fb_p0_rd_len),
+    .p0_q(fb_p0_q), .p0_available(fb_p0_available), .p0_ready(fb_p0_ready), .p0_data_available(fb_p0_data_available),
+    .wsrc_addr(fb_wsrc_addr), .wsrc_q(fb_wsrc_q),
+    .cpu_req_valid(sa_cpu_req_valid), .cpu_req_ready(sa_cpu_req_ready), .cpu_req_we(sa_cpu_req_we),
+    .cpu_req_addr(sa_cpu_req_addr), .cpu_req_len(sa_cpu_req_len), .cpu_w_next(sa_cpu_w_next), .cpu_w_idx(sa_cpu_w_idx),
+    .cpu_w_data(sa_cpu_w_data), .cpu_w_be(sa_cpu_w_be), .cpu_r_valid(sa_cpu_r_valid), .cpu_r_data(sa_cpu_r_data),
+    .cpu_r_last(sa_cpu_r_last), .cpu_done(sa_cpu_done),
+    .cnt_requests(sa_cnt_requests), .cnt_words(sa_cnt_words), .cnt_busy(sa_cnt_busy), .cnt_bad(sa_cnt_bad),
+    .cnt_worst_wait(sa_cnt_worst_wait), .cnt_urgent_over(sa_cnt_urgent_over), .dbg_pmiss(sa_dbg_pmiss),
+    .phy_fault(sa_phy_fault), .phy_fault_count(sa_phy_fault_count), .refreshes(sa_refreshes),
+    .dram_a(dram_a), .dram_ba(dram_ba), .dram_dq(dram_dq), .dram_dqm(dram_dqm), .dram_clk(dram_clk),
+    .dram_cke(dram_cke), .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n)
+);
+// the busy-cycle counter (TAU_SDRAM_BUSY) keeps its meaning: "a request is pending or outstanding on any port"
+assign arb_p0_available = ~sa_busy;
+// the old controller's Phase 2 probe taps do not exist on this path
+assign sdram_bridge_write_seen = 1'b0, sdram_bridge_op_write = 1'b0, sdram_bridge_wdata_all_ones = 1'b0,
+       sdram_bridge_be_all_enabled = 1'b0, sdram_bridge_lo_write_accepted = 1'b0, sdram_bridge_hi_write_accepted = 1'b0,
+       sdram_bridge_follow_read_seen = 1'b0, sdram_bridge_follow_read_data_zero = 1'b0, sdram_bridge_follow_read_data_all_ones = 1'b0,
+       sdram_arb_p0_cpu_selected = 1'b0, sdram_ctrl_write_latched = 1'b0, sdram_ctrl_write_data_all_ones = 1'b0,
+       sdram_ctrl_write_be_all_enabled = 1'b0, sdram_ctrl_write_command = 1'b0, sdram_ctrl_write_dq_enabled = 1'b0,
+       sdram_ctrl_write_dq_all_ones = 1'b0, sdram_ctrl_write_dqm_unmasked = 1'b0, sdram_ctrl_follow_read_seen = 1'b0,
+       sdram_ctrl_follow_read_data_seen = 1'b0, sdram_ctrl_follow_read_data_zero = 1'b0, sdram_ctrl_follow_read_data_all_ones = 1'b0;
+`else
 tau_sdram_cpu_bridge u_sdram_cpu_bridge (
     .clk_sys(clk_sys), .rst_sys(cpu_reset),
     .sys_start(sdram_mux_start), .sys_wb_start(sdram_mux_wb_start), .sys_write(sdram_mux_write),
@@ -823,6 +880,7 @@ tau_sdram_ctrl #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_
     .SDRAM_nCS(), .SDRAM_nWE(dram_we_n), .SDRAM_nRAS(dram_ras_n), .SDRAM_nCAS(dram_cas_n),
     .SDRAM_CKE(dram_cke), .SDRAM_CLK(dram_clk)
 );
+`endif
 
 wire [23:0] vid_rgb_w;
 wire        vid_hs_w, vid_vs_w, vid_de_w;
@@ -967,6 +1025,7 @@ tau_gfx #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .F
     .p0_wr_stream(fb_p0_wr_stream), .wsrc_addr(fb_wsrc_addr), .wsrc_q(fb_wsrc_q),
     .p0_wr_req(fb_p0_wr_req), .p0_rd_req(fb_p0_rd_req), .p0_end_burst_req(fb_p0_end_burst_req),
     .p0_available(fb_p0_available), .p0_ready(fb_p0_ready), .p0_data_available(fb_p0_data_available),
+    .p0_is_fill(fb_p0_is_fill), .p0_rd_len(fb_p0_rd_len),
 
     .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w), .scan_vc(vid_vc_w),
     .gfx_idle(soc_gfx_idle), .gfx_fence(soc_gfx_fence), .gfx_free(soc_gfx_free), .gfx_ovf(soc_gfx_ovf), .gfx_underflow(soc_gfx_underflow)

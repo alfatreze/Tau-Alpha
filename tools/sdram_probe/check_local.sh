@@ -28,6 +28,22 @@ for D in "" "-DPROBE_CALIBRATE" "-DPROBE_BIST" "-DPROBE_PERF" "-DPROBE_CALIBRATE
     [ "$ivrc" -eq 0 ] || { echo "iverilog FAILED [$D $Q]"; echo "$iv" | grep -v 'constant selects' | head -5; rc=1; }
   done
 done
+# variant sched_a (tau_sdram_probe_a_top: PHY + sched_v with 3 ports + the graphics adapter)
+RTLA="$RTL $R/tau_sdram_a_gfx_if.sv $R/tau_sdram_a_cpu.sv $R/tau_sdram_sched_a.sv"
+for Q in "" "-DTAU_SDRAM_ALTDDIO_OUT -DTAU_SDRAM_ALTDDIO_IN"; do
+  out=$(verilator --lint-only -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNDRIVEN -Wno-PINCONNECTEMPTY $Q --top-module tau_sdram_probe_a_top \
+        $P/stubs/local_check_stubs.sv $RTLA $P/tau_sdram_probe_a_top.sv 2>&1)
+  errs=$(echo "$out" | grep -c '^%Error')
+  top_warn=$(echo "$out" | grep '^%Warning' | grep -c 'tau_sdram_probe_a_top.sv\|tau_sdram_sched_a.sv\|tau_sdram_a_gfx_if.sv\|tau_sdram_a_cpu.sv')
+  echo "verilator [sched_a $Q]: errors=$errs warnings-in-sched_a-files=$top_warn"
+  [ "$errs" -eq 0 ] || { echo "$out" | grep '^%Error' | head; rc=1; }
+  [ "$top_warn" -eq 0 ] || { echo "$out" | grep '^%Warning' | grep 'tau_sdram_probe_a_top.sv\|tau_sdram_sched_a.sv\|tau_sdram_a_gfx_if.sv\|tau_sdram_a_cpu.sv' | head -8; rc=1; }
+  vvp_out="${TMPDIR:-/tmp}/sdram_probe_check_a.$$.vvp"
+  iv=$(iverilog -g2012 -o "$vvp_out" $Q -s tau_sdram_probe_a_top $P/stubs/local_check_stubs.sv $RTLA $P/tau_sdram_probe_a_top.sv 2>&1)
+  ivrc=$?
+  rm -f "$vvp_out"
+  [ "$ivrc" -eq 0 ] || { echo "iverilog FAILED [sched_a $Q]"; echo "$iv" | grep -v 'constant selects' | head -5; rc=1; }
+done
 # the macros must not leak the simulation mutants
 grep -q 'MUT_' $P/tau_sdram_probe_top.sv && { echo "MUT_ macro in the probe top"; rc=1; }
 echo "check_local: $([ $rc -eq 0 ] && echo OK || echo FAILED)"
