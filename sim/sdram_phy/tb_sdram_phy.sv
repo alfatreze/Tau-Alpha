@@ -281,6 +281,73 @@ module tb_sdram_phy #(
     endtask
 
     // ------------------------------------------------------------------------------------------------------
+    // independent command monitor at the chip pins (for PERF), counts after mon_en
+    // ------------------------------------------------------------------------------------------------------
+    integer m_act, m_pre, m_hit, m_miss, m_r2w, m_w2r, m_stall, m_idle, m_wr, m_rd, m_ref, m_gp, m_last, m_e;
+    integer m_gap [0:7];
+    reg     m_used [0:3];
+    integer m_lact [0:3];
+    integer m_lpre [0:3];
+    reg     m_en = 1'b0;
+    integer mk;
+    reg     m_pend; integer mb, mbin;
+    task mon_clear;
+        begin
+            m_act = 0; m_pre = 0; m_hit = 0; m_miss = 0; m_r2w = 0; m_w2r = 0; m_stall = 0; m_idle = 0; m_wr = 0; m_rd = 0;
+            m_ref = 0; m_gp = 0; m_last = 0; m_e = 0;
+            for (mk = 0; mk < 8; mk = mk + 1) m_gap[mk] = 0;
+            for (mk = 0; mk < 4; mk = mk + 1) begin m_used[mk] = 1'b0; m_lact[mk] = -1000; m_lpre[mk] = -1000; end
+        end
+    endtask
+    initial mon_clear;
+    always @(posedge c_clk) if (m_en && chip.init_done) begin
+        m_e = m_e + 1;
+        if ({c_ras, c_cas, c_we} === 3'b111) begin
+            m_idle = m_idle + 1;
+            m_pend = 1'b0;
+            for (mb = 0; mb < 4; mb = mb + 1)
+                if (m_e - m_lact[mb] < 2 || m_e - m_lpre[mb] < 2 || m_e - m_lact[mb] < 6) m_pend = 1'b1;
+            if (m_pend) m_stall = m_stall + 1;
+            m_gp = m_gp + 1;
+        end else begin
+            if (m_gp == 0) mbin = 0; else if (m_gp == 1) mbin = 1; else if (m_gp == 2) mbin = 2; else if (m_gp == 3) mbin = 3;
+            else if (m_gp < 8) mbin = 4; else if (m_gp < 16) mbin = 5; else if (m_gp < 64) mbin = 6; else mbin = 7;
+            m_gap[mbin] = m_gap[mbin] + 1; m_gp = 0;
+            case ({c_ras, c_cas, c_we})
+                3'b011: begin m_act = m_act + 1; m_used[c_ba] = 1'b0; m_lact[c_ba] = m_e; end
+                3'b010: begin
+                    m_pre = m_pre + 1;
+                    if (c_a[10]) begin for (mb = 0; mb < 4; mb = mb + 1) begin m_used[mb] = 1'b0; m_lpre[mb] = m_e; end end
+                    else begin m_used[c_ba] = 1'b0; m_lpre[c_ba] = m_e; end
+                end
+                3'b101, 3'b100: begin
+                    if (m_used[c_ba]) m_hit = m_hit + 1; else m_miss = m_miss + 1;
+                    m_used[c_ba] = 1'b1;
+                    if ({c_ras, c_cas, c_we} == 3'b100) begin m_wr = m_wr + 1; if (m_last == 1) m_r2w = m_r2w + 1; m_last = 2; end
+                    else begin m_rd = m_rd + 1; if (m_last == 2) m_w2r = m_w2r + 1; m_last = 1; end
+                end
+                3'b001: m_ref = m_ref + 1;
+                default: ;
+            endcase
+        end
+    end
+    function [31:0] pw(input integer i);
+        begin pw = perf_snapshot[32*i +: 32]; end
+    endfunction
+    task perf_clear_all;
+        begin
+            u_pclr = 1'b1; cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); u_pclr = 1'b0;
+            mon_clear; m_en = 1'b1;
+        end
+    endtask
+    task perf_snap_now;
+        begin
+            u_psnap = 1'b1; cyc(K_NOP, 2'b00, 13'd0, 1'b0, 16'd0, 2'b11); u_psnap = 1'b0; nop(2);
+        end
+    endtask
+    function integer iabs(input integer v); begin iabs = (v < 0) ? -v : v; end endfunction
+
+    // ------------------------------------------------------------------------------------------------------
     // power-up: hold reset for a few cycles, then let the PHY run its init by itself
     // ------------------------------------------------------------------------------------------------------
     task powerup;
@@ -864,6 +931,58 @@ module tb_sdram_phy #(
             check(cal_done === 1'b1 && cal_window == EXPW[7:0], "calibration repeated");
             check(chip.err_count == 2 && chip.err_mask == 64'h100, "only the two late MRS from the second init");
             check(phy_fault === 1'b0, "no PHY fault");
+        // ---- PERF ----
+        end else if (tname == "perf_hist") begin
+            powerup;
+            perf_clear_all; nop(40);
+            act(0, 13'd5); nop(1); act(1, 13'd6); nop(3); act(2, 13'd7); nop(5); act(3, 13'd8); nop(10);
+            wr(0, 10'd0, 16'h1111, 2'b11); bst; nop(70); pre(0); nop(8);
+            perf_snap_now;
+            check(pw(0) == 4, "ACT count");
+            check(pw(1) == 1, "PRE count");
+            check(pw(2) == 0 && pw(3) == 1, "one row miss, no hit");
+            check(pw(8) == 1 && pw(9) == 1 && pw(10) == 0 && pw(11) == 1 && pw(12) == 1 && pw(13) == 1 && pw(14) == 1 && pw(15) == 1, "gap histogram");
+            check(pw(4) == 0 && pw(5) == 0, "no turnarounds");
+            check(pw(8) == m_gap[0] && pw(9) == m_gap[1] && pw(11) == m_gap[3] && pw(12) == m_gap[4], "histogram equals the pin monitor");
+            expect_clean;
+        end else if (tname == "perf_turn") begin
+            powerup;
+            perf_clear_all; nop(40);
+            act(0, 13'd5); nop(1);
+            wr(0, 10'd0, 16'h1111, 2'b11); wb(16'h2222, 2'b11); bst; nop(1);   // WR burst (miss)
+            rd(0, 10'd0); nop(1); rd(0, 10'd2); nop(2); bst; nop(4);             // w2r, then a hit
+            wr(0, 10'd8, 16'h3333, 2'b11); bst; nop(2);                          // r2w
+            rd(0, 10'd8); nop(2); bst; nop(8);                                   // w2r
+            perf_snap_now;
+            check(pw(5) == 2, "two write-to-read turnarounds");
+            check(pw(4) == 1, "one read-to-write turnaround");
+            check(pw(3) == 1 && pw(2) == 4, "one miss, four hits");
+            check(pw(4) == m_r2w && pw(5) == m_w2r && pw(2) == m_hit && pw(3) == m_miss, "equal to the pin monitor");
+            expect_clean;
+        end else if (tname == "perf_rand") begin
+            if (!$value$plusargs("SEED=%d", seed)) seed = 11;
+            powerup; rnd_init;
+            perf_clear_all; nop(40);
+            for (ti = 0; ti < NRAND; ti = ti + 1) rnd_step(1, 1, 1);
+            if (ok_bst) bst;
+            nop(12);
+            perf_snap_now;
+            $display("  perf: act %0d pre %0d hit %0d miss %0d r2w %0d w2r %0d stall %0d idle %0d", pw(0), pw(1), pw(2), pw(3), pw(4), pw(5), pw(6), pw(7));
+            check(pw(0) == m_act && pw(0) > 100, "ACT count equals the pin monitor");
+            check(pw(1) == m_pre, "PRE count equals the pin monitor");
+            check(pw(2) == m_hit && pw(3) == m_miss, "row hits and misses equal the pin monitor");
+            check(pw(4) == m_r2w && pw(5) == m_w2r && pw(4) > 5 && pw(5) > 5, "turnarounds equal the pin monitor");
+            check(iabs(pw(6) - m_stall) <= 4, "stall cycles equal the pin monitor");
+            check(iabs(pw(7) - m_idle) <= 4 && pw(7) > 100, "idle cycles equal the pin monitor");
+            for (mk = 0; mk < 8; mk = mk + 1) begin
+                if (iabs(pw(8 + mk) - m_gap[mk]) > 1) begin $display("  gap bin %0d: PHY %0d monitor %0d", mk, pw(8 + mk), m_gap[mk]); tb_fail = tb_fail + 1; end
+            end
+            check(m_wr == chip.wr_bursts, "the monitor's WR count equals the chip model's burst count");
+            check(m_ref + 0 <= chip.refreshes, "monitor REF count within the chip's");
+            check(pw(2) + pw(3) == m_rd + m_wr, "every column command is a hit or a miss");
+            u_pclr = 1'b1; nop(1); u_pclr = 1'b0; nop(2); u_psnap = 1'b1; nop(1); u_psnap = 1'b0; nop(2);
+            check(pw(0) == 0 && pw(2) == 0 && pw(3) == 0 && pw(7) < 8, "perf_clear zeroes the counters");
+            expect_clean;
         // ---- random legal driver: permits against the chip model ----
         end else if (tname == "rand") begin
             if (!$value$plusargs("SEED=%d", seed)) seed = 7;
