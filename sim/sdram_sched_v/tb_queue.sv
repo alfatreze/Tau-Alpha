@@ -5,7 +5,7 @@ module tb_queue;
     reg rst = 1;
     reg req_valid = 0; reg req_we = 0; reg [24:0] req_addr = 0; reg [9:0] req_len = 0; reg [7:0] req_tag = 0;
     reg req_2d = 0; reg [5:0] req_w = 0, req_h = 0; reg [10:0] req_stride = 0; reg [7:0] sk_vld = 0; reg [23:0] sk_base = 0; reg [15:0] sk_val = 0; 
-    wire [3:0] ent_v, ent_we; wire [4*13-1:0] ent_lo, ent_hi;
+    wire hd_fast, hd_small; wire [3:0] ent_v, ent_we; wire [4*13-1:0] ent_lo, ent_hi;
     reg adv = 0, pop_bad = 0;
     wire req_ready, hd_v, hd_bad, hd_we, hd_last, hd_2d, accepted, accepted_bad;
     wire [3:0] count; wire [1:0] hd_bank; wire [12:0] hd_row; wire [9:0] hd_col, hd_plen; wire [7:0] hd_tag;

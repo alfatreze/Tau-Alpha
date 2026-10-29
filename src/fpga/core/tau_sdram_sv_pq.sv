@@ -53,6 +53,8 @@ module tau_sdram_sv_pq #(
     output wire        hd_last,             // the current piece completes the request
     output wire [7:0]  hd_tag,
     output wire        hd_2d,
+    output wire        hd_small,            // the head piece has at most 32 words
+    output wire        hd_fast,             // the new head piece is in the same bank and row as the previous head piece (and of the same request, or a write)
     input  wire        adv,                 // the current piece was issued
     input  wire        pop_bad,             // retire a bad head
     output wire        accepted,            // a request was taken this cycle (any kind)
@@ -151,12 +153,19 @@ module tau_sdram_sv_pq #(
 
     // the head piece is registered (one cycle behind the entry state): the scheduler's decision pipeline blanks itself after an
     // advance (see tau_sdram_sched_v.sv); this takes the piece-length arithmetic out of the decision path
+    reg  r_fast, r_small;
     reg  r_v, r_bad, r_we, r_last, r_2d; reg [1:0] r_bank; reg [12:0] r_row; reg [9:0] r_col, r_plen; reg [7:0] r_tag;
     always @(posedge clk) begin
-        if (rst) begin r_v <= 1'b0; r_bad <= 1'b0; r_we <= 1'b0; r_last <= 1'b0; r_2d <= 1'b0; r_bank <= 2'd0; r_row <= 13'd0; r_col <= 10'd0; r_plen <= 10'd0; r_tag <= 8'd0; end
-        else begin r_v <= c_v; r_bad <= c_bad; r_we <= c_we; r_last <= c_last; r_2d <= c_2d; r_bank <= c_bank; r_row <= c_row; r_col <= c_col; r_plen <= c_plen; r_tag <= c_tag; end
+        if (rst) begin r_v <= 1'b0; r_bad <= 1'b0; r_we <= 1'b0; r_last <= 1'b0; r_2d <= 1'b0; r_bank <= 2'd0; r_row <= 13'd0; r_col <= 10'd0; r_plen <= 10'd0; r_tag <= 8'd0; r_fast <= 1'b0; r_small <= 1'b0; end
+        else begin r_small <= (c_plen <= 10'd32);
+`ifdef MUT_FAST_ROW
+                       r_fast <= c_v && r_v && (!r_last || c_we);
+`else
+                       r_fast <= c_v && r_v && (c_bank == r_bank) && (c_row == r_row) && (!r_last || c_we);
+`endif
+                        r_v <= c_v; r_bad <= c_bad; r_we <= c_we; r_last <= c_last; r_2d <= c_2d; r_bank <= c_bank; r_row <= c_row; r_col <= c_col; r_plen <= c_plen; r_tag <= c_tag; end
     end
-    assign hd_v = r_v; assign hd_bad = r_bad; assign hd_we = r_we; assign hd_last = r_last; assign hd_2d = r_2d; assign hd_bank = r_bank;
+    assign hd_fast = r_fast; assign hd_small = r_small; assign hd_v = r_v; assign hd_bad = r_bad; assign hd_we = r_we; assign hd_last = r_last; assign hd_2d = r_2d; assign hd_bank = r_bank;
     assign hd_row = r_row; assign hd_col = r_col; assign hd_plen = r_plen; assign hd_tag = r_tag;
     wire do_adv = adv & hd_v;
     // next-state values are precomputed into registers (valid two cycles after the head changed; an advance never follows an

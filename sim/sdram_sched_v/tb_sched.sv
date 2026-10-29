@@ -685,6 +685,22 @@ module tb_sched #(
                 if (bt_max > 128 || bt_rmax > 4) begin $display("  a write batch exceeded 4 requests / 128 words"); tb_fail = tb_fail + 1; end
                 if (bt_max < 64) begin $display("  no batching seen"); tb_fail = tb_fail + 1; end
             end
+            "batching6": begin        // the decoder write port (2): writes are collected into batches of at most 4 requests / 128 words
+                cur_gen = 5;
+                for (n1 = 0; n1 < 12; n1 = n1 + 1) begin add_rq(3, 1'b1, A(10, 512 * n1), 512, 0, -1); wi = last_rq; end
+                run_all(TMO_CYC);
+                for (n1 = 0; n1 < 120; n1 = n1 + 1) begin
+                    cur_gen = 200 + n1;
+                    add_rq(2, 1'b1, A(11, n1 * 6), 6, 0, -1);
+                    if (n1 % 2 == 0) add_rq(1, 1'b0, A(10, (n1 % 5) * 1024 + (n1 * 7) % 200), 64, 0, wi);
+                    add_rq(1, 1'b0, A(10, ((n1 + 2) % 5) * 1024 + (n1 * 11) % 200), 64, 0, wi);
+                end
+                run_all(TMO_CYC);
+                if (bt_words > bt_max) bt_max = bt_words;
+                $display("  largest write batch: %0d words, %0d requests; batches %0d; direction changes %0d, WR %0d RD %0d", bt_max, bt_rmax, bt_n, n_dirchg, n_wr, n_rd);
+                if (bt_max > 128 || bt_rmax > 4) begin $display("  a write batch exceeded 4 requests / 128 words"); tb_fail = tb_fail + 1; end
+                if (bt_max < 64) begin $display("  no batching seen"); tb_fail = tb_fail + 1; end
+            end
             "wrr": begin             // weighted round robin: single-piece reads from every port in changing rows
                 cur_gen = 6;
                 for (n1 = 0; n1 < 30; n1 = n1 + 1) begin
