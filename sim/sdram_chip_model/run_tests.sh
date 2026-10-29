@@ -61,6 +61,11 @@ rw_data | CLSEL=3 | rw_data_cl3
 rw_data_rise | CAPMODE=0 TAC2=4000 | rw_data_rise_cl2_tac4
 n_cap_rise_worst | CAPMODE=0
 cap_delay_ok | DMAX=1500
+rw_data_rise_real | CAPMODE=0 CLKMIN=3200 CLKMAX=3600 DQMIN=2300 DQMAX=2700 | rw_data_rise_real_cl2
+rw_data_rise_real | CAPMODE=0 CLSEL=3 CLKMIN=3200 CLKMAX=3600 DQMIN=2300 DQMAX=2700 | rw_data_rise_real_cl3
+n_cap_fall_real | CLKMIN=3200 CLKMAX=3600 DQMIN=2300 DQMAX=2700 | n_cap_fall_real_cl2
+n_cap_fall_real | CLSEL=3 CLKMIN=3200 CLKMAX=3600 DQMIN=2300 DQMAX=2700 | n_cap_fall_real_cl3
+n_cap_rise_real_late | CAPMODE=0 DMIN=3000 DMAX=3000 CLKMIN=3200 CLKMAX=3600 DQMIN=2300 DQMAX=2700 | n_cap_rise_real_late
 n_cap_delay_late | DMAX=2500
 n_cap_skew_hold | CAPSKEW=2000
 wr_rd_turn | | wr_rd_turn_cl2
