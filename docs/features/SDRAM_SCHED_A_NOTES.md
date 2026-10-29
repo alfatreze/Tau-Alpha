@@ -70,7 +70,29 @@ FENCE/idle semantics: the Talos block is unchanged apart from the two sideband o
 Existing suites (RTL unchanged, run again on this branch): see section 4.
 
 ## 4. Measurements and the player's traffic, old path vs new path
-MEASUREMENTS_PLACEHOLDER
+`sim/sdram_sched_a/run_gfx.sh` runs the **real `tau_gfx`** (draw engine + scan-out, DBUF off so the result does not depend on timing) with a random command stream, a CPU hammer on the mailbox (disjoint region, shadow-checked) and the whole 512 K-word image initialised and read back through the stack's own port, on three stacks: **0** a plain functional memory (the reference, ideal timing), **1** the OLD path (`tau_sdram_cpu_bridge` + `tau_sdram_arbiter` + `tau_sdram_ctrl` through the chip model with the baseline harness's output-delay glue, ideal pads), **2** the NEW path. A stack passes when its image checksum equals the reference's, the FENCE count equals the reference's, the CPU words match their shadow, `gfx_underflow` (late scan-out lines) is 0 and **no word is written after `gfx_idle`**. `+TRACE` prints every request and push.
+
+**New path: bit-exact image, no late scan-out line, FENCE/idle intact** for RECT, CHAR, COPY, BLIT, CBLIT, the random mix and the mix with the CPU hammer (all checksums equal the reference; first with arbitrary addresses and strides, then with page-safe streams for the comparison below). SBLIT's FENCE count differs from the ideal reference but equals the old path's (see the Talos finding below).
+
+Cycles for the same stream of 40 commands (`PAGESAFE` stream: no access crosses a 1,024-word page, the scan-out running, no CPU), sdram cycles at 100 MHz, from the first push to `gfx_idle`. **Simulation only; the old path is the player's `tau_sdram_ctrl` through the chip model with assumed pad delays (scenario "nominal" of `sim/sdram_baseline`), not a Pocket measurement.**
+| stream | old path | new path | new vs old |
+|---|---|---|---|
+| RECT rows (clear / fill) | 23,679 | 23,612 | -0.3 % |
+| CHAR (streamed glyph rows) | 133,248 | 133,224 | 0.0 % |
+| COPY (read a row, streamed write) | 48,593 | 46,636 | -4.0 % |
+| SBLIT (one-word reads per pixel) | 1,106,379 | 651,603 | **-41 %** |
+| random mix (RECT, CHAR, COPY, BAR, RRECT) | 67,154 | 67,025 | -0.2 % |
+| the same mix with the CPU hammer: engine cycles | 75,692 | 68,071 | -10 % |
+| ... CPU 32-bit accesses completed / average latency | 897 / 723 ns | 1,245 / 425 ns | +39 % / **-41 %** |
+| CPU hammer with only the scan-out running (1.5 ms): accesses / average latency | 2,454 / 488 ns | 3,660 / 286 ns | +49 % / **-41 %** |
+The ideal reference stand-in is not a timing reference (a constant write there takes one cycle). Reading the table: a row write costs about `w + 11` cycles on both paths (the engine's per-row dispatch dominates), so the clear/fill/char cycle counts do not move; the scheduler's look-ahead helps reads (COPY, and SBLIT's per-pixel one-word reads most), and the CPU word is faster by the removed second operation and bridge register. Idle-system latencies of the new path (`latency` test): engine 1-word read 14 cycles to done (first word 12), 64-word read 76, 64-word write 75, 1-word write 11; CPU word 255 ns write / 233 ns read (mailbox included). **Acceptance rule "not slower, CPU word latency lower": met in simulation.** The late-line counter stayed 0 on every stack and run.
+
+### A latent Talos bug found by this bench (not fixed here, not caused by this work)
+`tau_talos` reads the command FIFO head through a register (`cmd_q <= cmd_mem_rd`, one cycle behind `rd_ptr`) but may pop twice on consecutive cycles when the first command needs no work (a RECT/COPY/... with width or height 0, a FENCE, a scaled blit with an empty output): the second pop then sees the PREVIOUS entry's fields, so **the next queued command is lost and a FENCE is repeated** (the FENCE counter then runs ahead of the number of FENCEs pushed). Seen with the ideal reference memory (a zero-height RECT followed by a queued RECT: the second never ran; `gfx_fence` 22 for 13 FENCEs pushed) and once with the old path under the CPU hammer (`gfx_fence` 8 for 5). Real firmware hits it only when a no-work command is followed by another command already in the queue. The bench therefore never pushes a no-work command and pushes FENCEs alone. A fix is one cycle: do not pop on the cycle after a pop (or take `q_*` from `cmd_mem_rd` on the pop). Not changed here (Talos behaviour is shipped; owner's decision); recorded in the audit entry B-920.
+
+### Existing suites
+RTL of the PHY, `sched_v` and the chip model is unchanged (`git diff main` is empty for them); re-run on this branch: `sim/sdram_chip_model` 70 passed, `sim/sdram_phy` 125 passed (with mutants), `sim/sdram_sched_v` 42 passed (tests), `sim/sdram_replay` quick (clip, 1 picture) VERDICT PASS. The old controller's own benches (`tb_tau_sdram_*`, `tb_tau_gfx_*`) are untouched; `tb_tau_gfx_diff`/`tb_tau_gfx_t3` instantiate `tau_gfx` by name and need no change for the two new outputs (they are left open).
+
 
 ## 5. What the firmware / MMIO needs
 * **Nothing to start.** The register map is unchanged; `R_SDR_BUSY` (0x800000BC, the busy-cycle counter, `TAU_SDRAM_BUSY` bitstreams) counts `busy` of `tau_sdram_sched_a` ("any port has a request pending or outstanding"), the same meaning as the old "controller not idle". Its numbers are not comparable one-for-one (the new path is idle between a request's `done` and the next, the old one was busy through the whole bridge handshake).
