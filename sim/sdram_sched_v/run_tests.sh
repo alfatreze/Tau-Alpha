@@ -44,6 +44,7 @@ urgent_bound | REFIPS=1500000 | urgent_bound_refresh
 aged_row | REFIPS=600000000 |
 preempt | SOFTD=9 HARDD=9 |
 batching | |
+batching6 | |
 wrr | |
 twod | |
 reset_mid | |
@@ -73,6 +74,9 @@ MUT_BATCHUNL | batching | |
 MUT_WLEAD_OFF | basic | | mut_wlead_off
 MUT_2D_STRIDE | twod | |
 MUT_NO_RAW | raw_order | |
+MUT_FAST_ROW | splits | |
+MUT_FL_NOLIM | batching6 | |
+MUT_FAST_NOURG | urgent_bound | |
 MUT_TM_Z | order | |
 MUT_TM_RW | order | |
 MUT_NOQUIET | order | |
