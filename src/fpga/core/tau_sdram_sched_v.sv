@@ -56,6 +56,9 @@ module tau_sdram_sched_v #(
     parameter integer W_LEAD = 2,
     parameter integer WF_DEPTH = 8,
     parameter integer RDQ_DEPTH = 16,
+    parameter integer LOOKAHEAD = 1,                 // 1: ACT/PRE for the next target while a burst streams
+    parameter integer RAW_CHECK = 1,                 // 1: a read waits for an older overlapping write of another port
+    parameter integer SAME_ROW_CONT = 1,             // 1: same-row pieces of the last port go back to back
     parameter integer BATCH_REQS = 4,
     parameter integer BATCH_WORDS = 128,
     parameter integer WR_HI_REQ = 2,                 // dagger: a batch port becomes eligible at this many queued requests
@@ -244,6 +247,7 @@ module tau_sdram_sched_v #(
 `ifdef MUT_NO_RAW
             blocked[q] = 1'b0;
 `endif
+            if (RAW_CHECK == 0) blocked[q] = 1'b0;
         end
     end
     // bandwidth caps: words per window per port (non-urgent competition only)
@@ -267,7 +271,7 @@ module tau_sdram_sched_v #(
     wire [NPORTS-1:0] cand  = (|cand_nc) ? (cand_nc | urg) : cand0;
     wire [NPORTS-1:0] early = urgent_early & URGENT_EARLY_CAPABLE[NPORTS-1:0] & cand;
     reg  [2:0]  last_port; reg last_v; reg [1:0] last_bank; reg [12:0] last_row;
-    wire        cont_ok = last_v && cand[last_port] && hbank[last_port*2 +: 2] == last_bank &&
+    wire        cont_ok = (SAME_ROW_CONT != 0) && last_v && cand[last_port] && hbank[last_port*2 +: 2] == last_bank &&
                           hrow[last_port*13 +: 13] == last_row && !(|(starved & ~(8'd1 << last_port)));
     wire sel_v, sel_wrr; wire [2:0] sel_p;
     reg  grant_ev; reg [2:0] grant_pt;
@@ -387,7 +391,7 @@ module tau_sdram_sched_v #(
 `endif
         end else if (issue) begin
             cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col};
-        end else if (run_ok && t_v) begin
+        end else if (run_ok && t_v && (LOOKAHEAD != 0 || !cur_v)) begin
             if (!t_open) begin
                 if (ok_act[t_bank]) begin cmd = K_ACT; cmd_ba = t_bank; cmd_a = t_row; end
             end else if (!t_hit) begin

@@ -22,6 +22,10 @@ module tb_replay #(
     parameter integer REF_SOFT    = 4,
     parameter integer REF_HARD    = 7,
     parameter integer BATCH_REQS  = 4,
+    parameter [7:0]   BATCH_P     = 8'h04,
+    parameter integer LOOKAHEAD_P = 1,
+    parameter integer RAW_P       = 1,
+    parameter integer CONT_P      = 1,
     parameter integer BATCH_WORDS = 128,
     parameter integer INITCYC     = 200,
     parameter integer REFIPS      = 7_800_000,
@@ -118,7 +122,7 @@ module tb_replay #(
     reg        sk_we = 0; reg [2:0] sk_idx = 0, sk_base = 0; reg [1:0] sk_val = 0;
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
                         .ENABLE_2D(EN2D), .WR_HI_REQ(WR_HI_REQ), .WR_DEFER_NS(WR_DEFER_NS), .REF_SOFT_DEBT(REF_SOFT),
-                        .REF_HARD_DEBT(REF_HARD), .BATCH_REQS(BATCH_REQS), .BATCH_WORDS(BATCH_WORDS), .RD_LAT(CLSEL + 2),
+                        .REF_HARD_DEBT(REF_HARD), .BATCH_REQS(BATCH_REQS), .BATCH_PORTS(BATCH_P), .LOOKAHEAD(LOOKAHEAD_P), .RAW_CHECK(RAW_P), .SAME_ROW_CONT(CONT_P), .BATCH_WORDS(BATCH_WORDS), .RD_LAT(CLSEL + 2),
                         .WEIGHT(WEIGHT_P), .MAXG_RD(MAXG_RD_P), .MAXG_WR(MAXG_WR_P), .CLK_HZ((1_000_000_000 / P_PS) * 1000)) dut (
         .clk(clk), .rst(rst), .req_valid(d_req_valid), .req_ready(d_req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
