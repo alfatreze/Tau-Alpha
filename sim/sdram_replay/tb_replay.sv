@@ -200,7 +200,7 @@ module tb_replay #(
     reg opt_mut_nofence = 0, opt_mut_nobarrier = 0, opt_mut_norelgate = 0;
     integer mut_scanstall = 0, mut_drop = 0, mut_wcorrupt = 0, mut_rcorrupt = 0, mut_nolast = 0, mut_stall = 0;
     integer sc_cap = 1200, sc_start = 600, sc_line = 600;
-    integer T0 = 0;                                          // cycle of the stream's time zero
+    integer T0 = 0, T0_first = 0;                                          // cycle of the stream's time zero
 
     integer n_act = 0, n_rdc = 0, n_wrc = 0, n_pre = 0, n_prea = 0, n_ref = 0, n_bst = 0, n_cmd = 0, n_wv = 0, n_rv = 0;
     integer tb_fail = 0;                                     // protocol / integrity failures counted by the harness
@@ -726,7 +726,7 @@ module tb_replay #(
             for (pp = 0; pp < NP; pp = pp + 1) nreq_all = nreq_all + p_req[pp];
             ncmd = n_cmd;
             $display("RESULT treq=%0s", treq_name);
-            $display("RESULT cycles=%0d pictures=%0d mbs=%0d records=%0d decoder_requests=%0d fused_read_records=%0d unfused_reads=%0d", cyc - T0, npics, tot_mbs, tot_recs, tot_reqs, tot_fused_reads, tot_unfused_reads);
+            $display("RESULT cycles=%0d pictures=%0d mbs=%0d records=%0d decoder_requests=%0d fused_read_records=%0d unfused_reads=%0d", cyc - T0_first, npics, tot_mbs, tot_recs, tot_reqs, tot_fused_reads, tot_unfused_reads);
             rpm = (tot_mbs > 0) ? 1.0 * tot_reqs / tot_mbs : 0.0;
             rcpm = (tot_mbs > 0) ? 1.0 * (tot_fused_reads + tot_unfused_reads) / tot_mbs : 0.0;
             $display("RESULT requests_per_mb=%0.2f", rpm);
@@ -816,7 +816,7 @@ module tb_replay #(
         for (ni = 0; ni < SHN; ni = ni + 1) sh_s[ni] = 32'd0;
         if (!opt_nopreload) preload;
         powerup;
-        T0 = cyc; cpu_next = cyc; dma_next = cyc + dma_period / 2; progress_cyc = cyc;
+        T0 = cyc; T0_first = cyc; cpu_next = cyc; dma_next = cyc + dma_period / 2; progress_cyc = cyc;
         prev_reached = T0; fd_go = 1;
         while (!fd_done && !end_flag && (maxcyc == 0 || cyc - T0 < maxcyc)) @(posedge clk);
         if (!fd_done && !end_flag) begin n_hang = n_hang + 1; $display("  maxcyc reached before the stream ended"); end
