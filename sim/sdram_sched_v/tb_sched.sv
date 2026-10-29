@@ -61,6 +61,7 @@ module tb_sched #(
     wire [NP*32-1:0] cnt_requests, cnt_words, cnt_busy;
     wire [NP*16-1:0] cnt_bad, cnt_worst_wait, cnt_urgent_over;
     wire [3:0]       dbg_err;
+    wire [15:0]      dbg_pmiss;
     wire [2:0]  cmd;  wire [1:0] cmd_ba; wire [12:0] cmd_a;
     wire        wvalid; wire [15:0] wdata; wire [1:0] be;
     wire [3:0]  ok_act, ok_rd, ok_wr, ok_pre, row_aged, ref_debt;
@@ -81,13 +82,13 @@ module tb_sched #(
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we), .dram_dqm(c_dqm),
         .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dq), .fpga_oe(phy.u_core.dq_oe), .cap_clk(clk));
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
-                        .ENABLE_2D(EN2D), .URGENT_EARLY_CAPABLE(UECAP), .BW_CAP_WORDS(BWCAP4 << 64), .BW_WINDOW_CYCLES(BWWIN), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2)) dut (
+                        .ENABLE_2D(EN2D), .URGENT_EARLY_CAPABLE(UECAP), .BW_CAP_WORDS(BWCAP4 << 64), .BW_WINDOW_CYCLES(BWWIN), .REF_SOFT_DEBT(SOFTD), .REF_HARD_DEBT(HARDD), .RD_LAT(CLSEL + 2), .CL(CLSEL), .CNT_EN(1)) dut (
         .clk(clk), .rst(rst), .req_valid(req_valid), .req_ready(req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
         .urgent(urgent), .urgent_early(urgent_early), .sk_we(sk_we), .sk_idx(sk_idx), .sk_base(sk_base), .sk_val(sk_val), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
         .r_valid(r_valid), .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag),
         .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .cnt_worst_wait(cnt_worst_wait),
-        .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err),
+        .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err), .dbg_pmiss(dbg_pmiss),
         .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be),
         .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_bst(ok_bst), .ok_prea(ok_prea), .ok_ref(ok_ref), .init_done(init_done),
         .ref_due(ref_due), .ref_debt(ref_debt), .preempt_ack(preempt_ack),
@@ -434,6 +435,7 @@ module tb_sched #(
                 $display("  chip model errors: %0d (first code %0d, mask %h)", chip.err_count, chip.err_first, chip.err_mask); tb_fail = tb_fail + 1;
             end
             if (dq_conflicts !== 16'd0) begin $display("  PHY dq_conflicts = %0d", dq_conflicts); tb_fail = tb_fail + 1; end
+            if (!expect_fault && dbg_pmiss != 16'd0) begin $display("  scheduler timing model mismatch: %0d offers the PHY permits did not allow", dbg_pmiss); tb_fail = tb_fail + 1; end
             if (dbg_err != 4'd0) begin $display("  scheduler internal error flags %b", dbg_err); tb_fail = tb_fail + 1; end
             if (!skip_cnt_check && !no_cnt) begin : cntchk
                 integer z;
@@ -615,7 +617,7 @@ module tb_sched #(
                         off = urand(7000);
                         if (pp == 2 || (pp == 3 && L % 2 == 0)) begin
                             cur_gen = 90 + pp * 100 + L;
-                            add_rq(pp, 1'b1, A(10 + pp, urand(30000)), 1 + urand((pp == 2) ? 32 : 128), 0, wi);
+                            add_rq(pp, 1'b1, A(10 + pp, L * 130), 1 + urand((pp == 2) ? 32 : 128), 0, wi);
                         end else add_rq(pp, 1'b0, A(10, off), 1 + urand((pp == 1) ? 64 : 128), 0, wi);
                     end
                 end

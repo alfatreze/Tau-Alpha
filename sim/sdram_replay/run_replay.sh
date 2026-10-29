@@ -52,7 +52,7 @@ if [ "$STUB" = 1 ]; then
 else
     BIN="$OUT/replay.vvp"
     SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
-         "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" "$HERE/tb_replay.sv")
+         "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" "$HERE/tb_replay.sv")
 fi
 # rebuild when any source or option differs (the binary name carries a hash of the options)
 KEY="$(echo "${PARAMS[*]:-} ${DEFS[*]:-}" | cksum | cut -d' ' -f1)"

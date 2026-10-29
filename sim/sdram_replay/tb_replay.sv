@@ -78,6 +78,7 @@ module tb_replay #(
     wire [NP*32-1:0] cnt_requests, cnt_words, cnt_busy;
     wire [NP*16-1:0] cnt_bad, cnt_worst_wait, cnt_urgent_over;
     wire [3:0]       dbg_err;
+    wire [15:0]      dbg_pmiss;
     wire             init_done, phy_fault;
     wire [15:0]      fault_count, dq_conflicts;
     wire [31:0]      refreshes;
@@ -96,7 +97,7 @@ module tb_replay #(
     assign init_done = (stub_init == 8'hff);
     assign phy_fault = 1'b0; assign fault_count = 16'd0; assign dq_conflicts = 16'd0; assign refreshes = 32'd0;
     assign cnt_requests = 0; assign cnt_words = 0; assign cnt_busy = 0; assign cnt_bad = 0; assign cnt_worst_wait = 0;
-    assign cnt_urgent_over = 0; assign dbg_err = 4'd0;
+    assign cnt_urgent_over = 0; assign dbg_err = 4'd0; assign dbg_pmiss = 16'd0;
     assign cmd = 3'd0; assign cmd_ba = 2'd0; assign cmd_a = 13'd0; assign wvalid = 1'b0; assign rvalid = 1'b0;
 `else
     wire [31:0] unused32;
@@ -122,7 +123,7 @@ module tb_replay #(
     reg        sk_we = 0; reg [2:0] sk_idx = 0, sk_base = 0; reg [1:0] sk_val = 0;
     tau_sdram_sched_v #(.NPORTS(NP), .QDEPTH(QDEPTH), .BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .WF_DEPTH(WF_DEPTH),
                         .ENABLE_2D(EN2D), .WR_HI_REQ(WR_HI_REQ), .WR_DEFER_NS(WR_DEFER_NS), .REF_SOFT_DEBT(REF_SOFT),
-                        .REF_HARD_DEBT(REF_HARD), .BATCH_REQS(BATCH_REQS), .BATCH_PORTS(BATCH_P), .LOOKAHEAD(LOOKAHEAD_P), .RAW_CHECK(RAW_P), .SAME_ROW_CONT(CONT_P), .BATCH_WORDS(BATCH_WORDS), .RD_LAT(CLSEL + 2),
+                        .REF_HARD_DEBT(REF_HARD), .BATCH_REQS(BATCH_REQS), .BATCH_PORTS(BATCH_P), .LOOKAHEAD(LOOKAHEAD_P), .RAW_CHECK(RAW_P), .SAME_ROW_CONT(CONT_P), .BATCH_WORDS(BATCH_WORDS), .RD_LAT(CLSEL + 2), .CL(CLSEL), .CNT_EN(1),
                         .WEIGHT(WEIGHT_P), .MAXG_RD(MAXG_RD_P), .MAXG_WR(MAXG_WR_P), .CLK_HZ((1_000_000_000 / P_PS) * 1000)) dut (
         .clk(clk), .rst(rst), .req_valid(d_req_valid), .req_ready(d_req_ready), .req_we(req_we), .req_addr(req_addr),
         .req_len(req_len), .req_tag(req_tag), .req_2d(req_2d), .req_w(req_w), .req_h(req_h), .req_stride(req_stride),
@@ -130,7 +131,7 @@ module tb_replay #(
         .w_next(w_next), .w_idx(w_idx), .w_data(d_w_data), .w_be({NP{2'b11}}),
         .r_valid(d_r_valid), .r_data(d_r_data), .r_last(d_r_last), .done(d_done), .done_tag(done_tag),
         .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad), .cnt_worst_wait(cnt_worst_wait),
-        .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err),
+        .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err), .dbg_pmiss(dbg_pmiss),
         .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be),
         .ok_act(ok_act), .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_bst(ok_bst), .ok_prea(ok_prea), .ok_ref(ok_ref), .init_done(init_done),
         .ref_due(ref_due), .ref_debt(ref_debt), .preempt_ack(preempt_ack),

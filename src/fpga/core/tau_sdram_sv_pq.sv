@@ -74,7 +74,10 @@ module tau_sdram_sv_pq #(
     endfunction
 
     // request validity (contract 4 and 5)
-    wire [11:0] area  = req_w * req_h;
+    // w * h by shift and add (no multiplier / DSP block)
+    wire [11:0] area  = (req_h[0] ? {6'd0, req_w}       : 12'd0) + (req_h[1] ? {5'd0, req_w, 1'b0} : 12'd0) +
+                        (req_h[2] ? {4'd0, req_w, 2'b0} : 12'd0) + (req_h[3] ? {3'd0, req_w, 3'b0} : 12'd0) +
+                        (req_h[4] ? {2'd0, req_w, 4'b0} : 12'd0) + (req_h[5] ? {1'd0, req_w, 5'b0} : 12'd0);
 `ifdef MUT_BADREQ
     wire        bad1d = (req_len == 10'd0) || (req_len > 10'd600);
 `else
