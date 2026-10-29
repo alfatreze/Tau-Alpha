@@ -14,7 +14,7 @@ module tb_min #(
     reg req_valid = 0, req_we = 0, req_2d = 0; reg [24:0] req_addr = 0; reg [9:0] req_len = 0; reg [7:0] req_tag = 0;
     reg [15:0] w_data = 0; reg [1:0] w_be = 2'b11;
     wire req_ready, w_next, r_valid, r_last, done; wire [9:0] w_idx; wire [15:0] r_data; wire [7:0] done_tag;
-    wire [31:0] cnt_requests, cnt_words; wire [15:0] cnt_bad;
+    wire [31:0] cnt_requests, cnt_words; wire [15:0] cnt_bad; wire dbg_pmiss;
     wire [2:0] cmd; wire [1:0] cmd_ba; wire [12:0] cmd_a; wire wvalid; wire [15:0] wdata; wire [1:0] be;
     wire [3:0] ok_act, ok_rd, ok_wr, ok_pre, row_aged, ref_debt;
     wire ok_prea, ok_ref, ok_bst, init_done, rvalid, phy_fault, preempt, banks_closed, ref_due, preempt_ack;
@@ -31,11 +31,11 @@ module tb_min #(
     sdram_chip_model #(.CL_DEFAULT(CLSEL), .INIT_NOP_MIN(INITCYC), .INIT_WAIT_PS(INITCYC * P_PS), .MEM_LOG2(20), .MEM_COMPACT(1)) chip (
         .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras), .dram_cas_n(c_cas), .dram_we_n(c_we), .dram_dqm(c_dqm),
         .dram_ba(c_ba), .dram_a(c_a), .dram_dq(dq), .fpga_oe(phy.u_core.dq_oe), .cap_clk(clk));
-    tau_sdram_sched_min #(.BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD)) dut (
+    tau_sdram_sched_min #(.BANK_HASH(BANK_HASH), .W_LEAD(W_LEAD), .CL(CLSEL)) dut (
         .clk(clk), .rst(rst), .req_valid(req_valid), .req_ready(req_ready), .req_we(req_we), .req_addr(req_addr), .req_len(req_len),
         .req_tag(req_tag), .req_2d(req_2d), .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be), .r_valid(r_valid),
         .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag), .cnt_requests(cnt_requests), .cnt_words(cnt_words),
-        .cnt_bad(cnt_bad), .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be), .ok_act(ok_act),
+        .cnt_bad(cnt_bad), .dbg_pmiss(dbg_pmiss), .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be), .ok_act(ok_act),
         .ok_rd(ok_rd), .ok_wr(ok_wr), .ok_pre(ok_pre), .ok_prea(ok_prea), .ok_ref(ok_ref), .init_done(init_done), .rvalid(rvalid),
         .rdata(rdata), .row_aged(row_aged), .preempt(preempt), .preempt_ack(preempt_ack), .banks_closed(banks_closed), .ref_due(ref_due));
 
@@ -100,6 +100,7 @@ module tb_min #(
         repeat (8) @(posedge clk);
         if (phy_fault !== 1'b0) begin $display("  PHY fault count=%0d cause=%0d", fault_count, fault_cause); fail = fail + 1; end
         if (chip.err_count != 0) begin $display("  chip errors %0d mask %h", chip.err_count, chip.err_mask); fail = fail + 1; end
+        if (dbg_pmiss) begin $display("  timing model mismatch"); fail = fail + 1; end
         if (dq_conflicts !== 16'd0) begin $display("  dq conflicts"); fail = fail + 1; end
     end endtask
     integer L, r, n, off; integer seed = 3;

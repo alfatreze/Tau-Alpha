@@ -104,7 +104,7 @@ if [ "$WANT" = all ] || [ "$WANT" = tests ]; then
     run_unit unit_queue tb_queue "$HERE/tb_queue.sv" "$RTL/tau_sdram_sv_pq.sv"
 fi
 MINSRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
-        "$RTL/tau_sdram_sched_min.sv" "$HERE/tb_min.sv")
+        "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sched_min.sv" "$HERE/tb_min.sv")
 min_run() {   # label test params defines ; returns 0 pass / 1 fail
     local label="$1" name="$2" params="$3" defs="$4" args=() dargs=()
     for p in $params; do args+=("-Ptb_min.$p"); done
@@ -128,6 +128,8 @@ MUT_MIN_BAD | bad
 MUT_MIN_NOREF | refresh
 MUT_MIN_NOBST | basic
 MUT_MIN_DONE | basic
+MUT_MIN_NOQUIET | lengths
+MUT_TM_Z | lengths
 EOF
 )
 if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = min ]; then
@@ -146,7 +148,7 @@ if [ "$WANT" = all ] || [ "$WANT" = mutants ] || [ "$WANT" = minmut ]; then
     done <<< "$MINMUTS"
 fi
 if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
-    verilator --lint-only -Wall --top-module tau_sdram_sched_min "$RTL/tau_sdram_sched_min.sv" > "$OUT/lint_min.log" 2>&1 && { echo "PASS lint min"; pass=$((pass+1)); } || { echo "FAIL lint min"; head "$OUT/lint_min.log"; fail=$((fail+1)); }
+    verilator --lint-only -Wall --top-module tau_sdram_sched_min "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sched_min.sv" > "$OUT/lint_min.log" 2>&1 && { echo "PASS lint min"; pass=$((pass+1)); } || { echo "FAIL lint min"; head "$OUT/lint_min.log"; fail=$((fail+1)); }
 fi
 if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
     if verilator --lint-only -Wall --top-module tau_sdram_sched_v "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" > "$OUT/lint.log" 2>&1; then
