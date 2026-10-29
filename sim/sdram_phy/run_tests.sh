@@ -15,7 +15,7 @@ VVP="${VVP:-vvp}"
 mkdir -p "$OUT"
 T=tb_sdram_phy
 RTL="$ROOT/src/fpga/core"
-SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv" "$HERE/$T.sv")
+SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_dq_cap_dual.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv" "$HERE/$T.sv")
 
 TESTS=$(cat <<'EOF'
 init | INITCYC=10000 | init_cl2_real_wait
@@ -79,6 +79,24 @@ turn_rw | CLSEL=3 | turn_rw_cl3
 wr_rd_turn | | wr_rd_turn_cl2
 wr_rd_turn | CLSEL=3 | wr_rd_turn_cl3
 n_wr_in_read | CLSEL=3 | n_wr_in_read_cl3
+cal | CALIB=1 EXPW=7 EXPB=1 | cal_some_cl2
+cal | CALIB=1 CLSEL=3 TAC3=8000 EXPW=7 EXPB=1 | cal_some_cl3
+cal | CALIB=1 TAC2=4000 EXPW=63 EXPB=1 | cal_all
+cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 | cal_none
+cal | CALIB=1 TOP=1 EXPW=7 EXPB=1 | cal_top
+cal_reset | CALIB=1 EXPW=7 EXPB=1 |
+rand | CALIB=1 | rand_cal
+perf_hist | PERFON=1 |
+perf_turn | PERFON=1 |
+perf_rand | PERFON=1 NRAND=6000 | perf_rand_cl2
+perf_rand | PERFON=1 NRAND=6000 CLSEL=3 | perf_rand_cl3
+bist_clean | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_clean | BISTON=1 BLO=0 BHI=1 MEMC=1 CLSEL=3 | bist_clean_cl3
+bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_stuck1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_stuck_p1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
 rand | RDEX=1 CLSEL=3 | rand_cl3_x1
@@ -113,6 +131,20 @@ MUT_NOPREEMPT | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_NOPULSE | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_PREA_EARLY | preempt_young_row | DEBTMAX=3 REFIPS=200000 |
 MUT_NOAGE | aged_row | REFIPS=1000000000 |
+MUT_PERF_ACT | perf_hist | PERFON=1 |
+MUT_PERF_BIN | perf_hist | PERFON=1 |
+MUT_PERF_HITSWAP | perf_turn | PERFON=1 |
+MUT_PERF_TURN | perf_turn | PERFON=1 |
+MUT_PERF_IDLE | perf_rand | PERFON=1 NRAND=6000 |
+MUT_BIST_NOINV | bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOCHK | bist_stuck0 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_RANGE | bist_stuck_p1 | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOWAIT | bist_wait | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_BIST_NOQUIET | bist_waitquiet | BISTON=1 BLO=0 BHI=1 MEMC=1 |
+MUT_CAL_NOCMP | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_BEST | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_NOSEL | cal | CALIB=1 EXPW=7 EXPB=1 |
+MUT_CAL_NOFAULT | cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 |
 EOF
 )
 
