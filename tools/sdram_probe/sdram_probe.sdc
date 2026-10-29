@@ -52,7 +52,14 @@ set in_board 0.0
 set_input_delay -clock sdram_clk_pin -max [expr {$tac_max + $in_board}] [get_ports {dram_dq[*]}]
 set_input_delay -clock sdram_clk_pin -min [expr {$toh_min - $in_board}] [get_ports {dram_dq[*]}]
 # The register that captures DQ in CAP_MODE RISE is cap_r (tau_sdram_dq_cap / tau_sdram_dq_cap_dual), in the I/O cell.
-set cap_rise_regs [get_registers -nowarn {*u_cap|cap_r[*] *u_cap|cap_r_r[*]}]
+# The fitted names carry the generate-block prefix (u_cap|g_rise.cap_r[12]); a pattern that matches nothing makes the
+# multicycle silently disappear (KB-027, and B-916: the first redesign probe lost it this way), so say so loudly.
+set cap_rise_regs [get_registers -nowarn {*u_cap|g_rise.cap_r[*] *u_cap|g_rise.cap_r_r[*] *u_cap|cap_r[*] *u_cap|cap_r_r[*]}]
+if {[get_collection_size $cap_rise_regs] == 0} {
+    post_message -type critical_warning "sdram_probe.sdc: no capture register matched: the read-capture multicycle is NOT applied"
+} else {
+    post_message -type info "sdram_probe.sdc: read-capture multicycle applied to [get_collection_size $cap_rise_regs] registers"
+}
 set_multicycle_path -setup 2 -end -from [get_clocks sdram_clk_pin] -to $cap_rise_regs
 set_multicycle_path -hold  1 -end -from [get_clocks sdram_clk_pin] -to $cap_rise_regs
 # FALL variant (CAP_MODE 1, only for an ideal chip clock/pad; ALTDDIO_IN build): the RISING half of the DDIO input
