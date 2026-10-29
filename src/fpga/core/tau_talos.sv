@@ -264,6 +264,11 @@ module tau_talos #(
     input  wire [10:0] wsrc_addr,
     output wire [15:0] wsrc_q,
 
+    // Sideband for the scheduler path (tau_sdram_sched_a, D-T08): valid in the cycle p0_rd_req is high. The old controller
+    // ends a read burst on p0_end_burst_req; a scheduler needs the length up front. Unused (left open) by the old path.
+    output wire        p0_is_fill,           // this read is a scanout FILL (the urgent client)
+    output wire [9:0]  p0_rd_len,            // words this read burst will consume (1..512)
+
     // Scanout handshake (tau_scanout): the fill request and vblank toggles arrive from clk_vid and are
     // sampled here with the same toggle-and-sample technique as before the split; the line-buffer write
     // port goes to the scanout's linebuf (clk_sdram write side).
@@ -761,6 +766,13 @@ module tau_talos #(
     reg        copy_mode;
     reg [18:0] copy_src;
     reg [7:0]  copy_cnt;
+    // Scheduler sideband: astate has already moved to the read's state in the cycle p0_rd_req is high, and char_w is stable
+    // for the whole row, so these are combinational decodes (the old path leaves them open and synthesis removes them).
+    // A_COPYRD / A_KEYDST / A_CBLIT_BURST end at copy_cnt == char_w[6:0]-1 in 8-bit arithmetic: char_w[6:0] == 0 reads 256.
+    assign p0_is_fill = (astate == A_FILL);
+    assign p0_rd_len  = (astate == A_FILL) ? FILL_WORDS[9:0]
+                      : (astate == A_SBLIT || astate == A_CBLIT_RD) ? 10'd1
+                      : (char_w[6:0] == 7'd0) ? 10'd256 : {3'd0, char_w[6:0]};
 
     // BLIT state (Phase F B1). Full 25-bit addresses (base + offset already
     // summed at dispatch), so it can reach anywhere in SDRAM, not just the
