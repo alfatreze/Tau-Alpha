@@ -55,7 +55,7 @@ module tau_sdram_sched_v #(
     parameter integer SAME_ROW_BREAK_NS = 60000,
     parameter integer W_LEAD = 2,
     parameter integer WF_DEPTH = 8,
-    parameter integer RDQ_DEPTH = 16,
+    parameter integer RDQ_DEPTH = 8,
     parameter integer CNT_EN = 1,                    // 0: requests/words/busy/worst-wait/urgent-over counters removed (bad stays)
     parameter integer LOOKAHEAD = 1,                 // 1: ACT/PRE for the next target while a burst streams
     parameter integer RAW_CHECK = 1,                 // 1: a read waits for an older overlapping write of another port
@@ -349,7 +349,11 @@ module tau_sdram_sched_v #(
     // target T
     // ---------------------------------------------------------------------------------------------------
     wire        lk_v  = pq_v & ~pq_iss;
-    reg  [3:0]  blank_q;
+    reg  [3:0]  blank_q;                  // after an issue: the head advanced, stages A..D are stale
+    reg  [2:0]  tq_q;                     // after a table change: the row-hit flags of stages A..D are stale (column issue and prep wait)
+    reg         fh_v, fh_kill, td_fhm;    // fast open-row cache: the bank of the last ACT and its row (always current)
+    reg  [1:0]  fh_bank; reg [12:0] fh_row;
+    reg         pa_v; reg [1:0] pa_bank; reg [12:0] pa_row;   // ACT to follow the PRE just issued for the target
     reg         td_v; reg [2:0] td_p; reg td_we, td_last, td_hit, td_open, td_wrr, td_bc;
     reg  [1:0]  td_bank; reg [12:0] td_row; reg [9:0] td_col, td_n; reg [7:0] td_tag;
     wire [2:0]  d_p = lk_v ? pq_port : c_p_q;
@@ -357,6 +361,7 @@ module tau_sdram_sched_v #(
     always @(posedge clk) begin
         td_v <= d_v; td_p <= d_p; td_we <= hwe[d_p]; td_last <= hlast[d_p]; td_bank <= hbank[d_p*2 +: 2];
         td_row <= hrow[d_p*13 +: 13]; td_col <= hcol[d_p*10 +: 10]; td_n <= hplen[d_p*10 +: 10]; td_tag <= htag[d_p*8 +: 8];
+        td_fhm <= fh_v && fh_bank == hbank[d_p*2 +: 2] && fh_row == hrow[d_p*13 +: 13];
         td_hit <= hhit_q[d_p]; td_open <= hopen_q[d_p]; td_wrr <= lk_v ? 1'b0 : c_wrr_q; td_bc <= lk_v ? 1'b0 : c_bc_q;
     end
     wire        t_v    = td_v & (blank_q == 4'd0);
@@ -368,8 +373,10 @@ module tau_sdram_sched_v #(
     wire [9:0]  t_n    = td_n;
     wire        t_last = td_last;
     wire [7:0]  t_tag  = td_tag;
-    wire        t_open = td_open;
-    wire        t_hit  = td_hit;
+    wire        quiet  = (tq_q == 3'd0);
+    wire        fh_ok  = td_fhm & ~fh_kill;
+    wire        t_open = (td_open & quiet) | fh_ok;
+    wire        t_hit  = (td_hit & quiet & !row_aged[td_bank]) | (fh_ok & !row_aged[td_bank]);
     assign      t_wrr  = td_wrr;
 
     wire        boundary = cur_v && (cur_left == 10'd0);
@@ -438,7 +445,9 @@ module tau_sdram_sched_v #(
 `endif
         end else if (issue) begin
             cmd = t_we ? K_WR : K_RD; cmd_ba = t_bank; cmd_a = {3'b000, t_col};
-        end else if (run_ok && t_v && (LOOKAHEAD != 0 || !cur_v)) begin
+        end else if (run_ok && pa_v && ok_act[pa_bank] && (LOOKAHEAD != 0 || !cur_v)) begin
+            cmd = K_ACT; cmd_ba = pa_bank; cmd_a = pa_row;
+        end else if (run_ok && t_v && (quiet || fh_ok) && (LOOKAHEAD != 0 || !cur_v)) begin
             if (!t_open) begin
                 if (ok_act[t_bank]) begin cmd = K_ACT; cmd_ba = t_bank; cmd_a = t_row; end
             end else if (!t_hit) begin
@@ -548,7 +557,7 @@ module tau_sdram_sched_v #(
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
-            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0; blank_q <= 4'd7;
+            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0; blank_q <= 4'd7; tq_q <= 3'd4; fh_v <= 1'b0; fh_kill <= 1'b0; pa_v <= 1'b0;
             last_port <= 3'd0; last_v <= 1'b0; last_bank <= 2'd0; last_row <= 13'd0;
             done_b_q <= {NPORTS{1'b0}}; done_w_q <= {NPORTS{1'b0}};
             for (i = 0; i < NPORTS; i = i + 1) begin
@@ -569,8 +578,16 @@ module tau_sdram_sched_v #(
             end
             // ---- stale-stage blanking
             if (issue) blank_q <= 4'd5;
-            else if (banks_closed || cmd == K_ACT || cmd == K_PRE || cmd == K_PREA) blank_q <= (blank_q > 4'd4) ? blank_q - 4'd1 : 4'd4;
             else if (blank_q != 4'd0) blank_q <= blank_q - 4'd1;
+            if (banks_closed || cmd == K_ACT || cmd == K_PRE || cmd == K_PREA) tq_q <= 3'd4;
+            else if (tq_q != 3'd0) tq_q <= tq_q - 3'd1;
+            fh_kill <= banks_closed || cmd == K_ACT || cmd == K_PRE || cmd == K_PREA;
+            if (banks_closed || cmd == K_PREA) fh_v <= 1'b0;
+            else if (cmd == K_ACT) begin fh_v <= 1'b1; fh_bank <= cmd_ba; fh_row <= cmd_a; end
+            else if (cmd == K_PRE && fh_bank == cmd_ba) fh_v <= 1'b0;
+            if (banks_closed || cmd == K_PREA) pa_v <= 1'b0;
+            else if (cmd == K_ACT && pa_v && cmd_ba == pa_bank) pa_v <= 1'b0;
+            else if (cmd == K_PRE && !(rfm != RF_NONE) && !boundary && t_v) begin pa_v <= 1'b1; pa_bank <= cmd_ba; pa_row <= t_row; end
             // ---- refresh sequence
             if (banks_closed) rfm <= RF_NONE;
             else case (rfm)
