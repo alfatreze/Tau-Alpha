@@ -44,6 +44,15 @@ STAGE_FILES = {
         "mf_pllbase.v", "mf_pllbase.qip", "mf_pllbase/mf_pllbase_0002.v", "mf_pllbase/mf_pllbase_0002.qip")},
 }
 VARIANT_MACROS = {"cal": "PROBE_CALIBRATE", "bist": "PROBE_BIST", "perf": "PROBE_PERF"}
+# variant "sched_a" (additive): probe Tau Alpha's 3-port path (tau_sdram_sched_a) instead of the 6-port sched_v. It stages these
+# files too and appends TOP_LEVEL_ENTITY + the sources to the QSF; the base top stays staged and unused. The PHY optional
+# features stay off in it.
+SCHED_A_TOP = "tau_sdram_probe_a_top"
+SCHED_A_FILES = {
+    "tau_sdram_probe_a_top.sv": PROBE / "tau_sdram_probe_a_top.sv",
+    **{f"rtl/{n}": CORE / n for n in ("tau_sdram_a_gfx_if.sv", "tau_sdram_a_cpu.sv", "tau_sdram_sched_a.sv")},
+}
+SCHED_A = False
 EXPECT_MIN = 15     # minutes (estimate, NOT measured: the full core takes 1h40; this design is a fraction of it)
 EXPECT_MAX = 30
 
@@ -79,7 +88,12 @@ def running_compiles():
 
 
 def variant_macros(variant):
+    global SCHED_A
     names = [v.strip() for v in variant.split(",") if v.strip()]
+    if "sched_a" in names:
+        SCHED_A = True
+        STAGE_FILES.update(SCHED_A_FILES)
+        names = [n for n in names if n != "sched_a"] or ["base"]
     if names == ["all"]:
         names = list(VARIANT_MACROS)
     if names == ["base"]:
@@ -126,6 +140,9 @@ def cmd_launch(a):
     ssh_bytes(f"mkdir -p {d} && tar xzf - -C {d}", data)
     extra = "\n# --- sdram_probe.py launch %s variant %s seed %d ---\n" % (a.name, a.variant, a.seed)
     extra += "".join(f'set_global_assignment -name VERILOG_MACRO "{m}=1"\n' for m in macros)
+    if SCHED_A:
+        extra += f"set_global_assignment -name TOP_LEVEL_ENTITY {SCHED_A_TOP}\n"
+        extra += "".join(f"set_global_assignment -name SYSTEMVERILOG_FILE {arc}\n" for arc in SCHED_A_FILES)
     extra += f"set_global_assignment -name SEED {a.seed}\n"
     ssh(f"cat >> {d}/{REV}.qsf", inp=extra)
     job = (f"{QUARTUS} --flow compile {REV} > quartus-fit.log 2>&1; "

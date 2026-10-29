@@ -202,6 +202,9 @@ module tau_gfx #(
     // are varying-colour (a constant-data burst cannot express a glyph).
     input  wire [10:0] wsrc_addr,
     output wire [15:0] wsrc_q,
+    // Sideband for tau_sdram_sched_a (see tau_talos.sv); open on the old path
+    output wire        p0_is_fill,
+    output wire [9:0]  p0_rd_len,
 
     // Video output (clk_vid domain) ------------------------------------------
     output wire  [23:0] video_rgb,
@@ -297,6 +300,7 @@ module tau_gfx #(
         .p0_data_available(p0_data_available),
         .wsrc_addr(wsrc_addr),
         .wsrc_q(wsrc_q),
+        .p0_is_fill(p0_is_fill), .p0_rd_len(p0_rd_len),
         .fill_req_tgl(fill_req_tgl), .fill_line_req(fill_line_req), .vblank_tgl(vblank_tgl),
         .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
         .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
