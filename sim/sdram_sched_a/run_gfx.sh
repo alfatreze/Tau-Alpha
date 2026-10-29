@@ -28,6 +28,7 @@ run() {   # stack
 }
 r0=$(run 0 "$@"); echo "$r0"
 crc=$(echo "$r0" | sed -n 's/.*crc=\([0-9a-f]*\).*/\1/p' | head -1)
-PLUS="+REFCRC=$crc"
-run 2 "$@"
+fen=$(echo "$r0" | sed -n 's/.*fences=\([0-9]*\).*/\1/p' | head -1)
+PLUS="+REFCRC=$crc +REFFENCE=$fen"
+if [ "${NEW:-1}" = 1 ]; then run 2 "$@"; fi
 if [ "${OLD:-1}" = 1 ]; then run 1 "$@"; fi

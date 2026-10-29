@@ -25,6 +25,35 @@ module tb_a_unit #(
     // ---- CPU mailbox
     reg sys_start = 0, sys_write = 0; reg [24:0] sys_addr = 0; reg [31:0] sys_wdata = 0; reg [3:0] sys_be = 4'hf;
     wire sys_busy, sys_done; wire [31:0] sys_rdata;
+    // Wishbone path (the player's CPU window): tau_sdram_wb_adapter -> tau_sdram_bridge_mux -> the CPU bridge, as in tau_soc
+    reg use_wb = 0;
+    reg wb_cyc = 0, stb = 0, we = 0; reg [24:0] wb_a = 0; reg [31:0] wb_d = 0; reg [3:0] wb_sel = 4'hf;
+    wire [31:0] wb_rdata_o; wire ack_pulse, unsupported; reg dACK = 0;
+    always @(posedge clk_sys) dACK <= rst_sys ? 1'b0 : ack_pulse;
+    wire a_req, a_write, a_accept, a_done; wire [24:0] a_addr; wire [31:0] a_wdata, a_rdata; wire [3:0] a_be;
+    wire mx_start, mx_wbs, mx_write; wire [24:0] mx_addr; wire [31:0] mx_wdata; wire [3:0] mx_be;
+    tau_sdram_wb_adapter adapter (.clk(clk_sys), .rst(rst_sys), .wb_cyc(wb_cyc), .wb_stb(stb), .wb_we(we), .wb_cti(3'b000), .wb_sdram_addr(wb_a),
+        .wb_wdata(wb_d), .wb_sel(wb_sel), .wb_rdata(wb_rdata_o), .wb_ack(ack_pulse), .wb_unsupported(unsupported), .bridge_req(a_req),
+        .bridge_write(a_write), .bridge_addr(a_addr), .bridge_wdata(a_wdata), .bridge_byte_en(a_be), .bridge_accept(a_accept),
+        .bridge_done(a_done), .bridge_rdata(a_rdata));
+    tau_sdram_bridge_mux mux (.clk(clk_sys), .rst(rst_sys), .diag_req(1'b0), .diag_write(1'b0), .diag_addr(25'd0), .diag_wdata(32'd0), .diag_be(4'd0),
+        .wb_req(a_req), .wb_write(a_write), .wb_addr(a_addr), .wb_wdata(a_wdata), .wb_be(a_be), .wb_accept(a_accept), .diag_done(), .wb_done(a_done),
+        .diag_rdata(), .wb_rdata(a_rdata), .busy(), .bridge_start(mx_start), .bridge_write(mx_write), .bridge_addr(mx_addr), .bridge_wdata(mx_wdata),
+        .bridge_be(mx_be), .bridge_wb_start(mx_wbs), .bridge_busy(sys_busy), .bridge_done(sys_done), .bridge_rdata(sys_rdata));
+    wire x_start = use_wb ? mx_start : sys_start; wire x_write = use_wb ? mx_write : sys_write; wire [24:0] x_addr = use_wb ? mx_addr : sys_addr;
+    wire [31:0] x_wdata = use_wb ? mx_wdata : sys_wdata; wire [3:0] x_be = use_wb ? mx_be : sys_be;
+    integer wb_beats = 0, wb_starts = 0; always @(posedge clk_sys) if (mx_wbs) wb_starts <= wb_starts + 1;
+    reg [31:0] wb_got;
+    task wbeat(input w, input [24:0] a, input [31:0] d, input [3:0] sel, input integer gap);
+        integer nn; begin
+            wb_cyc <= 1; stb <= 1; we <= w; wb_a <= a; wb_d <= d; wb_sel <= sel; wb_beats = wb_beats + 1;
+            @(posedge clk_sys); nn = 0;
+            while (!dACK) begin @(posedge clk_sys); nn = nn + 1; if (nn > 5000) begin fail1("wishbone beat timeout"); $finish; end end
+            wb_got = wb_rdata_o;
+            if (w) begin sh_wr(a, d[15:0], sel[1:0]); sh_wr(a + 1, d[31:16], sel[3:2]); end
+            else begin sh_chk(a, wb_got[15:0], "wb read lo"); sh_chk(a + 1, wb_got[31:16], "wb read hi"); end
+            if (gap > 0) begin wb_cyc <= 0; stb <= 0; repeat (gap) @(posedge clk_sys); end
+        end endtask
     wire c_req_valid, c_req_ready, c_req_we, c_w_next, c_r_valid, c_r_last, c_done; wire [24:0] c_req_addr; wire [9:0] c_req_len, c_w_idx;
     wire [15:0] c_w_data, c_r_data; wire [1:0] c_w_be;
     wire rst_out, init_done, busy, phy_fault; wire [15:0] fault_count, dbg_pmiss; wire [31:0] refreshes;
@@ -44,8 +73,8 @@ module tb_a_unit #(
         .dram_a(c_a), .dram_ba(c_ba), .dram_dq(dq), .dram_dqm(c_dqm), .dram_clk(c_clk), .dram_cke(c_cke), .dram_ras_n(c_ras),
         .dram_cas_n(c_cas), .dram_we_n(c_we));
     tau_sdram_a_cpu cpu (
-        .clk_sys(clk_sys), .rst_sys(rst_sys), .sys_start(sys_start), .sys_wb_start(1'b0), .sys_write(sys_write), .sys_addr(sys_addr),
-        .sys_wdata(sys_wdata), .sys_byte_en(sys_be), .sys_busy(sys_busy), .sys_done(sys_done), .sys_rdata(sys_rdata),
+        .clk_sys(clk_sys), .rst_sys(rst_sys), .sys_start(x_start), .sys_wb_start(use_wb), .sys_write(x_write), .sys_addr(x_addr),
+        .sys_wdata(x_wdata), .sys_byte_en(x_be), .sys_busy(sys_busy), .sys_done(sys_done), .sys_rdata(sys_rdata),
         .clk_sdram(clk), .rst_sdram(rst_out), .req_valid(c_req_valid), .req_ready(c_req_ready), .req_we(c_req_we), .req_addr(c_req_addr),
         .req_len(c_req_len), .w_next(c_w_next), .w_idx(c_w_idx), .w_data(c_w_data), .w_be(c_w_be), .r_valid(c_r_valid), .r_data(c_r_data),
         .r_last(c_r_last), .done(c_done));
@@ -249,6 +278,34 @@ module tb_a_unit #(
                 // after done the chip memory holds the data (no write lands after p0_ready)
                 begin : chk integer j; reg [16:0] pk; reg [24:0] a; for (j = 0; j < 300; j = j + 1) begin
                     a = A(4, j); pk = chip.peek(a[11:10] ^ a[21:20] ^ a[23:22], a[24:12], a[9:0]); if (pk[15:0] !== 16'hABCD) fail1("memory not written at done"); end end
+            end
+            "wb": begin      // the CPU's Wishbone beats (back-to-back with STB held, and with gaps) while the master streams
+                use_wb = 1; mix_done_m = 0;
+                fork
+                    begin : bgm
+                        for (rc = 0; rc < 40; rc = rc + 1) begin
+                            L = 1 + urand(127); off = urand(30000);
+                            m_write(A(8, off), L, 16'h4000 + rc, 2'b11, 0); m_read(A(8, off), L, 0, 1);
+                            m_read(A(11, 0), 400, 1, 0);
+                        end
+                        mix_done_m = 1;
+                    end
+                    begin : wbc
+                        integer gp, q;
+                        for (gp = 0; gp <= 3; gp = gp + 3) for (q = 0; q < 40; q = q + 1) begin
+                            wbeat(1, A(12, 2 * q), 32'hFFFFFFFF, 4'hF, gp); wbeat(0, A(12, 2 * q), 0, 4'hF, gp);      // load after all-ones store
+                            wbeat(1, A(12, 2 * q), 32'h0, 4'hF, gp); wbeat(0, A(12, 2 * q), 0, 4'hF, gp);
+                            wbeat(1, A(12, 2 * q + 400), $random(seed), 4'hF, gp); wbeat(0, A(12, 2 * q + 400), 0, 4'hF, gp);
+                            wbeat(1, A(12, 2 * q + 400), $random(seed), urand(16), gp); wbeat(0, A(12, 2 * q + 400), 0, 4'hF, gp);
+                            wbeat(0, A(12, 2 * q + 400), 0, 4'hF, gp);   // back-to-back load B
+                        end
+                        wb_cyc <= 0; stb <= 0;
+                    end
+                join
+                repeat (400) @(posedge clk_sys);
+                if (wb_starts != wb_beats) begin $display("  %0d Wishbone beats produced %0d bridge requests", wb_beats, wb_starts); fail1("one bridge request per beat"); end
+                if (unsupported) fail1("classic beat flagged unsupported");
+                $display("  wishbone beats %0d", wb_beats);
             end
             "latency": begin  // idle-system latencies: CPU word, engine 1-word read, engine 64-word read, engine 64-word write (cycles)
                 for (r = 0; r < 20; r = r + 1) begin cpu_op(1, A(1, 2 * r), r, 4'hF); cpu_op(0, A(1, 2 * r), 0, 0); end

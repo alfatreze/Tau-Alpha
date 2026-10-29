@@ -17,7 +17,7 @@ RTL="$ROOT/src/fpga/core"
 T=tb_a_unit
 SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
      "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv"
-     "$RTL/tau_sdram_a_gfx_if.sv" "$RTL/tau_sdram_a_cpu.sv" "$RTL/tau_sdram_sched_a.sv" "$HERE/$T.sv")
+     "$RTL/tau_sdram_wb_adapter.sv" "$RTL/tau_sdram_bridge_mux.sv" "$RTL/tau_sdram_a_gfx_if.sv" "$RTL/tau_sdram_a_cpu.sv" "$RTL/tau_sdram_sched_a.sv" "$HERE/$T.sv")
 WANT="${1:-all}"
 pass=0; fail=0
 
@@ -32,6 +32,7 @@ urgent | | urgent
 urgent | REFIPS=3900000 | urgent_refresh_half
 refresh | REFIPS=1950000 | refresh_quarter
 idle | | idle
+wb | | wishbone
 latency | | latency
 EOF
 )

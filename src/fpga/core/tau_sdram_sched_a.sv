@@ -89,6 +89,7 @@ module tau_sdram_sched_a #(
 );
     localparam integer NP = 3;
 
+    /* verilator lint_off PROCASSINIT */
     reg [2:0] rst_q = 3'b111;
     always @(posedge clk or posedge rst_in) begin
         if (rst_in) rst_q <= 3'b111;
