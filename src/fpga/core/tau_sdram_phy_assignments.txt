@@ -23,10 +23,17 @@ set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to dram_dq[*]
 # set_instance_assignment -name PRESERVE_REGISTER ON -to u_sdram_phy|u_core|oe_q[*]
 
 # 3. Read capture: one register per DQ bit in the input cell, fanout 1.
-#    CAP_MODE = RISE (0): cap_r in tau_sdram_dq_cap is the input register.
-#    CAP_MODE = FALL (1, default): the first stage must be the DDIO input register of the falling edge. Use the
-#    ALTDDIO_IN macro by compiling with the Verilog macro TAU_SDRAM_ALTDDIO_IN (dataout_l = falling edge), then
-#    set FAST_INPUT_REGISTER on the pins (it applies to the DDIO input register as well).
+#    DEFAULT (since B-915): CAP_MODE = RISE (0), RD_EXTRA = 1. cap_r in tau_sdram_dq_cap is the input register and
+#    captures the RISING edge two cycles after the edge that launched the read word (RD_LAT = CL + 2). Reason: the chip
+#    clock leaves the FPGA about 3.6 ns after the capture clock reaches the register and the DQ input path adds about
+#    2.7 ns (STA of the probe fit, slow 85C); with tAC 8 ns only the rising edge E + 20 ns is inside the valid window
+#    (setup about 0.7 ns, hold about 2.3 ns in the chip model with min = max - 0.4 ns assumed), the falling edge
+#    E + 15 ns fails by about 4.4 ns. This needs the multicycle in the SDC (tools/sdram_probe/sdram_probe.sdc:
+#    set_multicycle_path -setup 2 -end / -hold 1 -end from sdram_clk_pin to the cap_r registers); Quartus's default
+#    relation picks the edge one cycle too early. Not verified in Quartus or on a Pocket.
+#    CAP_MODE = FALL (1): kept for an ideal chip clock/pad; with ALTDDIO_IN (macro TAU_SDRAM_ALTDDIO_IN) the rising
+#    half of the DDIO input register is unused: set_false_path -to the *ddio_ina*DFFHI* registers (see the SDC).
+#    CALIBRATE = 1 (optional) sweeps edge x RD_EXTRA at init and would have found this (window 0x10 = RISE/1).
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
 
 # 4. Chip clock: dram_clk is the inverse of the controller clock through a DDIO output (datain_h 0, datain_l 1).

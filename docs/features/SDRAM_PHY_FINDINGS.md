@@ -41,6 +41,21 @@ All three are parameters, default 0; with 0 the ports are constant and the 88 or
 | F7 | PERF check | the chip model has no ACT/PRE counters, so the tests compare with an independent decoder on the chip pins (validated against the model's WR burst count); commands and bins exactly, idle and stall within 4 cycles (start/stop alignment) | info |
 | F8 | New inputs left unconnected | existing instances (sched_v, replay) leave `idle_ok`, `bist_start`, `perf_*` unconnected; they are unused while the parameters are 0 | info |
 
+## B-915 follow-up: the capture default is RISE (CAP_MODE 0, RD_EXTRA 1); chip model with the FPGA I/O path
+Source: the probe's STA (audit B-915, slow 85C, worst-case tAC 8 ns; **not a Pocket measurement**): the chip clock reaches the chip about 3.6 ns later than the capture clock reaches the DDIO register, the DQ input path adds about 2.7 ns; the falling-edge register failed setup by 4.46 ns. The contract's FALL default and its board-delay budget missed these FPGA-side delays.
+
+| # | Point | Decision | Flag |
+|---|---|---|---|
+| G1 | Chip model | new parameters `CLKOUT_MIN/MAX_PS` (3200/3600: the chip clock late; shifts the whole drive window and the capture window) and `DQIN_MIN/MAX_PS` (2300/2700: the data seen by the FPGA register; capture window and the old word's hold end only). Defaults are the B-915 numbers; **min = max - 0.4 ns is an assumption** (only one corner was measured). Default `CAP_MODE` of the model is now 0. The 65 original model tests run with all four at 0 (their test bench passes 0), so they keep their meaning; 5 new tests use the real values | ask |
+| G2 | Result with the real path (CL2, tAC 8 ns) | window from E+19.3 to E+22.3 ns: the rising edge E+20 captures with 0.7 ns setup and 2.3 ns hold; the falling edge E+15 fails; the next rising edge E+30 fails; 3 ns more board delay makes the rising edge fail too. RD_LAT measured CL+2 | info |
+| G3 | PHY default | `CAP_MODE` 0 (RISE), `RD_EXTRA` 1, `RD_LAT` = CL+2 (the same number as the old FALL default, which is why the schedulers' `RD_LAT` parameter did not change). `RD_LAT` formula unchanged: FALL CL+2+RD_EXTRA, RISE CL+1+RD_EXTRA | ask |
+| G4 | Meaning of `RD_EXTRA` | RISE: the register recaptures every rising edge, so `RD_EXTRA` only says in which cycle the word is there (latency, data is NOT delayed): wrong values make the data miss its `rvalid` (tests `rd_mis_rise_x0/x2`). FALL: stages after the capture register, as before | info |
+| G5 | Turnaround | the late chip clock also lengthens the chip's drive window: `DQ_BOARD_MAX_PS` default 3600; the earliest WR after the read-ending command is CL-1+2 clocks at CL2 and CL3 (BST+3 at CL2, BST+4 at CL3; it was BST+3 at both) | info |
+| G6 | CALIBRATE | the sweep (edge x `RD_EXTRA` 0..2) is unchanged and finds exactly RISE/1 on the realistic model (window 0x10, best 4); with 3 ns more delay none passes (cal fault); with the ideal path FALL passes and RISE/0 passes at tAC 4 ns. Ties prefer the configured `CAP_MODE` (now RISE) | info |
+| G7 | SDC | `tools/sdram_probe/sdram_probe.sdc`: `set_multicycle_path -setup 2 -end` / `-hold 1 -end` from `sdram_clk_pin` to the `cap_r` registers (the default relation to the next clk rising edge is 5 ns, the data needs 15). The coordinator's note said 3/2: for this input-delay reference 2/1 gives the 15 ns relation; **the first report must show a 15 ns setup relationship, else use 3/2**. False path for the unused DDIO half in the FALL/ALTDDIO build, comments for the CALIBRATE build's FALL registers | ask |
+
+Evidence level: simulation (chip model, PHY tests, sched_v, replay clip 1 picture) plus STA reasoning from B-915. No Quartus run of these changes, no Pocket.
+
 ## Results the tests produced
 * Measured `RD_LAT`: FALL CL+2+RD_EXTRA, RISE CL+1+RD_EXTRA (CL2 and CL3, RD_EXTRA 0..2), identical to the formula the PHY exports (chip-model finding A8).
 * Earliest `WR` after a terminated read: BST + 3 clocks at CL2 and CL3 (found by polling `ok_wr`, then confirmed conflict-free by the chip model).
