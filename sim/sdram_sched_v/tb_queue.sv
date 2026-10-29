@@ -17,7 +17,7 @@ module tb_queue;
               @(posedge clk); #1; req_valid = 0; end
     endtask
     task piece(input [9:0] len, input last, input [9:0] col);
-        begin settle; chk(hd_v && hd_plen == len && hd_last == last && hd_col == col, "piece"); 
+        begin settle; settle; chk(hd_v && hd_plen == len && hd_last == last && hd_col == col, "piece"); 
               if (!(hd_v && hd_plen == len && hd_last == last && hd_col == col))
                   $display("   got v=%b plen=%0d last=%b col=%0d, want len=%0d last=%b col=%0d", hd_v, hd_plen, hd_last, hd_col, len, last, col);
               adv = 1; @(posedge clk); #1; adv = 0; end
