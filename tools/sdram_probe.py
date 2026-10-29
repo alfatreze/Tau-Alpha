@@ -40,7 +40,7 @@ STAGE_FILES = {
     "probe_report.tcl": PROBE / "probe_report.tcl",
     **{f"rtl/{n}": CORE / n for n in (
         "tau_sdram_phy.sv", "tau_sdram_phy_core.sv", "tau_sdram_dq_cap.sv", "tau_sdram_dq_cap_dual.sv",
-        "tau_sdram_clk_out.sv", "tau_sdram_sched_v.sv", "tau_sdram_sv_pq.sv", "tau_sdram_sv_arb.sv",
+        "tau_sdram_clk_out.sv", "tau_sdram_sched_v.sv", "tau_sdram_sv_pq.sv", "tau_sdram_sv_arb.sv", "tau_sdram_sv_tm.sv",
         "mf_pllbase.v", "mf_pllbase.qip", "mf_pllbase/mf_pllbase_0002.v", "mf_pllbase/mf_pllbase_0002.qip")},
 }
 VARIANT_MACROS = {"cal": "PROBE_CALIBRATE", "bist": "PROBE_BIST", "perf": "PROBE_PERF"}
