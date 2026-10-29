@@ -56,6 +56,32 @@ Source: the probe's STA (audit B-915, slow 85C, worst-case tAC 8 ns; **not a Poc
 
 Evidence level: simulation (chip model, PHY tests, sched_v, replay clip 1 picture) plus STA reasoning from B-915. No Quartus run of these changes, no Pocket.
 
+## B-916: the PHY core restructured for timing (LUT levels by hand; NOT synthesised)
+The probe's core Fmax was 66.7 MHz with the worst path ending in the PHY (11 levels, 6 of them in the scheduler). The core was restructured without changing the interface or the cycle behaviour; **no Quartus run was possible, the levels below are counted by hand on the RTL (LUT6, from the scheduler inputs `cmd/cmd_ba/cmd_a/wvalid/wdata/be` unless said otherwise) and must be confirmed by the next probe fit.**
+
+What changed: (1) the effective command is a set of one-hot flags `e_* = o_* | int_*` (the offered command with its own permit, OR-ed with the PHY's own init / forced-refresh / feature commands) instead of the mux chain offer-or-NOP, then internal-or-offer, then wrap override; this is exact because every permit register is 0 while the PHY owns the bus; (2) the column wrap guard is per class (`pend & ~(terminating class)`), no general decode; (3) `oe_q`, `dqm_q` and the write beat are expanded by the class of the offer (`wr_go = o_wr | wo_ok & (NOP | ACT | PRE of another bank)`) instead of going through `illegal` and `wr_open_n`; (4) the permits use the algebraic form "register-only condition AND flags of this cycle" (`r_pre = open & ~pre & ~act & ras<=1 & wrp<=1 & ~beat`), with `r_wr` not depending on `rd_open_n` and `r_prea` using one `beat_any = wr_go & wvm` instead of a per-bank beat; (5) the counters are as wide as the largest timing value (4 bits at 100 MHz instead of 6); (6) the address/bank pins pass the offered value through (masked only where it matters: A10 for PRE and column commands, A11/A12 for non-ACT), the chip ignores them on NOP/REF/BST; (7) a multiplier-free calibration pattern (the only runtime multiply in the PHY was in CALIBRATE; no DSP block is inferred by the PHY or the probe top: all other `*` and `/` are elaboration-time). The remaining 2 DSP blocks of the probe are therefore not in `tau_sdram_phy*.sv` or `tau_sdram_probe_top.sv`; look in `sched_v` (width-24 address arithmetic, the multiplies of the 2D request or the cap/bandwidth logic).
+
+Designed levels (L1 = 4:1 permit mux by bank, `c_*` decode, `pend`; L2 = `o_*` per class, per-bank `act_b/pre_b`; the target of the task was <= 4, <= 2 for the pins):
+
+| Path class | Levels now | Target | Note |
+|---|---|---|---|
+| `dq_q` (data) | 1 (0 with the features off) | | |
+| `ba_q`, `a_q` | 2 from the inputs (3 from the init/sequencer state: `isint` is a decode of registers) | <= 2 | |
+| `ras_q`, `cas_q` | 3 | 2 | flags L2 + OR |
+| `we_q` | 3-4 | 2 | the forced-BST (wrap) term |
+| `oe_q` | 3 | 2 | `a_new | b_cont` |
+| `dqm_q` | 4 | 2 | `rdlow` (3) + final NOR with the write term |
+| `ok_act/rd/wr/pre` (+ `rp_*`) D | 4 | 4 | late flags `act_b/pre_b/beat_b` + `n_busy` in the last LUT |
+| `ok_prea` D | 4 | 4 | `beat_any`, pair-wise AND of `pre_b | po_b` |
+| `ok_ref` D | 3 | 4 | register-only `RBS` AND three flags |
+| `ok_bst` D, `rd_open_q`, `wr_open_q`, `vp_q` | 4 | 4 | `kill_any` (3) then the last LUT |
+| bank counters, `open_q` | 3 | 4 | |
+| fault counters, `fault_cause` (not pins) | 5 | | `illegal` (3-4) then the cause select; registering `illegal` would move `fault_count` by one cycle, so it was left |
+
+**Not reached: the pin classes `ras/cas/we/oe/dqm` are 3-4, not 2.** The cause is structural: the interlock verdict needs the permit of the offered bank (a 4:1 mux of registers, L1) and the class decode before any pin can be decided, i.e. 2 levels, plus the late OR with the PHY's own commands and the wrap guard. Getting to 2 would need the scheduler to present one-hot class and bank (then the pin is one LUT) or the permits registered per `{cmd, bank}` with the scheduler's command already decoded; both change the interface. `bcol` (10-bit +1 on `cmd_a`) is a carry chain, not LUT levels. Estimated PHY share of the worst path: 4 levels instead of 5-6.
+
+Verification of "same behaviour": `sim/sdram_phy/run_equiv.sh` runs the new core and the old one (`sim/sdram_phy/ref/`, the b1e3ddc5 core, module renamed, only the calibration pattern function made multiplier-free) side by side with 200,000 random cycles per case (illegal offers 45 %, A10 on column commands, bursts through column 1023, resets, forced refresh and aged rows, CALIBRATE/BIST/PERF on, CL2/CL3, FALL/RISE) and compares every output every cycle (address/bank pins only on ACT/RD/WR/MRS, A10 on PRE/PREA): 9 cases identical; a deliberate bug is caught at once. Plus the 125 PHY tests and mutants, the chip model's 70, sched_v's 67 and the replay (clip, 1 picture, +norelease). Counters are now sized from the timing values and the PHY refuses (elaboration `$error`) a clock so slow that a timing counter would reload with 0.
+
 ## Results the tests produced
 * Measured `RD_LAT`: FALL CL+2+RD_EXTRA, RISE CL+1+RD_EXTRA (CL2 and CL3, RD_EXTRA 0..2), identical to the formula the PHY exports (chip-model finding A8).
 * Earliest `WR` after a terminated read: BST + 3 clocks at CL2 and CL3 (found by polling `ok_wr`, then confirmed conflict-free by the chip model).
