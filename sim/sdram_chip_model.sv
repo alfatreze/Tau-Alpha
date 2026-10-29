@@ -67,7 +67,7 @@ module sdram_chip_model #(
     parameter integer CLKOUT_MAX_PS  = 3600,
     parameter integer DQIN_MIN_PS    = 2300,
     parameter integer DQIN_MAX_PS    = 2700,
-    parameter integer CAP_MODE       = 1,       // 0 = rising edge of cap_clk, 1 = falling edge
+    parameter integer CAP_MODE       = 0,       // 0 = rising edge of cap_clk (default since B-915: the PHY captures the rising edge), 1 = falling edge
     parameter integer CAP_SKEW_PS    = 0,       // capture-register clock arrival after the cap_clk edge
     parameter integer FPGA_SU_PS     = 0,       // capture register setup
     parameter integer FPGA_H_PS      = 0,       // capture register hold
