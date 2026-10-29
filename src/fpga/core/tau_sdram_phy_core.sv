@@ -1037,7 +1037,11 @@ module tau_sdram_phy_core #(
                 else if (gp_q == 8'd1) bin = 3'd1;
                 else if (gp_q == 8'd2) bin = 3'd2;
                 else if (gp_q == 8'd3) bin = 3'd3;
+`ifdef MUT_PERF_BIN
+                else if (gp_q < 8'd4) bin = 3'd4;
+`else
                 else if (gp_q < 8'd8) bin = 3'd4;
+`endif
                 else if (gp_q < 8'd16) bin = 3'd5;
                 else if (gp_q < 8'd64) bin = 3'd6;
                 else bin = 3'd7;
@@ -1048,14 +1052,28 @@ module tau_sdram_phy_core #(
                     for (k = 0; k < 16; k = k + 1) pc_q[k] <= 32'd0;
                     used_q <= 4'd0; last_q <= 2'd0; gp_q <= 8'd0;
                 end else if (en) begin
+`ifndef MUT_PERF_ACT
                     if (e_act) pc_q[0] <= pc_q[0] + 1'b1;
+`endif
                     if (e_pre | e_prea) pc_q[1] <= pc_q[1] + 1'b1;
+`ifdef MUT_PERF_HITSWAP
+                    if (e_col & used_c)  pc_q[3] <= pc_q[3] + 1'b1;
+                    if (e_col & ~used_c) pc_q[2] <= pc_q[2] + 1'b1;
+`else
                     if (e_col & used_c)  pc_q[2] <= pc_q[2] + 1'b1;
                     if (e_col & ~used_c) pc_q[3] <= pc_q[3] + 1'b1;
+`endif
+`ifdef MUT_PERF_TURN
+                    if (e_wr & (last_q == 2'd1)) pc_q[5] <= pc_q[5] + 1'b1;
+                    if (e_rd & (last_q == 2'd2)) pc_q[4] <= pc_q[4] + 1'b1;
+`else
                     if (e_wr & (last_q == 2'd1)) pc_q[4] <= pc_q[4] + 1'b1;
                     if (e_rd & (last_q == 2'd2)) pc_q[5] <= pc_q[5] + 1'b1;
+`endif
                     if (e_nop & any_pend) pc_q[6] <= pc_q[6] + 1'b1;
+`ifndef MUT_PERF_IDLE
                     if (e_nop) pc_q[7] <= pc_q[7] + 1'b1;
+`endif
                     if (!e_nop) begin pc_q[8 + bin] <= pc_q[8 + bin] + 1'b1; gp_q <= 8'd0; end
                     else if (gp_q != 8'hff) gp_q <= gp_q + 1'b1;
                     if (e_rd) last_q <= 2'd1;

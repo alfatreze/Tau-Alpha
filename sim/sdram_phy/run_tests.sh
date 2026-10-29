@@ -86,6 +86,10 @@ cal | CALIB=1 DMIN=2500 DMAX=2500 EXPW=0 EXPB=0 | cal_none
 cal | CALIB=1 TOP=1 EXPW=7 EXPB=1 | cal_top
 cal_reset | CALIB=1 EXPW=7 EXPB=1 |
 rand | CALIB=1 | rand_cal
+perf_hist | PERFON=1 |
+perf_turn | PERFON=1 |
+perf_rand | PERFON=1 NRAND=6000 | perf_rand_cl2
+perf_rand | PERFON=1 NRAND=6000 CLSEL=3 | perf_rand_cl3
 rand | | rand_cl2
 rand | CLSEL=3 | rand_cl3
 rand | RDEX=1 CLSEL=3 | rand_cl3_x1
@@ -120,6 +124,11 @@ MUT_NOPREEMPT | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_NOPULSE | preempt_timeout | DEBTMAX=3 REFIPS=200000 |
 MUT_PREA_EARLY | preempt_young_row | DEBTMAX=3 REFIPS=200000 |
 MUT_NOAGE | aged_row | REFIPS=1000000000 |
+MUT_PERF_ACT | perf_hist | PERFON=1 |
+MUT_PERF_BIN | perf_hist | PERFON=1 |
+MUT_PERF_HITSWAP | perf_turn | PERFON=1 |
+MUT_PERF_TURN | perf_turn | PERFON=1 |
+MUT_PERF_IDLE | perf_rand | PERFON=1 NRAND=6000 |
 MUT_CAL_NOCMP | cal | CALIB=1 EXPW=7 EXPB=1 |
 MUT_CAL_BEST | cal | CALIB=1 EXPW=7 EXPB=1 |
 MUT_CAL_NOSEL | cal | CALIB=1 EXPW=7 EXPB=1 |
