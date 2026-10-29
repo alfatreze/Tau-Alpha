@@ -57,6 +57,16 @@ module sdram_chip_model #(
     // ---- board / FPGA side ------------------------------------------------------------------------------------
     parameter integer DMIN_PS        = 0,       // DQ board delay, min (chip to FPGA pin)
     parameter integer DMAX_PS        = 0,       // DQ board delay, max
+    // FPGA I/O path delays (B-915: STA of the probe fit, slow 85C, nothing measured on a Pocket): the chip clock leaves
+    // the FPGA through the DDIO output cell and the pad and reaches the chip LATE with respect to the clock of the
+    // capture registers (CLKOUT: measured 3.6 ns, min = max - 0.4 ns assumed), and the DQ input pad + input cell adds
+    // a delay before the capture register (DQIN: measured 2.7 ns, min = max - 0.4 ns assumed). They shift every
+    // launched word (chip clock late: the whole drive window; DQ input path: the data seen by the FPGA) and are part
+    // of the analytic capture window. Set all four to 0 for the ideal chip-clock/pad of the first tests.
+    parameter integer CLKOUT_MIN_PS  = 3200,
+    parameter integer CLKOUT_MAX_PS  = 3600,
+    parameter integer DQIN_MIN_PS    = 2300,
+    parameter integer DQIN_MAX_PS    = 2700,
     parameter integer CAP_MODE       = 1,       // 0 = rising edge of cap_clk, 1 = falling edge
     parameter integer CAP_SKEW_PS    = 0,       // capture-register clock arrival after the cap_clk edge
     parameter integer FPGA_SU_PS     = 0,       // capture register setup
@@ -525,22 +535,22 @@ module sdram_chip_model #(
         begin
             tac = (mr_cl == 3) ? TAC_CL3_PS : TAC_CL2_PS;
             thz = (mr_cl == 3) ? THZ_CL3_PS : THZ_CL2_PS;
-            vd  = tac + DMAX_PS;
+            vd  = tac + DMAX_PS + CLKOUT_MAX_PS + DQIN_MAX_PS;       // data valid at the FPGA register
             for (ln = 0; ln < 2; ln = ln + 1) begin
                 byt = (ln == 0) ? lau_word[7:0] : lau_word[15:8];
                 if (lau_lane[ln]) begin
-                    xd = (lane_drv[ln] ? TOH_PS : TLZ_PS) + DMIN_PS;
+                    xd = (lane_drv[ln] ? TOH_PS : TLZ_PS) + DMIN_PS + CLKOUT_MIN_PS;              // chip output turns on / old data may change
                     if (!lane_drv[ln]) win[ln] <= #(xd) 1'b1;
                     drv_en[ln]  <= #(xd) 1'b1;
-                    drv_x[ln]   <= #(xd) 1'b1;
+                    drv_x[ln]   <= #(xd + (lane_drv[ln] ? DQIN_MIN_PS : 0)) 1'b1;               // the input path keeps the old word a little longer
                     if (ln == 0) drv_val[7:0]  <= #(vd) byt; else drv_val[15:8] <= #(vd) byt;
                     drv_x[ln]   <= #(vd) 1'b0;
                     lane_drv[ln] = 1'b1;
                 end else if (lane_drv[ln]) begin
-                    drv_x[ln]  <= #(TOH_PS + DMIN_PS) 1'b1;
-                    drv_en[ln] <= #(thz + DMAX_PS) 1'b0;
-                    drv_x[ln]  <= #(thz + DMAX_PS) 1'b0;
-                    win[ln]    <= #(thz + DMAX_PS) 1'b0;
+                    drv_x[ln]  <= #(TOH_PS + DMIN_PS + CLKOUT_MIN_PS + DQIN_MIN_PS) 1'b1;
+                    drv_en[ln] <= #(thz + DMAX_PS + CLKOUT_MAX_PS) 1'b0;
+                    drv_x[ln]  <= #(thz + DMAX_PS + CLKOUT_MAX_PS) 1'b0;
+                    win[ln]    <= #(thz + DMAX_PS + CLKOUT_MAX_PS) 1'b0;
                     lane_drv[ln] = 1'b0;
                 end
             end
@@ -562,8 +572,8 @@ module sdram_chip_model #(
                 if (lr_lane[q] != 2'b00) begin
                     tac = (mr_cl == 3) ? TAC_CL3_PS : TAC_CL2_PS;
                     pp  = t_now - t_prev;                              // the clock period
-                    vs  = lr_t[q] + tac + DMAX_PS + FPGA_SU_PS;
-                    ve  = lr_t[q] + pp + TOH_PS + DMIN_PS - FPGA_H_PS;
+                    vs  = lr_t[q] + tac + DMAX_PS + CLKOUT_MAX_PS + DQIN_MAX_PS + FPGA_SU_PS;
+                    ve  = lr_t[q] + pp + TOH_PS + DMIN_PS + CLKOUT_MIN_PS + DQIN_MIN_PS - FPGA_H_PS;
                     ok  = 1'b0; found = 0;
                     for (kk = 0; kk < 8; kk = kk + 1) begin
                         ct = cap_t[kk];
@@ -590,8 +600,8 @@ module sdram_chip_model #(
 
     task report;
         begin
-            $display("[CHIPMODEL] CL=%0d CAP_MODE=%0d delay=%0d..%0d ps: word0 window rel. to launch edge [%0d, %0d] ps, last capture at %0d half-cycles from launch",
-                     mr_cl, CAP_MODE, DMIN_PS, DMAX_PS, win_vs_rel, win_ve_rel, last_rd_cap_half);
+            $display("[CHIPMODEL] CL=%0d CAP_MODE=%0d delay=%0d..%0d ps (+ clock out %0d..%0d, DQ in %0d..%0d): word0 window rel. to launch edge [%0d, %0d] ps, last capture at %0d half-cycles from launch",
+                     mr_cl, CAP_MODE, DMIN_PS, DMAX_PS, CLKOUT_MIN_PS, CLKOUT_MAX_PS, DQIN_MIN_PS, DQIN_MAX_PS, win_vs_rel, win_ve_rel, last_rd_cap_half);
             $display("[CHIPMODEL] capture words ok=%0d bad=%0d, min margin setup=%0d hold=%0d ps (beyond FPGA_SU/FPGA_H)",
                      cap_words_ok, cap_words_bad, min_su_margin, min_h_margin);
             $display("[CHIPMODEL] errors=%0d mask=%h refreshes=%0d wr_words=%0d rd_words=%0d uninit_reads=%0d",

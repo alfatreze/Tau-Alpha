@@ -17,6 +17,10 @@ module tb_sdram_chip_model #(
     parameter integer CAPMODE     = 1,       // 0 rising, 1 falling
     parameter integer DMIN        = 0,
     parameter integer DMAX        = 0,
+    parameter integer CLKMIN      = 0,       // FPGA I/O path (model defaults are the B-915 values; these tests use the ideal 0 unless a test sets them)
+    parameter integer CLKMAX      = 0,
+    parameter integer DQMIN       = 0,
+    parameter integer DQMAX       = 0,
     parameter integer TAC2        = 8000,
     parameter integer TAC3        = 5000,
     parameter integer THZ2        = 8000,
@@ -100,7 +104,7 @@ module tb_sdram_chip_model #(
     sdram_chip_model #(
         .TAC_CL2_PS(TAC2), .TAC_CL3_PS(TAC3), .THZ_CL2_PS(THZ2), .THZ_CL3_PS(THZ3), .TOH_PS(TOH), .TLZ_PS(TLZ),
         .TCCD_CLK(TCCD), .TRFC_PS(TRFC), .TREF_PS(TREFPS), .INIT_NOP_MIN(INITNOP), .INIT_WAIT_PS(INITWAIT),
-        .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
+        .DMIN_PS(DMIN), .DMAX_PS(DMAX), .CLKOUT_MIN_PS(CLKMIN), .CLKOUT_MAX_PS(CLKMAX), .DQIN_MIN_PS(DQMIN), .DQIN_MAX_PS(DQMAX), .CAP_MODE(CAPMODE), .CAP_SKEW_PS(CAPSKEW), .FPGA_SU_PS(FSU), .FPGA_H_PS(FH),
         .CL_DEFAULT(CLSEL), .TCMH_PS(M_TCMH), .TCMS_PS(M_TCMS)
     ) chip (
         .dram_clk(dram_clk), .dram_cke(p_cke), .dram_ras_n(p_ras), .dram_cas_n(p_cas), .dram_we_n(p_we),
@@ -551,6 +555,22 @@ module tb_sdram_chip_model #(
             read_n(0, 13'd5, 10'd4, 8);
             chip.report;
             expect_err(`SE_CAPTURE);
+        end else if (tname == "rw_data_rise_real") begin      // B-915 FPGA I/O path (run with CLKMIN/CLKMAX/DQMIN/DQMAX = 3200/3600/2300/2700): the rising edge 2 cycles after the launch captures, at worst-case tAC
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            scan_read(0, 13'd5, 10'd4, 8);
+            $display("RD_LAT measured = %0d cycles (CL=%0d, CAP_MODE=%0d, FPGA I/O path on)", meas_lat, CLSEL, CAPMODE);
+            check(meas_lat == CLSEL + 2, "RD_LAT = CL + 2 (rising capture, 2 cycles after the launching edge)");
+            check(chip.cap_words_bad == 0 && chip.cap_words_ok == 8, "all 8 words captured inside their window");
+            if (CLSEL == 2) check(chip.min_su_margin == 700 && chip.min_h_margin == 2300, "CL2 margins 0.7 ns setup / 2.3 ns hold");
+            chip.report;
+            expect_clean;
+        end else if (tname == "n_cap_fall_real") begin        // B-915: with the FPGA I/O path the falling edge is far too early (setup fails by about 4.3 ns)
+            prep_bank;
+            read_n(0, 13'd5, 10'd4, 8);
+            chip.report;
+            expect_err(`SE_CAPTURE);
+            check(chip.min_su_margin == 0 || chip.cap_words_bad == 8, "every word misses the falling edge");
         end else if (tname == "cap_delay_ok") begin           // FALL with a board delay of 0..1500 ps still has window
             prep_bank;
             read_n(0, 13'd5, 10'd4, 8);
@@ -558,7 +578,7 @@ module tb_sdram_chip_model #(
             check(meas_lat == CLSEL + 2, "data at CL + 2");
             chip.report;
             expect_clean;
-        end else if (tname == "n_cap_delay_late") begin       // delay up to 2500 ps: the falling edge is before the data is valid
+        end else if (tname == "n_cap_delay_late" || tname == "n_cap_rise_real_late") begin       // delay up to 2500 ps: the falling edge is before the data is valid
             prep_bank;
             read_n(0, 13'd5, 10'd4, 8);
             chip.report;
