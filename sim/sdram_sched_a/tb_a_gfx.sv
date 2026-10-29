@@ -311,7 +311,7 @@ module tb_a_gfx #(
     end
 
     // ------------------------------------------------------------------ main
-    integer fails = 0; integer blk, k, n, t_start, t_idle, wr_idle0, ref_crc_arg; reg [31:0] crc;
+    integer fails = 0, uf_idle = 0; integer blk, k, n, t_start, t_idle, wr_idle0, ref_crc_arg; reg [31:0] crc;
     reg [8*16-1:0] dummy;
     initial begin
         integer ncmd;
@@ -343,6 +343,7 @@ module tb_a_gfx #(
         if (STACK != 0 && chip_wr_words != wr_idle0) begin $display("  FAIL: %0d words written after gfx_idle", chip_wr_words - wr_idle0); fails = fails + 1; end
         if (!gfx_idle) begin $display("  FAIL: gfx did not go idle"); fails = fails + 1; end
         if (gfx_fence != nfence) begin $display("  FAIL: fence count %0d, pushed %0d", gfx_fence, nfence); fails = fails + 1; end
+        uf_idle = gfx_underflow;
         if (gfx_underflow != 0) begin $display("  FAIL: %0d late scan-out lines", gfx_underflow); fails = fails + 1; end
         // read the whole image back through the port
         gfx_ok = 0; bm = 1; repeat (20) @(posedge clk);
@@ -363,7 +364,7 @@ module tb_a_gfx #(
         if (chip_err != 0) begin $display("  FAIL: %0d chip errors", chip_err); fails = fails + 1; end
         if ($value$plusargs("REFCRC=%h", ref_crc_arg) && ref_crc_arg !== crc) begin $display("  FAIL: image checksum %h differs from the reference %h", crc, ref_crc_arg); fails = fails + 1; end
         $display("RESULT stack=%0d cmds=%0d cycles_to_idle=%0d cpu_ops=%0d cpu_avg_ns=%0.0f cpu_max_ns=%0.0f underflow=%0d fences=%0d crc=%h", STACK, NCMD, t_idle - t_start, cpu_ops,
-                 cpu_ops ? cpu_lat_sum / cpu_ops : 0.0, cpu_lat_max, gfx_underflow, gfx_fence, crc);
+                 cpu_ops ? cpu_lat_sum / cpu_ops : 0.0, cpu_lat_max, uf_idle, gfx_fence, crc);
         if (fails == 0) $display("TEST gfx PASS"); else $display("TEST gfx FAIL (%0d)", fails);
         $finish;
     end
