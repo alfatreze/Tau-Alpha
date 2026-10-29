@@ -4,8 +4,8 @@ module tb_queue;
     reg clk = 0; always #5 clk = ~clk;
     reg rst = 1;
     reg req_valid = 0; reg req_we = 0; reg [24:0] req_addr = 0; reg [9:0] req_len = 0; reg [7:0] req_tag = 0;
-    reg req_2d = 0; reg [5:0] req_w = 0, req_h = 0; reg [10:0] req_stride = 0; reg [7:0] sk_vld = 0; reg [23:0] sk_base = 0; reg [15:0] sk_val = 0; reg [26:0] push_stamp = 0;
-    wire [3:0] ent_v, ent_we; wire [4*27-1:0] ent_lo, ent_hi, ent_st;
+    reg req_2d = 0; reg [5:0] req_w = 0, req_h = 0; reg [10:0] req_stride = 0; reg [7:0] sk_vld = 0; reg [23:0] sk_base = 0; reg [15:0] sk_val = 0; 
+    wire [3:0] ent_v, ent_we; wire [4*13-1:0] ent_lo, ent_hi;
     reg adv = 0, pop_bad = 0;
     wire req_ready, hd_v, hd_bad, hd_we, hd_last, hd_2d, accepted, accepted_bad;
     wire [3:0] count; wire [1:0] hd_bank; wire [12:0] hd_row; wire [9:0] hd_col, hd_plen; wire [7:0] hd_tag;
@@ -17,11 +17,12 @@ module tb_queue;
               @(posedge clk); #1; req_valid = 0; end
     endtask
     task piece(input [9:0] len, input last, input [9:0] col);
-        begin chk(hd_v && hd_plen == len && hd_last == last && hd_col == col, "piece"); 
+        begin settle; chk(hd_v && hd_plen == len && hd_last == last && hd_col == col, "piece"); 
               if (!(hd_v && hd_plen == len && hd_last == last && hd_col == col))
                   $display("   got v=%b plen=%0d last=%b col=%0d, want len=%0d last=%b col=%0d", hd_v, hd_plen, hd_last, hd_col, len, last, col);
               adv = 1; @(posedge clk); #1; adv = 0; end
     endtask
+    task settle; begin @(posedge clk); #1; end endtask   // the head piece is registered: one cycle behind the entry
     integer i;
     initial begin
         repeat (3) @(posedge clk); #1; rst = 0; @(posedge clk); #1;
@@ -38,23 +39,23 @@ module tb_queue;
         for (i = 0; i < 7; i = i + 1) piece(64, 0, i * 64);
         piece(64, 1, 448);
         // bad lengths
-        push(0, 25'h0, 10'd0, 8'd4); #1; chk(hd_bad && !hd_v, "len 0 bad");
+        push(0, 25'h0, 10'd0, 8'd4); #1; settle; chk(hd_bad && !hd_v, "len 0 bad");
         pop_bad = 1; @(posedge clk); #1; pop_bad = 0; chk(count == 0, "bad retired");
-        push(0, 25'h0, 10'd513, 8'd5); #1; chk(hd_bad, "len 513 bad");
+        push(0, 25'h0, 10'd513, 8'd5); #1; settle; chk(hd_bad, "len 513 bad");
         pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
-        push(0, 25'h0, 10'd1023, 8'd6); #1; chk(hd_bad, "len 1023 bad");
+        push(0, 25'h0, 10'd1023, 8'd6); #1; settle; chk(hd_bad, "len 1023 bad");
         pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
         // 2D: 10 words x 3 rows, stride 400, start col 1020: row 0 splits 4 + 6, rows 1 and 2 whole
         req_valid = 1; req_we = 0; req_addr = 25'd1020; req_2d = 1; req_w = 6'd10; req_h = 6'd3; req_stride = 11'd400; req_tag = 8'd7;
         @(posedge clk); #1; req_valid = 0; req_2d = 0;
         piece(4, 0, 1020); piece(6, 0, 0); piece(10, 0, (1020 + 400) & 1023); piece(10, 1, (1020 + 800) & 1023);
         // 2D rejects: 0 width, 0 height, area 513, 2D write
-        req_valid = 1; req_2d = 1; req_w = 6'd0; req_h = 6'd3; @(posedge clk); #1; req_valid = 0; chk(hd_bad, "w=0"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
-        req_valid = 1; req_2d = 1; req_w = 6'd4; req_h = 6'd0; @(posedge clk); #1; req_valid = 0; chk(hd_bad, "h=0"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
-        req_valid = 1; req_2d = 1; req_w = 6'd33; req_h = 6'd16; @(posedge clk); #1; req_valid = 0; chk(hd_bad, "area 528"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
-        req_valid = 1; req_2d = 1; req_addr = 0; req_w = 6'd32; req_h = 6'd16; req_stride = 11'd1024; @(posedge clk); #1; req_valid = 0; chk(hd_v && !hd_bad, "area 512 ok");
+        req_valid = 1; req_2d = 1; req_w = 6'd0; req_h = 6'd3; @(posedge clk); #1; req_valid = 0; settle; chk(hd_bad, "w=0"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
+        req_valid = 1; req_2d = 1; req_w = 6'd4; req_h = 6'd0; @(posedge clk); #1; req_valid = 0; settle; chk(hd_bad, "h=0"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
+        req_valid = 1; req_2d = 1; req_w = 6'd33; req_h = 6'd16; @(posedge clk); #1; req_valid = 0; settle; chk(hd_bad, "area 528"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
+        req_valid = 1; req_2d = 1; req_addr = 0; req_w = 6'd32; req_h = 6'd16; req_stride = 11'd1024; @(posedge clk); #1; req_valid = 0; settle; chk(hd_v && !hd_bad, "area 512 ok");
         for (i = 0; i < 16; i = i + 1) piece(32, i == 15, 0);
-        req_valid = 1; req_2d = 1; req_we = 1; req_w = 6'd4; req_h = 6'd2; @(posedge clk); #1; req_valid = 0; req_2d = 0; chk(hd_bad, "2D write rejected"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
+        req_valid = 1; req_2d = 1; req_we = 1; req_w = 6'd4; req_h = 6'd2; @(posedge clk); #1; req_valid = 0; req_2d = 0; settle; chk(hd_bad, "2D write rejected"); pop_bad = 1; @(posedge clk); #1; pop_bad = 0;
         // fill the queue: ready drops after 4 entries
         for (i = 0; i < 4; i = i + 1) push(0, i * 16, 10'd8, i);
         chk(!req_ready && count == 4, "queue full, ready low");
