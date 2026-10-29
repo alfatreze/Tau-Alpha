@@ -14,4 +14,4 @@ rc2 changes against rc1: `tau_sdram_sched_min.sv` has registered offer outputs a
 | `src/fpga/core/tau_sdram_sv_tm.sv` | 86c66c468ebf72d9b82081031df589cf13ad3b9809678ef454c4346c3b848d1b |
 | `tools/sdram_probe/sdram_probe.sdc` | c6c83cfb07186a325c7c7c1c1ffe1c1eb568be59461bec2616ded83cf5ba8ada |
 | `sim/sdram_chip_model.sv` | 849ac25efe2fbe8d2492fa5b2269ca03013e951969cb820f81fbc40c8aee9ec9 |
-| `docs/features/SDRAM_CONTROLLER_CONTRACT.md` | a8b3de9c1770159a922ca5ab28b0a51b84475553687ae78483207c454ebfa7e4 |
+| `docs/features/SDRAM_CONTROLLER_CONTRACT.md` | b234568d86f32aeddab0306444f52c649abfc0e508dfef95736916ff2309ac31 |
