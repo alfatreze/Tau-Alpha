@@ -12,4 +12,7 @@ mutants:
 	bash sim/sdram_phy/run_tests.sh mutants
 
 lint:
+	bash sim/sdram_phy/lint.sh
+
+lint-old:
 	verilator --lint-only -Wall --top-module tau_sdram_phy src/fpga/core/tau_sdram_phy.sv src/fpga/core/tau_sdram_phy_core.sv src/fpga/core/tau_sdram_dq_cap.sv src/fpga/core/tau_sdram_clk_out.sv

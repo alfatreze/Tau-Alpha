@@ -42,7 +42,16 @@ module tau_sdram_phy_core #(
     parameter integer REFRESH_DEBT_MAX    = 8,
     parameter integer INIT_WAIT_CYCLES    = 10_000,
     parameter integer PREEMPT_TIMEOUT     = 136,          // L_MAX + 8
-    parameter integer SIM_SHORT_INIT      = 0             // 1 allows INIT_WAIT_CYCLES below 100 us (simulation only)
+    parameter integer SIM_SHORT_INIT      = 0,            // 1 allows INIT_WAIT_CYCLES below 100 us (simulation only)
+    // optional features (contract 3.7b), all default off
+    parameter integer CALIBRATE           = 0,            // init-time read-capture calibration (6 settings: FALL/RISE x RD_EXTRA 0..2)
+    parameter integer CAL_BANK            = 3,            // reserved test row: bank, row, first CAL_LEN columns (chip coordinates)
+    parameter integer CAL_ROW             = 8191,
+    parameter integer CAL_LEN             = 64,
+    parameter integer BIST                = 0,            // PHY-side march self-test
+    parameter integer BIST_PAGE_LO        = 0,            // page = {row[12:0], bank[1:0]}, inclusive range
+    parameter integer BIST_PAGE_HI        = 32767,
+    parameter integer PERF                = 0             // performance counters
 ) (
     input  wire        clk,
     input  wire        rst,                 // synchronous, active high; a reset re-runs the init
@@ -75,6 +84,20 @@ module tau_sdram_phy_core #(
     output wire [31:0] refreshes,
     output wire [15:0] dq_conflicts,
     output wire [4:0]  rd_lat,
+    // ---- optional features (unused and constant when the parameter is 0) ----
+    input  wire        idle_ok,             // scheduler: quiet, banks closed, offering NOP (sampled when a BIST starts)
+    output wire [7:0]  cal_window,          // settings that passed: bit k = (k/3 ? RISE : FALL) with RD_EXTRA k%3
+    output wire [3:0]  cal_best,            // chosen setting, same index
+    output wire        cal_done,
+    output wire        cal_fault,           // no setting passed (also a phy_fault, cause 13); the PHY keeps its parameter setting
+    input  wire        bist_start,          // a rising edge starts a run (remembered until idle_ok allows it)
+    output wire        bist_busy,
+    output wire        bist_done,
+    output wire [31:0] bist_errors,
+    output wire [24:0] bist_first_addr,     // {bank, row, col} of the first mismatch
+    input  wire        perf_snap,           // strobe: copy the counters into perf_snapshot
+    input  wire        perf_clear,
+    output wire [511:0] perf_snapshot,
     // ---- pins (registered, one register per pin) ----
     output wire        pin_cke,
     output wire        pin_ras_n,
@@ -123,7 +146,6 @@ module tau_sdram_phy_core #(
     localparam integer AGE_FORCE_C = (ROW_FORCE_NS * 1000) / TCK_PS;
     // exported read latency (cycles from the accepting cycle to word 0 on rdata with rvalid = 1)
     localparam integer RD_LAT = ((CAP_MODE == 1) ? CL + 2 : CL + 1) + RD_EXTRA;
-    assign rd_lat = RD_LAT[4:0];
 
     localparam integer CW = 6;      // counter width for the timing counters
     localparam integer AW = 15;     // row age counter width
@@ -174,10 +196,34 @@ module tau_sdram_phy_core #(
         if (TRAS_C < 1 || TRC_C < TRAS_C || (TRCD_C > TRAS_C)) begin : g_chk_rel
             initial $error("tau_sdram_phy: inconsistent tRCD/tRAS/tRC");
         end
+        if (CALIBRATE != 0 && (CAL_LEN < 2 || CAL_LEN > 1024 || CAL_BANK < 0 || CAL_BANK > 3 || CAL_ROW < 0 || CAL_ROW > 8191)) begin : g_chk_cal
+            initial $error("tau_sdram_phy: CALIBRATE needs 2 <= CAL_LEN <= 1024, bank 0..3, row 0..8191");
+        end
+        if (BIST != 0 && (BIST_PAGE_LO < 0 || BIST_PAGE_HI > 32767 || BIST_PAGE_LO > BIST_PAGE_HI)) begin : g_chk_bist
+            initial $error("tau_sdram_phy: BIST page range must satisfy 0 <= LO <= HI <= 32767");
+        end
         if (PREEMPT_TIMEOUT < 1 || PREEMPT_TIMEOUT > 4095) begin : g_chk_tmo
             initial $error("tau_sdram_phy: PREEMPT_TIMEOUT must be 1..4095");
         end
     endgenerate
+    // optional-feature plumbing (defined at the end of the module)
+    wire        cal_end, cal_busy_w, n_cal_busy_w, f_cal;
+    wire        bist_busy_w, n_bist_busy_w;
+    wire        fe_busy   = cal_busy_w | bist_busy_w;           // calibration or BIST owns the command bus
+    wire        n_fe_busy = n_cal_busy_w | n_bist_busy_w;
+    wire        fe_v;
+    wire [2:0]  fe_cmd;
+    wire [1:0]  fe_ba;
+    wire [12:0] fe_a;
+    wire        fe_wv;
+    wire [15:0] fe_wd;
+    wire [1:0]  fe_be;
+    wire [3:0]  tpend;
+    wire        cal_set_v, cal_set_rise;
+    wire [1:0]  cal_set_ext;
+    reg         sel_rise_q = (CAP_MODE == 0);
+    reg [1:0]   ext_q      = RD_EXTRA;
+
     // ---------------------------------------------------------------------------------------------------------
     // init sequencer (also after every reset): wait, PREA, tRP, REF, tRFC, REF, tRFC, MRS, tMRD, EMRS, tMRD
     // ---------------------------------------------------------------------------------------------------------
@@ -195,7 +241,8 @@ module tau_sdram_phy_core #(
 
     reg  [2:0]    n_is;
     reg  [IW-1:0] n_iw;
-    wire          n_init_done = init_done_q | ((is_q == I_FIN) && (iw_q == {IW{1'b0}}));
+    wire          fin_ev = (is_q == I_FIN) && (iw_q == {IW{1'b0}});
+    wire          n_init_done = init_done_q | ((CALIBRATE != 0) ? cal_end : fin_ev);
     reg           i_v;                 // internal command from the init sequencer
     reg  [2:0]    i_cmd;
     reg           i_mrs, i_emrs;
@@ -241,7 +288,7 @@ module tau_sdram_phy_core #(
     assign ok_act = ok_act_q; assign ok_rd = ok_rd_q; assign ok_wr = ok_wr_q; assign ok_pre = ok_pre_q;
     assign ok_prea = ok_prea_q; assign ok_ref = ok_ref_q; assign ok_bst = ok_bst_q;
 
-    wire busy = !init_done_q | busy_seq;
+    wire busy = !init_done_q | busy_seq | fe_busy;
     wire a10  = cmd_a[10];
     reg  leg;
     always_comb begin
@@ -266,12 +313,12 @@ module tau_sdram_phy_core #(
     wire [2:0] o_cmd = leg ? cmd : CMD_NOP;
 
     // effective command before the wrap guard: the PHY's own command, else the (legal) offer
-    wire       int_v   = i_v | s_v;
-    wire [2:0] e0_cmd  = i_v ? i_cmd : (s_v ? s_cmd : o_cmd);
+    wire       int_v   = i_v | s_v | fe_v;
+    wire [2:0] e0_cmd  = i_v ? i_cmd : (s_v ? s_cmd : (fe_v ? fe_cmd : o_cmd));
     wire       e0_mrs  = i_v & i_mrs;
     wire       e0_emrs = i_v & i_emrs;
-    wire [1:0] e0_ba   = int_v ? 2'b00 : cmd_ba;
-    wire [12:0] e0_a   = int_v ? 13'd0 : cmd_a;
+    wire [1:0] e0_ba   = (i_v | s_v) ? 2'b00 : (fe_v ? fe_ba : cmd_ba);
+    wire [12:0] e0_a   = (i_v | s_v) ? 13'd0 : (fe_v ? fe_a : cmd_a);
 
     // ---------------------------------------------------------------------------------------------------------
     // burst state and the column wrap guard (a burst must not run past column 1023: forced BST, fault)
@@ -309,16 +356,19 @@ module tau_sdram_phy_core #(
     wire [10:0] bcol_n = (e_rd | e_wr) ? ({1'b0, e_a[9:0]} + 11'd1) : (bcol_q[10] ? bcol_q : bcol_q + 11'd1);
 
     // DQM / DQ output enable
-    wire dqm_force = !init_done_q | busy_seq | illegal;
-    wire beat      = wr_open_n & wvalid & (be != 2'b00) & ~dqm_force;      // an unmasked word is written this cycle
+    wire wv_i = fe_busy ? fe_wv : wvalid;
+    wire [15:0] wd_i = fe_busy ? fe_wd : wdata;
+    wire [1:0] be_i = fe_busy ? fe_be : be;
+    wire dqm_force = (!init_done_q & ~fe_busy) | busy_seq | illegal;
+    wire beat      = wr_open_n & wv_i & (be_i != 2'b00) & ~dqm_force;      // an unmasked word is written this cycle
     reg  [1:0] dqm_n;
     always_comb begin
         if (dqm_force)                          dqm_n = 2'b11;
         else if (rd_open_q | rd_open_n)         dqm_n = 2'b00;             // read: low through the terminating cycle
 `ifdef MUT_DQM
-        else if (wr_open_n)                     dqm_n = ~be;               // wvalid ignored
+        else if (wr_open_n)                     dqm_n = ~be_i;             // wvalid ignored
 `else
-        else if (wr_open_n & wvalid)            dqm_n = ~be;
+        else if (wr_open_n & wv_i)              dqm_n = ~be_i;
 `endif
         else                                    dqm_n = 2'b11;
     end
@@ -426,6 +476,7 @@ module tau_sdram_phy_core #(
             assign ref_b[b]   = ~n_o & rp_ok & rc_ok;
 `endif
             assign n_open[b]  = n_o;
+            assign tpend[b]   = (rcd_q != {CW{1'b0}}) | (rp_q != {CW{1'b0}}) | (rc_q != {CW{1'b0}});
             assign age_req[b]   = open_q & (age_q >= AGE_REQ_C);
             assign age_force[b] = open_q & (age_q >= AGE_FORCE_C);
         end
@@ -460,7 +511,7 @@ module tau_sdram_phy_core #(
     wire       r_ref = (&ref_b) & rfc_ok & ~n_burst;
     wire       r_bst = n_burst;
 
-    wire n_busy = ~n_init_done | n_busy_seq;
+    wire n_busy = ~n_init_done | n_busy_seq | n_fe_busy;
     // unmasked (by the PHY's own ownership) permits, used by the forced-refresh sequencer
     reg rp_prea_q = 1'b0, rp_ref_q = 1'b0;
     always @(posedge clk) begin
@@ -496,9 +547,9 @@ module tau_sdram_phy_core #(
     reg [3:0]  fcause_q = 4'd0;
     reg [31:0] refs_q  = 32'd0;
     reg [15:0] dqc_q   = 16'd0;
-    wire       f_ev   = illegal | wrap_viol | f_force;
+    wire       f_ev   = illegal | wrap_viol | f_force | f_cal;
     wire [3:0] f_code = illegal ? (busy ? 4'd12 : (((cmd == CMD_RD) | (cmd == CMD_WR)) & a10) ? 4'd11 : {1'b0, cmd}) :
-                        wrap_viol ? 4'd8 : (f_force_age ? 4'd10 : 4'd9);
+                        wrap_viol ? 4'd8 : (f_cal ? 4'd13 : (f_force_age ? 4'd10 : 4'd9));
     wire       conflict_d = oe_n & ((rw_q != {CW{1'b0}}) | rd_open_q);
     always @(posedge clk) begin
         if (rst) begin
@@ -560,7 +611,7 @@ module tau_sdram_phy_core #(
             dqm_q <= dqm_n;
             ba_q  <= pba;
             a_q   <= pa;
-            dq_q  <= wdata;
+            dq_q  <= wd_i;
             oe_q  <= {16{oe_n}};
         end
     end
@@ -575,19 +626,35 @@ module tau_sdram_phy_core #(
     // (cycle a through the cycle before the terminating command), delayed by the same amount. No backpressure.
     // ---------------------------------------------------------------------------------------------------------
     wire [15:0] cap_q;
-    tau_sdram_dq_cap #(.CAP_MODE(CAP_MODE)) u_cap (.clk(clk), .d(dq_i), .q(cap_q));
     reg [15:0] rx1_q = 16'd0, rx2_q = 16'd0;
+    reg [7:0] vp_q = 8'd0;
+    generate
+        if (CALIBRATE == 0) begin : g_rd_fixed
+            tau_sdram_dq_cap #(.CAP_MODE(CAP_MODE)) u_cap (.clk(clk), .d(dq_i), .q(cap_q));
+            assign rdata = (RD_EXTRA == 0) ? cap_q : ((RD_EXTRA == 1) ? rx1_q : rx2_q);
+            assign rvalid = vp_q[RD_LAT - 1];
+            assign rd_lat = RD_LAT[4:0];
+        end else begin : g_rd_sel
+            // run-time selectable capture edge and stage count (CALIBRATE = 1)
+            tau_sdram_dq_cap_dual u_cap (.clk(clk), .sel_rise(sel_rise_q), .d(dq_i), .q(cap_q));
+            assign rdata = (ext_q == 2'd0) ? cap_q : ((ext_q == 2'd1) ? rx1_q : rx2_q);
+            wire [4:0] lat = (sel_rise_q ? CL + 1 : CL + 2) + {3'd0, ext_q};
+            assign rvalid = vp_q[lat - 1'b1];
+            assign rd_lat = lat;
+        end
+    endgenerate
     always @(posedge clk) begin
         rx1_q <= cap_q;
         rx2_q <= rx1_q;
     end
-    assign rdata = (RD_EXTRA == 0) ? cap_q : ((RD_EXTRA == 1) ? rx1_q : rx2_q);
-    reg [7:0] vp_q = 8'd0;
+    always @(posedge clk) begin
+        if (rst) begin sel_rise_q <= (CAP_MODE == 0); ext_q <= RD_EXTRA; end
+        else if (cal_set_v) begin sel_rise_q <= cal_set_rise; ext_q <= cal_set_ext; end
+    end
     always @(posedge clk) begin
         if (rst) vp_q <= 8'd0;
         else     vp_q <= {vp_q[6:0], rd_open_n};
     end
-    assign rvalid = vp_q[RD_LAT - 1];
 
     // ---------------------------------------------------------------------------------------------------------
     // refresh timer, preemption, aged rows
@@ -646,7 +713,7 @@ module tau_sdram_phy_core #(
 `else
     wire trig_age  = |age_force;
 `endif
-    wire trig      = init_done_q & (trig_debt | trig_age);
+    wire trig      = init_done_q & ~fe_busy & (trig_debt | trig_age);
     reg [2:0]  n_qs;
     reg [11:0] n_tmo;
     reg        sq_v, sq_bc, sq_force;
@@ -700,6 +767,353 @@ module tau_sdram_phy_core #(
     assign banks_closed = bclosed_q;
     assign row_aged = aged_q;
 
-    wire unused_ok = &{1'b0, n_open};
+    // ---------------------------------------------------------------------------------------------------------
+    // optional features (contract 3.7b), each a parameter, default OFF (then everything below is constant 0 and the
+    // PHY behaves exactly as without it).
+    //   Command bus ownership: CALIBRATE runs inside the init (between the EMRS and init_done) and owns the bus then.
+    //   BIST runs only when the scheduler says it is quiet: a rising edge of `bist_start` is remembered, and the run
+    //   starts in the first cycle in which `idle_ok` = 1, every bank is closed and past its timing, the scheduler
+    //   offers NOP and the forced-refresh sequencer is idle. From then until `bist_busy` falls the PHY owns the bus:
+    //   all permits are 0 and any non-NOP offer is replaced by NOP + fault (cause 12). `idle_ok` is sampled at the
+    //   start only. The PHY's own refresh duty is kept by the engine (one REF before every page when ref_due).
+    //   PERF only watches the commands that reach the chip after init_done.
+    // ---------------------------------------------------------------------------------------------------------
+    // ---- CALIBRATE ----
+    wire        cal_v;  wire [2:0] cal_cmd; wire [1:0] cal_ba; wire [12:0] cal_a; wire cal_wv; wire [15:0] cal_wd;
+    wire        cal_done_w, cal_fault_w;
+    wire [7:0]  cal_window_w;
+    wire [3:0]  cal_best_w;
+    generate
+        if (CALIBRATE != 0) begin : g_cal
+            localparam [3:0] CS_OFF = 4'd0, CS_ACT = 4'd1, CS_ACTW = 4'd2, CS_WR = 4'd3, CS_WRB = 4'd4, CS_BST = 4'd5,
+                             CS_GAP = 4'd6, CS_SET = 4'd7, CS_SETW = 4'd8, CS_RD = 4'd9, CS_RDW = 4'd10, CS_RBST = 4'd11,
+                             CS_DR = 4'd12, CS_PRE = 4'd13, CS_PREW = 4'd14, CS_END = 4'd15;
+            reg [3:0]  cs_q = CS_OFF;
+            reg [10:0] cc_q = 11'd0;
+            reg [2:0]  ck_q = 3'd0;
+            reg [5:0]  pass_q = 6'd0;
+            reg [10:0] nchk_q = 11'd0;
+            reg        err_q = 1'b0, done_q = 1'b0, cfault_q = 1'b0;
+            reg [3:0]  best_q = 4'd0;
+            reg [3:0]  n_cs;
+            reg [10:0] n_cc;
+            reg [2:0]  n_ck;
+            reg        fv, fwv;
+            reg [2:0]  fcmd;
+            reg [12:0] fa;
+            reg [15:0] fwd;
+            function [15:0] calpat(input [9:0] i);
+                begin calpat = 16'hA5C3 ^ (i * 16'h9E37); end
+            endfunction
+            localparam [10:0] LEN_M1 = CAL_LEN - 1;
+            always_comb begin
+                n_cs = cs_q; n_cc = cc_q; n_ck = ck_q; fv = 1'b0; fcmd = CMD_NOP; fa = 13'd0; fwv = 1'b0; fwd = 16'd0;
+                case (cs_q)
+                    CS_OFF:  if (fin_ev && !done_q) n_cs = CS_ACT;
+                    CS_ACT:  begin fv = 1'b1; fcmd = CMD_ACT; fa = CAL_ROW; n_cs = CS_ACTW; n_cc = TRCD_C + 1; end
+                    CS_ACTW: if (cc_q == 11'd0) n_cs = CS_WR; else n_cc = cc_q - 1'b1;
+                    CS_WR:   begin fv = 1'b1; fcmd = CMD_WR; fwv = 1'b1; fwd = calpat(10'd0); n_cc = 11'd1; n_cs = CS_WRB; end
+                    CS_WRB:  begin
+                        fwv = 1'b1; fwd = calpat(cc_q[9:0]);
+                        if (cc_q == LEN_M1) n_cs = CS_BST; else n_cc = cc_q + 1'b1;
+                    end
+                    CS_BST:  begin fv = 1'b1; fcmd = CMD_BST; n_cs = CS_GAP; n_cc = WRP_C + 2; end
+                    CS_GAP:  if (cc_q == 11'd0) n_cs = CS_SET; else n_cc = cc_q - 1'b1;
+                    CS_SET:  begin n_cs = CS_SETW; n_cc = 11'd10; end
+                    CS_SETW: if (cc_q == 11'd0) n_cs = CS_RD; else n_cc = cc_q - 1'b1;
+                    CS_RD:   begin fv = 1'b1; fcmd = CMD_RD; n_cs = CS_RDW; n_cc = LEN_M1; end
+                    CS_RDW:  if (cc_q <= 11'd1) n_cs = CS_RBST; else n_cc = cc_q - 1'b1;
+                    CS_RBST: begin fv = 1'b1; fcmd = CMD_BST; n_cs = CS_DR; n_cc = 11'd14; end
+                    CS_DR:   begin
+                        if (cc_q == 11'd0) begin
+                            if (ck_q == 3'd5) n_cs = CS_PRE; else begin n_ck = ck_q + 1'b1; n_cs = CS_SET; end
+                        end else n_cc = cc_q - 1'b1;
+                    end
+                    CS_PRE:  begin fv = 1'b1; fcmd = CMD_PRE; n_cs = CS_PREW; n_cc = TRP_C + 2; end
+                    CS_PREW: if (cc_q == 11'd0) n_cs = CS_END; else n_cc = cc_q - 1'b1;
+                    CS_END:  n_cs = CS_OFF;
+                    default: n_cs = CS_OFF;
+                endcase
+            end
+            // best setting: the edge with more passing settings (ties: the configured CAP_MODE), the middle of its range
+            wire [2:0] fm = pass_q[2:0];
+            wire [2:0] rm = pass_q[5:3];
+            wire [1:0] pf = fm[0] + fm[1] + fm[2];
+            wire [1:0] pr = rm[0] + rm[1] + rm[2];
+            wire       pick_rise = (pr > pf) || ((pr == pf) && (CAP_MODE == 0));
+            wire [2:0] m  = pick_rise ? rm : fm;
+            wire [1:0] lo = m[0] ? 2'd0 : (m[1] ? 2'd1 : 2'd2);
+            wire [1:0] hi = m[2] ? 2'd2 : (m[1] ? 2'd1 : 2'd0);
+            wire [1:0] mid = (lo + hi) >> 1;
+`ifdef MUT_CAL_BEST
+            wire [1:0] bext = lo;
+`else
+            wire [1:0] bext = m[mid] ? mid : lo;
+`endif
+            wire       none = (m == 3'd0);
+`ifdef MUT_CAL_NOSEL
+            assign cal_set_v    = (cs_q == CS_SET);
+`else
+            assign cal_set_v    = (cs_q == CS_SET) | ((cs_q == CS_END) & ~none);
+`endif
+            assign cal_set_rise = (cs_q == CS_SET) ? (ck_q >= 3'd3) : pick_rise;
+            assign cal_set_ext  = (cs_q == CS_SET) ? ((ck_q >= 3'd3) ? ck_q[1:0] - 2'd3 : ck_q[1:0]) : bext;
+            assign cal_v = fv; assign cal_cmd = fcmd; assign cal_ba = CAL_BANK; assign cal_a = fa; assign cal_wv = fwv; assign cal_wd = fwd;
+            assign cal_end = (cs_q == CS_END);
+            assign cal_busy_w = (cs_q != CS_OFF);
+            assign n_cal_busy_w = (n_cs != CS_OFF);
+`ifdef MUT_CAL_NOFAULT
+            assign f_cal = 1'b0;
+`else
+            assign f_cal = (cs_q == CS_END) & none;
+`endif
+            always @(posedge clk) begin
+                if (rst) begin
+                    cs_q <= CS_OFF; cc_q <= 11'd0; ck_q <= 3'd0; pass_q <= 6'd0; nchk_q <= 11'd0; err_q <= 1'b0;
+                    done_q <= 1'b0; cfault_q <= 1'b0; best_q <= 4'd0;
+                end else begin
+                    cs_q <= n_cs; cc_q <= n_cc; ck_q <= n_ck;
+                    if (cs_q == CS_SET) begin err_q <= 1'b0; nchk_q <= 11'd0; end
+                    if (cs_q >= CS_RD && cs_q <= CS_DR && rvalid) begin
+`ifndef MUT_CAL_NOCMP
+                        if (rdata !== calpat(nchk_q[9:0])) err_q <= 1'b1;
+`endif
+                        if (nchk_q != 11'h7ff) nchk_q <= nchk_q + 1'b1;
+                    end
+                    if (cs_q == CS_DR && cc_q == 11'd0) begin
+                        if (!err_q && nchk_q == CAL_LEN[10:0]) pass_q[ck_q] <= 1'b1;
+                    end
+                    if (cs_q == CS_END) begin
+                        done_q <= 1'b1; cfault_q <= none;
+                        best_q <= none ? 4'd0 : (pick_rise ? (4'd3 + {2'b00, bext}) : {2'b00, bext});
+                    end
+                end
+            end
+            assign cal_done_w = done_q; assign cal_fault_w = cfault_q;
+            assign cal_window_w = {2'b00, pass_q}; assign cal_best_w = best_q;
+        end else begin : g_nocal
+            assign cal_set_v = 1'b0; assign cal_set_rise = 1'b0; assign cal_set_ext = 2'd0;
+            assign cal_v = 1'b0; assign cal_cmd = CMD_NOP; assign cal_ba = 2'd0; assign cal_a = 13'd0; assign cal_wv = 1'b0; assign cal_wd = 16'd0;
+            assign cal_end = 1'b0; assign cal_busy_w = 1'b0; assign n_cal_busy_w = 1'b0; assign f_cal = 1'b0;
+            assign cal_done_w = 1'b0; assign cal_fault_w = 1'b0; assign cal_window_w = 8'd0; assign cal_best_w = 4'd0;
+        end
+    endgenerate
+    assign cal_window = cal_window_w; assign cal_best = cal_best_w; assign cal_done = cal_done_w; assign cal_fault = cal_fault_w;
+
+    // ---- BIST: march over pages (a page = one row of one bank = 1,024 words; page index = {row[12:0], bank[1:0]}) ----
+    //   pass 0 writes a hash of the address, pass 1 reads and checks it, pass 2 writes its complement, pass 3 reads and
+    //   checks. bist_errors counts mismatching words (a missing or extra word counts as one error);
+    //   bist_first_addr = {bank[1:0], row[12:0], col[9:0]} of the first mismatch.
+    wire        bist_v;  wire [2:0] bist_cmd; wire [1:0] bist_ba; wire [12:0] bist_a; wire bist_wv; wire [15:0] bist_wd;
+    wire        bist_done_w;
+    wire [31:0] bist_errors_w;
+    wire [24:0] bist_first_w;
+    generate
+        if (BIST != 0) begin : g_bist
+            localparam [3:0] BS_OFF = 4'd0, BS_CHK = 4'd1, BS_REF = 4'd2, BS_ACT = 4'd3, BS_ACTW = 4'd4, BS_COL = 4'd5,
+                             BS_DATA = 4'd6, BS_BST = 4'd7, BS_DR = 4'd8, BS_PRE = 4'd9, BS_NEXT = 4'd10, BS_END = 4'd11;
+            localparam [14:0] PG_LO = BIST_PAGE_LO, PG_HI = BIST_PAGE_HI;
+            reg [3:0]  bs_q = BS_OFF;
+            reg [10:0] bc_q = 11'd0, bn_q = 11'd0;
+            reg [1:0]  bp_q = 2'd0;
+            reg [14:0] bpg_q = 15'd0;
+            reg [31:0] berr_q = 32'd0;
+            reg [24:0] bfirst_q = 25'd0;
+            reg        bfirst_v = 1'b0, bdone_q = 1'b0, bpend_q = 1'b0, bsd_q = 1'b0;
+            reg [3:0]  n_bs;
+            reg [10:0] n_bc;
+            reg [1:0]  n_bp;
+            reg [14:0] n_bpg;
+            reg        fv, fwv;
+            reg [2:0]  fcmd;
+            reg [12:0] fa;
+            reg [15:0] fwd;
+            wire [1:0]  bank = bpg_q[1:0];
+            wire [12:0] row  = bpg_q[14:2];
+            wire        is_wr = ~bp_q[0];
+`ifdef MUT_BIST_NOINV
+            wire        inv   = 1'b0;
+`else
+            wire        inv   = bp_q[1];
+`endif
+            function [15:0] bdat(input [24:0] a, input i);
+                reg [15:0] x;
+                begin x = a[15:0] ^ {1'b0, a[24:10]} ^ 16'h3C5A; bdat = i ? ~x : x; end
+            endfunction
+`ifdef MUT_BIST_NOWAIT
+            wire start_ok = (bs_q == BS_OFF) & bpend_q & init_done_q & rp_ref_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) & ~cal_busy_w;
+`elsif MUT_BIST_NOQUIET
+            wire start_ok = (bs_q == BS_OFF) & bpend_q & idle_ok & init_done_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) & ~cal_busy_w;
+`else
+            wire start_ok = (bs_q == BS_OFF) & bpend_q & idle_ok & init_done_q & rp_ref_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) &
+                            ~cal_busy_w;
+`endif
+            always_comb begin
+                n_bs = bs_q; n_bc = bc_q; n_bp = bp_q; n_bpg = bpg_q; fv = 1'b0; fcmd = CMD_NOP; fa = 13'd0; fwv = 1'b0; fwd = 16'd0;
+                case (bs_q)
+                    BS_OFF:  if (start_ok) begin n_bs = BS_CHK; n_bp = 2'd0; n_bpg = PG_LO; end
+                    BS_CHK:  if (rp_ref_q) n_bs = (debt_q != 4'd0) ? BS_REF : BS_ACT;
+                    BS_REF:  begin fv = 1'b1; fcmd = CMD_REF; n_bs = BS_CHK; end
+                    BS_ACT:  begin fv = 1'b1; fcmd = CMD_ACT; fa = row; n_bs = BS_ACTW; n_bc = TRCD_C + 1; end
+                    BS_ACTW: if (bc_q == 11'd0) n_bs = BS_COL; else n_bc = bc_q - 1'b1;
+                    BS_COL:  begin
+                        fv = 1'b1; fcmd = is_wr ? CMD_WR : CMD_RD; fa = 13'd0;
+                        if (is_wr) begin fwv = 1'b1; fwd = bdat({bank, row, 10'd0}, inv); end
+                        n_bc = 11'd1; n_bs = BS_DATA;
+                    end
+                    BS_DATA: begin
+                        if (is_wr) begin fwv = 1'b1; fwd = bdat({bank, row, bc_q[9:0]}, inv); end
+                        if (bc_q == 11'd1023) n_bs = BS_BST; else n_bc = bc_q + 1'b1;
+                    end
+                    BS_BST:  begin fv = 1'b1; fcmd = CMD_BST; n_bs = BS_DR; n_bc = 11'd14; end
+                    BS_DR:   if (bc_q == 11'd0) n_bs = BS_PRE; else n_bc = bc_q - 1'b1;
+                    BS_PRE:  begin fv = 1'b1; fcmd = CMD_PRE; n_bs = BS_NEXT; end
+                    BS_NEXT: begin
+                        n_bs = BS_CHK;
+`ifdef MUT_BIST_RANGE
+                        if (bpg_q == PG_LO) begin
+`else
+                        if (bpg_q == PG_HI) begin
+`endif
+                            n_bpg = PG_LO; n_bp = bp_q + 1'b1;
+                            if (bp_q == 2'd3) n_bs = BS_END;
+                        end else n_bpg = bpg_q + 1'b1;
+                    end
+                    BS_END:  n_bs = BS_OFF;
+                    default: n_bs = BS_OFF;
+                endcase
+            end
+            assign bist_v = fv; assign bist_cmd = fcmd; assign bist_ba = bank; assign bist_a = fa; assign bist_wv = fwv; assign bist_wd = fwd;
+            assign bist_busy_w = (bs_q != BS_OFF);
+            assign n_bist_busy_w = (n_bs != BS_OFF);
+            wire [24:0] raddr = {bank, row, bn_q[9:0]};
+            wire        rd_phase = ~is_wr & (bs_q >= BS_COL) & (bs_q <= BS_DR);
+`ifdef MUT_BIST_NOCHK
+            wire        mism = 1'b0;
+`else
+            wire        mism = rd_phase & rvalid & ((rdata !== bdat(raddr, inv)) | (bn_q >= 11'd1024));
+`endif
+            wire        cnt_bad = ~is_wr & (bs_q == BS_DR) & (bc_q == 11'd0) & (bn_q != 11'd1024);
+            always @(posedge clk) begin
+                if (rst) begin
+                    bs_q <= BS_OFF; bc_q <= 11'd0; bn_q <= 11'd0; bp_q <= 2'd0; bpg_q <= 15'd0; berr_q <= 32'd0;
+                    bfirst_q <= 25'd0; bfirst_v <= 1'b0; bdone_q <= 1'b0; bpend_q <= 1'b0; bsd_q <= 1'b0;
+                end else begin
+                    bsd_q <= bist_start;
+                    if (bist_start & ~bsd_q) bpend_q <= 1'b1;
+                    if (start_ok) begin bpend_q <= 1'b0; berr_q <= 32'd0; bfirst_v <= 1'b0; bdone_q <= 1'b0; end
+                    bs_q <= n_bs; bc_q <= n_bc; bp_q <= n_bp; bpg_q <= n_bpg;
+                    if (bs_q == BS_ACT) bn_q <= 11'd0;
+                    if (rd_phase & rvalid) bn_q <= bn_q + 1'b1;
+                    if (mism | cnt_bad) begin
+                        if (berr_q != 32'hffffffff) berr_q <= berr_q + 1'b1;
+                        if (!bfirst_v) begin bfirst_v <= 1'b1; bfirst_q <= mism ? raddr : {bank, row, 10'd0}; end
+                    end
+                    if (bs_q == BS_END) bdone_q <= 1'b1;
+                end
+            end
+            assign bist_done_w = bdone_q; assign bist_errors_w = berr_q; assign bist_first_w = bfirst_q;
+        end else begin : g_nobist
+            assign bist_v = 1'b0; assign bist_cmd = CMD_NOP; assign bist_ba = 2'd0; assign bist_a = 13'd0; assign bist_wv = 1'b0; assign bist_wd = 16'd0;
+            assign bist_busy_w = 1'b0; assign n_bist_busy_w = 1'b0; assign bist_done_w = 1'b0; assign bist_errors_w = 32'd0; assign bist_first_w = 25'd0;
+        end
+    endgenerate
+    assign bist_busy = bist_busy_w; assign bist_done = bist_done_w; assign bist_errors = bist_errors_w; assign bist_first_addr = bist_first_w;
+
+    // one source at a time
+    assign fe_v   = cal_busy_w ? cal_v : bist_v;
+    assign fe_cmd = cal_busy_w ? cal_cmd : bist_cmd;
+    assign fe_ba  = cal_busy_w ? cal_ba : bist_ba;
+    assign fe_a   = cal_busy_w ? cal_a : bist_a;
+    assign fe_wv  = cal_busy_w ? cal_wv : bist_wv;
+    assign fe_wd  = cal_busy_w ? cal_wd : bist_wd;
+    assign fe_be  = 2'b11;
+
+    // ---- PERF ----
+    //   perf_snapshot (read after a perf_snap strobe), 16 words of 32 bits, word i = perf_snapshot[32*i +: 32]:
+    //   0 ACT, 1 PRE (PRE and PREA), 2 column-command row hits (a column command to a row that already had one since
+    //   its ACT), 3 row misses (the first column command after an ACT), 4 read-to-write turnarounds (a WR after the
+    //   previous column command was a RD), 5 write-to-read turnarounds, 6 bank-conflict stalls (NOP cycles while a
+    //   bank still waits for tRCD, tRP or tRC), 7 bus-idle cycles (NOP cycles after init_done), 8..15 histogram of the
+    //   number of NOP cycles before each command: 0, 1, 2, 3, 4-7, 8-15, 16-63, 64 or more. perf_clear zeroes the
+    //   counters; the counters wrap at 2^32.
+    generate
+        if (PERF != 0) begin : g_perf
+            reg [31:0] pc_q [0:15];
+            reg [511:0] snap_q = 512'd0;
+            reg [3:0]  used_q = 4'd0;
+            reg [1:0]  last_q = 2'd0;
+            reg [7:0]  gp_q = 8'd0;
+            wire en     = init_done_q;
+            wire e_nop  = ~e_mrs & (e_cmd == CMD_NOP);
+            wire e_col  = e_rd | e_wr;
+            wire used_c = used_q[e_ba];
+            wire any_pend = |tpend;
+            reg [2:0] bin;
+            always_comb begin
+                if (gp_q == 8'd0) bin = 3'd0;
+                else if (gp_q == 8'd1) bin = 3'd1;
+                else if (gp_q == 8'd2) bin = 3'd2;
+                else if (gp_q == 8'd3) bin = 3'd3;
+`ifdef MUT_PERF_BIN
+                else if (gp_q < 8'd4) bin = 3'd4;
+`else
+                else if (gp_q < 8'd8) bin = 3'd4;
+`endif
+                else if (gp_q < 8'd16) bin = 3'd5;
+                else if (gp_q < 8'd64) bin = 3'd6;
+                else bin = 3'd7;
+            end
+            integer k;
+            always @(posedge clk) begin
+                if (rst || perf_clear) begin
+                    for (k = 0; k < 16; k = k + 1) pc_q[k] <= 32'd0;
+                    used_q <= 4'd0; last_q <= 2'd0; gp_q <= 8'd0;
+                end else if (en) begin
+`ifndef MUT_PERF_ACT
+                    if (e_act) pc_q[0] <= pc_q[0] + 1'b1;
+`endif
+                    if (e_pre | e_prea) pc_q[1] <= pc_q[1] + 1'b1;
+`ifdef MUT_PERF_HITSWAP
+                    if (e_col & used_c)  pc_q[3] <= pc_q[3] + 1'b1;
+                    if (e_col & ~used_c) pc_q[2] <= pc_q[2] + 1'b1;
+`else
+                    if (e_col & used_c)  pc_q[2] <= pc_q[2] + 1'b1;
+                    if (e_col & ~used_c) pc_q[3] <= pc_q[3] + 1'b1;
+`endif
+`ifdef MUT_PERF_TURN
+                    if (e_wr & (last_q == 2'd1)) pc_q[5] <= pc_q[5] + 1'b1;
+                    if (e_rd & (last_q == 2'd2)) pc_q[4] <= pc_q[4] + 1'b1;
+`else
+                    if (e_wr & (last_q == 2'd1)) pc_q[4] <= pc_q[4] + 1'b1;
+                    if (e_rd & (last_q == 2'd2)) pc_q[5] <= pc_q[5] + 1'b1;
+`endif
+                    if (e_nop & any_pend) pc_q[6] <= pc_q[6] + 1'b1;
+`ifndef MUT_PERF_IDLE
+                    if (e_nop) pc_q[7] <= pc_q[7] + 1'b1;
+`endif
+                    if (!e_nop) begin pc_q[8 + bin] <= pc_q[8 + bin] + 1'b1; gp_q <= 8'd0; end
+                    else if (gp_q != 8'hff) gp_q <= gp_q + 1'b1;
+                    if (e_rd) last_q <= 2'd1;
+                    if (e_wr) last_q <= 2'd2;
+                    if (e_prea) used_q <= 4'd0;
+                    else begin
+                        if (e_act) used_q[e_ba] <= 1'b0;
+                        if (e_pre) used_q[e_ba] <= 1'b0;
+                        if (e_col) used_q[e_ba] <= 1'b1;
+                    end
+                end
+                if (perf_snap) begin
+                    for (k = 0; k < 16; k = k + 1) snap_q[32*k +: 32] <= pc_q[k];
+                end
+                if (rst || perf_clear) snap_q <= 512'd0;
+            end
+            assign perf_snapshot = snap_q;
+        end else begin : g_noperf
+            assign perf_snapshot = 512'd0;
+        end
+    endgenerate
+
+    wire unused_ok = &{1'b0, n_open, fe_be, idle_ok, bist_start, perf_snap, perf_clear, tpend, sel_rise_q, ext_q, int_v};
 endmodule
 `default_nettype wire
