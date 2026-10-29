@@ -16,7 +16,7 @@ mkdir -p "$OUT"
 RTL="$ROOT/src/fpga/core"
 T=tb_sched
 SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
-     "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" "$HERE/$T.sv")
+     "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" "$HERE/$T.sv")
 WANT="${1:-all}"
 pass=0; fail=0
 
@@ -73,6 +73,9 @@ MUT_BATCHUNL | batching | |
 MUT_WLEAD_OFF | basic | | mut_wlead_off
 MUT_2D_STRIDE | twod | |
 MUT_NO_RAW | raw_order | |
+MUT_TM_Z | order | |
+MUT_TM_RW | order | |
+MUT_NOQUIET | order | |
 MUT_SKEW_IGN | skew_regions | BANK_HASH=3 |
 MUT_NOEARLY | urgent_early | UECAP=32 |
 MUT_NOCAP | bw_cap | BWCAP4=256 BWWIN=2000 |
@@ -146,7 +149,7 @@ if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
     verilator --lint-only -Wall --top-module tau_sdram_sched_min "$RTL/tau_sdram_sched_min.sv" > "$OUT/lint_min.log" 2>&1 && { echo "PASS lint min"; pass=$((pass+1)); } || { echo "FAIL lint min"; head "$OUT/lint_min.log"; fail=$((fail+1)); }
 fi
 if [ "$WANT" = all ] || [ "$WANT" = tests ] || [ "$WANT" = lint ]; then
-    if verilator --lint-only -Wall --top-module tau_sdram_sched_v "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" > "$OUT/lint.log" 2>&1; then
+    if verilator --lint-only -Wall --top-module tau_sdram_sched_v "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv" > "$OUT/lint.log" 2>&1; then
         echo "PASS lint (verilator -Wall)"; pass=$((pass+1)); else echo "FAIL lint"; head -20 "$OUT/lint.log"; fail=$((fail+1)); fi
 fi
 while IFS='|' read -r name params label; do
