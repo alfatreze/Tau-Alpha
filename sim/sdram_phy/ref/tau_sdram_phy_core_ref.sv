@@ -1,3 +1,5 @@
+// REFERENCE for sim/sdram_phy/run_equiv.sh: the PHY core as of b1e3ddc5 (before the B-916 timing restructure), module
+// renamed; only the calibration pattern function uses the multiplier-free form of the new core.
 // SDRAM PHY core: init, command path, permits, interlock, refresh timer, read capture. MIT licence.
 // Clean-room: written from docs/features/SDRAM_CONTROLLER_CONTRACT.md v0.3 (sections 0-4, 7.2, 8), SDRAM_PART_FACTS.md,
 // SDRAM_CHIP_MODEL_FINDINGS.md and the sibling-part datasheet text. No controller RTL was read.
@@ -805,7 +807,7 @@ module tau_sdram_phy_core_ref #(
             reg [12:0] fa;
             reg [15:0] fwd;
             function [15:0] calpat(input [9:0] i);
-                begin calpat = 16'hA5C3 ^ (i * 16'h9E37); end
+                begin calpat = 16'hA5C3 ^ {6'd0, i} ^ ({6'd0, i} << 5) ^ ({6'd0, i} << 11); end
             endfunction
             localparam [10:0] LEN_M1 = CAL_LEN - 1;
             always_comb begin

@@ -4,6 +4,14 @@
 # the core module is tau_sdram_phy_core (instance u_core) and the capture module tau_sdram_dq_cap (instance u_cap).
 # Pin names are those of core_top.v (dram_a, dram_ba, dram_dq, dram_dqm, dram_clk, dram_cke, dram_ras_n, dram_cas_n, dram_we_n).
 #
+# 0. NAMES (B-916): Quartus names registers inside generate blocks with the block prefix. The fitted capture register
+#    is  u_cap|g_rise.cap_r[*]  (FALL build: u_cap|g_fall.xfer_q[*] and u_cap|g_fall.cap_f_r[*]; CALIBRATE build:
+#    u_cap|cap_r[*], u_cap|cap_f_r[*] and u_cap|xfer_q[*], no generate block). The pin registers sit in the core
+#    module, not in a generate block: u_core|oe_q[*], u_core|dq_q[*], u_core|a_q[*], u_core|ba_q[*], u_core|dqm_q[*],
+#    u_core|ras_q, u_core|cas_q, u_core|we_q, u_core|cke_q. Any SDC or QSF pattern that names them must match the
+#    FITTED names (use  *|g_rise.cap_r[*]  or both spellings) and must not be silenced with -nowarn: a pattern that
+#    matches nothing is dropped silently (the KB-027 trap of B-916). Check the collection size after every fit.
+#
 # 1. Every output pin is driven by ONE register that drives only that pin (fanout 1), packed into the I/O cell.
 #    The registers are cke_q, ras_q, cas_q, we_q, dqm_q[1:0], ba_q[1:0], a_q[12:0] and dq_q[15:0] in tau_sdram_phy_core.
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to dram_a[*]

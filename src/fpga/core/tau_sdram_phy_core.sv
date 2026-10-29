@@ -586,7 +586,7 @@ module tau_sdram_phy_core #(
 `ifdef MUT_TDPL
     wire       beat_any = 1'b0;
 `else
-    wire       beat_any = |beat_bv;                              // a write beat leaves its bank in write recovery
+    wire       beat_any = wr_go & wvm;                          // a write beat (to whichever bank) leaves it in write recovery
 `endif
     wire       r_prea = (&(pre_b_v | po_b)) & ~e_act & ~beat_any & rfc_ok;
     wire       r_ref  = (&ref_b) & rfc_ok;
@@ -878,7 +878,7 @@ module tau_sdram_phy_core #(
             reg [12:0] fa;
             reg [15:0] fwd;
             function [15:0] calpat(input [9:0] i);
-                begin calpat = 16'hA5C3 ^ (i * 16'h9E37); end
+                begin calpat = 16'hA5C3 ^ {6'd0, i} ^ ({6'd0, i} << 5) ^ ({6'd0, i} << 11); end   // shifts and XORs only: no multiplier, no DSP block
             endfunction
             localparam [10:0] LEN_M1 = CAL_LEN - 1;
             always_comb begin
@@ -1189,6 +1189,6 @@ module tau_sdram_phy_core #(
     endgenerate
 
     wire e_nop_unused = e_nop & int_act;
-    wire unused_ok = &{1'b0, n_open, fe_be, idle_ok, bist_start, perf_snap, perf_clear, tpend, sel_rise_q, ext_q, e_nop_unused, po_b, act_bv};
+    wire unused_ok = &{1'b0, n_open, fe_be, idle_ok, bist_start, perf_snap, perf_clear, tpend, sel_rise_q, ext_q, e_nop_unused, po_b, act_bv, beat_bv};
 endmodule
 `default_nettype wire
