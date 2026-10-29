@@ -931,13 +931,23 @@ module tau_sdram_phy_core #(
             wire [1:0]  bank = bpg_q[1:0];
             wire [12:0] row  = bpg_q[14:2];
             wire        is_wr = ~bp_q[0];
+`ifdef MUT_BIST_NOINV
+            wire        inv   = 1'b0;
+`else
             wire        inv   = bp_q[1];
+`endif
             function [15:0] bdat(input [24:0] a, input i);
                 reg [15:0] x;
                 begin x = a[15:0] ^ {1'b0, a[24:10]} ^ 16'h3C5A; bdat = i ? ~x : x; end
             endfunction
+`ifdef MUT_BIST_NOWAIT
+            wire start_ok = (bs_q == BS_OFF) & bpend_q & init_done_q & rp_ref_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) & ~cal_busy_w;
+`elsif MUT_BIST_NOQUIET
+            wire start_ok = (bs_q == BS_OFF) & bpend_q & idle_ok & init_done_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) & ~cal_busy_w;
+`else
             wire start_ok = (bs_q == BS_OFF) & bpend_q & idle_ok & init_done_q & rp_ref_q & (qs_q == Q_IDLE) & (cmd == CMD_NOP) &
                             ~cal_busy_w;
+`endif
             always_comb begin
                 n_bs = bs_q; n_bc = bc_q; n_bp = bp_q; n_bpg = bpg_q; fv = 1'b0; fcmd = CMD_NOP; fa = 13'd0; fwv = 1'b0; fwd = 16'd0;
                 case (bs_q)
@@ -960,7 +970,11 @@ module tau_sdram_phy_core #(
                     BS_PRE:  begin fv = 1'b1; fcmd = CMD_PRE; n_bs = BS_NEXT; end
                     BS_NEXT: begin
                         n_bs = BS_CHK;
+`ifdef MUT_BIST_RANGE
+                        if (bpg_q == PG_LO) begin
+`else
                         if (bpg_q == PG_HI) begin
+`endif
                             n_bpg = PG_LO; n_bp = bp_q + 1'b1;
                             if (bp_q == 2'd3) n_bs = BS_END;
                         end else n_bpg = bpg_q + 1'b1;
@@ -974,7 +988,11 @@ module tau_sdram_phy_core #(
             assign n_bist_busy_w = (n_bs != BS_OFF);
             wire [24:0] raddr = {bank, row, bn_q[9:0]};
             wire        rd_phase = ~is_wr & (bs_q >= BS_COL) & (bs_q <= BS_DR);
+`ifdef MUT_BIST_NOCHK
+            wire        mism = 1'b0;
+`else
             wire        mism = rd_phase & rvalid & ((rdata !== bdat(raddr, inv)) | (bn_q >= 11'd1024));
+`endif
             wire        cnt_bad = ~is_wr & (bs_q == BS_DR) & (bc_q == 11'd0) & (bn_q != 11'd1024);
             always @(posedge clk) begin
                 if (rst) begin
