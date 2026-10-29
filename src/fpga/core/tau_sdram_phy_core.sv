@@ -147,7 +147,12 @@ module tau_sdram_phy_core #(
     // exported read latency (cycles from the accepting cycle to word 0 on rdata with rvalid = 1)
     localparam integer RD_LAT = ((CAP_MODE == 1) ? CL + 2 : CL + 1) + RD_EXTRA;
 
-    localparam integer CW = 6;      // counter width for the timing counters
+    function integer clog2(input integer v);
+        integer i;
+        begin clog2 = 0; for (i = 1; i < v; i = i << 1) clog2 = clog2 + 1; end
+    endfunction
+    localparam integer CMAX = imax(imax(imax(TRCD_C, TRP_C), imax(TRAS_C, TRC_C)), imax(imax(TRFC_C, DAL_C), imax(imax(RW_C, RRD_C), imax(WRP_C, MRD_C))));
+    localparam integer CW = imax(2, clog2(CMAX + 1));      // counter width for the timing counters
     localparam integer AW = 15;     // row age counter width
 
     // ---------------------------------------------------------------------------------------------------------
@@ -187,8 +192,8 @@ module tau_sdram_phy_core #(
         if (REFI_C < 1) begin : g_chk_refi
             initial $error("tau_sdram_phy: REFRESH_INTERVAL_PS shorter than one clock");
         end
-        if (TRCD_C > 60 || TRP_C > 60 || TRAS_C > 60 || TRC_C > 60 || TRFC_C > 60 || DAL_C > 60 || RW_C > 60 || RRD_C > 60 || MRD_C > 60) begin : g_chk_cw
-            initial $error("tau_sdram_phy: a timing parameter exceeds the %0d-bit counters", CW);
+        if (TRCD_C < 2 || TRP_C < 2 || TRAS_C < 2 || TRC_C < 2 || TRFC_C < 2 || WRP_C < 2 || DAL_C < 2 || RRD_C < 2 || RW_C < 2) begin : g_chk_cw
+            initial $error("tau_sdram_phy: every timing counter must reload with at least 1 (clock too slow for this PHY): tRCD %0d tRP %0d tRAS %0d tRC %0d tRFC %0d WRP %0d DAL %0d tRRD %0d RW %0d clocks", TRCD_C, TRP_C, TRAS_C, TRC_C, TRFC_C, WRP_C, DAL_C, RRD_C, RW_C);
         end
         if (AGE_FORCE_C >= (1 << AW) - 2 || AGE_REQ_C >= AGE_FORCE_C) begin : g_chk_age
             initial $error("tau_sdram_phy: row age limits out of range (request %0d, force %0d clocks)", AGE_REQ_C, AGE_FORCE_C);
@@ -281,7 +286,15 @@ module tau_sdram_phy_core #(
     wire       f_force_age;            // ... because a row reached the force age (else the refresh debt)
 
     // ---------------------------------------------------------------------------------------------------------
-    // interlock: the offered command against the registered permits
+    // interlock and effective command (B-916: flat, one-hot, flags computed from at most two LUT levels)
+    //   Structure (LUT6 levels counted from the scheduler inputs / registers, see docs/features/SDRAM_PHY_FINDINGS.md):
+    //   L1  mA/mR/mW/mP = the permit of the offered bank (4:1 mux of registers), c_* = decode of cmd, pend, eq*
+    //   L2  o_* = offered command and its own permit (one class at a time): the interlock verdict per class
+    //   e_* = o_* | int_*: the PHY's own commands (init, forced refresh, feature engines) are OR-ed in. This replaces the
+    //   old mux chain (offer or NOP, then internal or offer): while the PHY owns the bus every permit register is 0
+    //   (ok_* are computed with n_busy), so an offered command is NOP or illegal then and every o_* is 0.
+    //   The column wrap guard is applied per class (a non-terminating command is replaced by BST when the burst is at
+    //   column 1024), not through a general "terminating" decode.
     // ---------------------------------------------------------------------------------------------------------
     reg [3:0] ok_act_q = 4'd0, ok_rd_q = 4'd0, ok_wr_q = 4'd0, ok_pre_q = 4'd0;
     reg       ok_prea_q = 1'b0, ok_ref_q = 1'b0, ok_bst_q = 1'b0;
@@ -290,35 +303,45 @@ module tau_sdram_phy_core #(
 
     wire busy = !init_done_q | busy_seq | fe_busy;
     wire a10  = cmd_a[10];
-    reg  leg;
-    always_comb begin
-        case (cmd)
-            CMD_ACT:  leg = ok_act_q[cmd_ba];
+    wire c_nop  = (cmd == CMD_NOP);
+    wire c_act  = (cmd == CMD_ACT);
+    wire c_rd   = (cmd == CMD_RD);
+    wire c_wr   = (cmd == CMD_WR);
+    wire c_pre  = (cmd == CMD_PRE);
+    wire c_prea = (cmd == CMD_PREA);
+    wire c_ref  = (cmd == CMD_REF);
+    wire c_bst  = (cmd == CMD_BST);
+    wire mA = ok_act_q[cmd_ba];
+    wire mR = ok_rd_q[cmd_ba];
+    wire mW = ok_wr_q[cmd_ba];
+    wire mP = ok_pre_q[cmd_ba];
+    wire o_act  = c_act & mA;
 `ifdef MUT_A10
-            CMD_RD:   leg = ok_rd_q[cmd_ba];
-            CMD_WR:   leg = ok_wr_q[cmd_ba];
+    wire o_rd   = c_rd & mR;
+    wire o_wr   = c_wr & mW;
 `else
-            CMD_RD:   leg = ok_rd_q[cmd_ba] & ~a10;
-            CMD_WR:   leg = ok_wr_q[cmd_ba] & ~a10;
+    wire o_rd   = c_rd & mR & ~a10;
+    wire o_wr   = c_wr & mW & ~a10;
 `endif
-            CMD_PRE:  leg = ok_pre_q[cmd_ba];
-            CMD_PREA: leg = ok_prea_q;
-            CMD_REF:  leg = ok_ref_q;
-            CMD_BST:  leg = ok_bst_q;
-            default:  leg = 1'b1;           // NOP
-        endcase
-    end
-    wire silent_bst = (cmd == CMD_BST) & ~ok_bst_q & ~busy;      // BST with no burst open: NOP, no fault
+    wire o_pre  = c_pre & mP;
+    wire o_prea = c_prea & ok_prea_q;
+    wire o_ref  = c_ref & ok_ref_q;
+    wire o_bst  = c_bst & ok_bst_q;
+    wire leg    = c_nop | o_act | o_rd | o_wr | o_pre | o_prea | o_ref | o_bst;
+    wire silent_bst = c_bst & ~ok_bst_q & ~busy;                 // BST with no burst open: NOP, no fault
     wire illegal    = ~leg & ~silent_bst;
-    wire [2:0] o_cmd = leg ? cmd : CMD_NOP;
 
-    // effective command before the wrap guard: the PHY's own command, else the (legal) offer
-    wire       int_v   = i_v | s_v | fe_v;
-    wire [2:0] e0_cmd  = i_v ? i_cmd : (s_v ? s_cmd : (fe_v ? fe_cmd : o_cmd));
-    wire       e0_mrs  = i_v & i_mrs;
-    wire       e0_emrs = i_v & i_emrs;
-    wire [1:0] e0_ba   = (i_v | s_v) ? 2'b00 : (fe_v ? fe_ba : cmd_ba);
-    wire [12:0] e0_a   = (i_v | s_v) ? 13'd0 : (fe_v ? fe_a : cmd_a);
+    // the PHY's own commands (one-hot flags; at most one source is active)
+    wire int_act  = fe_v & (fe_cmd == CMD_ACT);
+    wire int_rd   = fe_v & (fe_cmd == CMD_RD);
+    wire int_wr   = fe_v & (fe_cmd == CMD_WR);
+    wire int_pre  = fe_v & (fe_cmd == CMD_PRE);
+    wire int_prea = (i_v & (i_cmd == CMD_PREA)) | (s_v & (s_cmd == CMD_PREA)) | (fe_v & (fe_cmd == CMD_PREA));
+    wire int_ref  = (i_v & (i_cmd == CMD_REF))  | (s_v & (s_cmd == CMD_REF))  | (fe_v & (fe_cmd == CMD_REF));
+    wire int_bst  = (s_v & (s_cmd == CMD_BST))  | (fe_v & (fe_cmd == CMD_BST));
+    wire e_mrs  = i_v & i_mrs;
+    wire e_emrs = i_v & i_emrs;
+    wire isint  = i_v | s_v;                                      // init or forced sequence: address pins come from the PHY
 
     // ---------------------------------------------------------------------------------------------------------
     // burst state and the column wrap guard (a burst must not run past column 1023: forced BST, fault)
@@ -326,57 +349,80 @@ module tau_sdram_phy_core #(
     reg        rd_open_q = 1'b0, wr_open_q = 1'b0;
     reg [1:0]  rd_bank_q = 2'b00, wr_bank_q = 2'b00;
     reg [10:0] bcol_q = 11'd0;                   // column of the word that this cycle would carry
-    wire       burst_open = rd_open_q | wr_open_q;
-    wire [1:0] burst_bank = rd_open_q ? rd_bank_q : wr_bank_q;
-    wire e0_term = (e0_cmd == CMD_BST) | (e0_cmd == CMD_PREA) | (e0_cmd == CMD_RD) | (e0_cmd == CMD_WR) |
-                   ((e0_cmd == CMD_PRE) & (e0_ba == burst_bank));
+    wire       bo = rd_open_q | wr_open_q;
 `ifdef MUT_NOWRAP
-    wire wrap_viol = 1'b0;
+    wire       pend = 1'b0;
 `else
-    wire wrap_viol = burst_open & bcol_q[10] & ~e0_term & ~e0_mrs;
+    wire       pend = bo & bcol_q[10];           // the word of this cycle would be column 1024
 `endif
+    wire       nb   = ~pend;
+    wire [1:0] burst_bank = rd_open_q ? rd_bank_q : wr_bank_q;
+    // an offered PRE of the bank that has the open burst ends it (rd and wr bursts are never open together)
+    wire       ptm  = (rd_open_q & (cmd_ba == rd_bank_q)) | (wr_open_q & (cmd_ba == wr_bank_q));
+    wire       int_pre_t = int_pre & (fe_ba == burst_bank);
+    wire       o_pre_t   = o_pre & ptm;
+    wire e0_act  = o_act  | int_act;
+    wire e0_rd   = o_rd   | int_rd;
+    wire e0_wr   = o_wr   | int_wr;
+    wire e0_pre  = o_pre  | int_pre;
+    wire e0_prea = o_prea | int_prea;
+    wire e0_ref  = o_ref  | int_ref;
+    wire e0_bst  = o_bst  | int_bst;
+    wire e0_pre_t = o_pre_t | int_pre_t;
+    wire kill_any = e0_bst | e0_prea | e0_pre_t;                  // ends whichever burst is open (not RD / WR)
+    wire wrap_viol = pend & ~(kill_any | e0_rd | e0_wr);
+    // effective commands (after the wrap guard)
+    wire e_act  = e0_act & nb;
+    wire e_ref  = e0_ref & nb;
+    wire e_pre  = e0_pre & (nb | e0_pre_t);
+    wire e_rd   = e0_rd;
+    wire e_wr   = e0_wr;
+    wire e_prea = e0_prea;
+    wire e_bst  = e0_bst | wrap_viol;
+    wire e_nop  = ~(e_act | e_ref | e_pre | e_rd | e_wr | e_prea | e_bst | e_mrs);
+    wire [1:0]  e_ba = fe_v ? fe_ba : cmd_ba;
+    wire [9:0]  e_ca = fe_v ? fe_a[9:0] : cmd_a[9:0];
 
-    wire [2:0]  e_cmd = wrap_viol ? CMD_BST : e0_cmd;
-    wire        e_mrs = e0_mrs & ~wrap_viol;
-    wire        e_emrs = e0_emrs & ~wrap_viol;
-    wire [1:0]  e_ba  = wrap_viol ? 2'b00 : e0_ba;
-    wire [12:0] e_a   = wrap_viol ? 13'd0 : e0_a;
-    wire e_act  = (e_cmd == CMD_ACT)  & ~e_mrs;
-    wire e_rd   = (e_cmd == CMD_RD)   & ~e_mrs;
-    wire e_wr   = (e_cmd == CMD_WR)   & ~e_mrs;
-    wire e_pre  = (e_cmd == CMD_PRE)  & ~e_mrs;
-    wire e_prea = (e_cmd == CMD_PREA) & ~e_mrs;
-    wire e_ref  = (e_cmd == CMD_REF)  & ~e_mrs;
-    wire e_bst  = (e_cmd == CMD_BST)  & ~e_mrs;
-
-    wire rd_open_n = e_rd | (rd_open_q & ~(e_bst | e_prea | e_wr | (e_pre & (e_ba == rd_bank_q))));
-    wire wr_open_n = e_wr | (wr_open_q & ~(e_bst | e_prea | e_rd | (e_pre & (e_ba == wr_bank_q))));
+    wire rd_open_n = e_rd | (rd_open_q & nb & ~(kill_any | e0_wr));
+    wire wr_open_n = e_wr | (wr_open_q & nb & ~(kill_any | e0_rd));
+    wire n_burst   = e_rd | e_wr | (bo & nb & ~kill_any);
+    wire rd_term   = rd_open_q & ~e_rd & (pend | kill_any | e0_wr);   // a read burst ends in this cycle
     wire [1:0] rd_bank_n = e_rd ? e_ba : rd_bank_q;
     wire [1:0] wr_bank_n = e_wr ? e_ba : wr_bank_q;
-    wire [10:0] bcol_n = (e_rd | e_wr) ? ({1'b0, e_a[9:0]} + 11'd1) : (bcol_q[10] ? bcol_q : bcol_q + 11'd1);
+    wire [10:0] bcol_n = (e_rd | e_wr) ? ({1'b0, e_ca} + 11'd1) : (bcol_q[10] ? bcol_q : bcol_q + 11'd1);
 
-    // DQM / DQ output enable
+    // ---------------------------------------------------------------------------------------------------------
+    // DQM / DQ output enable / write beats, expanded by the class of the offer (no serial chain through the verdict)
+    //   oe_n  = a write burst is open after this cycle and the cycle is not forced
+    //   dqm_n = 11 when forced, 00 while a read burst is open (through its terminating cycle), ~be for a write beat
+    // ---------------------------------------------------------------------------------------------------------
     wire wv_i = fe_busy ? fe_wv : wvalid;
     wire [15:0] wd_i = fe_busy ? fe_wd : wdata;
     wire [1:0] be_i = fe_busy ? fe_be : be;
-    wire dqm_force = (!init_done_q & ~fe_busy) | busy_seq | illegal;
-    wire beat      = wr_open_n & wv_i & (be_i != 2'b00) & ~dqm_force;      // an unmasked word is written this cycle
+    wire force_base = (!init_done_q & ~fe_busy) | busy_seq;
+    wire int_kill_w = int_bst | int_prea | int_rd | int_pre_t | int_wr;
+    wire a_new  = o_wr | (int_wr & ~illegal);                      // a write starts in this cycle
+    wire wo_ok  = wr_open_q & ~force_base & nb & ~int_kill_w;
+    wire b_cont = wo_ok & (c_nop | o_act | (o_pre & ~ptm));       // the open write burst continues
+    wire wr_go  = a_new | b_cont;
+`ifdef MUT_OE_EARLY
+    wire oe_n = wr_go | ((wr_open_q | rd_open_q) & ~force_base & leg);
+`else
+    wire oe_n = wr_go;
+`endif
+    wire wvm  = wv_i & (be_i != 2'b00);
+    wire rdok = rd_open_q & ~force_base;
+    wire rdlow = o_rd | (int_rd & ~illegal) | (rdok & leg);
     reg  [1:0] dqm_n;
     always_comb begin
-        if (dqm_force)                          dqm_n = 2'b11;
-        else if (rd_open_q | rd_open_n)         dqm_n = 2'b00;             // read: low through the terminating cycle
 `ifdef MUT_DQM
-        else if (wr_open_n)                     dqm_n = ~be_i;             // wvalid ignored
+        dqm_n[0] = ~(rdlow | (wr_go & be_i[0]));
+        dqm_n[1] = ~(rdlow | (wr_go & be_i[1]));
 `else
-        else if (wr_open_n & wv_i)              dqm_n = ~be_i;
+        dqm_n[0] = ~(rdlow | (wr_go & wv_i & be_i[0]));
+        dqm_n[1] = ~(rdlow | (wr_go & wv_i & be_i[1]));
 `endif
-        else                                    dqm_n = 2'b11;
     end
-`ifdef MUT_OE_EARLY
-    wire oe_n = (wr_open_n | wr_open_q | rd_open_q) & ~dqm_force;
-`else
-    wire oe_n = wr_open_n & ~dqm_force;
-`endif
 
     // ---------------------------------------------------------------------------------------------------------
     // timing state
@@ -386,17 +432,43 @@ module tau_sdram_phy_core #(
     function [CW-1:0] dec(input [CW-1:0] x);
         begin dec = (x == {CW{1'b0}}) ? {CW{1'b0}} : x - 1'b1; end
     endfunction
+    /* verilator lint_off UNUSEDSIGNAL */
+    /* verilator lint_off UNUSEDSIGNAL */
+    function le1(input [CW-1:0] x);                  // the counter is 0 or 1: zero in the next cycle if nothing reloads it
+        begin le1 = (x[CW-1:1] == {(CW-1){1'b0}}); end
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
 
     reg [CW-1:0] rrd_q = {CW{1'b0}}, rfc_q = {CW{1'b0}}, rw_q = {CW{1'b0}};
     wire [CW-1:0] n_rrd = e_act ? M_RRD : dec(rrd_q);
     wire [CW-1:0] n_rfc = e_ref ? M_RFC : dec(rfc_q);
-    wire [CW-1:0] n_rw  = (rd_open_q & ~rd_open_n) ? M_RW : dec(rw_q);
+    wire [CW-1:0] n_rw  = rd_term ? M_RW : dec(rw_q);
     always @(posedge clk) begin
         if (rst) begin rrd_q <= {CW{1'b0}}; rfc_q <= {CW{1'b0}}; rw_q <= {CW{1'b0}}; end
         else begin rrd_q <= n_rrd; rfc_q <= n_rfc; rw_q <= n_rw; end
     end
 
-    wire [3:0] n_open, r_act_b, r_rd_b, r_wr_b, r_pre_b, prea_b, ref_b;
+    // global permit factors, from the commands of this cycle and the counters (all reload values are >= 1, checked above)
+`ifdef MUT_TRRD
+    wire rrd_ok = 1'b1;
+`else
+    wire rrd_ok = ~e_act & le1(rrd_q);
+`endif
+`ifdef MUT_TRFC
+    wire rfc_ok = 1'b1;
+`else
+    wire rfc_ok = ~e_ref & le1(rfc_q);
+`endif
+`ifdef MUT_TURN
+    wire nrw = ~rd_open_n;                           // read-to-write turnaround ignored
+`elsif MUT_WR_IN_READ
+    wire nrw = ~rd_term & le1(rw_q);                 // a WR inside an open read burst is not refused
+`else
+    wire nrw = ~rd_open_q & ~e_rd & le1(rw_q);
+`endif
+
+    wire [3:0] n_open, r_act_b, r_rd_b, r_wr_b, r_pre_b, po_b, pre_b_v, ref_b;
+    wire [3:0] beat_bv, act_bv;
     wire [3:0] age_req, age_force;
     genvar b;
     generate
@@ -407,7 +479,7 @@ module tau_sdram_phy_core #(
             reg [AW-1:0] age_q = {AW{1'b0}};
             wire act_b  = e_act & (e_ba == b);
             wire pre_b  = e_prea | (e_pre & (e_ba == b));
-            wire beat_b = beat & (wr_bank_n == b);
+            wire beat_b = wvm & ((a_new & (e_ba == b)) | (b_cont & ~int_wr & (wr_bank_q == b)));
             wire n_o    = act_b | (open_q & ~pre_b);
             wire [CW-1:0] n_rcd = act_b ? M_RCD : dec(rcd_q);
             wire [CW-1:0] n_ras = act_b ? M_RAS : dec(ras_q);
@@ -425,56 +497,81 @@ module tau_sdram_phy_core #(
                     dal_q <= n_dal; age_q <= n_age;
                 end
             end
-            // permits for the next cycle's offer, from the next state
+            // permits for the next cycle's offer. Each factor is "the counter is zero after this cycle": a command of
+            // this cycle reloads it (so it is not zero) or the counter is 0 or 1 now. Written as the flag of this cycle
+            // AND a register-only condition, so the late flags enter in the last level only.
 `ifdef MUT_TRCD
-            wire rcd_ok = 1'b1;
+            wire rcd1 = 1'b1;
 `else
-            wire rcd_ok = (n_rcd == {CW{1'b0}});
+            wire rcd1 = le1(rcd_q);
 `endif
 `ifdef MUT_TRAS
-            wire ras_ok = 1'b1;
+            wire ras1 = 1'b1;
 `else
-            wire ras_ok = (n_ras == {CW{1'b0}});
+            wire ras1 = le1(ras_q);
 `endif
 `ifdef MUT_TRP
-            wire rp_ok = 1'b1;
+            wire rp1 = 1'b1;
 `else
-            wire rp_ok = (n_rp == {CW{1'b0}});
+            wire rp1 = le1(rp_q);
 `endif
 `ifdef MUT_TRC
-            wire rc_ok = 1'b1;
+            wire rc1 = 1'b1;
 `else
-            wire rc_ok = (n_rc == {CW{1'b0}});
+            wire rc1 = le1(rc_q);
 `endif
 `ifdef MUT_TDPL
-            wire wrp_ok = 1'b1;
+            wire wrp1 = 1'b1;
+            wire wrp_t = 1'b1;
 `else
-            wire wrp_ok = (n_wrp == {CW{1'b0}});
+            wire wrp1 = le1(wrp_q);
+            wire wrp_t = ~beat_b & wrp1;
 `endif
 `ifdef MUT_TDAL
-            wire dal_ok = 1'b1;
+            wire dal1 = 1'b1;
 `else
-            wire dal_ok = (n_dal == {CW{1'b0}});
+            wire dal1 = le1(dal_q);
 `endif
+            wire nopre = ~pre_b & ~act_b;
+            wire ob    = open_q & nopre;                           // open and stays open (no command of this cycle changes it)
+            /* verilator lint_off UNUSEDSIGNAL */
+            wire cl_n  = ~act_b & (~open_q | pre_b);               // closed after this cycle (mutants only)
+            /* verilator lint_on UNUSEDSIGNAL */
+            // the mutants bypass one counter factor, so they need the bank state after this cycle (n_o), as the
+            // original expressions had; the normal terms use the equivalent forms above (reload values are >= 1)
 `ifdef MUT_ACT_OPEN
-            assign r_act_b[b] = rp_ok & rc_ok & dal_ok;
+            assign r_act_b[b] = nopre & rp1 & rc1 & dal1;
+`elsif MUT_TRP
+            assign r_act_b[b] = cl_n & rc1 & dal1;
 `else
-            assign r_act_b[b] = ~n_o & rp_ok & rc_ok & dal_ok;
+            assign r_act_b[b] = ~open_q & nopre & rp1 & rc1 & dal1;
 `endif
 `ifdef MUT_COL_CLOSED
-            assign r_rd_b[b]  = rcd_ok;
-            assign r_wr_b[b]  = rcd_ok;
+            assign r_rd_b[b]  = ~act_b & rcd1;
+            assign r_wr_b[b]  = ~act_b & rcd1;
+`elsif MUT_TRCD
+            assign r_rd_b[b]  = n_o;
+            assign r_wr_b[b]  = n_o;
 `else
-            assign r_rd_b[b]  = n_o & rcd_ok;
-            assign r_wr_b[b]  = n_o & rcd_ok;
+            assign r_rd_b[b]  = ob & rcd1;
+            assign r_wr_b[b]  = ob & rcd1;
 `endif
-            assign r_pre_b[b] = n_o & ras_ok & wrp_ok;
-            assign prea_b[b]  = ~n_o | (ras_ok & wrp_ok);
+`ifdef MUT_TRAS
+            assign r_pre_b[b] = n_o & ras1 & wrp_t;
+`elsif MUT_TDPL
+            assign r_pre_b[b] = n_o & ras1 & wrp_t;
+`else
+            assign r_pre_b[b] = ob & ras1 & wrp_t;
+`endif
+            assign po_b[b]    = ~open_q | (ras1 & wrp1);          // this bank does not stop a PREA (a beat is handled globally)
 `ifdef MUT_REF_OPEN
-            assign ref_b[b]   = rp_ok & rc_ok;
+            assign ref_b[b]   = nopre & rp1 & rc1;
 `else
-            assign ref_b[b]   = ~n_o & rp_ok & rc_ok;
+            assign ref_b[b]   = ~open_q & nopre & rp1 & rc1;
 `endif
+            assign pre_b_v[b] = pre_b;
+            assign beat_bv[b] = beat_b;
+            assign act_bv[b]  = act_b;
             assign n_open[b]  = n_o;
             assign tpend[b]   = (rcd_q != {CW{1'b0}}) | (rp_q != {CW{1'b0}}) | (rc_q != {CW{1'b0}});
             assign age_req[b]   = open_q & (age_q >= AGE_REQ_C);
@@ -482,34 +579,18 @@ module tau_sdram_phy_core #(
         end
     endgenerate
 
-`ifdef MUT_TRRD
-    wire rrd_ok = 1'b1;
-`else
-    wire rrd_ok = (n_rrd == {CW{1'b0}});
-`endif
-`ifdef MUT_TRFC
-    wire rfc_ok = 1'b1;
-`else
-    wire rfc_ok = (n_rfc == {CW{1'b0}});
-`endif
-`ifdef MUT_TURN
-    wire rw_ok = 1'b1;
-`else
-    wire rw_ok = (n_rw == {CW{1'b0}});
-`endif
-`ifdef MUT_WR_IN_READ
-    wire no_rd = 1'b1;
-`else
-    wire no_rd = ~rd_open_n;
-`endif
-    wire n_burst = rd_open_n | wr_open_n;
     wire [3:0] r_act = r_act_b & {4{rrd_ok & rfc_ok}};
     wire [3:0] r_rd  = r_rd_b;
-    wire [3:0] r_wr  = r_wr_b & {4{no_rd & rw_ok}};
+    wire [3:0] r_wr  = r_wr_b & {4{nrw}};
     wire [3:0] r_pre = r_pre_b;
-    wire       r_prea = (&prea_b) & rfc_ok;
-    wire       r_ref = (&ref_b) & rfc_ok & ~n_burst;
-    wire       r_bst = n_burst;
+`ifdef MUT_TDPL
+    wire       beat_any = 1'b0;
+`else
+    wire       beat_any = |beat_bv;                              // a write beat leaves its bank in write recovery
+`endif
+    wire       r_prea = (&(pre_b_v | po_b)) & ~e_act & ~beat_any & rfc_ok;
+    wire       r_ref  = (&ref_b) & rfc_ok;
+    wire       r_bst  = n_burst;
 
     wire n_busy = ~n_init_done | n_busy_seq | n_fe_busy;
     // unmasked (by the PHY's own ownership) permits, used by the forced-refresh sequencer
@@ -571,26 +652,18 @@ module tau_sdram_phy_core #(
     // pins
     // ---------------------------------------------------------------------------------------------------------
     localparam [12:0] MRS_VAL = (CL == 3) ? 13'h037 : 13'h027;
-    reg [2:0]  pc;
-    reg [1:0]  pba;
-    reg [12:0] pa;
-    always_comb begin
-        pc = 3'b111; pba = 2'b00; pa = 13'd0;
-        if (e_mrs) begin
-            pc = 3'b000; pba = e_emrs ? 2'b10 : 2'b00; pa = e_emrs ? 13'h000 : MRS_VAL;
-        end else begin
-            case (e_cmd)
-                CMD_ACT:  begin pc = 3'b011; pba = e_ba; pa = e_a; end
-                CMD_RD:   begin pc = 3'b101; pba = e_ba; pa = {3'b000, e_a[9:0]}; end
-                CMD_WR:   begin pc = 3'b100; pba = e_ba; pa = {3'b000, e_a[9:0]}; end
-                CMD_PRE:  begin pc = 3'b010; pba = e_ba; end
-                CMD_PREA: begin pc = 3'b010; pa = 13'h0400; end
-                CMD_REF:  begin pc = 3'b001; end
-                CMD_BST:  begin pc = 3'b110; end
-                default: ;
-            endcase
-        end
-    end
+    // command pins from the one-hot flags: RAS# low for ACT/PRE/PREA/REF/MRS, CAS# low for RD/WR/REF/MRS,
+    // WE# low for WR/PRE/PREA/BST/MRS
+    wire ras_lo = e_act | e_pre | e_prea | e_ref | e_mrs;
+    wire cas_lo = e_rd | e_wr | e_ref | e_mrs;
+    wire we_lo  = e_wr | e_pre | e_prea | e_bst | e_mrs;
+    // address and bank pins: the PHY's own value while init / forced refresh run, the feature engine's, else the offer
+    // passed through. Only the bits that matter for the class are masked (A10 must be 0 on a PRE and a column
+    // command, high on a PREA); on NOP / REF / BST cycles the pins carry the offered value, which the chip ignores.
+    wire [12:0] a_int = e_mrs ? (e_emrs ? 13'h000 : MRS_VAL) : (int_prea ? 13'h0400 : 13'h0000);
+    wire [12:0] a_off = {cmd_a[12:11] & {2{c_act}}, (cmd_a[10] & c_act) | c_prea, cmd_a[9:0]};
+    wire [12:0] pa  = isint ? a_int : (fe_v ? fe_a : a_off);
+    wire [1:0]  pba = isint ? {e_emrs, 1'b0} : (fe_v ? fe_ba : cmd_ba);
 
     // pin registers: each register drives only its pin (Quartus: FAST_OUTPUT_REGISTER / FAST_OUTPUT_ENABLE_REGISTER,
     // see tau_sdram_phy_assignments.txt). The per-bit DQ and OE registers are duplicated on purpose (PRESERVE_REGISTER).
@@ -607,7 +680,7 @@ module tau_sdram_phy_core #(
             dq_q <= 16'd0; oe_q <= 16'd0;
         end else begin
             cke_q <= 1'b1;
-            {ras_q, cas_q, we_q} <= pc;
+            ras_q <= ~ras_lo; cas_q <= ~cas_lo; we_q <= ~we_lo;
             dqm_q <= dqm_n;
             ba_q  <= pba;
             a_q   <= pa;
@@ -730,7 +803,7 @@ module tau_sdram_phy_core #(
                 else n_tmo = tmo_q - 1'b1;
             end
             Q_BST: begin
-                if (burst_open) begin sq_v = 1'b1; sq_cmd = CMD_BST; end
+                if (bo) begin sq_v = 1'b1; sq_cmd = CMD_BST; end
                 n_qs = Q_PREA;
             end
             Q_PREA: begin
@@ -1047,7 +1120,6 @@ module tau_sdram_phy_core #(
             reg [1:0]  last_q = 2'd0;
             reg [7:0]  gp_q = 8'd0;
             wire en     = init_done_q;
-            wire e_nop  = ~e_mrs & (e_cmd == CMD_NOP);
             wire e_col  = e_rd | e_wr;
             wire used_c = used_q[e_ba];
             wire any_pend = |tpend;
@@ -1116,6 +1188,7 @@ module tau_sdram_phy_core #(
         end
     endgenerate
 
-    wire unused_ok = &{1'b0, n_open, fe_be, idle_ok, bist_start, perf_snap, perf_clear, tpend, sel_rise_q, ext_q, int_v};
+    wire e_nop_unused = e_nop & int_act;
+    wire unused_ok = &{1'b0, n_open, fe_be, idle_ok, bist_start, perf_snap, perf_clear, tpend, sel_rise_q, ext_q, e_nop_unused, po_b, act_bv};
 endmodule
 `default_nettype wire
