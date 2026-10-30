@@ -4,6 +4,7 @@
 //   make test-rtl-gfx-t3        (-Ptb_tau_gfx_t3.MUT=n must FAIL, n = 1..4, see below)
 // MUT 1: the RTL hook BUG_FENCE_ANY: every retired command bumps the fence counter
 // MUT 2: overflow not counted      MUT 3: idle ignores in-flight work     MUT 4: underflow check disabled
+// MUT 5: the RTL hook BUG_POP_STALE: the original command-pop race (a no-work command loses the next queued command)
 // The mutants are applied by forcing the DUT outputs in this bench, so the bench's own checks are what is tested.
 // ============================================================================
 `timescale 1ns/1ps
@@ -55,7 +56,7 @@ module tb_tau_gfx_t3;
     wire gfx_idle; wire [31:0] gfx_fence; wire [8:0] gfx_free; wire [15:0] gfx_ovf, gfx_underflow;
     integer writes_done;
 
-    tau_gfx #(.BLIT_BLEND_ENABLE(1), .DBUF_ENABLE(0), .FONT_RAM_ENABLE(0), .BUG_FENCE_ANY(MUT == 1)) dut (
+    tau_gfx #(.BLIT_BLEND_ENABLE(1), .DBUF_ENABLE(0), .FONT_RAM_ENABLE(0), .BUG_FENCE_ANY(MUT == 1), .BUG_POP_STALE(MUT == 5)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr), .cmd_w(cmd_w), .cmd_h(cmd_h),
         .cmd_fg(cmd_fg), .cmd_bg(cmd_bg), .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy),
@@ -144,6 +145,25 @@ module tb_tau_gfx_t3;
         repeat (20) @(posedge clk_sys);
         check(gfx_fence == f0 + 6, "six fences: the counter ends exactly 6 higher");
         check(fence_bad == 0, "the fence counter never decreased and never skipped between two sys samples (whole run)");
+
+        // ---- a command that needs no work (zero height), queued with others behind it: the next queued command must
+        // still run and every FENCE must count once (tau_talos popped on consecutive cycles after such a command and
+        // read the previous entry through its one-cycle-late cmd_q: the next command was lost and a FENCE repeated)
+        block = 1; repeat (50) @(posedge clk_sys);
+        f0 = gfx_fence; w0 = writes_done;
+        push_wait(4'd1, 19'd3000, 9'd30, 9'd0);    // RECT with h = 0: no work
+        push_wait(4'd1, 19'd3500, 9'd30, 9'd3);    // RECT: 3 row bursts, queued right behind it
+        push_wait(4'd9, 19'd0, 9'd0, 9'd0);        // FENCE
+        push_wait(4'd9, 19'd0, 9'd0, 9'd0);        // FENCE
+        push_wait(4'd1, 19'd3600, 9'd0, 9'd5);     // RECT with w = 0: no work
+        push_wait(4'd9, 19'd0, 9'd0, 9'd0);        // FENCE
+        push_wait(4'd1, 19'd3700, 9'd30, 9'd2);    // RECT: 2 row bursts
+        block = 0;
+        wait_idle(400000);
+        repeat (20) @(posedge clk_sys);
+        check(writes_done - w0 == 5, "no-work commands in a queued run: the 3 + 2 rows of the following RECTs were all written (none lost)");
+        check(gfx_fence == f0 + 3, "no-work commands in a queued run: three FENCEs count exactly three (none repeated)");
+        check(idle_o, "idle after the queued run with no-work commands");
 
         // ---- queue overflow: hold the engine (SDRAM not ready), push past capacity
         block = 1; repeat (200) @(posedge clk_sys);
