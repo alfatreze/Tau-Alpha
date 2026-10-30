@@ -117,8 +117,10 @@ module tau_sdram_sched_a #(
     wire [NP*10-1:0] w_idx;
     wire [NP*16-1:0] w_data    = {cpu_w_data, g_w_data, g_w_data};
     wire [NP*2-1:0]  w_be      = {cpu_w_be, g_w_be, g_w_be};
-    wire [NP-1:0]    r_valid, r_last, done;
+    wire [NP-1:0]    r_valid, r_last, done;          // registered here (below): the clients see the read return only through these flops
     wire [NP*16-1:0] r_data;
+    wire [NP-1:0]    r_valid_s, r_last_s, done_s;
+    wire [NP*16-1:0] r_data_s;
     wire [NP*8-1:0]  done_tag;
 
     assign g_req_ready = req_ready[1:0];
@@ -135,6 +137,22 @@ module tau_sdram_sched_a #(
     assign cpu_r_data    = r_data[47:32];
     assign cpu_r_last    = r_last[2];
     assign cpu_done      = done[2];
+
+    // Read-return stage: in RISE capture mode the PHY's rdata IS the DDIO input register at the pin; it must reach the
+    // clients (tau_talos compares and blends p0_q combinationally) only after one fabric flop. Data, strobe, last and done
+    // move together, so every client sees the same alignment, one cycle later than sched_v presents them. sched_v is unchanged.
+    reg [NP-1:0]    r_valid_q, r_last_q, done_q;
+    reg [NP*16-1:0] r_data_q;
+    always @(posedge clk) begin
+        r_valid_q <= r_valid_s; r_last_q <= r_last_s; r_data_q <= r_data_s;
+        done_q <= done_s;
+    end
+    assign r_valid = r_valid_q; assign r_last = r_last_q; assign r_data = r_data_q;
+`ifdef MUT_A_RSTAGE
+    assign done = done_s;                                  // mutant: done one cycle ahead of the data
+`else
+    assign done = done_q;
+`endif
 
     tau_sdram_a_gfx_if u_gfx (
         .clk(clk), .rst(rst), .init_done(init_done),
@@ -170,7 +188,7 @@ module tau_sdram_sched_a #(
         .urgent(3'b001), .urgent_early(3'b000),
         .sk_we(1'b0), .sk_idx(3'd0), .sk_base(3'd0), .sk_val(2'd0),
         .w_next(w_next), .w_idx(w_idx), .w_data(w_data), .w_be(w_be),
-        .r_valid(r_valid), .r_data(r_data), .r_last(r_last), .done(done), .done_tag(done_tag),
+        .r_valid(r_valid_s), .r_data(r_data_s), .r_last(r_last_s), .done(done_s), .done_tag(done_tag),
         .cnt_requests(cnt_requests), .cnt_words(cnt_words), .cnt_busy(cnt_busy), .cnt_bad(cnt_bad),
         .cnt_worst_wait(cnt_worst_wait), .cnt_urgent_over(cnt_urgent_over), .dbg_err(dbg_err), .dbg_pmiss(dbg_pmiss),
         .cmd(cmd), .cmd_ba(cmd_ba), .cmd_a(cmd_a), .wvalid(wvalid), .wdata(wdata), .be(be),
@@ -196,7 +214,7 @@ module tau_sdram_sched_a #(
     reg [NP-1:0] outst;
     always @(posedge clk) begin
         if (rst) outst <= {NP{1'b0}};
-        else     outst <= (outst | (req_valid & req_ready)) & ~done;
+        else     outst <= (outst | (req_valid & req_ready)) & ~done;   // done is the registered one: busy stays one cycle longer
     end
     assign busy = (|outst) | (|req_valid);
 

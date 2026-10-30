@@ -42,6 +42,7 @@ MUT_A_NOFILLPORT | urgent | | mut_nofillport
 MUT_A_CPUBE | cpu | | mut_cpube
 MUT_A_RDLEN | readsizes | | mut_rdlen
 MUT_A_AVAIL | idle | | mut_avail
+MUT_A_RSTAGE | cpu | | mut_rstage
 EOF
 )
 
