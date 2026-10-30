@@ -437,7 +437,9 @@ module tau_sdram_sched_v #(
         end
     end
 
-    wire        boundary = cur_v && (cur_left == 10'd0);
+    reg         bl4_q;                    // blank_q == 4, as a register
+    reg         bnd_q;                    // cur_v && cur_left == 0, kept as a register (keeps the 10-bit zero test out of the issue path)
+    wire        boundary = bnd_q;
     // refresh: one per idle gap (no urgent request waiting), between grants from REF_SOFT_DEBT, forced from REF_HARD_DEBT
     wire        uw      = uw_q;
 `ifdef MUT_NOHARD
@@ -449,9 +451,9 @@ module tau_sdram_sched_v #(
     reg         rf_go_q;
     always @(posedge clk) rf_go_q <= rf_go;
     wire        run_ok   = init_done & ~preempt & (rfm == RF_NONE) & ~rf_go_q & (hold_q == 6'd0);
-    wire [9:0]  need_pulled = (pq_n < W_LEAD[9:0] + 10'd1) ? pq_n : (W_LEAD[9:0] + 10'd1);
+    reg  [2:0]  pk_sat, need_q;            // pulls of the locked piece (saturating at W_LEAD+1) and the number required before its WR
     wire        rd_ok    = p_rd[t_bank] && (rq_cnt < RDQ_DEPTH[RQW-1:0] - 1);
-    wire        wr_ok    = p_wr[t_bank] && lk_v && (pq_pulled >= need_pulled) && (wf_cnt != {WFW{1'b0}});
+    wire        wr_ok    = p_wr[t_bank] && lk_v && (pk_sat >= need_q) && (wf_cnt != {WFW{1'b0}});
     wire        t_ready  = run_ok && t_v && t_hit && (t_we ? wr_ok : rd_ok);
 `ifdef MUT_NOCHAIN
     wire        issue    = t_ready && !cur_v;
@@ -464,15 +466,21 @@ module tau_sdram_sched_v #(
     // fast continuation: exactly two cycles after an issue (the registered head of the issued port is fresh then) the issued port's
     // next piece, if it is in the same bank and row (same request, or a write), becomes the target directly; no urgent request,
     // starvation or cap may be pending. The target is held until it is issued or the blank window ends.
-    wire        fast_c = (FAST_CONT != 0) && last_v && (blank_q == 4'd4) && hfast[last_port] && hv[last_port] &&
+    // the slowly changing conditions are registered the cycle before they are needed (one cycle after the issue, they describe the new
+    // `last_*` state; the fast target is decided one cycle later, when bl4_q is set)
+    reg         fc_pre_q, fl_pre_q;
+    always @(posedge clk) begin
+        fc_pre_q <= (FAST_CONT != 0) && last_v && m_open[last_bank] && !row_aged[last_bank] && !(|(starved & ~(8'd1 << last_port))) &&
+                    !capped_q[last_port] && init_done && !preempt;
+        fl_pre_q <= cur_v && cur_we && (bt_port == last_port) && (bt_reqs < BATCH_REQS[3:0]) && bt_room32_q;
+    end
+    wire        fast_c = fc_pre_q && bl4_q && hfast[last_port] && hv[last_port] &&
 `ifdef MUT_FAST_NOURG
                          1'b1 &&
 `else
                          !(|(urgent & URGENT_CAPABLE[NPORTS-1:0])) &&
 `endif
-                         !(|(urgent_early & URGENT_EARLY_CAPABLE[NPORTS-1:0])) &&
-                         m_open[last_bank] && !row_aged[last_bank] && !(|(starved & ~(8'd1 << last_port))) && !capped_q[last_port] &&
-                         init_done && !preempt;
+                         !(|(urgent_early & URGENT_EARLY_CAPABLE[NPORTS-1:0]));
     always @(posedge clk) begin
         if (td_fast && blank_q != 4'd0 && !issue) begin
             // hold the fast target
@@ -489,15 +497,15 @@ module tau_sdram_sched_v #(
     end
     // write commitment (lock): first piece of a grant near the boundary or when idle; continuation of a batch at once
     wire        pq_free = ~pq_v;
-    wire        near    = !cur_v || (cur_left <= PULL_AHEAD[9:0]);
+    reg         near_q;                   // !cur_v || cur_left <= PULL_AHEAD, as a register
+    wire        near    = near_q;
     wire        do_lock0 = run_ok && pq_free && t_v && t_we && (near || td_bc);
     // fast lock: in the cycle of the fast target, a continuing write piece of the batch is committed at once
-    wire        fl      = (FAST_LOCK != 0) && fast_c && hwe[last_port] && pq_free && cur_v && cur_we && (bt_port == last_port) &&
-                          
+    wire        fl      = (FAST_LOCK != 0) && fast_c && hwe[last_port] && pq_free && hsmall[last_port] && near_q && run_ok &&
 `ifdef MUT_FL_NOLIM
-                          1'b1 && hsmall[last_port] && (cur_left <= PULL_AHEAD[9:0]) && run_ok;
+                          1'b1;
 `else
-                          (bt_reqs < BATCH_REQS[3:0]) && hsmall[last_port] && bt_room32_q && (cur_left <= PULL_AHEAD[9:0]) && run_ok;
+                          fl_pre_q;
 `endif
     wire        do_lock = do_lock0 | fl;
     wire        lock_b  = (do_lock0 && td_bc) | fl;
@@ -645,9 +653,9 @@ module tau_sdram_sched_v #(
     reg [5:0] infl_n;
     always @(posedge clk) begin
         if (rst) begin
-            cur_v <= 1'b0; cur_we <= 1'b0; cur_last <= 1'b0; cur_bank <= 2'd0; cur_port <= 3'd0; cur_left <= 10'd0; cur_tag <= 8'd0;
+            cur_v <= 1'b0; bnd_q <= 1'b0; near_q <= 1'b1; bl4_q <= 1'b0; cur_we <= 1'b0; cur_last <= 1'b0; cur_bank <= 2'd0; cur_port <= 3'd0; cur_left <= 10'd0; cur_tag <= 8'd0;
             pq_v <= 1'b0; pq_iss <= 1'b0; pq_last <= 1'b0; pq_port <= 3'd0; pq_n <= 10'd0; pq_pulled <= 10'd0;
-            bt_port <= 3'd0; bt_reqs <= 4'd0; bt_words <= 10'd0; bt_room <= BATCH_WORDS[9:0]; bt_room32_q <= (BATCH_WORDS >= 32); pc_left <= 10'd0; pc_port <= 3'd0; pc_last <= 1'b0;
+            bt_port <= 3'd0; bt_reqs <= 4'd0; bt_words <= 10'd0; pk_sat <= 3'd0; need_q <= 3'd0; bt_room <= BATCH_WORDS[9:0]; bt_room32_q <= (BATCH_WORDS >= 32); pc_left <= 10'd0; pc_port <= 3'd0; pc_last <= 1'b0;
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
@@ -661,6 +669,13 @@ module tau_sdram_sched_v #(
             end
         end else begin
             // ---- burst in progress
+            if (issue) near_q <= (t_n <= PULL_AHEAD[9:0] + 10'd1);
+            else if (boundary) near_q <= 1'b1;
+            else near_q <= !cur_v || (cur_left <= PULL_AHEAD[9:0] + 10'd1);
+            if (issue) bl4_q <= 1'b0; else bl4_q <= (blank_q == 4'd5);
+            if (issue) bnd_q <= (t_n == 10'd1);
+            else if (boundary) bnd_q <= 1'b0;
+            else bnd_q <= cur_v && (cur_left == 10'd1);
             if (issue) begin
                 cur_v <= 1'b1; cur_we <= t_we; cur_last <= t_last; cur_bank <= t_bank; cur_port <= t_p; cur_tag <= t_tag;
                 cur_left <= t_n - 10'd1;
@@ -701,6 +716,7 @@ module tau_sdram_sched_v #(
             // ---- write commitment, pull cursor
             if (do_lock) begin
                 pq_v <= 1'b1; pq_iss <= 1'b0; pq_port <= lk_pt; pq_n <= lk_n; pq_pulled <= 10'd0; pq_last <= lk_lst;
+                pk_sat <= 3'd0; need_q <= (lk_n < W_LEAD + 1) ? lk_n[2:0] : W_LEAD[2:0] + 3'd1;
                 if (lock_b) begin
                     bt_words <= bt_words + lk_n; bt_reqs <= bt_reqs + {3'd0, lk_lst}; bt_room <= bt_room - lk_n; bt_room32_q <= ((bt_room - lk_n) >= 10'd32);
                 end else begin
@@ -709,7 +725,10 @@ module tau_sdram_sched_v #(
             end else if (wr_issue) begin
                 // the issued piece's remaining words go to the pull cursor; the locked slot is free for the next piece at once
                 pq_v <= 1'b0; pc_port <= pq_port; pc_last <= pq_last; pc_left <= pq_n - pq_pulled - {9'd0, pull & ~pull_pc};
-            end else if (pull && !pull_pc) pq_pulled <= pq_pulled + 10'd1;
+            end else if (pull && !pull_pc) begin
+                pq_pulled <= pq_pulled + 10'd1;
+                if (pk_sat < W_LEAD[2:0] + 3'd1) pk_sat <= pk_sat + 3'd1;
+            end
             if (pull && pull_pc) pc_left <= pc_left - 10'd1;
             if (pull) begin
                 if (pull_pc) begin
