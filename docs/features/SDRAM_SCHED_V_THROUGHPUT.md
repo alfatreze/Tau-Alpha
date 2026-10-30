@@ -31,3 +31,15 @@ No adder or comparator wider than 10 bits was added to a decision path, no multi
 
 ## Mutants added
 `MUT_FAST_ROW` (fast continuation without the same-row check; killed by `splits`), `MUT_FAST_NOURG` (fast continuation while an urgent request waits; killed by `urgent_bound`), `MUT_FL_NOLIM` (fast lock without the batch limits; killed by the new test `batching6`: 6-word writes).
+
+## Timing recovery (after probe B-923: seed 1 only +0.069 ns, worst path `pq_pulled -> issue -> adv -> e_addr`, 6 levels)
+Cycle counts are unchanged by every item below (allbi 1,744,794, clip 1,060,249, the same as before). Added logic: about 12 flops, less comparator logic than removed (well under 50 ALMs). Depths are designed 6-input LUT levels, not measured.
+| path | before | change | after |
+|---|---|---|---|
+| `pq_pulled` compare -> `wr_ok` -> `issue` | 10-bit compare of the pulled count with `need_pulled` (itself a compare of `pq_n`): 2-3 levels in front of `issue` | a 3-bit saturating pull count `pk_sat` and the required count `need_q` (computed once at the lock): one 3-bit compare | 1 |
+| `issue` slot test | `boundary` = `cur_v` and a 10-bit zero test of `cur_left` (2 levels) | `bnd_q` register (next value computed from the issue and the countdown) | 0 |
+| `issue` -> `adv` -> queue update -> `e_addr` (the probe's worst path, 6 levels, fanout 79 on the shift enable) | `do_adv`, then the pop/continue/next-row decision, then the 79-fan-out mux | the advance kind (pop / same request / next row) is decided from registers (`f_pop_c`, `f_cont_c`, `f_row_c`, with the new `nxt_nz` register); `adv` is ANDed in last; the entry count and ready flag are a 2:1 mux of two precomputed values instead of an adder after `pop` | issue (<= 2) + adv decode (1) + enable and mux (1) = **5** |
+| `fast_c` | 10-term AND with a 4-bit compare (`blank_q == 4`) and compares of the last bank's state | `bl4_q` register and `fc_pre_q` (the slowly changing terms, registered one cycle after the issue, which is when they describe the new state) | 3 |
+| fast lock `fl` -> lock enable | `fast_c` plus a 10-bit compare (`cur_left <= 4`) and four batch terms | `near_q` register, `fl_pre_q` register (batch terms, registered the same way) | 4 (+1 for the lock enable = 5) |
+| `near` (lock window) | `!cur_v || cur_left <= 4` compare | `near_q` register | 0 |
+The offer outputs are untouched (flop to pin). The lines above are the paths of the new fast-continuation and fast-lock logic and the queue update; the rest of the scheduler is as in the probed design.

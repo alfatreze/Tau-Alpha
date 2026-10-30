@@ -170,18 +170,25 @@ module tau_sdram_sv_pq #(
     wire do_adv = adv & hd_v;
     // next-state values are precomputed into registers (valid two cycles after the head changed; an advance never follows an
     // advance by less than that): the 25-bit address adders are not in the advance path
-    reg [24:0] nxt_a, nxt_rb; reg [9:0] nxt_rem;
+    reg [24:0] nxt_a, nxt_rb; reg [9:0] nxt_rem; reg nxt_nz;
     always @(posedge clk) begin
         nxt_a   <= h_addr + {15'd0, r_plen};
         nxt_rem <= e_rem[0] - r_plen;
+        nxt_nz  <= ((e_rem[0] - r_plen) != 10'd0);
 `ifdef MUT_2D_STRIDE
         nxt_rb  <= e_rb[0] + {14'd0, e_str[0]} + 25'd1;
 `else
         nxt_rb  <= e_rb[0] + {14'd0, e_str[0]};
 `endif
     end
-    wire pop    = (do_adv & r_last) | (pop_bad & hd_bad);
-    wire [3:0] cnt_n = cnt_q + {3'd0, push} - {3'd0, pop};
+    // the kind of advance is decided from registers only; `adv` (the deep signal) is ANDed in last
+    wire f_pop_c  = hd_v & r_last;
+    wire f_cont_c = hd_v & ~r_last & nxt_nz;
+    wire f_row_c  = hd_v & ~r_last & ~nxt_nz;
+    wire pop    = (adv & f_pop_c) | (pop_bad & hd_bad);
+    wire [3:0] cp_n  = cnt_q + {3'd0, push};
+    wire [3:0] cpm_n = cnt_q + {3'd0, push} - 4'd1;
+    wire [3:0] cnt_n = pop ? cpm_n : cp_n;
     wire [9:0] rem_n = nxt_rem;
 
     // conservative upper row of the request: one row above the start (1D, len <= 512) or start + h/2 + 1 (2D: h * 2048 bound); 13-bit only
@@ -195,18 +202,18 @@ module tau_sdram_sv_pq #(
             e_we <= {DEPTH{1'b0}}; e_2d <= {DEPTH{1'b0}}; e_bad <= {DEPTH{1'b0}};
         end else begin
             cnt_q   <= cnt_n;
-            ready_q <= (cnt_n < DEPTH[3:0]);
+            ready_q <= pop ? (cpm_n < DEPTH[3:0]) : (cp_n < DEPTH[3:0]);
             if (pop) begin
                 for (i = 0; i < DEPTH - 1; i = i + 1) begin
                     e_we[i] <= e_we[i+1]; e_2d[i] <= e_2d[i+1]; e_bad[i] <= e_bad[i+1];
                     e_addr[i] <= e_addr[i+1]; e_rem[i] <= e_rem[i+1]; e_tag[i] <= e_tag[i+1]; e_w[i] <= e_w[i+1];
                     e_rows[i] <= e_rows[i+1]; e_str[i] <= e_str[i+1]; e_rb[i] <= e_rb[i+1]; e_lo[i] <= e_lo[i+1]; e_hi[i] <= e_hi[i+1];
                 end
-            end else if (do_adv) begin
-                if (rem_n != 10'd0) begin
+            end else if (adv & f_cont_c) begin
                     e_addr[0] <= nxt_a;
                     e_rem[0]  <= rem_n;
-                end else begin                                   // 2D: next row (not the last piece)
+            end else if (adv & f_row_c) begin
+                begin                                            // 2D: next row (not the last piece)
                     e_rows[0] <= e_rows[0] - 6'd1;
                     e_rb[0]   <= nxt_rb;
                     e_addr[0] <= nxt_rb;
@@ -214,9 +221,8 @@ module tau_sdram_sv_pq #(
                 end
             end
             if (push) begin
-                widx = cnt_q - {3'd0, pop};
                 for (i = 0; i < DEPTH; i = i + 1) begin
-                    if (widx == i[3:0]) begin
+                    if (pop ? (cnt_q == i[3:0] + 4'd1) : (cnt_q == i[3:0])) begin
                         e_we[i]   <= req_we & ~req_2d;           // 2D writes are rejected (bad2d)
                         e_2d[i]   <= req_2d & (EN_2D != 0);
                         e_bad[i]  <= bad_n;
