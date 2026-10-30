@@ -240,7 +240,7 @@ test-rtl-gfx-t3: | $(RTL_BUILD_DIR)
 	@set -e; \
 	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_tau_gfx_t3.vvp $(GFX_T3_SRC); \
 	$(VVP) $(RTL_BUILD_DIR)/tb_tau_gfx_t3.vvp | tee $(RTL_BUILD_DIR)/tb_tau_gfx_t3.log | grep -E "^(FAIL|PASSED|FAILED)"; grep -q "^PASSED" $(RTL_BUILD_DIR)/tb_tau_gfx_t3.log; \
-	for m in 1 2 3 4; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_tau_gfx_t3.MUT=$$m -o $(RTL_BUILD_DIR)/tb_tau_gfx_t3_m$$m.vvp $(GFX_T3_SRC); \
+	for m in 1 2 3 4 5; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_tau_gfx_t3.MUT=$$m -o $(RTL_BUILD_DIR)/tb_tau_gfx_t3_m$$m.vvp $(GFX_T3_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_tau_gfx_t3_m$$m.vvp | grep -q "^FAILED"; then echo "mutant killed: MUT=$$m"; else echo "MUTANT SURVIVED: MUT=$$m"; exit 1; fi; done
 
 # Talos 2 T3b: the burst CBLIT against the per-pixel CBLIT (same commands, destination compared word for word, speed asserted); mutants 1-2 must FAIL.

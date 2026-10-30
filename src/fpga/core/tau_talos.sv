@@ -127,6 +127,10 @@ module tau_talos #(
     // Mutation-test hook only (sim/tb_tau_gfx_t3.v MUT=1): 1 bumps the fence counter when ANY command retires, not
     // only FENCE. Never set outside that test.
     parameter BUG_FENCE_ANY = 0,
+    // The command-pop race (fixed, see pop_d below): 1 restores the ORIGINAL behaviour (a pop in the cycle right after a pop
+    // reads the previous entry through cmd_q: after a no-work command the next queued command is lost and a FENCE repeats).
+    // Only for sim/tb_tau_gfx_diff.v (bug-compatible against the frozen oracle) and the t3 mutant. Never set in a build.
+    parameter BUG_POP_STALE = 0,
     // Talos 2 T3b (docs/research/TALOS_T4_MEASUREMENT_RESULT_2026-10-27.md): 1 reads a CBLIT source row as ONE SDRAM burst and looks each word up in the CLUT as it
     // arrives (the Waterfall's colour-mapped blit spent 95% of a fullscreen tick waiting for the one-transaction-per-pixel path); 0 keeps that per-pixel path (the
     // old behaviour, cycle for cycle, for the differential test and as the A/B).
@@ -1050,6 +1054,7 @@ module tau_talos #(
     // dispatch of the next command may fall in the same cycle.
     wire chain_idle  = !engine_busy && !bar2_pending && !rrect_pending && !rrect_active;
     reg  inflight = 1'b0, cur_is_fence = 1'b0, retire_inc = 1'b0, fence_inc = 1'b0;
+    reg  pop_d = 1'b0;   // a command was popped in the previous cycle: cmd_q (registered cmd_mem_rd) still holds that entry
     wire retire_now  = (astate == A_IDLE) && inflight && chain_idle;
     wire [15:0] retired_sys;
     tau_cdc_gray_ctr #(.WIDTH(16)) u_retired (.clk_src(clk_sdram), .rst_src(reset), .inc(retire_inc),
@@ -1065,6 +1070,7 @@ module tau_talos #(
         p0_wr_stream     <= 1'b0;
         lb_we            <= 1'b0;
         fill_done_inc    <= 1'b0;
+        pop_d            <= 1'b0;
         retire_inc       <= retire_now;
         fence_inc        <= retire_now && (cur_is_fence || BUG_FENCE_ANY != 0);
         if (retire_now) inflight <= 1'b0;
@@ -1242,7 +1248,8 @@ module tau_talos #(
                         rowf_cnt <= 2'd0;
                         astate   <= A_ROWFETCH;
 
-                    end else if (!fifo_empty && chain_idle && can_sdram) begin
+                    end else if (!fifo_empty && chain_idle && can_sdram && (BUG_POP_STALE != 0 || !pop_d)) begin   // pop_d: cmd_q lags rd_ptr by one cycle; no pop in the cycle right after a pop (a no-work command would otherwise let the next pop read the PREVIOUS entry)
+                        pop_d    <= 1'b1;
                         rd_ptr   <= rd_ptr + 1'b1;
                         rd_ptr_g <= b2g(rd_ptr + 1'b1);
                         char_fg  <= q_fg;
