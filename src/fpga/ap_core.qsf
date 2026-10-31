@@ -799,6 +799,22 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_scanout.sv
 set_global_assignment -name VERILOG_FILE core/font_rom.v
 set_global_assignment -name VERILOG_FILE core/font_ram.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/tau_sdram_ctrl.sv
+# -- the shared SDRAM PHY + sched_v + the player's adapters (the default SDRAM path since D-T13; fit sa2-b927, TAU DEV 200) --
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_phy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_phy_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_dq_cap.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_dq_cap_dual.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_clk_out.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sched_v.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_pq.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_arb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sv_tm.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_a_gfx_if.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_a_cpu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_sched_a.sv
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_ALTDDIO_OUT=1"
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq[*]
+set_global_assignment -name SDC_FILE core/core_constraints_sched_a.sdc
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_1wire
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spiclk
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_spimiso

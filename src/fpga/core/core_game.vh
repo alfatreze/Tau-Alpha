@@ -754,8 +754,8 @@ tau_sdram_bridge_mux u_sdram_bridge_mux (
     .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done), .bridge_rdata(soc_sdram_rdata)
 );
 
-`ifdef TAU_SDRAM_SCHED_A
-// ---- Tau Alpha scheduler path (D-T08: selectable, the old controller below stays the default) ----------------------------------
+`ifndef TAU_SDRAM_LEGACY
+// ---- Tau Alpha scheduler path: THE DEFAULT since D-T13 (2026-10-31); the old controller below is built only with TAU_SDRAM_LEGACY and is retired (deleted) after this default is fitted and run ----
 // docs/features/SDRAM_SCHED_A_NOTES.md. PHY + tau_sdram_sched_v (3 ports: scan-out fill, draw engine, CPU) + two thin client
 // adapters. The DRAM pins are the same; the PHY needs the I/O assignments and SDC of tau_sdram_phy_assignments.txt /
 // tau_sdram_sched_a_assignments.txt (owner review) and the macros TAU_SDRAM_ALTDDIO_OUT / TAU_SDRAM_ALTDDIO_IN.

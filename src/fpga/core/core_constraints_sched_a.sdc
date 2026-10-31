@@ -1,5 +1,5 @@
-# Extra constraints for the TAU_SDRAM_SCHED_A build only (added by tools/sched_a_qsf_append.txt through a second SDC_FILE; the
-# shipped core_constraints.sdc is NOT edited, D-T08). MIT licence. Sources: docs/features/SDRAM_CONTROLLER_CONTRACT.md (v1.0-rc1
+# Constraints of the shared SDRAM PHY path (the DEFAULT since D-T13, 2026-10-31; ap_core.qsf lists this as a second SDC_FILE after
+# core_constraints.sdc, so its set_output_delay lines replace the earlier values for the command and DQM pins). MIT licence. Sources: docs/features/SDRAM_CONTROLLER_CONTRACT.md (v1.0-rc1
 # paragraph), tools/sdram_probe/sdram_probe.sdc (the probe that closed on the VM), src/fpga/core/tau_sdram_sched_a_assignments.txt (section D).
 # This file is read AFTER core_constraints.sdc, so a set_output_delay without -add_delay replaces the earlier value for the same ports.
 # 1. command and DQM output delays: setup 1.5 + 0.3 ns margin (the old line used the datasheet's 0.5).
