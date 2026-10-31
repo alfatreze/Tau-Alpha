@@ -51,8 +51,8 @@ foreach {name pat} {addr {dram_a[*]} ba {dram_ba[*]} dqm {dram_dqm[*]} ras dram_
     foreach_in_collection p $paths { puts "GROUP $name $kind slack=[get_path_info $p -slack] from=[get_node_info -name [get_path_info $p -from]]" }
   }
 }
-# data path (not the output enable) to dram_dq
-set paths [get_timing_paths -setup -from [get_registers {*tau_sdram_ctrl:u_sdram|sdram_data[*]}] -to [get_ports {dram_dq[*]}] -npaths 1]
+# data path (not the output enable) to dram_dq (the PHY's dq_q register; the old tau_sdram_ctrl sdram_data pattern was retired with D-T13: pattern unverified on a fit, an empty match prints nothing)
+set paths [get_timing_paths -setup -from [get_registers {*tau_sdram_phy_core*dq_q[*]}] -to [get_ports {dram_dq[*]}] -npaths 1]
 foreach_in_collection p $paths { puts "GROUP dq_data setup slack=[get_path_info $p -slack]" }
 delete_timing_netlist
 project_close
