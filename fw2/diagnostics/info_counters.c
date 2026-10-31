@@ -50,6 +50,9 @@ static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_r
                 uint32_t pack_run, pack_err, pack_file, pack_seen, pack_src, meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b,
                 rtc_valid, rtc_epoch, rtc_date, rtc_time;   /* the host's wall clock (MMIO 0x1C4), read once when it has arrived */
                 char rtc_text[20];                            /* the clock now: boot time + uptime (rtc_core.h), "-" until the host's time is known */
+#if P2_DIAG
+                uint32_t sda32[9]; uint16_t sda16[9];         /* per-port SDRAM statistics (MMIO 0x1D4/0x1D8): [port * 3 + k] of requests, words, busy; worst wait, urgent over the bound, bad requests */
+#endif
               } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
 mc_t counters_up_clk;                    /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s); the main loop advances it every pass */
@@ -334,6 +337,27 @@ const cnt_t counters_table[] = {
     U32("GAIN CUR",    CU_NONE,   &v.gain_cur),
     { "CYMO STATUS",  CK_HEX32, CU_NONE,  &v.cymo_st },
 #endif
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
+    /* SDRAM statistics per port (tau_sdram_sched_v, read through the MMIO window): requests accepted, words moved, cycles the port had the controller, the longest wait for a grant (clk_sdram cycles), urgent requests waiting past the bound, rejected requests. 0 on a bitstream without the window. */
+    U32("SDA SCAN REQ", CU_NONE, &v.sda32[0]),
+    U32("SDA SCAN WORDS", CU_NONE, &v.sda32[1]),
+    U32("SDA SCAN BUSY", CU_CYC, &v.sda32[2]),
+    { "SDA SCAN WAIT", CK_U16, CU_CYC, &v.sda16[0] },
+    { "SDA SCAN URGENT", CK_U16, CU_NONE, &v.sda16[1] },
+    { "SDA SCAN BAD", CK_U16, CU_NONE, &v.sda16[2] },
+    U32("SDA ENG REQ", CU_NONE, &v.sda32[3]),
+    U32("SDA ENG WORDS", CU_NONE, &v.sda32[4]),
+    U32("SDA ENG BUSY", CU_CYC, &v.sda32[5]),
+    { "SDA ENG WAIT", CK_U16, CU_CYC, &v.sda16[3] },
+    { "SDA ENG URGENT", CK_U16, CU_NONE, &v.sda16[4] },
+    { "SDA ENG BAD", CK_U16, CU_NONE, &v.sda16[5] },
+    U32("SDA CPU REQ", CU_NONE, &v.sda32[6]),
+    U32("SDA CPU WORDS", CU_NONE, &v.sda32[7]),
+    U32("SDA CPU BUSY", CU_CYC, &v.sda32[8]),
+    { "SDA CPU WAIT", CK_U16, CU_CYC, &v.sda16[6] },
+    { "SDA CPU URGENT", CK_U16, CU_NONE, &v.sda16[7] },
+    { "SDA CPU BAD", CK_U16, CU_NONE, &v.sda16[8] },
+#endif
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),
 #if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("IMAGE",       CU_BYTES,  &v.image_b),
@@ -402,6 +426,25 @@ const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0]
 
 void counters_init(void) { mc_update(&counters_up_clk, cycles(), CLK_HZ); }
 
+#if P2_DIAG
+/* The statistics window (MMIO 0x1D4/0x1D8): select, wait for the snapshot (a few clk_sys cycles), read. A bitstream without it leaves the rows at 0. */
+static uint32_t sda_snap(uint32_t sel)
+{
+    uint32_t t;
+    for (t = 0; t < 1000u && (REG(R_SDA_SEL) & 0x100u); t++) { }
+    REG(R_SDA_SEL) = sel;
+    for (t = 0; t < 1000u && (REG(R_SDA_SEL) & 0x100u); t++) { }
+    return REG(R_SDA_VAL);
+}
+static void sda_refresh(void)
+{
+    if (!(REG(R_SDA_SEL) >> 31)) return;
+    for (uint32_t p = 0; p < 3u; p++) {
+        for (uint32_t k = 0; k < 3u; k++) { v.sda32[p * 3u + k] = sda_snap(p << 3 | k); v.sda16[p * 3u + k] = (uint16_t)sda_snap(p << 3 | (k + 3u)); }
+    }
+}
+#endif
+
 void counters_refresh(void)
 {
 #if P2_DIAG
@@ -423,6 +466,9 @@ void counters_refresh(void)
     v.uptime_s = mc_update(&counters_up_clk, cycles(), CLK_HZ);   /* also advanced by the main loop, so a page opened after a long time still reads right */
     if (!v.rtc_valid && (REG(R_RTC_ST) & 1u)) { v.rtc_epoch = REG(R_RTC_EPOCH); v.rtc_date = REG(R_RTC_DATE); v.rtc_time = REG(R_RTC_TIME); v.rtc_valid = 1; }   /* the words never change once valid */
     rtc_clock_text(v.rtc_valid, v.rtc_date, v.rtc_time, v.uptime_s, v.rtc_text);
+#if P2_DIAG
+    sda_refresh();
+#endif
     v.loops = counters_loops; v.loop_max_cyc = counters_loop_max_cyc; v.keys = counters_keys;
     uint32_t st = REG(R_PCM_ST);
     v.pcm_level = PCM_LEVEL(st); v.pcm_flags = (st >> 16) & 7u;

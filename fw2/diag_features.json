@@ -13,6 +13,26 @@
     "INFO"
   ],
   "counters": "fw2/diagnostics/info_counters.c: rows inside '#if P2_DIAG' are the Diagnostic Build's; every other row is the support set (the normal build's Report and the support fields of the About page)",
+  "counter_rows_left_out_when_off": [
+    "SDA SCAN REQ",
+    "SDA SCAN WORDS",
+    "SDA SCAN BUSY",
+    "SDA SCAN WAIT",
+    "SDA SCAN URGENT",
+    "SDA SCAN BAD",
+    "SDA ENG REQ",
+    "SDA ENG WORDS",
+    "SDA ENG BUSY",
+    "SDA ENG WAIT",
+    "SDA ENG URGENT",
+    "SDA ENG BAD",
+    "SDA CPU REQ",
+    "SDA CPU WORDS",
+    "SDA CPU BUSY",
+    "SDA CPU WAIT",
+    "SDA CPU URGENT",
+    "SDA CPU BAD"
+  ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
     "BOOT DATE",
@@ -33,5 +53,5 @@
     "report_page_draw",
     "counters_refresh"
   ],
-  "counter_rows_note": "The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks the list against the cold image of each build."
+  "counter_rows_note": "SDA <SCAN|ENG|CPU> <REQ|WORDS|BUSY|WAIT|URGENT|BAD>: the per-port SDRAM statistics of tau_sdram_sched_v read through the MMIO window 0x1D4/0x1D8 (docs/MMIO_ALLOCATION.md), inside '#if P2_DIAG' in fw2/diagnostics/info_counters.c (the 54 bytes of shadow values and the refresh are also P2_DIAG only). The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks both lists against the cold image of each build."
 }

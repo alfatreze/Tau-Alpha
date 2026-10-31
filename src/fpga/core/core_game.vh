@@ -350,6 +350,19 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `endif
 // Wall clock (APF 0x0090 -> tau_rtc_cdc inside tau_soc, MMIO 0x1C4-0x1D0): always built, about a hundred flops.
 `define TAU_RTC_EN 1
+// Per-port SDRAM statistics window (tau_sdr_stat_win, MMIO 0x1D4/0x1D8): needs the sched_v counters (CNT_EN), so only on the scheduler path (the default). TAU_NO_SDA leaves both out
+// (about 430 counter flops, their adders and the window's mux: roughly 3 points of ALMs); the registers then read 0 and the Info rows stay 0.
+`ifndef TAU_SDRAM_LEGACY
+`ifndef TAU_NO_SDA
+`define TAU_SDA_ON
+`define TAU_SDA_EN 1
+`else
+`define TAU_SDA_EN 0
+`endif
+`else
+`define TAU_SDA_EN 0
+`endif
+wire        soc_sda_we;   wire [4:0] soc_sda_wd;   wire [31:0] soc_sda_status, soc_sda_val;
 wire        soc_font_we;
 wire [12:0] soc_font_waddr;
 wire [31:0] soc_font_wdata;
@@ -417,9 +430,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN)) u_soc (
+tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN)) u_soc (
 `else
-tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN)) u_soc (
+tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -541,6 +554,7 @@ tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
 
     .sdram_busy_rd (soc_sdram_busy_rd),
     .rtc_valid (rtc_valid), .rtc_epoch_seconds (rtc_epoch_seconds), .rtc_date_bcd (rtc_date_bcd), .rtc_time_bcd (rtc_time_bcd),
+    .sda_we (soc_sda_we), .sda_wd (soc_sda_wd), .sda_status (soc_sda_status), .sda_val (soc_sda_val),
     .i2s_diag_toggle (soc_i2s_diag_toggle),
     .vblank_rd     (soc_vblank_rd),
     .scan_rd       (soc_scan_rd),
@@ -784,7 +798,17 @@ tau_sdram_a_cpu u_sdram_cpu_bridge (
     .req_len(sa_cpu_req_len), .w_next(sa_cpu_w_next), .w_idx(sa_cpu_w_idx), .w_data(sa_cpu_w_data), .w_be(sa_cpu_w_be),
     .r_valid(sa_cpu_r_valid), .r_data(sa_cpu_r_data), .r_last(sa_cpu_r_last), .done(sa_cpu_done)
 );
-tau_sdram_sched_a #(.CNT_EN(0)) u_sdram_sched_a (
+// Per-port statistics of sched_v (requests, words, busy cycles, worst wait, urgent over the bound, bad requests; ports 0 scan-out, 1 engine, 2 CPU) read through a snapshot window in MMIO 0x1D4/0x1D8.
+`ifdef TAU_SDA_ON
+tau_sdr_stat_win u_sdr_stat_win (
+    .clk_sys(clk_sys), .rst_sys(cpu_reset), .sel_we(soc_sda_we), .sel_wd(soc_sda_wd), .status(soc_sda_status), .val(soc_sda_val),
+    .clk_sdram(clk_sdram), .cnt_requests(sa_cnt_requests), .cnt_words(sa_cnt_words), .cnt_busy(sa_cnt_busy),
+    .cnt_bad(sa_cnt_bad), .cnt_worst_wait(sa_cnt_worst_wait), .cnt_urgent_over(sa_cnt_urgent_over)
+);
+`else
+assign soc_sda_status = 32'd0, soc_sda_val = 32'd0;   // TAU_NO_SDA: no statistics window
+`endif
+tau_sdram_sched_a #(.CNT_EN(`TAU_SDA_EN)) u_sdram_sched_a (
     .clk(clk_sdram), .rst_in(~pll_locked), .rst_out(sa_rst_sdram), .init_done(sdram_init_complete), .busy(sa_busy),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en), .p0_wr_len(fb_p0_wr_len),
     .p0_wr_stream(fb_p0_wr_stream), .p0_wr_req(fb_p0_wr_req), .p0_rd_req(fb_p0_rd_req),
@@ -812,6 +836,7 @@ assign sdram_bridge_write_seen = 1'b0, sdram_bridge_op_write = 1'b0, sdram_bridg
        sdram_ctrl_write_dq_all_ones = 1'b0, sdram_ctrl_write_dqm_unmasked = 1'b0, sdram_ctrl_follow_read_seen = 1'b0,
        sdram_ctrl_follow_read_data_seen = 1'b0, sdram_ctrl_follow_read_data_zero = 1'b0, sdram_ctrl_follow_read_data_all_ones = 1'b0;
 `else
+assign soc_sda_status = 32'd0, soc_sda_val = 32'd0;   // the old controller has no per-port statistics
 tau_sdram_cpu_bridge u_sdram_cpu_bridge (
     .clk_sys(clk_sys), .rst_sys(cpu_reset),
     .sys_start(sdram_mux_start), .sys_wb_start(sdram_mux_wb_start), .sys_write(sdram_mux_write),

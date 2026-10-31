@@ -1,13 +1,15 @@
-// tb_wall_soc.v -- the wall-clock registers of tau_soc.v with the real CPU driving them (firmware sim/fw_wall/main.c).
+// tb_wall_soc.v -- the wall-clock registers and the SDRAM statistics window of tau_soc.v with the real CPU driving them (firmware sim/fw_wall/main.c).
 //   MODE 0: the host's 0x0090 payload is applied on clk_74a WHILE THE CPU IS STILL IN RESET (as at boot, firmware is still loading); the firmware must find it latched.
 //   MODE 2: the payload arrives after the firmware's READY (the firmware first sees valid 0 and zero words, then valid 1 and the words).
 //   both: after READY2 the bench sends a second, different payload and a second rising edge is not produced (rtc_valid stays 1, as core_bridge_cmd does), but the words on the bus change: the latched ones must not move.
-// BUG_RTC mutates tau_rtc_cdc (the bench must FAIL). +ROM=<file>.
+//   MODE 1: tau_sdr_stat_win with static stub counters is wired to the SoC's SDA ports; the firmware selects each of the 18 counters and checks the value, and that an out-of-range selection reads 0.
+// BUG_RTC / BUG_SDA mutate tau_rtc_cdc / tau_sdr_stat_win (the bench must FAIL). +ROM=<file>.
 `timescale 1ns/1ps
 `default_nettype none
 module tb_wall_soc;
     parameter MODE = 0;
     parameter BUG_RTC = 0;
+    parameter BUG_SDA = 0;
     parameter OFF = 0;              // the mutant: the block under test left out of the SoC (RTC_ENABLE / SDA_ENABLE 0)
     reg clk = 0, clk74 = 0, clk100 = 0, rst = 1;
     always #8.333 clk = ~clk;
@@ -23,8 +25,22 @@ module tb_wall_soc;
     wire [15:0] audio_l, audio_r;
     // wall clock as the bridge drives it (clk_74a)
     reg         rtc_valid = 0; reg [31:0] rtc_ep = 0, rtc_da = 0, rtc_ti = 0;
+    // the statistics window
+    wire        sda_we; wire [4:0] sda_wd; wire [31:0] sda_status, sda_val;
+    wire [95:0] c_req, c_words, c_busy; wire [47:0] c_bad, c_worst, c_uover;
+    genvar gp;
+    generate for (gp = 0; gp < 3; gp = gp + 1) begin : g_cnt
+        assign c_req  [gp*32 +: 32] = 32'h1111_0000 + gp;
+        assign c_words[gp*32 +: 32] = 32'h2222_0000 + gp * 7;
+        assign c_busy [gp*32 +: 32] = 32'h3333_0000 + gp * 13;
+        assign c_worst[gp*16 +: 16] = 16'h4400 + gp;
+        assign c_uover[gp*16 +: 16] = 16'h5500 + gp;
+        assign c_bad  [gp*16 +: 16] = 16'h6600 + gp;
+    end endgenerate
     reg i2s_tgl = 0;                      // MODE 3: the DAC-domain toggle of sound_i2s.v, flipped by the bench
-    tau_soc #(.RTC_ENABLE((MODE != 1) && (OFF == 0)), .BUG_RTC(BUG_RTC), .I2S_DIAG_ENABLE(MODE == 3)) u_soc (
+    tau_sdr_stat_win #(.BUG(BUG_SDA)) u_win (.clk_sys(clk), .rst_sys(rst), .sel_we(sda_we), .sel_wd(sda_wd), .status(sda_status), .val(sda_val),
+        .clk_sdram(clk100), .cnt_requests(c_req), .cnt_words(c_words), .cnt_busy(c_busy), .cnt_bad(c_bad), .cnt_worst_wait(c_worst), .cnt_urgent_over(c_uover));
+    tau_soc #(.RTC_ENABLE((MODE != 1) && (OFF == 0)), .SDA_ENABLE((MODE == 1) && (OFF == 0)), .BUG_RTC(BUG_RTC), .I2S_DIAG_ENABLE(MODE == 3)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(32'd0), .in_menu(1'b0),
@@ -38,6 +54,7 @@ module tb_wall_soc;
         .xm_rdata(32'd0),
         .psram_done(1'b0), .psram_rdata(32'd0), .psram_guard(1'b0),
         .rtc_valid(rtc_valid), .rtc_epoch_seconds(rtc_ep), .rtc_date_bcd(rtc_da), .rtc_time_bcd(rtc_ti),
+        .sda_we(sda_we), .sda_wd(sda_wd), .sda_status(sda_status), .sda_val(sda_val),
         .i2s_diag_toggle(i2s_tgl),
         .audio_l(audio_l), .audio_r(audio_r)
     );
