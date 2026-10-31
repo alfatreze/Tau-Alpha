@@ -23,7 +23,8 @@ module tb_wall_soc;
     wire [15:0] audio_l, audio_r;
     // wall clock as the bridge drives it (clk_74a)
     reg         rtc_valid = 0; reg [31:0] rtc_ep = 0, rtc_da = 0, rtc_ti = 0;
-    tau_soc #(.RTC_ENABLE((MODE != 1) && (OFF == 0)), .BUG_RTC(BUG_RTC)) u_soc (
+    reg i2s_tgl = 0;                      // MODE 3: the DAC-domain toggle of sound_i2s.v, flipped by the bench
+    tau_soc #(.RTC_ENABLE((MODE != 1) && (OFF == 0)), .BUG_RTC(BUG_RTC), .I2S_DIAG_ENABLE(MODE == 3)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(32'd0), .in_menu(1'b0),
@@ -37,6 +38,7 @@ module tb_wall_soc;
         .xm_rdata(32'd0),
         .psram_done(1'b0), .psram_rdata(32'd0), .psram_guard(1'b0),
         .rtc_valid(rtc_valid), .rtc_epoch_seconds(rtc_ep), .rtc_date_bcd(rtc_da), .rtc_time_bcd(rtc_ti),
+        .i2s_diag_toggle(i2s_tgl),
         .audio_l(audio_l), .audio_r(audio_r)
     );
     task host_rtc(input [31:0] ep, input [31:0] da, input [31:0] ti, input raise);   // the bridge's registers load, and rtc_valid rises in the same edge (core_bridge_cmd)
@@ -66,6 +68,11 @@ module tb_wall_soc;
         ld_wr <= 0; repeat (4) @(posedge clk);
         rst <= 0;
         if (MODE == 2) begin wait (ready); repeat (200) @(posedge clk); host_rtc(32'h6724B3C5, 32'h20261031, 32'h06123456, 1'b1); end
+        if (MODE == 3) begin
+            wait (ready); repeat (50) @(posedge clk);
+            u_soc.i2s_diag_sum_r = 48'h0000_FFFF_FFF0;                                   // 16 below the 32-bit wrap
+            for (i = 0; i < 6; i = i + 1) begin repeat (1389) @(posedge clk); i2s_tgl <= ~i2s_tgl; end   // the first toggle only starts the measurement: five intervals follow
+        end
         if (MODE == 0 || MODE == 2) begin
             wait (ready2);
             host_rtc(32'h6725_0000, 32'h20261101, 32'h01000102, 1'b0);              // a different payload, no new rising edge
