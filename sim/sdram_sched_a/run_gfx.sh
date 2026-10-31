@@ -11,11 +11,11 @@ mkdir -p "$OUT"
 RTL="$ROOT/src/fpga/core"
 NCMD="${1:-150}"; shift || true
 # the old controller as a build artefact (iverilog needs the packed typedef; nothing else changes), as sim/sdram_baseline does
-sed 's/^  typedef struct {/  typedef struct packed {/' "$ROOT/src/fpga/rtl/mem/tau_sdram_ctrl.sv" > "$OUT/ctrl_old_build.sv"
+sed 's/^  typedef struct {/  typedef struct packed {/' "$ROOT/sim/legacy_sdram/tau_sdram_ctrl.sv" > "$OUT/ctrl_old_build.sv"
 SRC=("$ROOT/sim/sdram_chip_model.sv" "$RTL/tau_sdram_phy_core.sv" "$RTL/tau_sdram_dq_cap.sv" "$RTL/tau_sdram_clk_out.sv" "$RTL/tau_sdram_phy.sv"
      "$RTL/tau_sdram_sv_tm.sv" "$RTL/tau_sdram_sv_pq.sv" "$RTL/tau_sdram_sv_arb.sv" "$RTL/tau_sdram_sched_v.sv"
      "$RTL/tau_sdram_a_gfx_if.sv" "$RTL/tau_sdram_a_cpu.sv" "$RTL/tau_sdram_sched_a.sv"
-     "$RTL/tau_sdram_cpu_bridge.sv" "$RTL/tau_sdram_arbiter.sv" "$OUT/ctrl_old_build.sv"
+     "$ROOT/sim/legacy_sdram/tau_sdram_cpu_bridge.sv" "$ROOT/sim/legacy_sdram/tau_sdram_arbiter.sv" "$OUT/ctrl_old_build.sv"
      "$RTL/tau_gfx.sv" "$RTL/tau_talos.sv" "$RTL/tau_scanout.sv" "$RTL/tau_cdc_gray_ctr.sv" "$RTL/tau_cdc_gray_bus.sv" "$RTL/font_rom.v" "$RTL/font_ram.v"
      "$HERE/tb_a_gfx.sv")
 PLUS=""

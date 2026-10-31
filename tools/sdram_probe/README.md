@@ -22,8 +22,8 @@ that name. Run `base` first (the contract's budget is for the default build) and
 ## What is in the stage (flat, on the VM `~/tau-local/sdram_probe-NAME`)
 `tau_sdram_probe_top.sv`, `sdram_probe.qsf/.qpf/.sdc`, `probe_report.tcl` at the root; the RTL (`tau_sdram_phy*.sv`,
 `tau_sdram_dq_cap*.sv`, `tau_sdram_clk_out.sv`, `tau_sdram_sched_v.sv`, `tau_sdram_sv_pq.sv`, `tau_sdram_sv_arb.sv`) and
-the core's PLL (`mf_pllbase*`) copied from the **current working tree** into `rtl/`. The clean-room files
-(`tau_sdram_ctrl.sv`, `tau_sdram_arbiter.sv`, `tau_sdram_cpu_bridge.sv`) are not involved.
+the core's PLL (`mf_pllbase*`) copied from the **current working tree** into `rtl/`. The retired old-controller files
+(`tau_sdram_ctrl.sv`, `tau_sdram_arbiter.sv`, `tau_sdram_cpu_bridge.sv`, archived in `sim/legacy_sdram/`) are not involved.
 
 ## The probe
 * **Clock:** the core's own PLL `mf_pllbase`, 74.25 MHz from the `clk_74a` pin (PIN_V15, 3.3-V LVCMOS), `outclk_3` =

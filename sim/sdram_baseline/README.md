@@ -1,6 +1,6 @@
 # sim/sdram_baseline: the OLD SDRAM controller through the new chip model
 
-Contract 7.1: the old controller (`src/fpga/rtl/mem/tau_sdram_ctrl.sv`, the RTL the player ships, 100 MHz, CL2, full-page bursts) runs through `sim/sdram_chip_model.sv` first, as a baseline. Results: `docs/features/SDRAM_BASELINE_FINDINGS.md`.
+Contract 7.1: the old controller (`sim/legacy_sdram/tau_sdram_ctrl.sv` (archived; deleted from the build by D-T13), the RTL the player ships, 100 MHz, CL2, full-page bursts) runs through `sim/sdram_chip_model.sv` first, as a baseline. Results: `docs/features/SDRAM_BASELINE_FINDINGS.md`.
 
 Needs iverilog (4-state; the model cannot run under Verilator). From the repository root:
 
