@@ -26,7 +26,7 @@
 //            Pocket's native 1600x1440 panel (confirmed via Analogue's own
 //            spec: the panel is built around integer scaling).
 // outclk_2 = 12 MHz shifted 90 degrees (APF requires both edges).
-// outclk_3 = 100 MHz SDRAM framebuffer controller (tau_gfx.sv / tau_sdram_ctrl.sv).
+// outclk_3 = 100 MHz SDRAM framebuffer controller (tau_gfx.sv, through tau_sdram_sched_a to the shared PHY).
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
@@ -215,7 +215,7 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `endif
 // Phase F B7: SDRAM busy-cycle counter (PHASE_F_SPEC.md section 5). Independent of the
 // PSRAM/Phase2 macros above -- it only observes the existing single-port SDRAM arbiter
-// (tau_sdram_arbiter below), so it needs no RTL dependency on the blit engine itself.
+// (the SDRAM scheduler below), so it needs no RTL dependency on the blit engine itself.
 `ifdef TAU_SDRAM_BUSY
 `define TAU_SDR_BUSY_EN 1
 `else
@@ -350,15 +350,11 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `endif
 // Wall clock (APF 0x0090 -> tau_rtc_cdc inside tau_soc, MMIO 0x1C4-0x1D0): always built, about a hundred flops.
 `define TAU_RTC_EN 1
-// Per-port SDRAM statistics window (tau_sdr_stat_win, MMIO 0x1D4/0x1D8): needs the sched_v counters (CNT_EN), so only on the scheduler path (the default). TAU_NO_SDA leaves both out
+// Per-port SDRAM statistics window (tau_sdr_stat_win, MMIO 0x1D4/0x1D8): needs the sched_v counters (CNT_EN). TAU_NO_SDA leaves both out
 // (about 430 counter flops, their adders and the window's mux: roughly 3 points of ALMs); the registers then read 0 and the Info rows stay 0.
-`ifndef TAU_SDRAM_LEGACY
 `ifndef TAU_NO_SDA
 `define TAU_SDA_ON
 `define TAU_SDA_EN 1
-`else
-`define TAU_SDA_EN 0
-`endif
 `else
 `define TAU_SDA_EN 0
 `endif
@@ -379,10 +375,9 @@ wire        soc_xm_wr;
 wire [31:0] soc_xm_wdata;
 wire [31:0] soc_xm_rdata;
 
-// Phase F B7: SDRAM busy-cycle counter. `arb_p0_available` is tau_sdram_ctrl's own p0_available
-// (declared below, driven by u_sdram) -- per tau_sdram_arbiter.sv's own comment, that signal
-// is asserted only while the single SDRAM port is idle with no request pending, so its inverse
-// is exactly "the SDRAM port is busy", independent of which master (framebuffer or CPU) holds
+// Phase F B7: SDRAM busy-cycle counter. `arb_p0_available` is ~sa_busy of the scheduler
+// (declared below, driven by u_sdram_sched_a): asserted only while no request is pending or outstanding on any port, so its inverse
+// is exactly "the SDRAM is busy", independent of which master (framebuffer, engine or CPU) holds
 // it. Counts in clk_sdram, a domain the MMIO decoder never sees directly, so it crosses via
 // tau_cdc_gray_ctr (Gray-coded, matching mp3_fb.sv's own FIFO-pointer CDC) into clk_sys.
 wire [31:0] soc_sdram_busy_rd;
@@ -701,8 +696,7 @@ end
 // essentially nothing (~360 KB of 32 MB) and needed no BRAM budget, which
 // mattered: the core is already at 90% BRAM utilisation.
 //
-// reset(~pll_locked) directly, no synchroniser: matches HarpMudd.starwars'
-// proven tau_sdram_ctrl instantiation exactly (PLL lock status is a slow, stable
+// reset(~pll_locked) directly, no synchroniser (PLL lock status is a slow, stable
 // flag in practice, not something that has bitten this pattern on hardware).
 wire        sdram_init_complete;
 wire [24:0] fb_p0_addr;
@@ -715,23 +709,10 @@ wire        fb_p0_wr_req, fb_p0_rd_req, fb_p0_end_burst_req;
 wire        fb_p0_available, fb_p0_ready, fb_p0_data_available;
 wire [10:0] fb_wsrc_addr;
 wire [15:0] fb_wsrc_q;
-wire        fb_p0_is_fill;           // tau_gfx sideband for tau_sdram_sched_a (open on the old path)
+wire        fb_p0_is_fill;           // tau_gfx sideband for tau_sdram_sched_a
 wire [9:0]  fb_p0_rd_len;
 
-wire [24:0] cpu_p0_addr;
-wire [15:0] cpu_p0_data, cpu_p0_q;
-wire [1:0]  cpu_p0_byte_en;
-wire [10:0] cpu_p0_wr_len;
-wire        cpu_p0_wr_req, cpu_p0_rd_req, cpu_p0_end_burst_req;
-wire        cpu_p0_available, cpu_p0_ready, cpu_p0_data_available, cpu_p0_accepted;
-
-wire [24:0] arb_p0_addr;
-wire [15:0] arb_p0_data, arb_p0_q;
-wire [1:0]  arb_p0_byte_en;
-wire [10:0] arb_p0_wr_len, arb_wsrc_addr;
-wire        arb_p0_wr_stream, arb_p0_wr_req, arb_p0_rd_req, arb_p0_end_burst_req;
-wire        arb_p0_available, arb_p0_ready, arb_p0_data_available;
-wire [15:0] arb_wsrc_q;
+wire        arb_p0_available;        // ~sa_busy of the scheduler (feeds the TAU_SDRAM_BUSY counter)
 
 // Phase 2 shared bridge boundary. The mapped-window client can be enabled only
 // in the explicitly flagged diagnostic build; normal builds drive it inactive
@@ -771,11 +752,9 @@ tau_sdram_bridge_mux u_sdram_bridge_mux (
     .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done), .bridge_rdata(soc_sdram_rdata)
 );
 
-`ifndef TAU_SDRAM_LEGACY
-// ---- Tau Alpha scheduler path: THE DEFAULT since D-T13 (2026-10-31); the old controller below is built only with TAU_SDRAM_LEGACY and is retired (deleted) after this default is fitted and run ----
+// ---- Tau Alpha scheduler path: the only SDRAM path (D-T13, 2026-10-31; the old controller, arbiter and CPU bridge were deleted after TAU DEV 201 ran on a Pocket) ----
 // docs/features/SDRAM_SCHED_A_NOTES.md. PHY + tau_sdram_sched_v (3 ports: scan-out fill, draw engine, CPU) + two thin client
-// adapters. The DRAM pins are the same; the PHY needs the I/O assignments and SDC of tau_sdram_phy_assignments.txt /
-// tau_sdram_sched_a_assignments.txt (owner review) and the macros TAU_SDRAM_ALTDDIO_OUT / TAU_SDRAM_ALTDDIO_IN.
+// adapters. The DRAM pins are the same; the PHY needs the I/O assignments and SDC that ap_core.qsf and core_constraints.sdc carry, and the macro TAU_SDRAM_ALTDDIO_OUT.
 wire        sa_rst_sdram, sa_busy;
 wire        sa_cpu_req_valid, sa_cpu_req_ready, sa_cpu_req_we, sa_cpu_w_next, sa_cpu_r_valid, sa_cpu_r_last, sa_cpu_done;
 wire [24:0] sa_cpu_req_addr;
@@ -835,80 +814,6 @@ assign sdram_bridge_write_seen = 1'b0, sdram_bridge_op_write = 1'b0, sdram_bridg
        sdram_ctrl_write_be_all_enabled = 1'b0, sdram_ctrl_write_command = 1'b0, sdram_ctrl_write_dq_enabled = 1'b0,
        sdram_ctrl_write_dq_all_ones = 1'b0, sdram_ctrl_write_dqm_unmasked = 1'b0, sdram_ctrl_follow_read_seen = 1'b0,
        sdram_ctrl_follow_read_data_seen = 1'b0, sdram_ctrl_follow_read_data_zero = 1'b0, sdram_ctrl_follow_read_data_all_ones = 1'b0;
-`else
-assign soc_sda_status = 32'd0, soc_sda_val = 32'd0;   // the old controller has no per-port statistics
-tau_sdram_cpu_bridge u_sdram_cpu_bridge (
-    .clk_sys(clk_sys), .rst_sys(cpu_reset),
-    .sys_start(sdram_mux_start), .sys_wb_start(sdram_mux_wb_start), .sys_write(sdram_mux_write),
-    .sys_addr(sdram_mux_addr), .sys_wdata(sdram_mux_wdata),
-    .sys_byte_en(sdram_mux_be), .sys_busy(soc_sdram_busy),
-    .sys_done(soc_sdram_done), .sys_rdata(soc_sdram_rdata),
-    .debug_wb_write_seen(sdram_bridge_write_seen),
-    .debug_op_write(sdram_bridge_op_write),
-    .debug_wdata_all_ones(sdram_bridge_wdata_all_ones),
-    .debug_be_all_enabled(sdram_bridge_be_all_enabled),
-    .debug_lo_write_accepted(sdram_bridge_lo_write_accepted),
-    .debug_hi_write_accepted(sdram_bridge_hi_write_accepted),
-    .debug_follow_read_seen(sdram_bridge_follow_read_seen),
-    .debug_follow_read_data_zero(sdram_bridge_follow_read_data_zero),
-    .debug_follow_read_data_all_ones(sdram_bridge_follow_read_data_all_ones),
-    .clk_sdram(clk_sdram), .rst_sdram(~pll_locked),
-    .m_addr(cpu_p0_addr), .m_data(cpu_p0_data), .m_byte_en(cpu_p0_byte_en),
-    .m_wr_len(cpu_p0_wr_len), .m_wr_req(cpu_p0_wr_req), .m_rd_req(cpu_p0_rd_req),
-    .m_end_burst_req(cpu_p0_end_burst_req), .m_q(cpu_p0_q),
-    .m_accepted(cpu_p0_accepted), .m_ready(cpu_p0_ready),
-    .m_data_available(cpu_p0_data_available)
-);
-
-tau_sdram_arbiter u_sdram_arbiter (
-    .clk(clk_sdram), .rst(~pll_locked),
-    .fb_addr(fb_p0_addr), .fb_data(fb_p0_data), .fb_byte_en(fb_p0_byte_en),
-    .fb_wr_len(fb_p0_wr_len), .fb_wr_stream(fb_p0_wr_stream),
-    .fb_wr_req(fb_p0_wr_req), .fb_rd_req(fb_p0_rd_req),
-    .fb_end_burst_req(fb_p0_end_burst_req), .fb_q(fb_p0_q),
-    .fb_available(fb_p0_available), .fb_ready(fb_p0_ready),
-    .fb_data_available(fb_p0_data_available), .fb_wsrc_q(fb_wsrc_q),
-    .fb_wsrc_addr(fb_wsrc_addr),
-    .cpu_addr(cpu_p0_addr), .cpu_data(cpu_p0_data), .cpu_byte_en(cpu_p0_byte_en),
-    .cpu_wr_len(cpu_p0_wr_len), .cpu_wr_req(cpu_p0_wr_req),
-    .cpu_rd_req(cpu_p0_rd_req), .cpu_end_burst_req(cpu_p0_end_burst_req),
-    .cpu_q(cpu_p0_q), .cpu_available(cpu_p0_available), .cpu_ready(cpu_p0_ready),
-    .cpu_data_available(cpu_p0_data_available), .cpu_accepted(cpu_p0_accepted),
-    .p0_cpu_selected(sdram_arb_p0_cpu_selected),
-    .p0_addr(arb_p0_addr), .p0_data(arb_p0_data), .p0_byte_en(arb_p0_byte_en),
-    .p0_wr_len(arb_p0_wr_len), .p0_wr_stream(arb_p0_wr_stream), .p0_q(arb_p0_q),
-    .p0_wr_req(arb_p0_wr_req), .p0_rd_req(arb_p0_rd_req),
-    .p0_end_burst_req(arb_p0_end_burst_req), .p0_available(arb_p0_available),
-    .p0_ready(arb_p0_ready), .p0_data_available(arb_p0_data_available),
-    .wsrc_addr(arb_wsrc_addr), .wsrc_q(arb_wsrc_q)
-);
-
-tau_sdram_ctrl #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) u_sdram (
-    .clk(clk_sdram), .reset(~pll_locked), .init_complete(sdram_init_complete),
-    .p0_addr(arb_p0_addr), .p0_data(arb_p0_data), .p0_byte_en(arb_p0_byte_en),
-    .p0_wr_len(arb_p0_wr_len), .p0_q(arb_p0_q),
-    .p0_wr_stream(arb_p0_wr_stream), .wsrc_addr(arb_wsrc_addr), .wsrc_q(arb_wsrc_q),
-    .p0_wr_req(arb_p0_wr_req), .p0_rd_req(arb_p0_rd_req), .p0_end_burst_req(arb_p0_end_burst_req),
-`ifdef TAU_PHASE2_PROBE
-    .debug_p0_cpu_selected(sdram_arb_p0_cpu_selected),
-    .debug_cpu_allones_write_latched(sdram_ctrl_write_latched),
-    .debug_cpu_allones_data_latched(sdram_ctrl_write_data_all_ones),
-    .debug_cpu_allones_be_latched(sdram_ctrl_write_be_all_enabled),
-    .debug_cpu_allones_write_command(sdram_ctrl_write_command),
-    .debug_cpu_allones_dq_enabled(sdram_ctrl_write_dq_enabled),
-    .debug_cpu_allones_dq_allones(sdram_ctrl_write_dq_all_ones),
-    .debug_cpu_allones_dqm_unmasked(sdram_ctrl_write_dqm_unmasked),
-    .debug_cpu_follow_read_seen(sdram_ctrl_follow_read_seen),
-    .debug_cpu_follow_read_data_seen(sdram_ctrl_follow_read_data_seen),
-    .debug_cpu_follow_read_data_zero(sdram_ctrl_follow_read_data_zero),
-    .debug_cpu_follow_read_data_allones(sdram_ctrl_follow_read_data_all_ones),
-`endif
-    .p0_available(arb_p0_available), .p0_ready(arb_p0_ready), .p0_data_available(arb_p0_data_available),
-    .SDRAM_DQ(dram_dq), .SDRAM_A(dram_a), .SDRAM_DQM(dram_dqm), .SDRAM_BA(dram_ba),
-    .SDRAM_nCS(), .SDRAM_nWE(dram_we_n), .SDRAM_nRAS(dram_ras_n), .SDRAM_nCAS(dram_cas_n),
-    .SDRAM_CKE(dram_cke), .SDRAM_CLK(dram_clk)
-);
-`endif
 
 wire [23:0] vid_rgb_w;
 wire        vid_hs_w, vid_vs_w, vid_de_w;
