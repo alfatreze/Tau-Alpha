@@ -155,6 +155,7 @@ int main(void)
         if (soak_run) soak_step();                                                         /* the SDRAM soak (Check page, X): a slice of pattern write / verify beside playback */
 #endif
         loops++; counters_loops = loops; counters_keys = keys;
+        counters_uptime_s = mc_update(&counters_up_clk, now, CLK_HZ);                       /* every pass: mc_update needs a call at least every 64 s, which the Info and Report pages alone do not give */
         if (th_changed || font_changed) { th_changed = 0; font_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
         if (!blank.blanked) { views_mark(); views_flush(); }                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
         uint32_t d = cycles() - t_prev; t_prev = cycles();

@@ -12,6 +12,7 @@
 #include "../cores/about_core.h"
 #include "../cores/helios_core.h"
 #include "../cores/monoclock_core.h"
+#include "info_counters.h"
 #include "../ui/theme.h"
 #include "../ui/meter.h"
 #include "../ui/nowplaying.h"
@@ -27,7 +28,6 @@
 
 void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen);   /* fw2/ui/meters.c (not in meter.h: the wasm meter preview hashes that header) */
 static uint32_t top;
-static mc_t clk;                                             /* seconds since boot from the wrapping cycle counter (cores/monoclock_core.h): the page keeps its own clock, it does not depend on the counters */
 static const char *const font_names[4] = { "TAMZEN", "TAMZEN BOLD", "GROTESK SEMIBOLD", "GROTESK BOLD" };      /* the Appearance order (cores/menupages_core.h mg_ft_opt, fw2/generated/font_data.h) */
 
 static void gather(about_in_t *in)
@@ -55,7 +55,7 @@ static void gather(about_in_t *in)
     in->packs_run = n > seen ? seen : n;
     in->migrated = (uint8_t)settings_stats.migrated;
     in->dropouts = aout_stats.dry; in->read_errors = lp_stream.fails_total + lp.open_err;
-    in->uptime_s = mc_update(&clk, cycles(), CLK_HZ);
+    in->uptime_s = counters_uptime_s;                                 /* the main loop's clock (the same as the Info page and the Report) */
 }
 
 void about_page_init(void)

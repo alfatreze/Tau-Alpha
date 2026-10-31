@@ -49,6 +49,10 @@
 #define R_STATS_IDX  0x800001B0u        /* write: word 0..7 to present at R_STATS_DATA */
 #define R_STATS_DATA 0x800001B4u        /* read: 0 status ('ST' << 16 | sequence << 8 | 1 when built in), 1 sample count, 2/3 sum L*L low/high (high = bits 47:32), 4/5 sum R*R, 6/7 sum L*R (high sign-extended) */
 #define R_POLY_ST    0x80000110u
+#define R_RTC_ST     0x800001C4u        /* wall clock (the host's command 0x0090 at boot, tau_rtc_cdc.sv): read [31] built in, [0] valid (the command has arrived; the words below are 0 until then) */
+#define R_RTC_EPOCH  0x800001C8u        /* epoch seconds as the host sent them */
+#define R_RTC_DATE   0x800001CCu        /* BCD date 0xYYYYMMDD */
+#define R_RTC_TIME   0x800001D0u        /* BCD time 0x0DHHMMSS (bits 27:24 the day of the week) */
 #define R_DBUF_CPU   0x80000118u        /* Helios H2: bit 0 = the buffer plain RECT/CHAR/COPY commands target (rows of the visible frame only; the off-screen stash rows are shared); read bit 31 = built in */
 #define R_DBUF_DISP  0x8000011Cu        /* write bit 0 = 1: flip at the next vblank; read: bit 31 built in, bit 1 flip pending, bit 0 the displayed buffer */
 #define R_BLT_IDX    0x800000C0u        /* sticky blit state: field select (0 SRC_BASE, 2 DST_BASE, 5 BLEND: bit 0 on, [15:8] source weight 0..255) */

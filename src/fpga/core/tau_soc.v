@@ -108,6 +108,9 @@ module tau_soc #(
     parameter WIDE_EQ_ENABLE = 0,
     // Writable font memory (docs/features/FONT_SPEC.md, TAU_FONT_RAM): registers 0x1A0-0x1A8 load the drawing engine's glyph RAM (Latin-1, 6,112 words). With 0 the registers read 0 (no unit) and the engine keeps its ROM font.
     parameter FONT_RAM_ENABLE = 0,
+    // Wall clock (APF host command 0x0090 latched by tau_rtc_cdc.sv from the clk_74a bridge domain): registers 0x1C4-0x1D0. With 0 the registers read 0 and the module does not exist.
+    parameter RTC_ENABLE = 0,
+    parameter BUG_RTC = 0,              // mutation hook for sim/tb_rtc_soc.v / sim/tb_rtc_cdc.v (passed to tau_rtc_cdc)
     parameter BUG_FONT_NO_INC = 0,      // mutation hooks for sim/tb_font_soc.v (1 must make it fail): the index does not step after a data write / the completed-load counter never counts
     parameter BUG_FONT_NO_GEN = 0
 ) (
@@ -279,6 +282,12 @@ module tau_soc #(
     // by the caller). Unread when SDRAM_BUSY_ENABLE is 0, so legacy builds and testbenches that
     // do not wire this port are unaffected -- same convention as xm_rdata above.
     input  wire [31:0]  sdram_busy_rd,
+
+    // Wall clock from the bridge domain (core_bridge_cmd's rtc_* outputs, clk_74a). Unread when RTC_ENABLE is 0.
+    input  wire         rtc_valid,
+    input  wire [31:0]  rtc_epoch_seconds,
+    input  wire [31:0]  rtc_date_bcd,
+    input  wire [31:0]  rtc_time_bcd,
 
     // B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, flipping on every
     // real DAC-domain sample-hold update. Synchronised into `clk` with tau_cdc_sync1 below and turned
@@ -825,6 +834,20 @@ module tau_soc #(
         end
     end
 
+    // ------------------------------------------------ wall clock (0x0090) ---
+    // The host's real-time-clock command, latched from clk_74a by tau_rtc_cdc (a stable-payload handshake, see its header). Not reset by `rst`: the host may send it while the CPU is still held in reset.
+    wire        rtc_valid_s;
+    wire [31:0] rtc_epoch_s, rtc_date_s, rtc_time_s;
+    generate
+        if (RTC_ENABLE != 0) begin : g_rtc
+            tau_rtc_cdc #(.BUG(BUG_RTC)) u_rtc (
+                .clk_74a(clk_74a), .rtc_valid(rtc_valid), .rtc_epoch_seconds(rtc_epoch_seconds), .rtc_date_bcd(rtc_date_bcd), .rtc_time_bcd(rtc_time_bcd),
+                .clk_sys(clk), .valid_sys(rtc_valid_s), .epoch_sys(rtc_epoch_s), .date_sys(rtc_date_s), .time_sys(rtc_time_s));
+        end else begin : g_nortc
+            assign rtc_valid_s = 1'b0; assign rtc_epoch_s = 32'd0; assign rtc_date_s = 32'd0; assign rtc_time_s = 32'd0;
+        end
+    endgenerate
+
     // --------------------------------------------------------------- MMIO ---
     localparam [7:0] R_CONSOLE = 8'h00, R_EXIT    = 8'h04, R_AUDIO   = 8'h08,
                      R_CYCLES  = 8'h0C, R_STAT0   = 8'h10, R_STAT1   = 8'h14,
@@ -1147,6 +1170,7 @@ module tau_soc #(
     // 0x1AC STATS_CTL W: bit 0 latch + new window, bit 1 clear. 0x1B0 STATS_IDX W: read-out word 0..7. 0x1B4 STATS_DATA R (word 0 = status, 'ST' signature in 31:16, 0 when not built).
     localparam [8:0] R_GFX_FENCE = 9'h1B8, R_GFX_STATUS = 9'h1BC, R_GFX_COUNTS = 9'h1C0;   // Talos 2 T3 (read only)
     localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
+    localparam [8:0] R_RTC_ST = 9'h1C4, R_RTC_EPOCH = 9'h1C8, R_RTC_DATE = 9'h1CC, R_RTC_TIME = 9'h1D0;   // wall clock (read only)
     reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
     reg  [1:0]  stats_ctl_d  = 2'd0;
     reg  [2:0]  stats_idx_d  = 3'd0;
@@ -1576,6 +1600,10 @@ module tau_soc #(
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
             R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
             R_FONT_CTRL:   mmio_rdata = (FONT_RAM_ENABLE != 0) ? {1'b1, 3'd0, font_gen, 16'd6112} : 32'd0;
+            R_RTC_ST:      mmio_rdata = {(RTC_ENABLE != 0), 30'd0, rtc_valid_s};         // wall clock: [31] present, [0] valid (the host's 0x0090 has arrived)
+            R_RTC_EPOCH:   mmio_rdata = rtc_epoch_s;                                     // epoch seconds as sent by the host (0 until valid)
+            R_RTC_DATE:    mmio_rdata = rtc_date_s;                                      // BCD date 0xYYYYMMDD
+            R_RTC_TIME:    mmio_rdata = rtc_time_s;                                      // BCD time, [27:24] day of week, 0x00HHMMSS
             R_STATS_DATA:  mmio_rdata = stats_rd;                                      // audio statistics read-out word at STATS_IDX (0 when not built)
             R_FONT_IDX:    mmio_rdata = (FONT_RAM_ENABLE != 0) ? {19'd0, font_idx} : 32'd0;
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};

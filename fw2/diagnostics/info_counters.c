@@ -35,6 +35,7 @@ void meter_cost_note(uint32_t meter, uint32_t cmds) { if (meter < 8u) mcost_add(
 #include "../stream/assets.h"
 #include "../ui/theme.h"
 #include "../cores/monoclock_core.h"
+#include "../cores/rtc_core.h"
 #include "../settings/settings.h"
 #include "../art/art.h"
 #include "../stream/skiplist.h"
@@ -46,9 +47,13 @@ void meter_cost_note(uint32_t meter, uint32_t cmds) { if (meter < 8u) mcost_add(
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
                 under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
-                uint32_t pack_run, pack_err, pack_file, pack_seen, pack_src, meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
+                uint32_t pack_run, pack_err, pack_file, pack_seen, pack_src, meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b,
+                rtc_valid, rtc_epoch, rtc_date, rtc_time;   /* the host's wall clock (MMIO 0x1C4), read once when it has arrived */
+                char rtc_text[20];                            /* the clock now: boot time + uptime (rtc_core.h), "-" until the host's time is known */
+              } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
-static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s) */
+mc_t counters_up_clk;                    /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s); the main loop advances it every pass */
+uint32_t counters_uptime_s;
 
 #define U32(nm, unit, p) { nm, CK_U32, unit, (const volatile void *)(p) }
 #define METER_IDX_X(key, nm, id, lc, UC, np, cmp) mtr_idx_##key,
@@ -310,6 +315,10 @@ const cnt_t counters_table[] = {
     U32("HW UNDER TK",  CU_NONE,   &v.hw_under_tk),          /* each is one lost sample pair */
 #endif
     U32("UPTIME",      CU_NONE,   &v.uptime_s),
+    U32("BOOT EPOCH",  CU_NONE,   &v.rtc_epoch),             /* the Pocket's wall clock as it sent it at boot (APF command 0x0090): epoch seconds; 0 when it never came (an older bitstream) */
+    { "BOOT DATE",   CK_HEX32, CU_NONE,  &v.rtc_date },   /* BCD, 0xYYYYMMDD */
+    { "BOOT TIME",   CK_HEX32, CU_NONE,  &v.rtc_time },   /* BCD, 0x0DHHMMSS (D the day of the week) */
+    { "CLOCK",       CK_STR,   CU_NONE,  v.rtc_text },    /* the time now: the boot time plus UPTIME, so a Report carries its own date and time */
 #if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("LOOPS",       CU_NONE,   &v.loops),
     U32("LOOP MAX",    CU_CYC,    &v.loop_max_cyc),
@@ -391,7 +400,7 @@ const cnt_t counters_table[] = {
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
 
-void counters_init(void) { mc_update(&uptime_clk, cycles(), CLK_HZ); }
+void counters_init(void) { mc_update(&counters_up_clk, cycles(), CLK_HZ); }
 
 void counters_refresh(void)
 {
@@ -411,7 +420,9 @@ void counters_refresh(void)
         v.under_ring = a->under_ring; v.dry = a->dry; v.put_stalls = a->put_stalls; v.put_max_cyc = a->put_max_cyc; v.put_pairs = a->put_pairs; v.put_blocks = a->put_blocks;
         v.gov_mode = mp.gov_mode; v.gov_n1 = mp_gov.entered[1]; v.gov_n2 = mp_gov.entered[2]; v.gov_n3 = mp_gov.entered[3]; v.tone_stalls = mp.stalls;
     }
-    v.uptime_s = mc_update(&uptime_clk, cycles(), CLK_HZ);
+    v.uptime_s = mc_update(&counters_up_clk, cycles(), CLK_HZ);   /* also advanced by the main loop, so a page opened after a long time still reads right */
+    if (!v.rtc_valid && (REG(R_RTC_ST) & 1u)) { v.rtc_epoch = REG(R_RTC_EPOCH); v.rtc_date = REG(R_RTC_DATE); v.rtc_time = REG(R_RTC_TIME); v.rtc_valid = 1; }   /* the words never change once valid */
+    rtc_clock_text(v.rtc_valid, v.rtc_date, v.rtc_time, v.uptime_s, v.rtc_text);
     v.loops = counters_loops; v.loop_max_cyc = counters_loop_max_cyc; v.keys = counters_keys;
     uint32_t st = REG(R_PCM_ST);
     v.pcm_level = PCM_LEVEL(st); v.pcm_flags = (st >> 16) & 7u;
