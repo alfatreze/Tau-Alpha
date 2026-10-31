@@ -8,6 +8,10 @@
 #define R_RTC_EPOCH 0x800001C8u
 #define R_RTC_DATE  0x800001CCu
 #define R_RTC_TIME  0x800001D0u
+#define R_I2S_MM    0x80000140u
+#define R_I2S_CNT   0x80000144u
+#define R_I2S_SUM   0x80000148u
+#define R_I2S_ST    0x8000014Cu
 #ifndef MODE
 #define MODE 0
 #endif
@@ -20,6 +24,26 @@ static void num_(uint32_t v) { char t[12]; int n = 0; do { t[n++] = (char)('0' +
 static void chk(uint32_t n, int ok) { puts_(ok ? "WALL ok " : "WALL FAIL "); num_(n); putc_('\n'); }
 static void spin(uint32_t n) { for (volatile uint32_t i = 0; i < n; i++) { } }
 
+#if MODE == 3
+/* the I2S jitter statistic's 48-bit interval sum: the bench deposits 0x0000_FFFF_FFF0 into it after READY and then makes five measured intervals (1,389 clk_sys cycles each), so the sum crosses 2^32:
+ * the low word wraps and the carry must show in R_I2S_ST [31:16] (a 32-bit sum has no such field and would have lost it). */
+int main(void)
+{
+    chk(1, (REG(R_I2S_ST) & 1u) == 1u);
+    puts_("READY\n");
+    for (uint32_t t = 0; t < 2000000u && REG(R_I2S_CNT) < 5u; t++) { }
+    const uint32_t cnt = REG(R_I2S_CNT), mm = REG(R_I2S_MM), lo = REG(R_I2S_SUM), st = REG(R_I2S_ST);
+    const uint64_t sum = ((uint64_t)(st >> 16) << 32) | lo, start = 0x0000FFFFFFF0ull, delta = sum - start;
+    const uint32_t mn = mm & 0xFFFFu, mx = mm >> 16;
+    chk(2, cnt == 5u);
+    chk(3, mn > 1000u && mx < 2000u && mn <= mx);                       /* about 1,389 */
+    chk(4, delta >= (uint64_t)cnt * mn && delta <= (uint64_t)cnt * mx);  /* the sum grew by the five intervals, carry included */
+    chk(5, (st >> 16) == 1u);                                            /* bits 47:32: the carry out of the low word */
+    chk(6, lo < 0x10000u);                                               /* the low word wrapped */
+    puts_("WALL DONE\n");
+    for (;;) { }
+}
+#else
 int main(void)
 {
     uint32_t st = REG(R_RTC_ST);
@@ -40,3 +64,4 @@ int main(void)
     puts_("WALL DONE\n");
     for (;;) { }
 }
+#endif

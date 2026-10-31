@@ -711,7 +711,12 @@ module tau_soc #(
     reg        i2s_diag_first;
     reg [31:0] i2s_diag_last_cyc;
     reg [15:0] i2s_diag_min, i2s_diag_max;
-    reg [31:0] i2s_diag_cnt_r, i2s_diag_sum_r;
+    reg [31:0] i2s_diag_cnt_r;
+    // The sum of the measured intervals is 48 bits wide (it was 32): an interval is at most 0xFFFF (saturated) but at a 48 kHz DAC word rate it is about 1,389 clk_sys cycles
+    // (66.667 MHz), so the sum grows by about 66.7 million a second and a 32-bit sum wrapped every 2^32 / 66.67e6 = 64.4 s -- the "average since reset" was wrong after the first minute
+    // (a delta between two reads was only right if they straddled at most one wrap). 48 bits at the same rate last 2^48 / 66.67e6 = 4.2 million s (48 days); even at the saturated
+    // maximum, 0xFFFF per event and one event per clk_sys cycle, they last 2^48 / 65,535 = 4.3e9 events. The low 32 bits are unchanged (R_I2S_DIAG_SUM); the high 16 bits are read at R_I2S_DIAG_ST[31:16].
+    reg [47:0] i2s_diag_sum_r;
     wire [31:0] i2s_diag_interval_w = cycle_ctr - i2s_diag_last_cyc;
     wire [15:0] i2s_diag_interval   = (i2s_diag_interval_w > 32'hFFFF) ? 16'hFFFF : i2s_diag_interval_w[15:0];
     always @(posedge clk) begin
@@ -721,13 +726,13 @@ module tau_soc #(
             i2s_diag_min      <= 16'hFFFF;
             i2s_diag_max      <= 16'h0000;
             i2s_diag_cnt_r    <= 32'd0;
-            i2s_diag_sum_r    <= 32'd0;
+            i2s_diag_sum_r    <= 48'd0;
         end else begin
             i2s_diag_prev <= i2s_diag_toggle_s;
             if (i2s_diag_toggle_s != i2s_diag_prev) begin
                 if (!i2s_diag_first) begin
                     i2s_diag_cnt_r <= i2s_diag_cnt_r + 1'b1;
-                    i2s_diag_sum_r <= i2s_diag_sum_r + i2s_diag_interval;
+                    i2s_diag_sum_r <= i2s_diag_sum_r + {32'd0, i2s_diag_interval};
                     if (i2s_diag_interval < i2s_diag_min) i2s_diag_min <= i2s_diag_interval;
                     if (i2s_diag_interval > i2s_diag_max) i2s_diag_max <= i2s_diag_interval;
                 end
@@ -1315,8 +1320,8 @@ module tau_soc #(
     wire [15:0] cymo_stale_cnt, cymo_drop_cnt;
     wire [2:0]  cymo_feed_level;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
-    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out16_l : gain_l;
-    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out16_r : gain_r;
+    wire signed [15:0] pre_eq_l = cymo_live_en ? cymo_out16_l : gain_l;
+    wire signed [15:0] pre_eq_r = cymo_live_en ? cymo_out16_r : gain_r;
     wire signed [EQW-1:0] hal_in_l = cymo_live_en ? cymo_out_l : gain_l;      // the Halcyon engine's input: the wide resampler output, or the 16-bit path sign-extended
     wire signed [EQW-1:0] hal_in_r = cymo_live_en ? cymo_out_r : gain_r;
     generate
@@ -1358,8 +1363,8 @@ module tau_soc #(
             assign hal_o_l = 16'sd0; assign hal_o_r = 16'sd0; assign hal_busy = 1'b0;
         end
     endgenerate
-    assign audio_l = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_l : eq_in_l;
-    assign audio_r = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_r : eq_in_r;
+    assign audio_l = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_l : pre_eq_l;
+    assign audio_r = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_r : pre_eq_r;
 
     always @(posedge clk) begin
         con_wr      <= 1'b0;
@@ -1592,8 +1597,8 @@ module tau_soc #(
             R_LPC_STATUS: mmio_rdata = {29'd0, lpc_done, lpc_busy, (LPC_ENABLE != 0)}; // bit 0 present, bit 1 busy, bit 2 done
             R_I2S_DIAG_MINMAX: mmio_rdata = (I2S_DIAG_ENABLE != 0) ? {i2s_diag_max, i2s_diag_min} : 32'd0;
             R_I2S_DIAG_CNT:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_cnt_r : 32'd0;
-            R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r : 32'd0;
-            R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
+            R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r[31:0] : 32'd0;
+            R_I2S_DIAG_ST:     mmio_rdata = {(I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r[47:32] : 16'd0, 15'd0, (I2S_DIAG_ENABLE != 0)};   // bit 0 built in, [31:16] the sum's high 16 bits
             R_CYMO_OUT:    mmio_rdata = {cymo_out16_r, cymo_out16_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
             R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), (GAIN_ENABLE != 0 && GAIN_BOOST != 0), 24'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
