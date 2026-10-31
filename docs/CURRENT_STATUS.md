@@ -2,6 +2,9 @@
 
 Updated 2026-10-26 (night). **What is true right now:** the newest sections below (2026-10-26 night, 2026-10-26, then 2026-10-23: the meters, statistics, persistence by area and packs work, merged into `main`; the v0.7.0 release is not built yet); the sections under it are older and kept for their detail. What to do next is in `docs/ROADMAP.md` (the only ordered list) and in the "Pending" part of `docs/handoffs/SESSION_HANDOFF_2026-10-23_METERS_STATS_PERSISTENCE_PACKS.md` — **read that first**. Why things are the way they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 
+## Update 2026-10-31: the player with the new SDRAM path (`sched_a`) closes timing; `TAU DEV 200` packaged, not yet on a Pocket (B-925..B-927)
+`tau_talos` command-pop race fixed (B-925, host-proven). Full player fit `sa2-b927` (the `sched_a` path + the read-return stage): all corners positive (100 MHz setup +0.655 / +0.699 ns, hold +0.077 ns worst), 15,091 ALMs (+1.1k against the old path), 274 RAM blocks, 23 DSP. Packaged as `TAU DEV 200` (`0.6.1-dev.200+fa753d28`); install on the `Pock` card needs your go-ahead (card not mounted yet). Open: the Pocket run (boot, Check page, `GFX SCAN LATE`, CPU pages, 30-minute warm soak), a second seed, the owner's v0.7 review.
+
 ## Update 2026-10-30: `sched_v` v1.1 (tag `sdram-sched-v-v1.1`) closes 100 MHz with real margin (B-920..B-924)
 Tau V's scheduler `sched_v`: v1 (`sdram-sched-v-v1`) then v1.1 (throughput pass + timing recovery, same interface): two probe seeds +0.5 to +0.7 ns, 3.6k ALMs, 0 DSP; full replay of Tau V's six files passes, worst picture 77.9 % busy (v1 86.3 %). In simulation and Quartus only; the player's `sched_a` (3 ports on `sched_v`, sim-verified, B-921) is not built or run on a Pocket yet. PHY + `sched_min` ran on a Pocket (B-919). Open: `sched_a` first Pocket build, the `tau_talos` FIFO bug, 150 MHz CL3, Tau V's whole-core fit of v1.1.
 
