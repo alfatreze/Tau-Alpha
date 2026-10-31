@@ -97,7 +97,9 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x1C8 | RTC_EPOCH | R | epoch seconds exactly as the host sent them. |
 | 0x1CC | RTC_DATE | R | BCD date `0xYYYYMMDD`. |
 | 0x1D0 | RTC_TIME | R | BCD time `0x0DHHMMSS` (bits 27:24 the day of the week). No device identifier is exposed (owner decision pending). |
-| 0x1D4-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x1D4 | SDA_SEL | R/W | Per-port SDRAM statistics window (`tau_sdr_stat_win.sv`, on the scheduler path only; `tau_sdram_sched_a` is instantiated with `CNT_EN(1)`). Write `{port[1:0], stat[2:0]}`: stat 0 requests accepted, 1 words, 2 busy cycles (the port held the controller), 3 worst wait for a grant (16 bits, clk_sdram cycles), 4 urgent requests waiting past the bound (16), 5 bad requests (16); port 0 scan-out fill, 1 draw engine, 2 CPU; anything else reads 0. The write takes a SNAPSHOT of the counter in clk_sdram (request toggle, snapshot, acknowledge toggle); a write while a snapshot is pending is ignored. Read: [31] built in, [8] pending, [4:0] the selection. 0 on a bitstream without the window. |
+| 0x1D8 | SDA_VAL | R | The snapshot of the selected counter; stable until the next select; valid once SDA_SEL bit 8 is 0. Sequence: wait pending 0, write the selection, wait pending 0, read. |
+| 0x1DC-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 `OP_CHAR` with the font memory: the glyph code is 8 bits, bit 7 is `R_FB_GO` bit 15 (`cmd_glyph_hi[0]`), bits 6:0 are bits 9:3 as before; glyph index 0..94 = U+0020..U+007E, 95..190 = U+00A0..U+00FF, any other code is the blank glyph 0. A command with bit 15 clear is exactly the old one.
 

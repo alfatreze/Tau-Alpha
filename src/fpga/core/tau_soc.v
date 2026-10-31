@@ -111,6 +111,8 @@ module tau_soc #(
     // Wall clock (APF host command 0x0090 latched by tau_rtc_cdc.sv from the clk_74a bridge domain): registers 0x1C4-0x1D0. With 0 the registers read 0 and the module does not exist.
     parameter RTC_ENABLE = 0,
     parameter BUG_RTC = 0,              // mutation hook for sim/tb_rtc_soc.v / sim/tb_rtc_cdc.v (passed to tau_rtc_cdc)
+    // Per-port SDRAM statistics window (tau_sdr_stat_win.sv, outside this module; the counters live in clk_sdram): registers 0x1D4-0x1D8. With 0 they read 0 and writes are ignored.
+    parameter SDA_ENABLE = 0,
     parameter BUG_FONT_NO_INC = 0,      // mutation hooks for sim/tb_font_soc.v (1 must make it fail): the index does not step after a data write / the completed-load counter never counts
     parameter BUG_FONT_NO_GEN = 0
 ) (
@@ -288,6 +290,12 @@ module tau_soc #(
     input  wire [31:0]  rtc_epoch_seconds,
     input  wire [31:0]  rtc_date_bcd,
     input  wire [31:0]  rtc_time_bcd,
+
+    // Per-port SDRAM statistics window: a select write pulse + {port[1:0], stat[2:0]}, and the window's already-CDC'd (clk_sys) status and value. Unread when SDA_ENABLE is 0.
+    output reg          sda_we,
+    output reg  [4:0]   sda_wd,
+    input  wire [31:0]  sda_status,
+    input  wire [31:0]  sda_val,
 
     // B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, flipping on every
     // real DAC-domain sample-hold update. Synchronised into `clk` with tau_cdc_sync1 below and turned
@@ -1176,6 +1184,7 @@ module tau_soc #(
     localparam [8:0] R_GFX_FENCE = 9'h1B8, R_GFX_STATUS = 9'h1BC, R_GFX_COUNTS = 9'h1C0;   // Talos 2 T3 (read only)
     localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
     localparam [8:0] R_RTC_ST = 9'h1C4, R_RTC_EPOCH = 9'h1C8, R_RTC_DATE = 9'h1CC, R_RTC_TIME = 9'h1D0;   // wall clock (read only)
+    localparam [8:0] R_SDA_SEL = 9'h1D4, R_SDA_VAL = 9'h1D8;                                          // per-port SDRAM statistics window
     reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
     reg  [1:0]  stats_ctl_d  = 2'd0;
     reg  [2:0]  stats_idx_d  = 3'd0;
@@ -1370,7 +1379,7 @@ module tau_soc #(
         con_wr      <= 1'b0;
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
-        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0;
+        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0; sda_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
@@ -1458,6 +1467,7 @@ module tau_soc #(
                 R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
                 R_STATS_CTL: begin stats_ctl_d <= dDAT_MOSI[1:0]; stats_ctl_we <= 1'b1; end
                 R_STATS_IDX: begin stats_idx_d <= dDAT_MOSI[2:0]; stats_idx_we <= 1'b1; end
+                R_SDA_SEL:   if (SDA_ENABLE != 0) begin sda_wd <= dDAT_MOSI[4:0]; sda_we <= 1'b1; end   // the window ignores it while a snapshot is pending
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
                 9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
@@ -1609,6 +1619,8 @@ module tau_soc #(
             R_RTC_EPOCH:   mmio_rdata = rtc_epoch_s;                                     // epoch seconds as sent by the host (0 until valid)
             R_RTC_DATE:    mmio_rdata = rtc_date_s;                                      // BCD date 0xYYYYMMDD
             R_RTC_TIME:    mmio_rdata = rtc_time_s;                                      // BCD time, [27:24] day of week, 0x00HHMMSS
+            R_SDA_SEL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_status : 32'd0;          // [31] present, [8] a snapshot is pending, [4:0] the selection
+            R_SDA_VAL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_val : 32'd0;             // the snapshot of the selected counter (stable until the next select)
             R_STATS_DATA:  mmio_rdata = stats_rd;                                      // audio statistics read-out word at STATS_IDX (0 when not built)
             R_FONT_IDX:    mmio_rdata = (FONT_RAM_ENABLE != 0) ? {19'd0, font_idx} : 32'd0;
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};

@@ -53,6 +53,8 @@
 #define R_RTC_EPOCH  0x800001C8u        /* epoch seconds as the host sent them */
 #define R_RTC_DATE   0x800001CCu        /* BCD date 0xYYYYMMDD */
 #define R_RTC_TIME   0x800001D0u        /* BCD time 0x0DHHMMSS (bits 27:24 the day of the week) */
+#define R_SDA_SEL    0x800001D4u        /* per-port SDRAM statistics window (tau_sdr_stat_win.sv): write {port[1:0], stat[2:0]} (stat 0 requests, 1 words, 2 busy cycles, 3 worst wait, 4 urgent over the bound, 5 bad requests; port 0 scan-out, 1 engine, 2 CPU) -- ignored while pending; read [31] built in, [8] a snapshot is pending, [4:0] the selection */
+#define R_SDA_VAL    0x800001D8u        /* read: the snapshot of the selected counter, stable until the next select; valid once R_SDA_SEL bit 8 is 0 */
 #define R_DBUF_CPU   0x80000118u        /* Helios H2: bit 0 = the buffer plain RECT/CHAR/COPY commands target (rows of the visible frame only; the off-screen stash rows are shared); read bit 31 = built in */
 #define R_DBUF_DISP  0x8000011Cu        /* write bit 0 = 1: flip at the next vblank; read: bit 31 built in, bit 1 flip pending, bit 0 the displayed buffer */
 #define R_BLT_IDX    0x800000C0u        /* sticky blit state: field select (0 SRC_BASE, 2 DST_BASE, 5 BLEND: bit 0 on, [15:8] source weight 0..255) */

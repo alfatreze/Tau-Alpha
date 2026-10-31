@@ -1,4 +1,4 @@
-.PHONY: test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -201,7 +201,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -769,7 +769,7 @@ test-rtl-rtc-cdc: $(RTL_BUILD_DIR)/core_bridge_cmd_sim.v
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_rtc_cdc_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: BUG=$$b"; exit 1; else echo "mutant killed: BUG=$$b"; fi; done
 
 # ---- Wall clock registers and the SDRAM statistics window in tau_soc.v with the real CPU (sim/tb_wall_soc.v, firmware sim/fw_wall/main.c); the mutants (block left out; the words following the bridge) must FAIL ----
-WALL_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_wall_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_rtc_cdc.sv
+WALL_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_wall_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_rtc_cdc.sv src/fpga/core/tau_sdr_stat_win.sv
 WALL_GCC = toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_wall/main.c
 WALL_OBJCOPY = toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary
 define wall_run
@@ -792,6 +792,18 @@ test-rtl-i2s-diag-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	$(PYTHON) sim/mutate_i2s_sum.py $(RTL_BUILD_DIR)/tau_soc_sim.v $(RTL_BUILD_DIR)/tau_soc_sim32.v
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_wall_soc.MODE=3 -o $(RTL_BUILD_DIR)/tb_wall_soc_mut.vvp $(subst $(RTL_BUILD_DIR)/tau_soc_sim.v,$(RTL_BUILD_DIR)/tau_soc_sim32.v,$(WALL_SOC_SRC)); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_wall_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_wall3.bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: 32-bit sum"; exit 1; else echo "mutant killed: 32-bit sum"; fi
+test-rtl-sdr-stat-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
+	$(call wall_run,1,)
+	$(call wall_mut,1,-Ptb_wall_soc.OFF=1,window left out)
+
+# ---- SDRAM statistics read window (tau_sdr_stat_win.sv): free-running counters in clk_sdram, random selections, snapshot bounds, stability, double write; two mutants must FAIL ----
+test-rtl-sdr-stat-win: | $(RTL_BUILD_DIR)
+	@set -e; for cfg in "8333 0" "7500 3100" "11150 5000" "3000 1234"; do set -- $$cfg; \
+	  $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_sdr_stat_win.SYSP=$$1 -Ptb_sdr_stat_win.PHASE=$$2 -o $(RTL_BUILD_DIR)/tb_sdr_stat_win.vvp sim/tb_sdr_stat_win.v src/fpga/core/tau_sdr_stat_win.sv; \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_sdr_stat_win.vvp | grep -q "^PASSED" || { echo "FAILED: tb_sdr_stat_win SYSP=$$1 PHASE=$$2"; exit 1; }; done; echo "tb_sdr_stat_win: PASSED (4 clock configurations)"
+	@set -e; for b in 1 2; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_sdr_stat_win.BUG=$$b -o $(RTL_BUILD_DIR)/tb_sdr_stat_win_mut.vvp sim/tb_sdr_stat_win.v src/fpga/core/tau_sdr_stat_win.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_sdr_stat_win_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: BUG=$$b"; exit 1; else echo "mutant killed: BUG=$$b"; fi; done
+
 rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_scanout -Isrc/fpga/core src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gfx src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_ctr.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
@@ -818,6 +830,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_vs_counter src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_vs_counter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_main_ram src/fpga/core/tau_main_ram.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_rtc_cdc src/fpga/core/tau_rtc_cdc.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdr_stat_win src/fpga/core/tau_sdr_stat_win.sv
 
 card-check:
 	$(PYTHON) tools/library_check.py
