@@ -1,3 +1,5 @@
+# HISTORICAL (D-T13, 2026-10-31): applied long ago. Its content now lives in src/fpga/ap_core.qsf and src/fpga/core/core_constraints.sdc (the second SDC was merged into the first when the old
+# controller was retired); the TAU_SDRAM_LEGACY / TAU_SDRAM_SCHED_A macros it mentions are gone. Kept only as the record of the design review; do not apply it.
 # Quartus / SDC changes the Tau Alpha scheduler path (TAU_SDRAM_SCHED_A) needs. MIT licence.
 # A SNIPPET FOR THE OWNER TO REVIEW AND APPLY: this file is not read by Quartus; src/fpga/ap_core.qsf and
 # src/fpga/core/core_constraints.sdc were NOT edited (the old controller is the default build, D-T08). Nothing here has been
