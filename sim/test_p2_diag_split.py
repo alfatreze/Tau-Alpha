@@ -24,6 +24,10 @@ def build(diag, td):
     return syms, rom, cold
 with tempfile.TemporaryDirectory() as t0, tempfile.TemporaryDirectory() as t1:
     s0, rom0, cold0 = build(0, t0); s1, rom1, cold1 = build(1, t1)
+    img0 = (Path(t0) / "player2/tau-cold.bin").read_bytes(); img1 = (Path(t1) / "player2/tau-cold.bin").read_bytes()
+    def row(img, name): return name.encode() + b"\0" in img
+    for nm in reg["counter_rows_in_both_builds_wall_clock"]:
+        check(f"counter row {nm!r}: in both builds (the support set)", row(img1, nm) and row(img0, nm))
     for sym in reg["symbols_absent_when_off"]:
         check(f"the normal build has no {sym}; the Diagnostic Build has it", sym not in s0 and sym in s1)
     for sym in reg["symbols_present_when_off"]:

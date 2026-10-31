@@ -90,7 +90,14 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x1AC | STATS_CTL | W | B-819 audio statistics block (`tau_audio_stats.sv`, `TAU_STATS`): bit 0 latches the sums into the read-out and starts a new window, bit 1 clears everything. |
 | 0x1B0 | STATS_IDX | W | read-out word 0..7 presented at STATS_DATA. |
 | 0x1B4 | STATS_DATA | R | 0 status (`'ST'` 0x5354 in 31:16, latch count in 15:8, bit 1 window overflowed, bit 0 built in; 0 on a bitstream without the block), 1 sample count N, 2/3 sum L*L (low, bits 47:32), 4/5 sum R*R, 6/7 sum L*R (high word sign-extended). |
-| 0x1B8-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x1B8 | GFX_FENCE | R | Talos 2 T3 (`tau_gfx` fence counter). Listed here late: it was missing from this table (found while allocating 0x1C4). |
+| 0x1BC | GFX_STATUS | R | Talos 2 T3: [31] present, [16] idle, [8:0] free queue slots. |
+| 0x1C0 | GFX_COUNTS | R | Talos 2 T3: [31:16] scan-out lines whose fill was late, [15:0] pushes dropped while full. |
+| 0x1C4 | RTC_ST | R | Wall clock (`tau_rtc_cdc.sv`, the APF host command 0x0090 sent once at boot, latched from the clk_74a bridge domain): [31] built in, [0] valid (the command has arrived; the three words below are 0 until then). The latch is not reset by the system reset: the host may send the command while the CPU is still held in reset. Only the first command is taken. |
+| 0x1C8 | RTC_EPOCH | R | epoch seconds exactly as the host sent them. |
+| 0x1CC | RTC_DATE | R | BCD date `0xYYYYMMDD`. |
+| 0x1D0 | RTC_TIME | R | BCD time `0x0DHHMMSS` (bits 27:24 the day of the week). No device identifier is exposed (owner decision pending). |
+| 0x1D4-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 `OP_CHAR` with the font memory: the glyph code is 8 bits, bit 7 is `R_FB_GO` bit 15 (`cmd_glyph_hi[0]`), bits 6:0 are bits 9:3 as before; glyph index 0..94 = U+0020..U+007E, 95..190 = U+00A0..U+00FF, any other code is the blank glyph 0. A command with bit 15 clear is exactly the old one.
 

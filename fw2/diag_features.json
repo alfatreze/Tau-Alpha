@@ -13,6 +13,12 @@
     "INFO"
   ],
   "counters": "fw2/diagnostics/info_counters.c: rows inside '#if P2_DIAG' are the Diagnostic Build's; every other row is the support set (the normal build's Report and the support fields of the About page)",
+  "counter_rows_in_both_builds_wall_clock": [
+    "BOOT EPOCH",
+    "BOOT DATE",
+    "BOOT TIME",
+    "CLOCK"
+  ],
   "symbols_absent_when_off": [
     "check_page_draw",
     "check_page_enter",
@@ -26,5 +32,6 @@
     "about_page_draw",
     "report_page_draw",
     "counters_refresh"
-  ]
+  ],
+  "counter_rows_note": "The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks the list against the cold image of each build."
 }
