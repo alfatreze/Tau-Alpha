@@ -15,6 +15,7 @@ module tb_a_gfx #(
     parameter integer STACK = 2,
     parameter integer NCMD = 150,
     parameter integer CPU_HAMMER = 1,
+    parameter integer MUT = 0,                  // 1: the shadow ignores the byte enables of a CPU write (the check must then FAIL)
     parameter integer PAGESAFE = 0,            // 1: no access crosses a 1024-word page, ops RECT/CHAR/COPY/BAR/RRECT only (the old controller's full-page bursts wrap at the page end: COL_WRAP)
     parameter integer CPU_EXTRA = 0,           // sdram cycles the CPU hammer keeps running after the last command was pushed (CPU latency with little engine traffic)
     parameter integer FIXOP = -1,              // >= 0: every command has this opcode (RECT 1, CHAR 2, COPY 3, BLIT 4, SBLIT 6, CBLIT 7): per-class cycle counts
@@ -22,7 +23,9 @@ module tb_a_gfx #(
     parameter integer QD = 1,
     parameter integer MEMW = 1 << 19           // words of the memory image (the stimulus stays below this)
 );
-    localparam [24:0] CPU_BASE = 25'h70000, CPU_END = 25'h78000;
+    // The CPU hammer's region must be out of the engine's reach: the 21 'CPU words differ' of 2026-11 were engine RRECT/BAR rows (colour df03,
+    // reaching 0x71e62) landing in the old region 0x70000..0x77FFF, which the image checksum skips. A guard below fails the run if it happens again.
+    localparam [24:0] CPU_BASE = 25'h78000, CPU_END = 25'h80000;
     reg clk = 0, clk_sys = 0, clk_vid = 0;
     always #5000 clk = ~clk;
     always #8333 clk_sys = ~clk_sys;
@@ -99,6 +102,8 @@ module tb_a_gfx #(
                  gfx.u_talos.rect_active, gfx.u_talos.rect_rows, gfx.u_talos.q_op, g_wr, g_rd, p_av, p_rdy, gfx.u_talos.rd_ptr);
     reg [7:0] dbg_rdp_q; always @(posedge clk) begin dbg_rdp_q <= gfx.u_talos.rd_ptr;
         if (trace_on && gfx.u_talos.rd_ptr !== dbg_rdp_q) $display("POP t=%0t rd_ptr=%0d->%0d q_op=%0d q_addr=%h q_w=%0d q_h=%0d astate=%0d inflight=%b", $time, dbg_rdp_q, gfx.u_talos.rd_ptr, gfx.u_talos.q_op, gfx.u_talos.q_addr, gfx.u_talos.q_w, gfx.u_talos.q_h, gfx.u_talos.astate, gfx.u_talos.inflight); end
+    integer eng_in_cpu = 0;
+    always @(posedge clk) if (!bm && g_wr && g_addr < CPU_END && g_addr + g_len > CPU_BASE) begin eng_in_cpu = eng_in_cpu + 1; if (eng_in_cpu < 4) $display("  engine write %h len %0d overlaps the CPU region", g_addr, g_len); end
     always @(posedge clk_sys) if (trace_on && cmd_push) $display("PUSH op=%0d addr=%h w=%0d h=%0d full=%b free=%0d t=%0t", cmd_op, cmd_addr, cmd_w, cmd_h, cmd_full, gfx_free, $time);
 
     // ------------------------------------------------------------------ the CPU hammer (mailbox)
@@ -308,6 +313,7 @@ module tb_a_gfx #(
     // ------------------------------------------------------------------ CPU hammer
     reg cpu_run = 0; integer cpu_ops = 0, cpu_bad = 0; realtime cpu_lat_sum = 0, cpu_lat_max = 0, t_c0;
     reg [15:0] cs_d [0:(1<<15)-1]; reg [1:0] cs_v [0:(1<<15)-1];
+    integer cs_wcyc [0:(1<<15)-1]; reg [3:0] cs_wbe [0:(1<<15)-1]; reg [31:0] cs_wd [0:(1<<15)-1]; integer cs_wn [0:(1<<15)-1];   // last writer of each word (diagnostic)
     integer cseed = 11; integer ci; initial for (ci = 0; ci < (1<<15); ci = ci + 1) cs_v[ci] = 2'b00;
     function integer crnd(input integer n); integer v; begin v = $random(cseed); if (v < 0) v = -v; crnd = v % n; end endfunction
     task cpu_op(input w, input [24:0] a, input [31:0] d, input [3:0] be);
@@ -319,6 +325,8 @@ module tb_a_gfx #(
             rd = sys_rdata; l = ($realtime - t_c0) / 1000.0; cpu_lat_sum = cpu_lat_sum + l; if (l > cpu_lat_max) cpu_lat_max = l;
             ix = a - CPU_BASE; cpu_ops = cpu_ops + 1;
             if (w) begin
+                if (MUT == 1) be = 4'hF;
+                cs_wcyc[ix] = cyc; cs_wbe[ix] = be; cs_wd[ix] = d; cs_wcyc[ix+1] = cyc; cs_wbe[ix+1] = be; cs_wd[ix+1] = d;
                 if (be[0]) cs_d[ix][7:0] = d[7:0]; if (be[1]) cs_d[ix][15:8] = d[15:8]; cs_v[ix] = cs_v[ix] | be[1:0];
                 if (be[2]) cs_d[ix+1][7:0] = d[23:16]; if (be[3]) cs_d[ix+1][15:8] = d[31:24]; cs_v[ix+1] = cs_v[ix+1] | be[3:2];
             end else begin
@@ -387,10 +395,15 @@ module tb_a_gfx #(
                 if (blk * 512 < CPU_BASE || blk * 512 >= CPU_END) for (k = 0; k < 512; k = k + 1) crc = crc * 31 + rbuf[k];
                 else for (k = 0; k < 512; k = k + 1) begin : cmp
                     integer ix; reg [15:0] e; reg [1:0] v; ix = blk * 512 + k - CPU_BASE; e = cs_d[ix]; v = cs_v[ix];
-                    if ((v[0] && rbuf[k][7:0] !== e[7:0]) || (v[1] && rbuf[k][15:8] !== e[15:8])) cpu_bad = cpu_bad + 1;
+                    if ((v[0] && rbuf[k][7:0] !== e[7:0]) || (v[1] && rbuf[k][15:8] !== e[15:8])) begin
+                        cpu_bad = cpu_bad + 1;
+                        $display("  DIFF word %h lanes=%b%b valid=%b exp=%h got=%h last_write: cyc=%0d be=%b d=%h (this word is the %s half) now cyc=%0d in_flight_cpu=%b", CPU_BASE + ix, (v[1] && rbuf[k][15:8] !== e[15:8]), (v[0] && rbuf[k][7:0] !== e[7:0]), v, e, rbuf[k],
+                                 cs_wcyc[ix], cs_wbe[ix], cs_wd[ix], ix[0] ? "high" : "low", cyc, sys_busy);
+                    end
                 end
             end
         end
+        if (eng_in_cpu != 0) begin $display("  FAIL: %0d engine writes overlap the CPU region (stimulus invalid)", eng_in_cpu); fails = fails + 1; end
         if (cpu_bad != 0) begin $display("  FAIL: %0d CPU words differ from the shadow", cpu_bad); fails = fails + 1; end
         if (chip_err != 0 && STACK == 2) begin $display("  FAIL: %0d chip errors", chip_err); fails = fails + 1; end
         if (chip_err != 0 && STACK == 1) $display("  note: the OLD controller drew %0d chip-model errors (the baseline's findings: CKE at start, EMRS, tRFC ...)", chip_err);
