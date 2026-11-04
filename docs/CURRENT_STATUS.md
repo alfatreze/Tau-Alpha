@@ -2,6 +2,8 @@
 
 Updated 2026-10-26 (night). **What is true right now:** the newest sections below (2026-10-26 night, 2026-10-26, then 2026-10-23: the meters, statistics, persistence by area and packs work, merged into `main`; the v0.7.0 release is not built yet); the sections under it are older and kept for their detail. What to do next is in `docs/ROADMAP.md` (the only ordered list) and in the "Pending" part of `docs/handoffs/SESSION_HANDOFF_2026-10-23_METERS_STATS_PERSISTENCE_PACKS.md` — **read that first**. Why things are the way they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 
+## Update 2026-10-31 (evening): the old SDRAM path is deleted from the tree (D-T13 step 2; `TAU_SDRAM_LEGACY`, arbiter, CPU bridge and `tau_sdram_ctrl` gone, archived in `sim/legacy_sdram/`; the two SDC files are one; netlist unchanged against `def-b931`, host-proven only).
+
 ## Update 2026-10-31 (afternoon): the default build is the new SDRAM path + the v0.7 RTL bundle (B-929..B-931)
 `TAU DEV 200` (the new SDRAM path) ran on a Pocket: boot ok, Check all PASS, scan late 0, soak 46 passes 0 failures (B-929). The old path is retired as the default (D-T13) and the Talos plan is closed with its parked items (D-T12). Fit `def-b931` (default build + wall clock + I2S sum width + per-port SDRAM counters): all corners positive, 15,484 ALMs, hold +0.096 ns; packaged as `TAU DEV 201`, not yet installed. Open: the install and Pocket check of DEV 201, then deleting the old controller/arbiter/bridge handshake; the watchdog (needs a design decision); the owner's v0.7 review.
 
