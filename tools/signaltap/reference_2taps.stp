@@ -22,7 +22,7 @@
       <single attribute="setup horizontal scroll position" value="0"/>
     </position_info>
     <signal_set name="signal_set: 2026/09/21 16:13:19  #0">
-      <clock name="core_top:ic|tau_sdram_cpu_bridge:u_sdram_cpu_bridge|clk_sys" polarity="posedge" tap_mode="classic"/>
+      <clock name="core_top:ic|tau_sdram_a_cpu:u_sdram_cpu_bridge|clk_sys" polarity="posedge" tap_mode="classic"/>
       <config pipeline_level="0" ram_type="AUTO" reserved_data_nodes="0" reserved_storage_qualifier_nodes="0" reserved_trigger_nodes="0" sample_depth="128" trigger_in_enable="no" trigger_out_enable="no"/>
       <top_entity/>
       <signal_vec>

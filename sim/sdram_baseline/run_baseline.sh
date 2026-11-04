@@ -19,7 +19,7 @@ T=tb_sdram_baseline
 # so a 'packed' keyword is inserted in the build copy; nothing else changes. The "pre" copy is the file before the S0 commit.
 prepare() {
     [ "${PREPARED:-0}" = 1 ] && return
-    SRC="$ROOT/src/fpga/rtl/mem/tau_sdram_ctrl.sv"
+    SRC="$ROOT/sim/legacy_sdram/tau_sdram_ctrl.sv"
     sed 's/^  typedef struct {/  typedef struct packed {/' "$SRC" > "$OUT/ctrl_s0.sv"
     if [ ! -s "$OUT/ctrl_pre.sv" ]; then
         git -C "$ROOT" show cafd7477^:src/fpga/rtl/mem/tau_sdram_ctrl.sv | sed 's/^  typedef struct {/  typedef struct packed {/' > "$OUT/ctrl_pre.sv"

@@ -12,7 +12,7 @@ One instance, sample clock clk_sys (60 MHz), the 32 registered taps of tau_signa
 Format taken from a GUI-saved reference (tools/signaltap/reference_2taps.stp, accepted by
 `quartus_stp ap_core --enable`). The trigger condition is left at the GUI default (don't
 care); set it in the GUI or with the quartus_stp Tcl API. The sample clock is the clk_sys net
-as seen inside tau_sdram_cpu_bridge (the same 60 MHz net; there is no top-level clk_sys node).
+as seen inside tau_sdram_a_cpu (the same 60 MHz net; there is no top-level clk_sys node).
 The layout of the first-generation file (written from memory) made quartus_stp fail with an
 internal error, so do not "simplify" this structure without re-running that check.
 """
@@ -20,7 +20,7 @@ import argparse
 import datetime
 
 TAP = "core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap"
-CLOCK = "core_top:ic|tau_sdram_cpu_bridge:u_sdram_cpu_bridge|clk_sys"
+CLOCK = "core_top:ic|tau_sdram_a_cpu:u_sdram_cpu_bridge|clk_sys"
 N = 32
 QUAL_LEVEL = """          <storage_qualifier_level type="basic">
             <power_up>
