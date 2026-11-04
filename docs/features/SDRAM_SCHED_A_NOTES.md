@@ -4,7 +4,7 @@ Date 2026-10-29. Contract section 6 (`SDRAM_CONTROLLER_CONTRACT.md`). **Simulati
 
 ## 1. What it is
 
-A build-time alternative to `tau_sdram_arbiter` + `tau_sdram_ctrl` + the SDRAM half of `tau_sdram_cpu_bridge`. Selected by the macro `TAU_SDRAM_SCHED_A` in `core_game.vh`; **absent = the old controller, unchanged (D-T08)**.
+A build-time alternative to `tau_sdram_arbiter` + `tau_sdram_ctrl` + the SDRAM half of `tau_sdram_cpu_bridge`. **The only SDRAM path since D-T13 (2026-10-31): the macro `TAU_SDRAM_SCHED_A` and the old `TAU_SDRAM_LEGACY` switch are gone, and the old controller, arbiter and CPU bridge were deleted (archived in `sim/legacy_sdram/`, used only by `sim/sdram_baseline/` and `run_gfx.sh` stack 1).** (Historical text below describes the time when the old controller was still selectable.)
 
 ```
 tau_gfx (tau_talos: scan-out FILL + draw engine, ONE master, p0 protocol)

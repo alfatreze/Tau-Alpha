@@ -187,13 +187,9 @@ RTL_TARGETS = {
     "src/fpga/core/font_rom.v": {"test-rtl-fb"},
     "src/fpga/core/tgt_cmd.v": {"test-rtl-tgt"},
     "src/fpga/core/pcm_fifo.v": {"test-rtl-pcm"},
-    "src/fpga/core/tau_sdram_arbiter.sv": {"test-rtl-sdram-arbiter"},
-    "src/fpga/core/tau_sdram_cpu_bridge.sv": {"test-rtl-sdram-bridge"},
     "sim/tb_mp3_fb.v": {"test-rtl-fb"},
     "sim/tb_tgt_cmd.v": {"test-rtl-tgt"},
     "sim/tb_pcm_decay.v": {"test-rtl-pcm"},
-    "sim/tb_tau_sdram_arbiter.v": {"test-rtl-sdram-arbiter"},
-    "sim/tb_tau_sdram_cpu_bridge.v": {"test-rtl-sdram-bridge"},
 }
 
 

@@ -83,7 +83,7 @@ no MCP access.
 
 The Icarus test targets cache compiled `.vvp` outputs under `build/rtl/`:
 `test-rtl-fb`, `test-rtl-tgt`, `test-rtl-eq`, `test-rtl-eq-cycles`,
-`test-rtl-pcm`, `test-rtl-sdram-arbiter`, and `test-rtl-sdram-bridge`.
+and `test-rtl-pcm` (the former `test-rtl-sdram-arbiter` and `-bridge` went with the old controller, D-T13).
 The `test-host` target includes plan/path allowlist regression checks for the
 Director. `make rtl-lint` runs Verilator on the selected RTL. Lint warnings are a review
 baseline, not functional signoff. Icarus provides 4-state behavioral

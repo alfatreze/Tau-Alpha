@@ -4,9 +4,9 @@
 // rule, a wrong scale, or an off-by-one in the row loop is visible directly
 // rather than inferred from "the Pocket looks wrong".
 //
-// tau_sdram_ctrl.sv itself cannot be elaborated here (unpacked SV structs are past
-// iverilog), so the controller is stubbed to the contract mp3_fb actually
-// depends on, taken from tau_sdram_ctrl's own comments:
+// The SDRAM path (sched_a + PHY today; the retired tau_sdram_ctrl.sv in the past, whose unpacked SV structs were past
+// iverilog) is not elaborated here: it is stubbed to the contract the graphics client actually
+// depends on (the client protocol the scheduler and the old controller both implement):
 //   * p0_available high only when idle
 //   * a streaming write pulls beat N from wsrc_q, with wsrc_addr driven ahead
 //     of each beat (BRAM read latency 1)
