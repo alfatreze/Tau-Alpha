@@ -35,7 +35,7 @@ Where code is included, the name comes from that source file's copyright header.
 | **[Helix MP3 decoder](https://github.com/ultraembedded/libhelix-mp3)** | (c) 1995-2002 [RealNetworks, Inc.](https://www.realnetworks.com), released to the [Helix Community](https://helixcommunity.org) | RPSL 1.0 | `third_party/libhelix-mp3/` | See the modifications note below. |
 | **[VexRiscv](https://github.com/SpinalHDL/VexRiscv)** soft CPU | Charles Papon ([Dolu1990](https://github.com/Dolu1990)) | MIT (as stated by the project) | `src/fpga/rtl/VexRiscv_Full.v` | The generated file is a SpinalHDL 1.9.4 output that carries no licence header of its own, so the MIT statement rests on the upstream project's licence. See the note below. |
 | **[picojpeg](https://github.com/richgel999/picojpeg)** | Rich Geldreich ([richgel999](https://github.com/richgel999)), with changes from Chris Phoenix | public domain (per the file header) | `third_party/picojpeg/` | Baseline JPEG decoder for album art. |
-| **SDRAM controller and I2S audio bridge** | Adam Gastineau ([agg23](https://github.com/agg23)) | MIT | `src/fpga/rtl/mem/sdram_fb.sv` (licence: `src/fpga/rtl/mem/sdram_LICENSE`), `src/fpga/core/sound_i2s.v`, `src/fpga/core/sync_fifo.v` | Headers state `MIT License, Copyright (c) 2022` (2023 for the SDRAM licence file). |
+| **SDRAM controller and I2S audio bridge** | Adam Gastineau ([agg23](https://github.com/agg23)) | MIT | `sim/legacy_sdram/tau_sdram_ctrl.sv` (archived, not in any build; licence: `sim/legacy_sdram/sdram_LICENSE`), `src/fpga/core/sound_i2s.v`, `src/fpga/core/sync_fifo.v` | Headers state `MIT License, Copyright (c) 2022` (2023 for the SDRAM licence file). |
 | **APF data loader** | Adam Gastineau, ported from opengateware/arcade-galaga | MIT | `src/fpga/core/data_loader.sv` | Header: "Ported from opengateware/arcade-galaga modules/dataloader-pocket". |
 | **[openFPGA framework](https://www.analogue.co/developer)** | [Analogue](https://www.analogue.co) | Analogue APF licence / Pocket EULA | `src/fpga/apf/` | Its embedded notices remain controlling for those files. |
 | **[Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/)** | Robert Bristow-Johnson | published formulas | `tools/gen_eq_coeffs.py` and the generated `eq_coefs.vh` | The equalizer's shelf and peaking filter formulas are his; the coefficients are generated from them. |
@@ -100,6 +100,6 @@ No endorsement by HarpMudd, RealNetworks, Rasmus Andersson, Analogue, or other u
 | Tau and HarpMudd (MIT) | [LICENSE](../LICENSE) |
 | Helix RPSL 1.0, RCSL, summary | `third_party/libhelix-mp3/docs/RPSL.txt`, `RCSL.txt`, `LICENSE.txt` |
 | Inter (OFL 1.1) | `third_party/font/OFL.txt` |
-| agg23 SDRAM (MIT) | `src/fpga/rtl/mem/sdram_LICENSE` |
+| agg23 SDRAM (MIT) | `sim/legacy_sdram/sdram_LICENSE` |
 | Analogue APF | the header of each file in `src/fpga/apf/` |
 | Provenance summary | [NOTICE.md](../NOTICE.md) |
