@@ -44,3 +44,28 @@ uint32_t platform_stack_peak(void)
 }
 uint32_t platform_image_bytes(void) { return (uint32_t)(uintptr_t)&_image_end; }
 uint32_t platform_free_bytes(void) { return (uint32_t)((uintptr_t)&_tag_start - (uintptr_t)&_image_end); }
+
+/* ---- pack watchdog (docs/features/PACK_WATCHDOG_PLAN.md; the trap code is in start.S) --------------------------------------------------------------------------------------------------------------------------- */
+/* Cold code (the PSRAM image): the Diagnostic Build has next to no spare hot RAM, and this runs once per pack tick, so the few extra fetches cost nothing that matters. */
+uint32_t *wd_jb_ptr;                                   /* read by wd_resume (start.S) */
+volatile uint32_t wd_cut_flag;                         /* read by trap_entry (start.S, hot): nonzero only while a guarded window is open */
+static int8_t wd_have = -1;                            /* -1 not probed, 0 no watchdog in the bitstream, 1 present */
+extern int wd_save(uint32_t *jb);
+extern void wd_irq_on(void), wd_irq_off(void);
+extern void gfx_recover(void);
+P2_COLD_TEXT int wd_run(uint32_t limit, void (*fn)(const void *), const void *arg)
+{
+    uint32_t jb[14];                                   /* the saved registers live in this frame, which wd_resume returns into */
+    if (wd_have < 0) wd_have = (REG_RD(R_WDOG_ST) >> 31) ? 1 : 0;
+    if (!wd_have) { fn(arg); return 0; }
+    wd_jb_ptr = jb;
+    if (wd_save(jb) == 0) {
+        wd_cut_flag = 1u; REG_WR(R_WDOG_ARM, limit); wd_irq_on();
+        fn(arg);
+        wd_irq_off(); REG_WR(R_WDOG_ARM, 0u); wd_cut_flag = 0u;
+        REG_WR(R_WDOG_ACK, 1u);                          /* an expiry in the very cycle the tick returned was not taken as an interrupt: a close call, not a cut; clear it */
+        return 0;
+    }
+    gfx_recover();                                       /* the handler already closed the window and acknowledged */
+    return 1;
+}

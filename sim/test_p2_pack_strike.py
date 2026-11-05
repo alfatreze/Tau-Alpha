@@ -15,7 +15,7 @@ def check(name, ok, info=""):
 def build(d, mutant=None):
     d.mkdir(parents=True)
     src = (ROOT / "fw2/ui/meters.c").read_text(); flags = []
-    if mutant == "forced": a = "        if (!in.force) {                                                              /* a forced repaint"; assert a in src; src = src.replace(a, "        if (1) {                                                                      /* a forced repaint")
+    if mutant == "forced": a = "        else if (!in.force) {"; assert a in src; src = src.replace(a, "        else if (1) {")
     if mutant == "atlimit": flags = ["-DBUG=1"]
     if mutant == "fourth": flags = ["-DBUG=2"]
     if mutant == "noforgive": flags = ["-DBUG=3"]

@@ -53,6 +53,12 @@
 #define R_RTC_EPOCH  0x800001C8u        /* epoch seconds as the host sent them */
 #define R_RTC_DATE   0x800001CCu        /* BCD date 0xYYYYMMDD */
 #define R_RTC_TIME   0x800001D0u        /* BCD time 0x0DHHMMSS (bits 27:24 the day of the week) */
+/* Code that runs rarely and may live in the cold (PSRAM) image, which costs no hot RAM (the Diagnostic Build has next to none to spare). Host builds (macOS) have no such section. */
+#ifdef P2_HOST
+#define P2_COLD_TEXT
+#else
+#define P2_COLD_TEXT __attribute__((section(".cold_text"), noinline))
+#endif
 #define R_WDOG_ARM   0x800001DCu        /* pack watchdog (tau_wdog.sv, TAU_WDOG builds): write the limit in clk cycles to arm (0 disarms); expiry raises the CPU timer interrupt */
 #define R_WDOG_ST    0x800001E0u        /* read: [31] built in, [1] expired (sticky until acknowledged), [0] armed (0 when not built) */
 #define R_WDOG_ACK   0x800001E4u        /* write any value: clear the expiry and drop the interrupt */

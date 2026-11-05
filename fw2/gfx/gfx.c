@@ -211,6 +211,18 @@ void gfx_set_target(uint32_t buf)
     buf &= 1u; wait_fifo();
     REG_WR(R_DBUF_CPU, buf); cpu_buf = (uint8_t)buf;
 }
+/* After a pack tick was cut off by the watchdog (platform.c wd_run): the engine finishes whatever commands it had accepted (each R_FB_GO write is atomic, there is no way to flush it), so wait for it to go idle, then make
+ * every host-side shadow honest again: the colour and base-pair shadows become "unknown" (the next command rewrites the fields), the fence count is read back, and the drawing-buffer register is rewritten from its shadow.
+ * The caller forces a full repaint. (Plan section 9, item 2.) */
+P2_COLD_TEXT void gfx_recover(void)
+{
+    const uint32_t t0 = cycles();
+    if (hw_fence > 0) { while (!(REG_RD(R_FB_GO) & 2u) && (uint32_t)(cycles() - t0) < CLK_HZ / 20u) { } }      /* the T3 idle bit; 50 ms at most */
+    else { while ((REG_RD(R_FB_GO) & 1u) && (uint32_t)(cycles() - t0) < CLK_HZ / 20u) { } }
+    color_shadow = 0xFFFFFFFFu; base_src = 0xFFFFFFFFu; base_dst = 0xFFFFFFFFu;
+    if (hw_fence > 0) hw_fence_issued = REG_RD(R_GFX_FENCE);
+    if (caps_dbuf) REG_WR(R_DBUF_CPU, cpu_buf);
+}
 
 /* ---- a redraw into the idle buffer, shown at the next vblank --------------------------------------------------------------------------------------------
  * begin: the idle buffer is brought up to date with the displayed one (a copy) and becomes the CPU's target (returns 0 and touches nothing when the bitstream has no H2 or a flip is still pending). end: every queued command has executed (a fence), the flip
