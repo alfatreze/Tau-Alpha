@@ -1,6 +1,6 @@
 # Tau Alpha to Tau V: `sched_v` v1.2-rc1 (2026-11-05)
 
-DRAFT, not yet sent (the owner sends it). The tag `sdram-sched-v-v1.2-rc1` is pushed to `origin` (alfatreze/Tau-Alpha).
+SENT by the owner (reported on 2026-11-05; the exact time is not recorded here). The tag `sdram-sched-v-v1.2-rc1` is pushed to `origin` (alfatreze/Tau-Alpha). Waiting for Tau V's seed 6 and 8 re-fit.
 
 We built your suggested steps in your order. Step 2 ships as a candidate. Step 1 failed our replay and is not included.
 
