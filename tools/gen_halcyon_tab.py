@@ -23,11 +23,11 @@ assert g.CW == 24 and g.QF == 22
 
 def build():
     coef, mag = [], []
-    for (name, kind, f0, q) in m.STAGES:
+    for si, (name, kind, f0, q) in enumerate(m.STAGES):
         cs, ms = [], []
         for i in range(NSTEP):
             gd = (i - 18) / 2.0
-            c = tuple(g.quantise(v, name, []) for v in g.design_stage(kind, f0, q, gd, True))
+            c = m.stage_q(si, gd, True)          # from the committed fit (tools/halcyon_fit_q22.json), not a fresh optimiser run
             if not g.stable([c]):
                 raise SystemExit(f"{name} {gd:+.1f} dB unstable at Q2.22")
             cs.append(c)
@@ -78,7 +78,32 @@ def render():
     return "\n".join(o) + "\n"
 
 
+def refit():
+    """Runs the optimiser (gen_eq_coeffs.design_stage, matched) for every stage and 0.5 dB step and writes tools/halcyon_fit_q22.json. Existing pins are kept.
+    Run this only when the design changes (STAGES, the fit, the grid); the result is reviewed like any firmware change, because it changes shipped coefficients."""
+    import json
+    old = {}
+    if os.path.exists(m.FIT_PATH):
+        old = json.load(open(m.FIT_PATH)).get("stages", {})
+    stages = {}
+    for (name, kind, f0, q) in m.STAGES:
+        steps = []
+        for i in range(NSTEP):
+            e = {"c": [float(v) for v in g.design_stage(kind, f0, q, (i - 18) / 2.0, True)]}
+            pin = old.get(name, {}).get("steps", [{}] * NSTEP)[i].get("pin_q22") if old.get(name) else None
+            if pin:
+                e["pin_q22"] = pin
+            steps.append(e)
+        stages[name] = {"kind": kind, "f0": f0, "q": q, "steps": steps}
+    doc = {"note": "Unrounded analog-matched fit (tools/gen_halcyon_tab.py --refit) per stage and 0.5 dB step (index = gain*2+18). A 'pin_q22' is a list of 5 (Q2.22 integer or null) that replaces that coefficient (used as p / 2^22): it keeps a shipped constant that a platform's last-bit drift would otherwise flip (B-938).",
+           "stages": stages}
+    Path(m.FIT_PATH).write_text(json.dumps(doc, indent=0) + "\n")
+    print(f"wrote {Path(m.FIT_PATH).resolve()}")
+
+
 if __name__ == "__main__":
+    if "--refit" in sys.argv:
+        refit(); sys.exit(0)
     out = ROOT / "fw" / "halcyon_tab.h"
     text = render()
     if "--check" in sys.argv:

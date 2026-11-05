@@ -17,6 +17,11 @@ def check(name, ok, info=""):
     fails += 0 if ok else 1
 
 check("fw/halcyon_tab.h is up to date with tools/gen_halcyon_tab.py", (ROOT / "fw/halcyon_tab.h").read_text() == tab.render())
+# Drift alarm (information only, never a failure): a fresh optimiser run against the committed fit. The tables are built from tools/halcyon_fit_q22.json, so a platform
+# whose numeric libraries move the last bits of the fit cannot break the build any more (B-938); this line says how far a fresh run is from the committed values.
+_drift = [max(abs(a - b) for a, b in zip(m.stage_q(i, (k - 18) / 2.0, True), tuple(g.quantise(v, "x", []) for v in g.design_stage(m.STAGES[i][1], m.STAGES[i][2], m.STAGES[i][3], (k - 18) / 2.0, True))))
+          for i in range(m.NSTAGE) for k in range(37)]
+print("info fresh optimiser run vs committed fit: %d of %d entries differ, worst %d LSB" % (sum(1 for d in _drift if d), len(_drift), max(_drift)))
 rnd = random.Random(11)
 sets = [dict(p[1]) for p in m.PRESETS]
 sets += [{k: (rnd.randint(0, 5) if k == "sibilance" else rnd.randint(-5, 5)) for k in m.MACROS} for _ in range(300)]

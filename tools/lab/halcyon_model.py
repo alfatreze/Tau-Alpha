@@ -6,7 +6,7 @@ filter maths. Everything here is DATA that the firmware tables and Tau Omega sha
 
 Macro positions are integers -5..+5 (Sibilance 0..+5 = dip depth). Stage gains are in dB, clamped to +-STAGE_MAX, steps of 0.5 dB when applied.
 """
-import math, os, sys
+import json, math, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import gen_eq_coeffs as g
 
@@ -54,10 +54,35 @@ def stage_gains(m):
           0.9 * a - 0.5 * w]         # air, plus the clear side of the tilt
     return [max(-STAGE_MAX, min(STAGE_MAX, round(x * 2) / 2)) for x in gs]   # 0.5 dB steps
 
+FIT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "halcyon_fit_q22.json")
+_fit_cache = None
+
+def fit_data():
+    """The committed result of the offline analog-matched fit (tools/halcyon_fit_q22.json, written by `gen_halcyon_tab.py --refit`): the unrounded design floats of every
+    stage at every 0.5 dB step, plus optional per-coefficient pins (Q2.22 integers). The fit is an iterative optimiser whose last bits depend on the platform's numeric libraries
+    (B-938: one coefficient sat 0.001 LSB from a rounding tie and flipped with a macOS update), so the tables are built from this file, never from a fresh run."""
+    global _fit_cache
+    if _fit_cache is None:
+        _fit_cache = json.load(open(FIT_PATH)) if os.path.exists(FIT_PATH) else {}
+    return _fit_cache
+
+def stage_q(idx, gd, matched=False):
+    """Quantised coefficients (b0 b1 b2 a1 a2) of tone stage idx at gain gd dB. matched=True on the 0.5 dB grid (-9..+9) reads the committed fit (platform independent);
+    anything else is designed here (the cookbook is closed-form; an off-grid matched design runs the optimiser)."""
+    name, kind, f0, q = STAGES[idx]
+    if matched:
+        st = int(round(gd * 2)) + 18
+        ent = fit_data().get("stages", {}).get(name)
+        if ent and abs(gd * 2 - round(gd * 2)) < 1e-9 and 0 <= st <= 36 and (ent["kind"], ent["f0"], ent["q"]) == (kind, f0, q):
+            e = ent["steps"][st]
+            pins = e.get("pin_q22") or [None] * 5     # a pin is a Q2.22 integer used as the exact float p / 2^22: at 24 bits it IS that integer, at other widths it scales
+            return tuple(g.quantise(v if p is None else p / 4194304.0, "x", []) for v, p in zip(e["c"], pins))
+    return tuple(g.quantise(v, "x", []) for v in g.design_stage(kind, f0, q, gd, matched))
+
 def coeffs(gains, matched=False):
-    """Quantised coefficients at the build's width. matched=True uses the offline analog-matched design (gen_eq_coeffs.design_matched, D-H02); the default stays the
-    cookbook so the shipped, bit-exact-tested paths do not change."""
-    return [tuple(g.quantise(v, "x", []) for v in g.design_stage(k, f, q, gd, matched)) for (_, k, f, q), gd in zip(STAGES, gains)]
+    """Quantised coefficients at the build's width. matched=True uses the offline analog-matched design (gen_eq_coeffs.design_matched, D-H02) from the committed fit
+    (fit_data); the default stays the cookbook so the shipped, bit-exact-tested paths do not change."""
+    return [stage_q(i, gd, matched) for i, gd in enumerate(gains)]
 
 def response_db(q, f):
     return g.response_db(q, f)
