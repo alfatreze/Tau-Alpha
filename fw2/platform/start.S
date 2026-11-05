@@ -34,7 +34,7 @@ _start:
 /* ---- pack watchdog (docs/features/PACK_WATCHDOG_PLAN.md) ---------------------------------------------------------------------------------------------------------------
  * wd_save(jb) saves ra, sp, s0..s11 (a minimal setjmp) and returns 0; when the watchdog interrupt fires, trap_entry acknowledges it, closes the interrupt window (MPIE := 0, so MIE is 0 after mret) and "returns"
  * into wd_resume, which restores the saved registers from *wd_jb_ptr and returns 1 from wd_save. Any other trap restarts the firmware (what the unset mtvec did before: it jumped to address 0). */
-	.text
+	.section .cold_text,"ax"					/* the PSRAM image: only trap_entry has to be hot */
 	.globl wd_save
 wd_save:
 	sw ra, 0(a0)
@@ -73,6 +73,7 @@ wd_resume:
 	lw s11, 52(t0)
 	li a0, 1
 	ret
+	.text
 	.balign 4
 	.globl trap_entry
 trap_entry:
@@ -91,6 +92,7 @@ trap_entry:
 	mret
 1:	la t0, _start
 	jr t0
+	.section .cold_text,"ax"
 	.globl wd_irq_on
 wd_irq_on:
 	li t0, 0x80

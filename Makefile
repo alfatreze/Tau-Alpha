@@ -123,6 +123,7 @@ test-host:
 	$(PYTHON) sim/test_p2_lastplayed.py
 	$(PYTHON) sim/test_p2_boot_order.py
 	$(PYTHON) sim/test_p2_pack_strike.py
+	$(PYTHON) sim/test_p2_wdog.py
 	$(PYTHON) sim/test_p2_meter_desc.py
 	$(PYTHON) sim/test_p2_pack_only.py
 	$(PYTHON) sim/test_p2_meter_helpers.py

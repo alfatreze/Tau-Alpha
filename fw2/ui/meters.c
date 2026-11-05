@@ -265,8 +265,9 @@ void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err
     *running = r; *first_err = e; *file_err = pack_err; *seen = pack_seen;
 }
 static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status == MPK_OK; }
-static void pack_tick(const mtr_in_t *in)
+static void pack_tick(const void *vin)                                                   /* the shape wd_run wants (platform.h) */
 {
+    const mtr_in_t *in = (const mtr_in_t *)vin;
     if (pack_act != cur) { mpk_activate(&pack_slot[cur].info, pack_slot_data(cur), (volatile uint8_t *)PACK_SCRATCH); pack_act = cur; }
     pack_api.params = mdef(cur)->mv;
     PACK_CALL(pack_slot[cur].info.entry, in, &pack_api);
@@ -437,8 +438,11 @@ void meters_tick(int allowed)
     gfx_touch_reset();
 #ifdef P2_PACKS
     if (pack_ok(cur)) {
-        const uint32_t tp = cycles(); pack_tick(&in); const uint32_t took = cycles() - tp;
-        if (!in.force) {                                                              /* a forced repaint is the costliest picture by design: not judged */
+        const uint32_t tp = cycles();
+        const int cut = wd_run(wd_limit(cyc_limit_of(cur)), pack_tick, &in);         /* the hardware watchdog cuts an endless or far too long tick off (a bitstream without it just runs the tick) */
+        const uint32_t took = cycles() - tp;
+        if (cut) { pack_slot[cur].status = MPK_E_STRIKE; force_next = 1; meter_stats.struck++; }      /* struck out at once: the built-in code (or nothing) from the next picture, after a full repaint */
+        else if (!in.force) {                                                              /* a forced repaint is the costliest picture by design: not judged */
             if (took > cyc_limit_of(cur)) meter_stats.overruns++;
             if (ps_judge(&pack_strike[cur], took, cyc_limit_of(cur))) { pack_slot[cur].status = MPK_E_STRIKE; force_next = 1; meter_stats.struck++; }      /* struck out: the built-in code (or nothing) from the next picture */
         }
