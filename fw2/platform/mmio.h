@@ -53,6 +53,10 @@
 #define R_RTC_EPOCH  0x800001C8u        /* epoch seconds as the host sent them */
 #define R_RTC_DATE   0x800001CCu        /* BCD date 0xYYYYMMDD */
 #define R_RTC_TIME   0x800001D0u        /* BCD time 0x0DHHMMSS (bits 27:24 the day of the week) */
+#define R_WDOG_ARM   0x800001DCu        /* pack watchdog (tau_wdog.sv, TAU_WDOG builds): write the limit in clk cycles to arm (0 disarms); expiry raises the CPU timer interrupt */
+#define R_WDOG_ST    0x800001E0u        /* read: [31] built in, [1] expired (sticky until acknowledged), [0] armed (0 when not built) */
+#define R_WDOG_ACK   0x800001E4u        /* write any value: clear the expiry and drop the interrupt */
+#define R_WDOG_CNT   0x800001E8u        /* read: [31:16] arms, [15:0] expiries (wrap) */
 #define R_SDA_SEL    0x800001D4u        /* per-port SDRAM statistics window (tau_sdr_stat_win.sv): write {port[1:0], stat[2:0]} (stat 0 requests, 1 words, 2 busy cycles, 3 worst wait, 4 urgent over the bound, 5 bad requests; port 0 scan-out, 1 engine, 2 CPU) -- ignored while pending; read [31] built in, [8] a snapshot is pending, [4:0] the selection */
 #define R_SDA_VAL    0x800001D8u        /* read: the snapshot of the selected counter, stable until the next select; valid once R_SDA_SEL bit 8 is 0 */
 #define R_DBUF_CPU   0x80000118u        /* Helios H2: bit 0 = the buffer plain RECT/CHAR/COPY commands target (rows of the visible frame only; the off-screen stash rows are shared); read bit 31 = built in */

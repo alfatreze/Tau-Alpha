@@ -502,18 +502,20 @@ test-rtl-wdog:
 	@set -e; for m in $(WDOG_MUTANTS); do $(IVERILOG) -g2012 -D$$m -o $(RTL_BUILD_DIR)/tb_wdog_mut.vvp sim/tb_wdog.sv src/fpga/core/tau_wdog.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_wdog_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: $$m"; else echo "MUTANT SURVIVED: $$m"; exit 1; fi; done
 
-# Pack watchdog on the real CPU (W2): tau_soc + VexRiscv + sim/fw_wdog (trap entry, setjmp-style recovery). Each firmware mutant and the cut interrupt line must FAIL it.
+# Pack watchdog on the real CPU (W2): tau_soc + VexRiscv + sim/fw_wdog linked with the PRODUCTION start-up and trap code (fw2/platform/start.S). Each start.S mutant (sim/wdog_start_mutants.py) and the cut
+# interrupt line must FAIL it.
 WDOG_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_wdog_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_wdog.sv
-WDOG_FW_MUTANTS = MUT_NOACK MUT_MIE_ON MUT_NO_RESTORE
-WDOG_FW_CC = toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im_zicsr -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld
+RVGCC = toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc
+RVOBJ = toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy
+WDOG_FW_FLAGS = -march=rv32im_zicsr -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -Wl,--defsym=_stack_size=512 -T sim/fw_ifetch/link.ld
 test-rtl-wdog-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
-	$(WDOG_FW_CC) sim/fw_wdog/start.S sim/fw_wdog/main.c -o $(RTL_BUILD_DIR)/fw_wdog.elf
-	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_wdog.elf $(RTL_BUILD_DIR)/fw_wdog.bin
+	$(RVGCC) $(WDOG_FW_FLAGS) fw2/platform/start.S sim/fw_wdog/main.c -o $(RTL_BUILD_DIR)/fw_wdog.elf
+	$(RVOBJ) -O binary $(RTL_BUILD_DIR)/fw_wdog.elf $(RTL_BUILD_DIR)/fw_wdog.bin
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_wdog_soc.vvp $(WDOG_SOC_SRC); \
-	  $(VVP) $(RTL_BUILD_DIR)/tb_wdog_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_wdog.bin | tee $(RTL_BUILD_DIR)/wdog_soc.log | tail -16; grep -q "^PASSED" $(RTL_BUILD_DIR)/wdog_soc.log
-	@set -e; for m in $(WDOG_FW_MUTANTS); do $(WDOG_FW_CC) -D$$m sim/fw_wdog/start.S sim/fw_wdog/main.c -o $(RTL_BUILD_DIR)/fw_wdog_mut.elf; \
-	  toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_wdog_mut.elf $(RTL_BUILD_DIR)/fw_wdog_mut.bin; \
-	  if $(VVP) $(RTL_BUILD_DIR)/tb_wdog_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_wdog_mut.bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: $$m"; exit 1; else echo "mutant killed: $$m"; fi; done
+	  $(VVP) $(RTL_BUILD_DIR)/tb_wdog_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_wdog.bin | tee $(RTL_BUILD_DIR)/wdog_soc.log | tail -18; grep -q "^PASSED" $(RTL_BUILD_DIR)/wdog_soc.log
+	@set -e; for n in $$($(PYTHON) sim/wdog_start_mutants.py fw2/platform/start.S $(RTL_BUILD_DIR)/wdog_mut); do \
+	  $(RVGCC) $(WDOG_FW_FLAGS) $(RTL_BUILD_DIR)/wdog_mut/start_$$n.S sim/fw_wdog/main.c -o $(RTL_BUILD_DIR)/fw_wdog_mut.elf; $(RVOBJ) -O binary $(RTL_BUILD_DIR)/fw_wdog_mut.elf $(RTL_BUILD_DIR)/fw_wdog_mut.bin; \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_wdog_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_wdog_mut.bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: $$n"; exit 1; else echo "mutant killed: $$n"; fi; done
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_wdog_soc.MUT_RTL=1 -o $(RTL_BUILD_DIR)/tb_wdog_soc_mut.vvp $(WDOG_SOC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_wdog_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_wdog.bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: interrupt line cut"; exit 1; else echo "mutant killed: interrupt line cut"; fi
 
