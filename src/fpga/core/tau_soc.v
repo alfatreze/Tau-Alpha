@@ -113,6 +113,8 @@ module tau_soc #(
     parameter BUG_RTC = 0,              // mutation hook for sim/tb_rtc_soc.v / sim/tb_rtc_cdc.v (passed to tau_rtc_cdc)
     // Per-port SDRAM statistics window (tau_sdr_stat_win.sv, outside this module; the counters live in clk_sdram): registers 0x1D4-0x1D8. With 0 they read 0 and writes are ignored.
     parameter SDA_ENABLE = 0,
+    // Pack watchdog (tau_wdog.sv, docs/features/PACK_WATCHDOG_PLAN.md): registers 0x1DC-0x1E8; its expiry is the CPU's timer interrupt. With 0 the registers read 0, writes are ignored and the interrupt input stays tied to 0.
+    parameter WDOG_ENABLE = 0,
     parameter BUG_FONT_NO_INC = 0,      // mutation hooks for sim/tb_font_soc.v (1 must make it fail): the index does not step after a data write / the completed-load counter never counts
     parameter BUG_FONT_NO_GEN = 0
 ) (
@@ -385,9 +387,23 @@ module tau_soc #(
     wire        d_req     = dCYC & dSTB & ~dACK;
     wire        i_req     = iCYC & iSTB & ~iACK;
 
+    // ------------------------------------------------ pack watchdog (D-T15) ---
+    // The firmware arms it around a pack's draw tick (R_WDOG_ARM = limit in clk cycles, 0 disarms) and acknowledges the interrupt (R_WDOG_ACK); `wdog_irq` is the CPU's timer interrupt.
+    reg         wdog_arm_we = 1'b0, wdog_ack_we = 1'b0;
+    reg  [31:0] wdog_arm_d  = 32'd0;
+    wire        wdog_irq;
+    wire [31:0] wdog_status, wdog_counts;
+    generate
+        if (WDOG_ENABLE != 0) begin : g_wdog
+            tau_wdog u_wdog (.clk(clk), .rst(rst), .arm_wr(wdog_arm_we), .arm_val(wdog_arm_d), .ack_wr(wdog_ack_we), .irq(wdog_irq), .status(wdog_status), .counts(wdog_counts));
+        end else begin : g_nowdog
+            assign wdog_irq = 1'b0; assign wdog_status = 32'd0; assign wdog_counts = 32'd0;
+        end
+    endgenerate
+
     VexRiscv cpu (
         .externalResetVector   (32'h00000000),
-        .timerInterrupt        (1'b0),
+        .timerInterrupt        (wdog_irq),
         .softwareInterrupt     (1'b0),
         .externalInterruptArray(32'b0),
 
@@ -1184,7 +1200,8 @@ module tau_soc #(
     localparam [8:0] R_GFX_FENCE = 9'h1B8, R_GFX_STATUS = 9'h1BC, R_GFX_COUNTS = 9'h1C0;   // Talos 2 T3 (read only)
     localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
     localparam [8:0] R_RTC_ST = 9'h1C4, R_RTC_EPOCH = 9'h1C8, R_RTC_DATE = 9'h1CC, R_RTC_TIME = 9'h1D0;   // wall clock (read only)
-    localparam [8:0] R_SDA_SEL = 9'h1D4, R_SDA_VAL = 9'h1D8;                                          // per-port SDRAM statistics window
+    localparam [8:0] R_SDA_SEL = 9'h1D4, R_SDA_VAL = 9'h1D8;
+    localparam [8:0] R_WDOG_ARM = 9'h1DC, R_WDOG_ST = 9'h1E0, R_WDOG_ACK = 9'h1E4, R_WDOG_CNT = 9'h1E8;   // pack watchdog (ARM write-only, ST and CNT read-only, ACK write-only)                                          // per-port SDRAM statistics window
     reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
     reg  [1:0]  stats_ctl_d  = 2'd0;
     reg  [2:0]  stats_idx_d  = 3'd0;
@@ -1379,7 +1396,7 @@ module tau_soc #(
         con_wr      <= 1'b0;
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
-        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0; sda_we <= 1'b0;
+        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0; sda_we <= 1'b0; wdog_arm_we <= 1'b0; wdog_ack_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
@@ -1467,6 +1484,8 @@ module tau_soc #(
                 R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
                 R_STATS_CTL: begin stats_ctl_d <= dDAT_MOSI[1:0]; stats_ctl_we <= 1'b1; end
                 R_STATS_IDX: begin stats_idx_d <= dDAT_MOSI[2:0]; stats_idx_we <= 1'b1; end
+                R_WDOG_ARM:  if (WDOG_ENABLE != 0) begin wdog_arm_d <= dDAT_MOSI; wdog_arm_we <= 1'b1; end
+                R_WDOG_ACK:  if (WDOG_ENABLE != 0) wdog_ack_we <= 1'b1;
                 R_SDA_SEL:   if (SDA_ENABLE != 0) begin sda_wd <= dDAT_MOSI[4:0]; sda_we <= 1'b1; end   // the window ignores it while a snapshot is pending
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
@@ -1619,6 +1638,8 @@ module tau_soc #(
             R_RTC_EPOCH:   mmio_rdata = rtc_epoch_s;                                     // epoch seconds as sent by the host (0 until valid)
             R_RTC_DATE:    mmio_rdata = rtc_date_s;                                      // BCD date 0xYYYYMMDD
             R_RTC_TIME:    mmio_rdata = rtc_time_s;                                      // BCD time, [27:24] day of week, 0x00HHMMSS
+            R_WDOG_ST:     mmio_rdata = (WDOG_ENABLE != 0) ? wdog_status : 32'd0;           // [31] present, [1] expired, [0] armed
+            R_WDOG_CNT:    mmio_rdata = (WDOG_ENABLE != 0) ? wdog_counts : 32'd0;           // [31:16] arms, [15:0] expiries (wrap)
             R_SDA_SEL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_status : 32'd0;          // [31] present, [8] a snapshot is pending, [4:0] the selection
             R_SDA_VAL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_val : 32'd0;             // the snapshot of the selected counter (stable until the next select)
             R_STATS_DATA:  mmio_rdata = stats_rd;                                      // audio statistics read-out word at STATS_IDX (0 when not built)
