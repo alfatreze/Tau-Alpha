@@ -802,6 +802,29 @@ module tb_sched #(
                 if (pre_in_burst != 0) begin $display("  %0d PRE commands while a burst streamed and another head wanted the row", pre_in_burst); tb_fail = tb_fail + 1; end
             end
 
+            "stale_row": begin       // v1.2: short reads of two rows of ONE bank from five ports, so a row-hit flag from just before an ACT is
+                                     // offered to a head that wants the row the ACT closed (BANK_HASH 0)
+                cur_gen = 50;
+                add_rq(3, 1'b1, A(0, 0), 64, 0, -1); wi = last_rq;
+                cur_gen = 51;
+                add_rq(3, 1'b1, A(0, 4096), 64, 0, -1); wi = last_rq;
+                run_all(TMO_CYC);
+                for (n1 = 0; n1 < 40; n1 = n1 + 1) begin
+                    cur_gap = (n1 * 3) % 5;
+                    add_rq(0, 1'b0, A(0, (n1 % 2) ? 4096 : 0), 4, 0, wi);
+                    add_rq(1, 1'b0, A(0, (n1 % 2) ? 0 : 4096), 4, 0, wi);
+                    add_rq(2, 1'b0, A(0, ((n1 / 2) % 2) ? 4096 : 0), 8, 0, wi);
+                    add_rq(4, 1'b0, A(0, ((n1 / 3) % 2) ? 0 : 4096), 4, 0, wi);
+                    add_rq(5, 1'b0, A(0, (n1 % 3) ? 0 : 4096), 2, 0, wi);
+                end
+                run_all(TMO_CYC);
+                // random mix (fixed seed): the ports' heads and the ACT of another port meet at every offset
+                for (n1 = 0; n1 < 600; n1 = n1 + 1) begin
+                    cur_gap = $urandom_range(0, 9);
+                    add_rq($urandom_range(0, 5), 1'b0, A(0, $urandom_range(0, 1) ? 4096 : 0) + $urandom_range(0, 40), $urandom_range(1, 6), 0, wi);
+                end
+                run_all(TMO_CYC);
+            end
             "raw_order": begin       // a read accepted after a write to the same words (other port, before the write's done) returns the new data
                 cur_gen = 1;
                 add_rq(3, 1'b1, A(6, 0), 300, 0, -1);

@@ -301,6 +301,10 @@ module tau_sdram_sched_v #(
     reg  [2:0]  last_port; reg last_v; reg [1:0] last_bank; reg [12:0] last_row;
     reg  [3:0]  o_v;
     reg  [12:0] o_row [0:3];
+    // v1.2: o_row is written one cycle after the ACT (oa_*), so the ACT's address mux does not feed the 4-way write enable.
+    // o_v is still set in the ACT cycle; the row-hit flags of stages A..D are stale for one cycle longer (tq_q reloads with 5 on an
+    // ACT) and the fast open-row cache (fh_*) answers the hit in that window, as it already did.
+    reg         oa_v; reg [1:0] oa_b; reg [12:0] oa_r;
     reg         cur_v, cur_we; reg [2:0] cur_port;
     reg [2:0]   bt_port; reg [3:0] bt_reqs; reg [9:0] bt_words;
     reg  [1:0]  rfm;
@@ -659,7 +663,7 @@ module tau_sdram_sched_v #(
             wf_rp <= {WFW{1'b0}}; wf_wp <= {WFW{1'b0}}; wf_cnt <= {WFW{1'b0}};
             dl_v <= {W_LEAD{1'b0}};
             rq_rp <= {RQW{1'b0}}; rq_wp <= {RQW{1'b0}}; rq_cnt <= {RQW{1'b0}}; rd_rem <= 10'd0; rd_act <= 1'b0;
-            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0; blank_q <= 4'd7; tq_q <= 3'd4; fh_v <= 1'b0; fh_kill <= 1'b0; pa_v <= 1'b0;
+            err_q <= 4'd0; o_v <= 4'd0; rfm <= RF_NONE; bw_win <= 24'd0; blank_q <= 4'd7; tq_q <= 3'd4; fh_v <= 1'b0; fh_kill <= 1'b0; pa_v <= 1'b0; oa_v <= 1'b0;
             last_port <= 3'd0; last_v <= 1'b0; last_bank <= 2'd0; last_row <= 13'd0;
             done_b_q <= {NPORTS{1'b0}}; done_w_q <= {NPORTS{1'b0}}; dwp_v <= 1'b0;
             for (i = 0; i < NPORTS; i = i + 1) begin
@@ -688,9 +692,15 @@ module tau_sdram_sched_v #(
             // ---- stale-stage blanking
             if (issue) blank_q <= 4'd5;
             else if (blank_q != 4'd0) blank_q <= blank_q - 4'd1;
-            if (banks_closed || cmd_n == K_ACT || cmd_n == K_PRE || cmd_n == K_PREA) tq_q <= 3'd4;
+            `ifdef MUT_TQ4
+            if (cmd_n == K_ACT) tq_q <= 3'd4;
+`else
+            if (cmd_n == K_ACT) tq_q <= 3'd5;                  // o_row follows the ACT by one cycle
+`endif
+            else if (banks_closed || cmd_n == K_PRE || cmd_n == K_PREA) tq_q <= 3'd4;
             else if (tq_q != 3'd0) tq_q <= tq_q - 3'd1;
             fh_kill <= banks_closed || cmd_n == K_ACT || cmd_n == K_PRE || cmd_n == K_PREA;
+            oa_v <= (cmd_n == K_ACT); oa_b <= ba_n; oa_r <= a_n;
             if (banks_closed || cmd_n == K_PREA) fh_v <= 1'b0;
             else if (cmd_n == K_ACT) begin fh_v <= 1'b1; fh_bank <= ba_n; fh_row <= a_n; end
             else if (cmd_n == K_PRE && fh_bank == ba_n) fh_v <= 1'b0;
@@ -711,8 +721,13 @@ module tau_sdram_sched_v #(
 `else
             if (banks_closed || cmd_n == K_PREA) o_v <= 4'd0;
 `endif
-            else if (cmd_n == K_ACT) begin o_v[ba_n] <= 1'b1; o_row[ba_n] <= a_n; end
+            else if (cmd_n == K_ACT) o_v[ba_n] <= 1'b1;
             else if (cmd_n == K_PRE) o_v[ba_n] <= 1'b0;
+`ifdef MUT_OROW_NOWAIT
+            if (oa_v) o_row[oa_b] <= a_n;                  // mutant: the wrong (current) address is written
+`else
+            if (oa_v) o_row[oa_b] <= oa_r;
+`endif
             // ---- write commitment, pull cursor
             if (do_lock) begin
                 pq_v <= 1'b1; pq_iss <= 1'b0; pq_port <= lk_pt; pq_n <= lk_n; pq_pulled <= 10'd0; pq_last <= lk_lst;
