@@ -54,4 +54,18 @@ with tempfile.TemporaryDirectory() as td:
         if bad is None:
             b = bytearray(blob); b[rle_off] = (b[rle_off] & 0xE0) | (((b[rle_off] & 31) + 1) & 31); bad = bytes(b)
         check("mutant (%s) is caught" % name, run(m, bad, tmp)[0].split()[1] == "0")
+# The host's Configure caches (fw2/ui/meters.c dyn_register): a pack whose descriptor needs more parameters, choice strings or choice values than the caches hold is installed but REFUSED (status 42) and is not listed.
+# DEV 209 (B-953): Layered Wave's new View value made 73 choice values against a cache of 72, so the meter vanished from the list while every other test passed.
+import re
+msrc = (ROOT / "fw2/ui/meters.c").read_text()
+LIM = {n: int(re.search(r"#define %s (\d+)u" % n, msrc).group(1)) for n in ("DYN_MAX_P", "DYN_POOL", "DYN_MAX_V")}
+for k in keys:
+    pd = json.loads((ROOT / "meters" / k / "meter.json").read_text())
+    if not pd["p2"].get("pack_only"): continue
+    pool = nv = 0
+    for prm in pd["params"]:
+        pool += min(len(prm["label"]), 23) + 1
+        for v in (prm.get("values") or []) if prm["type"] == "enum" else []: pool += min(len(str(v)), 23) + 1; nv += 1
+    check("%s: its Configure descriptors fit the host's caches (%d params of %d, %d string bytes of %d, %d choice values of %d)" % (k, len(pd["params"]), LIM["DYN_MAX_P"], pool, LIM["DYN_POOL"], nv, LIM["DYN_MAX_V"]),
+          len(pd["params"]) <= LIM["DYN_MAX_P"] and pool <= LIM["DYN_POOL"] and nv <= LIM["DYN_MAX_V"])
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)
