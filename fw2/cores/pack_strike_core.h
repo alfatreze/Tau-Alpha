@@ -3,7 +3,7 @@
  * A pack is code from the card that runs with full access to the hardware, and the host cannot interrupt a tick that is already running (no watchdog in the bitstream): what it CAN do is notice afterwards. A drawn tick of a
  * pack that took more cycles than its limit (manifest p2.max_cycles; a forced repaint, the costliest picture by design, is not judged) is a strike; after PS_MAX_STRIKES the pack is disabled for the session (status
  * MPK_E_STRIKE, Info PACK ERR 40) and the meter falls back to its built-in code (or draws nothing when it has none). One strike is forgiven for every PS_FORGIVE_TICKS drawn ticks inside the limit, so a single stall (a card
- * read in the middle of a tick) cannot slowly disable a good pack over a long session. A pure infinite loop is cut off by the hardware watchdog (tau_wdog.sv, TAU_WDOG bitstreams; wd_run in platform.c, plan
+ * read in the middle of a tick) cannot slowly disable a good pack over a long session. A pure infinite loop is cut off by the hardware watchdog (tau_wdog.sv, on by default, TAU_NO_WDOG leaves it out; wd_run in platform.c, plan
  * docs/features/PACK_WATCHDOG_PLAN.md): the window is wd_limit() of the soft limit, and a cut-off pack is struck out at once (the call site in meters.c sets MPK_E_STRIKE). On a bitstream without the watchdog an endless loop still hangs the player. */
 #ifndef PACK_STRIKE_CORE_H
 #define PACK_STRIKE_CORE_H

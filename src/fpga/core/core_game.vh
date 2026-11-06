@@ -350,8 +350,9 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `endif
 // Wall clock (APF 0x0090 -> tau_rtc_cdc inside tau_soc, MMIO 0x1C4-0x1D0): always built, about a hundred flops.
 `define TAU_RTC_EN 1
-// Pack watchdog (tau_wdog inside tau_soc, MMIO 0x1DC-0x1E8, docs/features/PACK_WATCHDOG_PLAN.md): built only with TAU_WDOG (a fit bundle adds it; the shipped bundles do not, so their bitstreams are unchanged).
-`ifdef TAU_WDOG
+// Pack watchdog (tau_wdog inside tau_soc, MMIO 0x1DC-0x1E8, docs/features/PACK_WATCHDOG_PLAN.md): ALWAYS built since v0.7.0 (owner, 2026-11-06: default on, so no release bundle can forget it; fitted on two seeds as `wdog-w3`, B-940).
+// TAU_NO_WDOG leaves it out (the registers then read 0 and the firmware just runs a pack's tick, protected by the soft limit only). The old opt-in macro TAU_WDOG is accepted and does nothing.
+`ifndef TAU_NO_WDOG
 `define TAU_WDOG_EN 1
 `else
 `define TAU_WDOG_EN 0

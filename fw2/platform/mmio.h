@@ -59,7 +59,7 @@
 #else
 #define P2_COLD_TEXT __attribute__((section(".cold_text"), noinline))
 #endif
-#define R_WDOG_ARM   0x800001DCu        /* pack watchdog (tau_wdog.sv, TAU_WDOG builds): write the limit in clk cycles to arm (0 disarms); expiry raises the CPU timer interrupt */
+#define R_WDOG_ARM   0x800001DCu        /* pack watchdog (tau_wdog.sv, built by default; TAU_NO_WDOG leaves it out): write the limit in clk cycles to arm (0 disarms); expiry raises the CPU timer interrupt */
 #define R_WDOG_ST    0x800001E0u        /* read: [31] built in, [1] expired (sticky until acknowledged), [0] armed (0 when not built) */
 #define R_WDOG_ACK   0x800001E4u        /* write any value: clear the expiry and drop the interrupt */
 #define R_WDOG_CNT   0x800001E8u        /* read: [31:16] arms, [15:0] expiries (wrap) */
