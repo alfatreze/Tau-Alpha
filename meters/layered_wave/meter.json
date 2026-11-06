@@ -20,13 +20,15 @@
       "type": "enum",
       "values": [
         "HISTORY",
-        "SPECTRUM"
+        "SPECTRUM",
+        "SCROLL"
       ],
       "default": 0,
       "help": "Scrolling or fixed picture.",
       "value_help": [
         "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
-        "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored."
+        "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored.",
+        "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed; Resolution, Taper, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer, no tail fade)."
       ],
       "group": "general"
     },
@@ -478,11 +480,11 @@
         "OFF"
       ],
       "default": 0,
-      "help": "The self-scaling guard keeps a frame near 300 drawing commands by widening the drawing cells.",
+      "help": "The self-scaling guard keeps a picture inside a time budget by widening the drawing cells (on the Pocket it counts CPU time; the host simulation counts commands).",
       "value_help": [
-        "ON: budget 300 commands per frame. With several layers at high Resolution the cells are widened, so edges and the taper step at that width.",
-        "RELAXED: budget 600 commands; finer cells, about twice the drawing work.",
-        "OFF: never widen; the full Resolution you asked for, at whatever it costs (can be well over the budget and starve the audio loop)."
+        "ON: budget about 9 ms of CPU per picture. With several layers at high Resolution the cells are widened, so edges and the taper step at that width; they narrow again only after a calm stretch, so the width does not flicker.",
+        "RELAXED: budget about 18 ms; finer cells, about twice the drawing work (a full-screen picture may then exceed the meter's command ceiling and be drawn only every other time).",
+        "OFF: never widen; the full Resolution you asked for, at whatever it costs (measured: about 18 ms a picture full-screen, choppy, and it can starve the audio loop)."
       ],
       "group": "experimental",
       "experimental": true
@@ -1206,7 +1208,7 @@
       "experimental": true
     }
   ],
-  "p2": {"pack_only": true, "cmds": 640, "max_cycles": 15000000, "slot": 3, "tag": "LW", "compose": true, "budget": {"cold": 16384, "hot_ram": 2816, "psram_state": 2432}},
+  "p2": {"pack_only": true, "cmds": 640, "max_cycles": 15000000, "slot": 3, "tag": "LW", "compose": {"param": "view", "in": [0, 1]}, "budget": {"cold": 16384, "hot_ram": 2816, "psram_state": 2432}},
   "default_preset": 0,
   "sel_index": 12,
   "groups": [

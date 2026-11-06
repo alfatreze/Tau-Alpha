@@ -139,7 +139,9 @@ Resulting commands per frame in the lab (model, demo source, theme TAU, 400-wide
 HALO 243 / 306, NEON 224 / 310, PULSE 54 / 94, TIDE 231 / 293, SILK 217 / 285. Reference: `VIZ_BARS` 36; this meter is cost class 2 (400). Expect it to be
 6x the baseline: that is the price of a curved outline; the Meter Sweep Check will say what it costs in CPU and audio margin.
 
-**SCROLL, parked.** A third mode shifted the picture with engine copies and drew only the new columns (about 45 commands at any resolution; tail taper
+**SCROLL (built 2026-11-06 as a third VIEW on Player 2, B-952; the text below is the earlier, parked design).** The view value SCROLL (view = 2) scrolls the picture with the engine's `gfx_scroll_left` and draws only the new columns on the right (newest on the right), one flat colour per layer, no taper or age fade, no anti-aliasing or blending; the box is not composed off-screen for this view (the copy needs the shown picture to persist). About 4-19 commands a picture instead of 35-380 (host model, `sim/test_p2_lw_scroll.py`). The preview twin (`layered_wave.js`) shows HISTORY for it. Not yet run on a Pocket.
+
+**SCROLL, parked (earlier design).** A third mode shifted the picture with engine copies and drew only the new columns (about 45 commands at any resolution; tail taper
 clipped rather than scaled). It was prototyped in the lab (commit 419fea5) but needs the `blit_shift` capability (overlapping `OP_BLIT`, far strip first),
 which has no simulation case and no hardware result, so the firmware does not have it. If the self-scaling cost measures too high on hardware, SCROLL is
 the planned way down.

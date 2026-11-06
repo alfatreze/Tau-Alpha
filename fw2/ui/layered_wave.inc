@@ -23,6 +23,7 @@
 #define LW_VIEW1
 #define LW_VIEW2
 #define LW_VIEW3
+#define LW_VIEW4
 #endif
 #define LW_MAXL   6u
 #define LW_NB     16u
@@ -51,6 +52,11 @@ static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw
  * frame, so they are worked out once (three divisions by the width per column) and kept, instead of once per cell per layer per frame. One word per cell column: source (17 bits) << 11 | window (8) << 3 | age band (3). */
 static uint32_t lw_col[LW_HMAX - 4u];
 static int32_t  lw_ck[5];
+#ifdef LW_SCROLL_VIEW
+static int32_t lw_sacc;                                           /* Q8 pixels of scroll owed */
+static uint8_t lw_prev8[LW_MAXL], lw_sgood;                       /* the last picture's value per layer; the picture holds a history (a repaint has run since the last reset) */
+#endif
+static uint8_t  lw_guard_on = 1u;                /* this picture's cost is to be judged by the cost guard (the SCROLL view's cheap scrolling ticks are not) */
 static uint8_t  lw_ck_ok;
 
 static const uint16_t lw_fw[6] = { 1000, 1600, 2560, 4096, 6554, 10486 };   /* BASS_FINE group weights, 1.6^i x 1000 */
@@ -270,6 +276,9 @@ COLD_FN3 static void lw_seg(const int32_t *cen, int32_t n, int32_t pos, int32_t 
 
 COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, const int32_t *soft)
 {
+#ifdef LW_SCROLL_VIEW
+    lw_sgood = 0u; lw_sacc = 0;
+#endif
     lw_ck_ok = 0u;
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
     for (uint32_t i = 0; i < 13u; i++) lw_soft[i] = soft[i];
@@ -384,9 +393,11 @@ COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
 #endif
 }
 
-COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+/* Advance the layer values and the history ring by the time since the last picture (shared by HISTORY and SCROLL): the layer envelopes step towards their targets, and every res/W-th of a second per pixel of scroll speed one sample
+ * is pushed. Returns the number of samples pushed. */
+COLD_FN3 static int32_t lw_advance(const lw_p_t *p, const mtr_in_t *in)
 {
-    const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u, dt = in->dt_ms;
+    const int32_t W = in->w, n = p->layers, res = p->res, dt = in->dt_ms;
     int32_t tg[LW_MAXL];
     lw_targets(p, in->spec, in->wave, tg);
     for (int32_t k = 0; k < n; k++) {
@@ -401,6 +412,13 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     const int32_t pushes = lw_min(lw_acc >> 8, res);
     lw_acc &= 255;
     for (int32_t i = 0; i < pushes; i++) lw_push(n);
+    return pushes;
+}
+
+COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+{
+    const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u;
+    const int32_t pushes = lw_advance(p, in);
     if (!smooth && pushes == 0 && !lw_dirty) return;
     lw_dirty = 0u;
     const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
@@ -545,6 +563,56 @@ static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
 {
     return (uint8_t)(m > hi ? lw_min(16, (int32_t)stride + 1) : (m < (hi >> 1) && stride > 1u ? (int32_t)stride - 1 : (int32_t)stride));
 }
+#ifdef LW_SCROLL_VIEW
+/* SCROLL view (P3, B-952; Player 2 only: it needs the engine's copy, `lw_scroll_left`, which the old player's build and the golden test do not have). The picture scrolls itself: the engine moves the box left by the pixels that
+ * the scroll speed asks for this time, and only the new columns on the right edge are drawn (newest on the right), one flat colour per layer, the height of each column stepping linearly from the previous picture's value to
+ * the current one. About 8 commands per layer per picture at 240 px/s, whatever the width or the Resolution, so it can scroll as smoothly as the engine copy allows. The history ring is kept up to date as in HISTORY (same
+ * cadence) and is what a full repaint (a forced one, a parameter change, a new box) is drawn from, in cells of the guard's width. Not drawn here: the tail taper and age colours (they depend on the position, which a copy
+ * cannot change), anti-aliasing, blending, the Draw style. */
+COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+{
+    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, n = p->layers, res = p->res;
+    (void)lw_advance(p, in);
+    lw_sacc += (in->dt_ms * (int32_t)p->speed * 256) / 1000;
+    const int32_t d = lw_sacc >> 8;
+    lw_sacc &= 255;
+    uint8_t cur[LW_MAXL];
+    for (int32_t k = 0; k < n; k++) cur[k] = (uint8_t)lw_u8(lw_s[k]);
+    if (!lw_dirty && d == 0) { lw_guard_on = 0u; return; }        /* nothing owed: no commands, no cost to judge */
+    if (lw_dirty || !lw_sgood || d >= W) {                          /* a full repaint from the ring, in cells of the guard's width */
+        lw_dirty = 0u; lw_sgood = 1u; lw_sacc = 0;
+        const int32_t s = lw_stride;
+        lw_rect(X, Y, W, H, cl->bg);
+        for (int32_t k = 0; k < n; k++) {
+            lw_unwrap(k, (uint32_t)(res + 4));
+            const uint8_t *h = lw_row;
+            lw_run_t run = { 0, 0, 0, 0, 0 };
+            int32_t have = 0;
+            for (int32_t xs = 0; xs < W; xs += s) {
+                const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
+                const int32_t hh = lw_half(h[lw_min(res - 1, ((W - 1 - xc) * res) / W)], 255, Hh), cv = 0;
+                const uint16_t c = cl->base[k];
+                LW_RUN_STEP(k, hh, c, cv);
+            }
+            if (have) lw_emit(lay, k, &run);
+        }
+    } else {                                                        /* the engine moves the picture; only the d new columns are drawn */
+        lw_guard_on = 0u;
+        lw_scroll_left((uint32_t)X, (uint32_t)Y, (uint32_t)W, (uint32_t)H, (uint32_t)d);
+        lw_rect(X + W - d, Y, d, H, cl->bg);
+        for (int32_t k = 0; k < n; k++) {
+            int32_t x0 = 0, hp = 0;
+            for (int32_t j = 0; j <= d; j++) {
+                const int32_t hh = j < d ? lw_half((lw_prev8[k] * (d - j - 1) + cur[k] * (j + 1)) / d, 255, Hh) : -1;
+                if (j > 0 && hh != hp) { if (hp > 0) lw_rect(X + W - d + x0, cy - hp, j - x0, 2 * hp, cl->base[k]); x0 = j; }
+                hp = hh;
+            }
+        }
+    }
+    for (int32_t k = 0; k < n; k++) lw_prev8[k] = cur[k];
+}
+#endif
+
 /* LW_GUARD_TIME_BEGIN (sim/test_p2_lw_guard.py compiles exactly this text) */
 #define LW_NARROW_HOLD 24u              /* redraws the cost must stay under half the limit before the cell narrows by a pixel (about 0.8 s at the normal tick rate) */
 /* The time guard's rule: widen at once above the limit (the audio comes first), narrow only after a calm stretch. A stricter loud/quiet alternation of the music would otherwise move the cell width by a pixel back and
@@ -628,6 +696,10 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
         const uint32_t lw_t0 = cycles();
         lw_t_unw = 0;
 #endif
+        lw_guard_on = 1u;
+#ifdef LW_SCROLL_VIEW
+        if (p.view == 2u) lw_scroll(&p, in, &cl, cy, Hh, &lay); else
+#endif
         if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh, &lay); else lw_history(&p, in, &cl, cy, Hh, &lay);
 #ifdef LW_TIMED
         if (lw_cnt) { lw_t_cpu = (uint32_t)(cycles() - lw_t0); lw_cmd_last = (uint32_t)lw_cnt; }   /* what the CPU itself spent issuing */
@@ -636,12 +708,12 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
         /* On the firmware the cost guard is TIME, not commands (B-524): the redraw is CPU-bound (~60-90 us a command, more in the column maths), so a command
          * budget held the stride high without actually bounding the time. 9 ms of CPU for a redraw on the default guard, scaled by the guard setting. The host
          * build has no clock and keeps the command-count rule below, which is what the golden test compares. */
-        if (bud < 1000000000 && lw_cnt) {
+        if (bud < 1000000000 && lw_cnt && lw_guard_on) {
             const uint32_t hi = (CLK_HZ / 1000u) * 9u * (uint32_t)bud / 300u;
             lw_stride = lw_guard_step_t(lw_stride, lw_t_cpu, hi, &lw_calm);
         }
 #else
-        if (bud < 1000000000 && lw_cnt) lw_stride = lw_guard_step(lw_stride, (uint32_t)lw_cnt, (uint32_t)bud);
+        if (bud < 1000000000 && lw_cnt && lw_guard_on) lw_stride = lw_guard_step(lw_stride, (uint32_t)lw_cnt, (uint32_t)bud);
 #endif
     }
     wviz_force = 0u;

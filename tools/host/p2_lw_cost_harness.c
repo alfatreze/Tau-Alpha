@@ -59,6 +59,9 @@ static void report(int s, uint32_t n, uint64_t h)
 static void custom_lw(void)
 {
     for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = lw_preset[LW_P][i];
+#ifdef LW_VIEWOVR
+    params[MP_LAYERED_WAVE_VIEW] = LW_VIEWOVR;            /* sim/test_p2_lw_scroll.py: run a preset's parameters in another view */
+#endif
     tr_rs = 5150u + LW_P;
     uint32_t pl = 0, pr = 0;
     for (int n = 0; n < NF; n++) {
@@ -72,7 +75,7 @@ static void custom_lw(void)
 #ifdef LW_TRACE                                    /* sim/test_p2_lw_guard.py: per frame, the draw commands issued and the cycles the (modelled) clock counted */
         const uint32_t c0 = *(volatile uint32_t *)0xF000100Cu, n0 = tr_N;
         tr_box_of(&in); run(&in);
-        hputs("F "); hputu((uint32_t)n); hputc(' '); hputu(tr_N - n0); hputc(' '); hputu(*(volatile uint32_t *)0xF000100Cu - c0); hnl();
+        hputs("F "); hputu((uint32_t)n); hputc(' '); hputu(tr_N - n0); hputc(' '); hputu(*(volatile uint32_t *)0xF000100Cu - c0); hputc(' '); hputu(tr_nscroll); hputc(' '); hputu(tr_viol); hnl(); tr_nscroll = 0;
 #else
         tr_box_of(&in); run(&in);
 #endif

@@ -7,10 +7,11 @@ ENTRY(mtr_pack_entry)
 SECTIONS
 {
     . = PACK_ORG;
-    .text   : { KEEP(*(.text.mtr_pack_entry)) *(.text.pk_hot) _pk_hot_end = .;          /* a pack may name code .text.pk_hot (hot helpers) and .text.pk_view1..3 (alternatives, only one runs): each view starts a whole number of 4 KiB after the hot block's end, */
+    .text   : { KEEP(*(.text.mtr_pack_entry)) *(.text.pk_hot) _pk_hot_end = .;          /* a pack may name code .text.pk_hot (hot helpers) and .text.pk_view1..4 (alternatives, only one runs): each view starts a whole number of 4 KiB after the hot block's end, */
                 *(.text.pk_view1) . = _pk_hot_end + ((. - _pk_hot_end + 0xFFF) & ~0xFFF);   /* so it shares no instruction-cache index with the hot block (sim/test_p2_icache.py). No such section: nothing moves. */
                 *(.text.pk_view2) . = _pk_hot_end + ((. - _pk_hot_end + 0xFFF) & ~0xFFF);
                 *(.text.pk_view3) . = _pk_hot_end + ((. - _pk_hot_end + 0xFFF) & ~0xFFF);
+                *(.text.pk_view4) . = _pk_hot_end + ((. - _pk_hot_end + 0xFFF) & ~0xFFF);
                 *(.text*) }
     .rodata ADDR(.text) + SIZEOF(.text) + DATA_ALIAS : AT(ADDR(.text) + SIZEOF(.text)) { *(.rodata*) *(.srodata*) }
     _pack_data_lma = ALIGN(LOADADDR(.rodata) + SIZEOF(.rodata), 4);
