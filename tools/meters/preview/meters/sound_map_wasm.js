@@ -7,7 +7,7 @@
   "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
   "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
   "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",
-  "fw2/generated/meter_presets.h": "e442a61cb7588c13e801afdfe9dc137d589850a81f132c7749f9ffd0cc009d9b",
+  "fw2/generated/meter_presets.h": "277198c8c2f29459d50806c498fc6e5dd95c92670dd76990418639a763dc8e85",
   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
   "fw2/ui/meter.h": "cf6587402e96845349498e6423500a605ec117a7bdd8a5060beaad084d50e3e1",
   "fw2/ui/meter_grid.h": "7ace1452e7c2ed5deaeb02b58bbd2a4d8844738bfe511002d8e04e0adb94cabd",

@@ -31,7 +31,7 @@
 #define LW_BUDGET 300u
 #define LW_HMAX   404u                 /* res (<= 400) + 4 */
 
-typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, tcurve, dir, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
+typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, tcurve, dir, thead, ttail, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
 
 /* HISTORY lives in PSRAM as a ring (B-509, the meter framework's rule for mutable state, fw/meter.h / METER_MODULE_SPEC.md D-M14): 6 x 404 bytes
  * (2,424 B) off the scarce on-chip RAM. The old design SHIFTED up to 400 bytes per layer per push, free in SRAM and ruinous through a ~32-cycle
@@ -46,12 +46,12 @@ static uint32_t lw_ring[LW_MAXL][LW_RW] MTR_PSRAM;
 static uint8_t  lw_row[LW_HMAX];
 static uint16_t lw_head;
 static int16_t  lw_band[LW_MAXL][LW_NB];
-static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[15], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
+static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[17], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
 /* The history view's per-column constants (P2, B-951): the source position, the taper window and the age band of a cell depend only on the width, the resolution, the taper, the cell width and the draw style, not on the layer or the
  * frame, so they are worked out once (three divisions by the width per column) and kept, instead of once per cell per layer per frame. One word per cell column: source (17 bits) << 11 | window (8) << 3 | age band (3). */
 static uint32_t lw_col[LW_HMAX - 4u];
-static int32_t  lw_ck[7];
+static int32_t  lw_ck[9];
 #ifdef LW_SCROLL_VIEW
 static int32_t lw_sacc;                                           /* Q8 pixels of scroll owed */
 static uint8_t lw_prev8[LW_MAXL], lw_sgood;                       /* the last picture's value per layer; the picture holds a history (a repaint has run since the last reset) */
@@ -235,6 +235,7 @@ static inline uint32_t lw_u8(int32_t v) { return (uint32_t)lw_min(255, (v * 255 
 
 /* ---- shape --------------------------------------------------------------------------------------------------------------------- */
 static int32_t lw_tc;                                                   /* the taper curve profile of this picture (0 NORMAL, 1 SHORT, 2 SHORTER, 3 SHARP), set by lw_tick */
+/* ... lw_winh is defined after lw_win below */
 /* The taper curve profiles (B-957; the same integer operations as the JS twin's profile()): the window value 0..255 of a column is reshaped. SHORT and SHORTER cut the faintest part of the tail (the wave ends sooner, the
  * rest is stretched back to full height); SHARP squares it (the wave narrows faster, the tail stays thin). */
 static inline int32_t lw_prof(int32_t w, int32_t c)
@@ -248,6 +249,18 @@ COLD_FN3 LW_HOT static int32_t lw_win(const uint8_t (*tab)[65], int32_t q, int32
 {
     const int32_t i0 = pos >> 8, fr = pos & 255, i1 = lw_min(64, i0 + 1);
     return lw_prof((int32_t)tab[q - 1][i0] + ((((int32_t)tab[q - 1][i1] - (int32_t)tab[q - 1][i0]) * fr) >> 8), lw_tc);
+}
+
+/* The HISTORY / SCROLL window with the length controls (B-961): `pk` is the table's peak (the end of the head ramp, in table steps). `head` > 0 sets the head ramp's length to that many percent of the width (0 = the original, short
+ * ramp); `tail` < 100 makes the tail narrow over only that percent of the width that remains after the head (100 = the original, across all of it). pos is the position in Q8 table steps (0 .. 16384). */
+static int32_t lw_wpk(const uint8_t (*tab)[65], int32_t q) { int32_t pk = 0; for (int32_t i = 1; i <= 64; i++) if (tab[q - 1][i] > tab[q - 1][pk]) pk = i; return pk; }
+COLD_FN3 static int32_t lw_winh(int32_t q, int32_t pos, int32_t pk, int32_t head, int32_t tail)
+{
+    const int32_t pkp = pk * 256, full = 16384;
+    int32_t pm = pos;
+    if (head > 0) { const int32_t hp = (head * full + 50) / 100; pm = pos < hp ? (pos * pkp) / hp : pkp + ((pos - hp) * (full - pkp)) / (full - hp); }
+    if (tail < 100 && pm > pkp) { const int32_t rem = full - pkp, d = pm - pkp, start = rem * (100 - tail) / 100; pm = pkp + (d <= start ? 0 : ((d - start) * 100) / tail); }
+    return lw_win(lw_win_hist, q, pm);
 }
 COLD_FN3 LW_HOT static int32_t lw_cr8(const uint8_t *h, int32_t n, int32_t i, int32_t f)       /* Catmull-Rom on 0..255 samples, f in Q8: the four weights from the powers of f (B-958; the same integers as the JS twin's cr8) */
 {
@@ -293,7 +306,7 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
 #endif
     lw_ck_ok = 0u;
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
-    for (uint32_t i = 0; i < 15u; i++) lw_soft[i] = soft[i];
+    for (uint32_t i = 0; i < 17u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
     lw_head = 0;
     for (uint32_t k = 0; k < LW_MAXL; k++) {
@@ -435,12 +448,13 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     lw_dirty = 0u;
     const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L, dir = p->dir;
     lw_rect(X, in->y, W, in->h, cl->bg);
-    if (!lw_ck_ok || lw_ck[0] != W || lw_ck[1] != res || lw_ck[2] != tq || lw_ck[3] != s || lw_ck[4] != smooth || lw_ck[5] != lw_tc || lw_ck[6] != dir) {
-        lw_ck[6] = dir; lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck[5] = lw_tc; lw_ck_ok = 1u;
+    if (!lw_ck_ok || lw_ck[0] != W || lw_ck[1] != res || lw_ck[2] != tq || lw_ck[3] != s || lw_ck[4] != smooth || lw_ck[5] != lw_tc || lw_ck[6] != dir || lw_ck[7] != p->thead || lw_ck[8] != p->ttail) {
+        lw_ck[6] = dir; lw_ck[7] = p->thead; lw_ck[8] = p->ttail; lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck[5] = lw_tc; lw_ck_ok = 1u;
+        const int32_t wpk = tq == 0 ? 0 : lw_wpk(lw_win_hist, tq);
         for (int32_t ci = 0, xs = 0; xs < W; ci++, xs += s) {
-            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;          /* xm: the position along the history, 0 = the newest end (the right edge when the history flows left) */
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;          /* xm: where the sample comes from along the history, 0 = the newest (the right edge when the history flows left) */
             const int32_t src = smooth ? ((2 * xm + 1) * res * 128) / W : lw_min(res - 1, (xm * res) / W);
-            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xm + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xm + 1) * 4) / W);
+            const int32_t w8 = tq == 0 ? 255 : lw_winh(tq, ((2 * xc + 1) * 8192) / W, wpk, p->thead, p->ttail), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);      /* the taper window and the age band stay where they are on the screen: only the flow reverses */
             lw_col[ci] = ((uint32_t)src << 11) | ((uint32_t)w8 << 3) | (uint32_t)q;
         }
     }
@@ -469,7 +483,7 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     }
     if (p->taper > 0u) {
         static const uint8_t dots[3] = { 4, 3, 3 };
-        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }
+        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }
     }
 }
 
@@ -589,14 +603,13 @@ COLD_FN3 static void lw_scroll_taper(const lw_p_t *p, const mtr_in_t *in, uint16
 {
     const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride;
     if (tq == 0) return;
-    int32_t pk = 0;
-    for (int32_t i = 1; i <= 64; i++) if (lw_win_hist[tq - 1][i] > lw_win_hist[tq - 1][pk]) pk = i;
+    const int32_t pk = lw_wpk(lw_win_hist, tq);
     int32_t x0 = 0, hp = -1;
     for (int32_t xs = 0; xs <= W; xs += s) {
         int32_t hm = -2;
         if (xs < W) {
             const int32_t xc = lw_min(W - 1, xs + (s >> 1)), pos = ((2 * (W - 1 - xc) + 1) * 8192) / W;
-            hm = lw_half(255, (pos >> 8) < pk ? 255 : lw_win(lw_win_hist, tq, pos), Hh);
+            hm = lw_half(255, (pos >> 8) < pk ? 255 : lw_winh(tq, pos, pk, 0, p->ttail), Hh);
             hm = lw_min(Hh, ((hm + LW_TAPER_STEP - 1) / LW_TAPER_STEP) * LW_TAPER_STEP);      /* up to a whole step: the covered edge is a staircase of LW_TAPER_STEP-pixel steps, fixed on the screen while the wave flows through it, and never cuts the wave */
         }
         if (hm != hp) {
@@ -679,6 +692,8 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
     p.tcurve = (uint8_t)lw_min(3, (int32_t)MV_LAYERED_WAVE(TAPER_CURVE));
     lw_tc = p.tcurve;
     p.dir = (uint8_t)lw_min(1, (int32_t)MV_LAYERED_WAVE(DIRECTION));
+    p.thead = (uint8_t)lw_min(50, (int32_t)MV_LAYERED_WAVE(TAPER_HEAD));
+    { const int32_t tt = (int32_t)MV_LAYERED_WAVE(TAPER_TAIL); p.ttail = (uint8_t)(tt >= 10 && tt <= 100 ? tt : 100); }      /* outside the range (an old saved value, 0): the original, 100 */
     p.xo[0] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO1), 1, 15); p.xo[1] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO2), 1, 15); p.xo[2] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO3), 1, 15);
     p.xo[3] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO4), 1, 15); p.xo[4] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO5), 1, 15);
     p.color_mode = (uint8_t)MV_LAYERED_WAVE(COLOR_MODE); p.grad = (uint8_t)MV_LAYERED_WAVE(GRAD);
@@ -705,12 +720,12 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
      * draw wipes the whole box (inside helios_meter's compose), so no separate wipe is needed here. */
     const int32_t key[6] = { p.layers, p.res, 0, 0, 0, 0 };
     const int32_t geo[4] = { in->w, in->h, in->x, in->y };
-    const int32_t soft[15] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle, p.tcurve, p.dir };
+    const int32_t soft[17] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle, p.tcurve, p.dir, p.thead, p.ttail };
     int32_t same = lw_init;
     for (uint32_t i = 0; i < 2u && same; i++) if (lw_key[i] != key[i]) same = 0;
     if (!same) { lw_reinit(&p, in->w, key, soft); for (uint32_t i = 0; i < 4u; i++) lw_geo[i] = geo[i]; }
     else {
-        for (uint32_t i = 0; i < 15u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
+        for (uint32_t i = 0; i < 17u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
         if (in->force) lw_dirty = 1u;
         for (uint32_t i = 0; i < 4u; i++) if (lw_geo[i] != geo[i]) {                       /* the box moved or resized: repaint, and size the stride for the new width */
             for (uint32_t k = 0; k < 4u; k++) lw_geo[k] = geo[k];

@@ -277,7 +277,7 @@ static void pack_tick(const void *vin)                                          
 /* ---- the pack-only rows (descriptors from the packs; B-812) and the accessors every other part of the host uses ---------------------------------------------------------------------------------------- */
 #ifdef P2_PACKS
 #include "../cores/meter_desc_core.h"
-#define DYN_MAX_P 36u                                          /* parameters a pack-only meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is edited; the label and choice strings are read from its slot when a row is drawn: meters_param_label / meters_param_choice) */
+#define DYN_MAX_P 40u                                          /* parameters a pack-only meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is edited; the label and choice strings are read from its slot when a row is drawn: meters_param_label / meters_param_choice) */
 typedef struct { uint32_t off, len, cmds, cyc, cmp; uint16_t mid, np, npre; uint8_t ok, code; char name[MD_MAX_STR + 1u]; } dyn_t;
 static dyn_t dyn[DYN_ROWS];
 static meter_def_t dyn_def[DYN_ROWS];

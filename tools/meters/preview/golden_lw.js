@@ -37,6 +37,8 @@ for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3
 for (const tc of [1, 2, 3]) for (const view of [0, 1]) add(`taper-curve/c${tc}v${view}`, { taper_curve: tc, taper: 70 + tc * 10, view, draw: tc & 1, layers: 4, res: 160 }, 'normal', seed++, 0, 13);
 // The history direction (B-958): newest at the right, with the taper, in both draw modes and with the curve profiles
 for (const [draw, tc, layers] of [[0, 0, 3], [1, 0, 4], [1, 2, 6], [0, 3, 2]]) add(`direction/d${draw}c${tc}n${layers}`, { direction: 1, view: 0, draw, taper_curve: tc, layers, taper: 60, res: draw ? 400 : 120 }, 'normal', seed++, 0, 13);
+// The taper length controls (B-961): a longer head and a shorter tail, alone and together, with a curve profile and the reversed flow
+for (const [head, tail, tc, dir] of [[20, 100, 0, 0], [0, 40, 0, 0], [25, 50, 1, 0], [15, 30, 3, 1], [40, 10, 0, 1]]) add(`taper-len/h${head}t${tail}c${tc}d${dir}`, { taper_head: head, taper_tail: tail, taper_curve: tc, direction: dir, taper: 70, view: 0, draw: 1, layers: 4, res: 200 }, 'normal', seed++, 0, 13);
 // The experimental group (Diagnostic Build only): each setting alone and combined, in both views and with a cost guard that engages
 for (const [name, v] of [['hstyle1', { hstyle: 1, view: 1, draw: 1, split: 0 }], ['hstyle2', { hstyle: 2, view: 1, draw: 0, split: 1, g1: 24, g2: 12, g3: 18, g4: 30 }], ['aa2', { aa: 2 }], ['aa3', { aa: 3, layers: 5, view: 1 }],
   ['bm1', { bmode: 1 }], ['bm2', { bmode: 2, balpha: 40 }], ['bm3', { bmode: 3, layers: 5 }], ['bm4', { bmode: 4, view: 1, draw: 1 }], ['bm5', { bmode: 5, balpha: 30, layers: 4 }],
