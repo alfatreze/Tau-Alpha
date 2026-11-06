@@ -1,0 +1,44 @@
+# Meter presets loaded from outside the meter (draft, 2026-11-06; nothing built)
+
+**Status:** design only, written at the owner's request after B-961 ("presets are all saved with the meter ... better for the meter not to save any additional presets ... all loaded externally ... defaults and reset would come from syncing from Omega; this should apply to all meters"). Not on `docs/ROADMAP.md` (the owner sets that order). Everything below about today's code was read from the repository (`fw2/ui/meters.c`, `fw2/cores/metr_core.h`, `fw2/cores/meter_desc_core.h`, `fw2/cores/tune_core.h`, `docs/THEME_FILE_FORMAT.md`); nothing here has run on a Pocket.
+
+## 1. Where presets live today
+
+1. **In the meter.** A pack carries its presets in its descriptor (`meter_desc_core.h`: at most `MD_MAX_PRESETS` = 16, each a name and one 16-bit value per parameter, in the manifest's order; the whole descriptor at most 4,096 B; Layered Wave: 16 presets, about 1.2 KB of 3.1 KB). The built-in meter (Winamp Bars) has them compiled into the firmware. The source is `meters/<key>/meter.json`, which also feeds the lab, the golden tests and the generated headers.
+2. **Outside the meter, already.** The `METR` section of `tau-assets.bin` (written by `tools/tau_assets.py`, read by `fw2/cores/metr_core.h` and `meters_metr_load`, B-322) **replaces** a meter's presets: 1 to 8 presets, names of 15 characters, one value per parameter in manifest order, a boot preset. It is copied to PSRAM at boot (up to 60 KB), validated, and a preset is read back a word at a time when selected. `flags` (hide) and `order` (list position) are carried but not applied yet (D-O03).
+3. **The tuning of the Configure page** (`tune_core.h`): the parameters that differ from the selected preset, kept in four persisted words, anchored to the **preset index** (4 bits) of the meter.
+
+So the owner's direction is mostly built: the external path exists. What is wrong is that it is a *replacement for* a full internal set, not *the* set, and it is fragile.
+
+## 2. What is fragile or heavy about the current arrangement
+
+* **A new parameter silently drops every external preset of that meter.** `metr_find` requires `nparams` to equal the compiled count exactly; otherwise the entry is skipped and the meter falls back to its built-in presets. Adding `taper_curve`, `direction`, `taper_head` and `taper_tail` to Layered Wave in one afternoon (B-957, B-958, B-961) would have done that to every Omega-synced Layered Wave set.
+* **Values are positional.** Inserting a parameter before the end shifts the saved tuning and any external preset by one slot (the same problem, in persistence).
+* **Two sources of truth for defaults and reset.** "Reset to preset" re-reads the selected preset from the pack's descriptor, or from METR if one was loaded; a meter's behaviour depends on which was loaded.
+* **Limits:** 16 presets in a descriptor, 8 in METR; names 15 characters; 4,096 B per descriptor, shared with the Configure labels, the choices and the preview stream.
+* **Authoring needs a rebuild.** Changing one preset value means regenerating the descriptor, the generated headers, rebuilding the pack and the bundle, and re-running the golden tests.
+* **The tuning is tied to a position in a list that a sync can reorder** (the preset index), so replacing the external set can attach someone's tuning to the wrong preset.
+
+## 3. Proposal
+
+**P1. A name-keyed METR (version 2), read next to version 1.** Each preset is a name plus a *sparse* list of `(parameter key, value)` pairs, the key being a short stable identifier (the manifest key hashed to 16 bits, checked for collisions by the writer). A parameter the preset does not mention takes the meter's **default**; a key the firmware does not know is ignored. An entry therefore survives a meter gaining or losing parameters. Up to 16 or 32 presets per meter (owner decision), a stable 8-bit preset id per preset, boot preset, and the existing `flags` and `order` (so D-O03 can be done in the same step). Version 1 files keep working (read as before).
+**P2. The pack carries defaults, not presets.** The descriptor gets the parameter's default value (it has min, max and step today, not the default) and drops its preset table and the names; it keeps **one** factory preset, "DEFAULT", which is the parameter defaults. That is the fallback on a bare card (nothing synced), and what Reset does when no external set is there. Packs and the 4 KB descriptor budget shrink (Layered Wave's 1.2 KB), and the 16-preset limit disappears.
+**P3. The saved selection and the tuning are anchored to the preset id, not the index.** `tune_core.h` stores `preset 4` today; it would store the 8-bit id (the layout's 21 header bits become 25, costing about one tuned parameter of the 124 bits). A tuning whose preset id is not in the loaded set is dropped, so a sync that reorders or replaces presets cannot attach a tuning to the wrong one. The persisted meter selection keeps using the manifest id.
+**P4. Reset.** Reset re-applies the selected preset by id from the loaded set; if the id or the set is gone it applies DEFAULT.
+**P5. Where the data comes from.** Omega's sync writes the METR v2 section into the core's `tau-assets.bin` (data slot 8, already in `data.json`); the firmware loads it at boot exactly as it does now (PSRAM copy, no SD reads while a meter runs, so no audio dropouts). The repository stays the **authoring source** of the factory sets: `meters/<key>/presets.json` (moved out of `meter.json`), from which the release build writes a factory `tau-assets.bin` into the release zip and from which Omega takes its factory set. A release without Omega is therefore still complete; Omega's sync adds, edits and reorders on top.
+**P6. The built-in Winamp Bars** keeps one compiled default (it is the meter shown when no pack loads); its other presets move to the external set like everyone else's.
+**P7. The lab and the golden tests** read `presets.json` fixtures instead of the manifest's embedded list; the preset thumbnails in the descriptor are a separate question (they are the preview of the meter, not of a preset) and stay.
+
+## 4. Pros and cons (summary of the chat answer, with the details above)
+
+**Pros:** smaller packs and descriptors, no 16/8 limit, no rebuild to change a preset, one source for defaults and reset, presets survive parameter changes, user and community sets through Omega, tunings that cannot attach to the wrong preset, `order` and `hide` for free.
+**Cons / costs:** a bare card must still work (P2's DEFAULT), more device code (a keyed reader; hot RAM is at its floor, so the parser reads from PSRAM a word at a time and keeps almost no state, as `user_preset` does), a format change in persistence (one-time loss of saved tunings at the first build that has it: decide whether to migrate or reset), a compatibility window for METR v1, and Omega must write v2. Release zips must carry the factory file.
+
+## 5. Order of work and tests (red first)
+
+0. This document and the Omega contract (the owner's review). 1. `metr_core.h` v2 reader and `tools/tau_assets.py` v2 writer, both versions read; `sim/test_p2_metr.py` and `sim/test_tau_assets.py` extended: a meter that gained a parameter keeps its preset (must FAIL today: the entry is skipped), unknown keys ignored, missing keys take defaults, every byte flip refused, clamping, 32 presets, the preset id. 2. Descriptor v2 (defaults, no presets, one DEFAULT) in `meter_desc.py` and `meter_desc_core.h`, the packs rebuilt, `test_p2_meter_desc.py` and `test_p2_pack_only.py` follow. 3. `tune_core.h` by preset id (`sim/test_p2_tune.py` against the independent Python implementation). 4. `presets.json` split, the factory `tau-assets.bin` in the release build, the lab and the golden fixtures. 5. A DEV build for a Pocket check: Configure PRESET row with an external set, with no set (DEFAULT only), after a sync that reorders, Reset in each case.
+
+## 6. Decisions for the owner
+
+1. Presets per meter: 8 today; 16 or 32? 2. Keep `meters/<key>/presets.json` in the repository as the factory source (recommended), or only in Omega? 3. Does Winamp Bars keep one compiled default (recommended)? 4. Saved tunings at the format change: migrate (more code) or reset once (recommended)? 5. A "save as preset" on the device (an SD write path; recommended: not now, Omega authors presets). 6. Boot preset: the set's `default` (as now) or always DEFAULT until the user picks one?
+**Scope note:** the Omega side (writing v2, the sync, the editor) is the Omega session's work; this repository defines the format and the firmware side and writes the factory files.
