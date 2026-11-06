@@ -39,8 +39,8 @@ def symbols(elf):
 
 
 
-def build(meter, org, elf_out=None, extra=(), scratch=None):
-    src = ROOT / "fw2/ui" / ("meter_pack_%s.c" % meter)
+def build(meter, org, elf_out=None, extra=(), scratch=None, source=None):
+    src = ROOT / "fw2/ui" / ("meter_pack_%s.c" % (source or meter))      # `source` names a test variant of the meter's pack (e.g. winamp_bars_hang); the header still carries `meter`'s id and slot
     if not src.exists():
         raise SystemExit("no pack source %s" % src)
     elf = Path(elf_out) if elf_out else Path(os.environ.get("TMPDIR", "/tmp")) / ("pack_%s.elf" % meter)
@@ -81,10 +81,11 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), default=None, help="the slot address (default: this meter's slot in the PSRAM code window, MTR_PACK_SLOT_BASE + slot x MTR_PACK_SLOT_SIZE)"); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
+    ap.add_argument("--source", default=None, help="build fw2/ui/meter_pack_<source>.c instead of meter_pack_<meter>.c (a test variant such as winamp_bars_hang); id and slot are the meter's")
     ap.add_argument("-D", action="append", default=[], help="extra -D define for the pack build")
     a = ap.parse_args()
     if a.org is None: a.org = SLOT_BASE + SLOT[a.meter] * SLOT_SIZE
-    blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D], a.scratch)
+    blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D], a.scratch, a.source)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_bytes(blob)
     print("%s: %d B file (%d B image), slot state %d B, scratch %d B (data %d + bss %d), entry +0x%X, org 0x%X, scratch 0x%X" % (a.out, len(blob), info["load"], info["pstate"], info["data"] + info["bss"], info["data"], info["bss"], info["entry"], info["org"], info["scratch"]))
 
