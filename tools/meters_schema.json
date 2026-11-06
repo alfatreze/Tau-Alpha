@@ -744,13 +744,15 @@
      "type": "enum",
      "values": [
       "HISTORY",
-      "SPECTRUM"
+      "SPECTRUM",
+      "SCROLL"
      ],
      "default": 0,
      "help": "Scrolling or fixed picture.",
      "value_help": [
       "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
-      "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored."
+      "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored.",
+      "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed; Resolution, Taper, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer, no tail fade)."
      ],
      "group": "general"
     },
@@ -944,7 +946,7 @@
      "step": 5,
      "default": 70,
      "unit": "%",
-     "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed.",
+     "help": "Roll-off toward the tail: the wave narrows (its colour no longer fades) and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed. The Taper curve sets the profile of the narrowing.",
      "group": "display"
     },
     {
@@ -1109,6 +1111,26 @@
      "group": "display"
     },
     {
+     "key": "taper_curve",
+     "label": "Taper curve",
+     "type": "enum",
+     "values": [
+      "NORMAL",
+      "SHORT",
+      "SHORTER",
+      "SHARP"
+     ],
+     "default": 0,
+     "help": "The profile of the tail taper: how the wave narrows towards the tail. Applies when Tail taper is above 0.",
+     "value_help": [
+      "NORMAL: the original roll-off; a thin sliver trails out to the edge.",
+      "SHORT: the faintest fifth of the tail is cut, so the wave ends a little sooner.",
+      "SHORTER: the faintest third is cut: a clearly shorter tail.",
+      "SHARP: the roll-off is squared: the wave narrows faster and its tail stays thin."
+     ],
+     "group": "display"
+    },
+    {
      "key": "hstyle",
      "label": "Spectrum style",
      "type": "enum",
@@ -1202,11 +1224,11 @@
       "OFF"
      ],
      "default": 0,
-     "help": "The self-scaling guard keeps a frame near 300 drawing commands by widening the drawing cells.",
+     "help": "The self-scaling guard keeps a picture inside a time budget by widening the drawing cells (on the Pocket it counts CPU time; the host simulation counts commands).",
      "value_help": [
-      "ON: budget 300 commands per frame. With several layers at high Resolution the cells are widened, so edges and the taper step at that width.",
-      "RELAXED: budget 600 commands; finer cells, about twice the drawing work.",
-      "OFF: never widen; the full Resolution you asked for, at whatever it costs (can be well over the budget and starve the audio loop)."
+      "ON: budget about 9 ms of CPU per picture. With several layers at high Resolution the cells are widened, so edges and the taper step at that width; they narrow again only after a calm stretch, so the width does not flicker.",
+      "RELAXED: budget about 18 ms; finer cells, about twice the drawing work (a full-screen picture may then exceed the meter's command ceiling and be drawn only every other time).",
+      "OFF: never widen; the full Resolution you asked for, at whatever it costs (measured: about 18 ms a picture full-screen, choppy, and it can starve the audio loop)."
      ],
      "group": "experimental",
      "experimental": true
@@ -1333,7 +1355,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1372,7 +1395,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1411,7 +1435,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1450,7 +1475,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1489,7 +1515,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1528,7 +1555,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1567,7 +1595,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1606,7 +1635,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      }
     },
     {
@@ -1645,7 +1675,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1685,7 +1716,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1725,7 +1757,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1765,7 +1798,8 @@
       "g3": 15,
       "g4": 20,
       "g5": 23,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1805,7 +1839,8 @@
       "g3": 22,
       "g4": 26,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1845,7 +1880,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1885,7 +1921,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     },
@@ -1925,7 +1962,8 @@
       "g3": 18,
       "g4": 18,
       "g5": 18,
-      "g6": 18
+      "g6": 18,
+      "taper_curve": 0
      },
      "experimental": true
     }
