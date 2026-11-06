@@ -64,7 +64,7 @@ def sweep(tmp, blob):
 
 def settled(frames):
     f = frames[SETTLE:]
-    return sum(c for _, c, _ in f) / len(f), sum(t for _, _, t in f) / len(f)
+    return sum(x[1] for x in f) / len(f), sum(x[2] for x in f) / len(f)             # (frame, commands, cycles, scrolls, violations)
 
 def rule_test(tmp):
     """the time guard's rule (the text between LW_GUARD_TIME_BEGIN/END in layered_wave.inc, compiled natively) on a modelled music: the CPU cost of a redraw is base / cell width, the loudness moves it up and down"""
