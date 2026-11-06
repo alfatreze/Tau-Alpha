@@ -364,7 +364,7 @@ COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
 #endif
 }
 
-COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+COLD_FN3 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u, dt = in->dt_ms;
     int32_t tg[LW_MAXL];
@@ -414,7 +414,7 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
 #if TAU_FX_METER_EXPERIMENTAL
 /* CURVE style: one continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of their frequency
  * ranges, with a smooth gain curve through the per-layer gains (all Q8 integer, the same operations as the JS twin's curveOutline). */
-COLD_FN3 static void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
+COLD_FN3 static __attribute__((noinline)) void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
 {
     const int32_t W = in->w, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, aaL = lay->L, dt = in->dt_ms;
     const int32_t m = n > 1 ? (int32_t)lw_mul_q8[n - 1 + 5] : 256;
@@ -455,7 +455,7 @@ COLD_FN3 static void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_
 }
 #endif
 
-COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+COLD_FN3 static __attribute__((noinline)) void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms, aaL = lay->L;
     const int32_t s = lw_max(lw_stride, (W + (int32_t)p->res - 1) / (int32_t)p->res);   /* Resolution = columns across the width (cell width), never finer than the self-scaling stride allows */
