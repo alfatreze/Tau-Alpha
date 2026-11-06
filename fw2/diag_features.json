@@ -6,7 +6,8 @@
     "fw2/diagnostics/blit_check.c",
     "fw2/diagnostics/info_page.c",
     "fw2/diagnostics/sdram_soak.c",
-    "fw2/diagnostics/soak_hot.c"
+    "fw2/diagnostics/soak_hot.c",
+    "fw2/diagnostics/preset_probe.c"
   ],
   "settings_rows_left_out_when_off": [
     "DIAGNOSTICS",
@@ -31,7 +32,17 @@
     "SDA CPU BUSY",
     "SDA CPU WAIT",
     "SDA CPU URGENT",
-    "SDA CPU BAD"
+    "SDA CPU BAD",
+    "PP RUNS",
+    "PP OK",
+    "PP BAD",
+    "PP ERR",
+    "PP OPEN",
+    "PP OPEN MAX",
+    "PP READ",
+    "PP READ MAX",
+    "PP FILL MIN",
+    "PP DRY"
   ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
@@ -46,7 +57,8 @@
     "info_page_draw",
     "info_page_key",
     "soak_step",
-    "soak_cycle"
+    "soak_cycle",
+    "preset_probe_run"
   ],
   "symbols_present_when_off": [
     "about_page_draw",

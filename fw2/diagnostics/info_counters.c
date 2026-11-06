@@ -9,6 +9,9 @@
 #include "../ui/meter.h"
 #include "../generated/meter_registry.h"
 #include "check_page.h"
+#if P2_DIAG
+#include "preset_probe.h"
+#endif
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
@@ -144,6 +147,16 @@ const cnt_t counters_table[] = {
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
+    { "PP RUNS",      CK_U32, CU_NONE,   &pp_runs },                /* preset-read probe (B-963): one per new track */
+    { "PP OK",        CK_U32, CU_NONE,   &pp_ok },
+    { "PP BAD",       CK_U32, CU_NONE,   &pp_bad },
+    { "PP ERR",       CK_U32, CU_NONE,   &pp_err },                 /* the last failure: 1 no path, 2 open, 3 read */
+    { "PP OPEN",      CK_U32, CU_CYC,    &pp_open_cyc },
+    { "PP OPEN MAX",  CK_U32, CU_CYC,    &pp_open_max },
+    { "PP READ",      CK_U32, CU_CYC,    &pp_read_cyc },
+    { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
+    { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
+    { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
     { "GFX CMDS",     CK_U32, CU_NONE,   &gfx_cmds },               /* draw-engine commands issued since boot */
     { "GFX POLLS",    CK_U32, CU_NONE,   &gfx_polls },              /* command-FIFO "full" reads (one per command, plus the waits) */
     { "GFX STALLS",   CK_U32, CU_NONE,   &gfx_stalls },             /* of those, the times the FIFO was full and the CPU had to wait */
