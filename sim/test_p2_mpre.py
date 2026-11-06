@@ -29,7 +29,8 @@ def build(td, mutant):
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
 import json
-def man(k): return json.loads((ROOT / "meters" / k / "meter.json").read_text())
+sys.path.insert(0, str(ROOT / "tools/player2")); import meter_manifest as mm
+def man(k): return mm.load(ROOT / "meters" / k / "meter.json")
 DESCS = ["winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"]
 def vals(k, p): d = man(k); return " ".join(str(d["presets"][p]["values"][x["key"]]) for x in d["params"])
 GOOD = ["rows 5 count 6", "of3 6 of2 0", "mv3 " + vals("layered_wave", 6), "chladni_after5 1 name " + man("chladni")["presets"][1]["name"], "mv2 " + vals("chladni", 1), "vu_wrap 0", "bars_next 1 last0 1"]

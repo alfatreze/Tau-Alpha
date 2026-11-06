@@ -42,6 +42,10 @@ def load_meters(meters_dir):
     for p in paths:
         with open(p) as f:
             m = json.load(f)
+        pj = os.path.join(os.path.dirname(p), "presets.json")           # the factory presets of a Player 2 meter are a file of their own (B-969)
+        if os.path.exists(pj):
+            with open(pj) as f:
+                m["presets"] = json.load(f)["presets"]
         for req in ("key", "enum", "index", "name", "selectable"):
             if req not in m:
                 raise SystemExit(f"{p}: missing required field {req!r}")

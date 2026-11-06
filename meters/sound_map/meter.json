@@ -58,44 +58,6 @@
       "note": "how much time one column of the long memory covers"
     }
   ],
-  "presets": [
-    {
-      "name": "STEREO FIELD",
-      "values": {
-        "mode": 0,
-        "gain": 100,
-        "cell": 8,
-        "span": 1
-      }
-    },
-    {
-      "name": "CHARACTER",
-      "values": {
-        "mode": 1,
-        "gain": 100,
-        "cell": 8,
-        "span": 1
-      }
-    },
-    {
-      "name": "LONG MEMORY",
-      "values": {
-        "mode": 2,
-        "gain": 120,
-        "cell": 6,
-        "span": 1
-      }
-    },
-    {
-      "name": "MEMORY 5 S",
-      "values": {
-        "mode": 2,
-        "gain": 120,
-        "cell": 8,
-        "span": 5
-      }
-    }
-  ],
   "p2": {
     "pack_only": true,
     "cmds": 1500,

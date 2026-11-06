@@ -1,0 +1,41 @@
+{
+  "about": "The factory presets of this meter (tools/player2/mpreset.py writes them as the preset files under tau-presets/, B-966/B-969). The values are keyed by the parameter keys of meter.json; a parameter a preset does not name takes its default.",
+  "presets": [
+    {
+      "name": "STEREO FIELD",
+      "values": {
+        "mode": 0,
+        "gain": 100,
+        "cell": 8,
+        "span": 1
+      }
+    },
+    {
+      "name": "CHARACTER",
+      "values": {
+        "mode": 1,
+        "gain": 100,
+        "cell": 8,
+        "span": 1
+      }
+    },
+    {
+      "name": "LONG MEMORY",
+      "values": {
+        "mode": 2,
+        "gain": 120,
+        "cell": 6,
+        "span": 1
+      }
+    },
+    {
+      "name": "MEMORY 5 S",
+      "values": {
+        "mode": 2,
+        "gain": 120,
+        "cell": 8,
+        "span": 5
+      }
+    }
+  ]
+}

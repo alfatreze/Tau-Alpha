@@ -128,9 +128,10 @@ def main():
          "params": [{"key": "mode", "label": "Mode", "type": "enum", "values": ["LEVELS", "HISTORY"], "default": 0},
                     {"key": "gain", "label": "Gain", "type": "u8", "min": 50, "max": 200, "step": 10, "default": 100, "unit": "%", "note": "how bright / tall for a given level"},
                     {"key": "cell", "label": "Cell size", "type": "u8", "min": 5, "max": 12, "step": 1, "default": 8, "unit": "px", "note": "the cell is this many pixels square, with one pixel between cells"}],
-         "presets": [{"name": label[:12], "values": {"mode": 0, "gain": 100, "cell": 8}}, {"name": "HISTORY", "values": {"mode": 1, "gain": 120, "cell": 6}}],
          "p2": {"pack_only": True, "cmds": 1100, "max_cycles": 3000000, "slot": slot, "tag": tag, "compose": False, "budget": {"cold": 4096, "hot_ram": 2048}}, "default_preset": 0}
+    presets = [{"name": label[:12], "values": {"mode": 0, "gain": 100, "cell": 8}}, {"name": "HISTORY", "values": {"mode": 1, "gain": 120, "cell": 6}}]
     files = {ROOT / "meters" / key / "meter.json": json.dumps(d, indent=2) + "\n",
+             ROOT / "meters" / key / "presets.json": json.dumps({"presets": presets}, indent=2) + "\n",
              ROOT / "meters" / key / "thumb.json": json.dumps({"w": 56, "h": 32, "palette": [0x10A3, 0x5DDC, 0xEF5D, 0, 0, 0, 0, 0], "palette_roles": ["chrome", "accent", "text_primary", None, None, None, None, None], "rle": rle_preview(),
                                                                "note": "56x32 preview (scaffolded), 8-colour RGB565 palette (fallback) with theme roles, raster run-length: byte = (palette index << 5) | (run - 1)."}, indent=1) + "\n",
              ROOT / "fw2/ui" / ("meter_%s.c" % key): SRC % {"key": key, "TAG": tag, "lc": tag.lower(), "label": label},

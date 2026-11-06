@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2"))
 import meter_desc as md
+import meter_manifest as mm
 IDX_MAGIC, PRE_MAGIC, VERSION = b"TPRI", b"TPRS", 1
 NAME = 16
 
@@ -111,7 +112,7 @@ def main(argv):
     if len(argv) >= 3 and argv[1] == "factory":
         out = Path(argv[2]) / "tau-presets"; keys = argv[3:]
         for mf in sorted((ROOT / "meters").glob("*/meter.json")):
-            d = json.loads(mf.read_text())
+            d = mm.load(mf)
             if "p2" not in d or (keys and d["key"] not in keys): continue
             for rel, data in factory_files(d).items():
                 (out / rel).parent.mkdir(parents=True, exist_ok=True); (out / rel).write_bytes(data)

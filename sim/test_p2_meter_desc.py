@@ -7,6 +7,7 @@ import json, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm
 import meter_desc as md
 fails = 0
 def check(name, ok, info=""):
@@ -21,11 +22,11 @@ def build(td, bug):
 def run(exe, blob, tmp, *args):
     f = tmp / "d.bin"; f.write_bytes(blob)
     return subprocess.run([str(exe), str(f)] + [str(a) for a in args], capture_output=True, text=True).stdout.strip().splitlines()
-keys = sorted(p.parent.name for p in (ROOT / "meters").glob("*/meter.json") if "p2" in json.loads(p.read_text()))
+keys = sorted(p.parent.name for p in (ROOT / "meters").glob("*/meter.json") if "p2" in mm.load(p))
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); exe = build(tmp, 0)
     for key in keys:
-        d = json.loads((ROOT / "meters" / key / "meter.json").read_text()); t = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
+        d = mm.load(ROOT / "meters" / key / "meter.json"); t = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
         blob = md.build_desc(d, t); py = md.parse_desc(blob); out = run(exe, blob, tmp)
         rows = md.param_rows(d)
         ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d mid %d slot %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), len(d["presets"]), d["index"], d["p2"]["slot"])
@@ -68,7 +69,7 @@ msrc = (ROOT / "fw2/ui/meters.c").read_text()
 LIM = {n: int(re.search(r"#define %s (\d+)u" % n, msrc).group(1)) for n in ("DYN_MAX_P",)}
 assert "DYN_POOL" not in msrc and "DYN_MAX_V" not in msrc, "the string caches are back: update this check"
 for k in keys:
-    pd = json.loads((ROOT / "meters" / k / "meter.json").read_text())
+    pd = mm.load(ROOT / "meters" / k / "meter.json")
     if not pd["p2"].get("pack_only"): continue
     check("%s: its parameters fit the host's cache (%d of %d)" % (k, len(pd["params"]), LIM["DYN_MAX_P"]), len(pd["params"]) <= LIM["DYN_MAX_P"])
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

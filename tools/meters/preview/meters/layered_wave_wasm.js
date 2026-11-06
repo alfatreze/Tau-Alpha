@@ -10,7 +10,7 @@
   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
   "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
   "fw2/ui/layered_wave.inc": "0f4eb9ecccf2197bb748a83ac760372f744717fdfe40209ef5ff63132ef0803c",
-  "fw2/ui/meter.h": "cf6587402e96845349498e6423500a605ec117a7bdd8a5060beaad084d50e3e1",
+  "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
   "fw2/ui/meter_layered_wave.c": "82afb93c174e09c2d9a19dbc14d65669b50939dbe5738d720b70acf744f1985a",
   "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
   "tools/meters/preview/wasm/layered_wave_wasm.c": "59a28574fad2971ea4970088e396615d1c9c271b83a09ae97b66c6fdb9c2386e"

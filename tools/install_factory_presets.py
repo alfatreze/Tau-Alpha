@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools")); sys.path.insert(0, str(ROOT / "tools/player2"))
 import tau_library as tl
 import mpreset as mp
+import meter_manifest as mm
 
 def media_root(card):
     """(the root string of the card's library, the folder it names on the card)"""
@@ -27,7 +28,7 @@ def media_root(card):
 def factory(keys=()):
     out = {}
     for mf in sorted((ROOT / "meters").glob("*/meter.json")):
-        d = json.loads(mf.read_text())
+        d = mm.load(mf)
         if "p2" not in d or (keys and d["key"] not in keys): continue
         out.update(mp.factory_files(d))
     return out

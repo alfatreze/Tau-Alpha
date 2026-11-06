@@ -6,6 +6,7 @@ import json, struct, subprocess, sys, tempfile, zlib
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm
 import pack_meter as pm, pack_bundle as pb, meter_desc as md
 fails = 0
 def check(name, ok, info=""):
@@ -36,8 +37,8 @@ def run_row(exe, row, bundle=None, desc=None):
     return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True, env=env).stdout.strip().splitlines()
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); exe = build(tmp / "good")
-    mans = {k: json.loads((ROOT / "meters" / k / "meter.json").read_text()) for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid")}
-    n_static = len([1 for p in (ROOT / "meters").glob("*/meter.json") if "p2" in json.loads(p.read_text()) and not json.loads(p.read_text())["p2"].get("pack_only")])
+    mans = {k: mm.load(ROOT / "meters" / k / "meter.json") for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid")}
+    n_static = len([1 for p in (ROOT / "meters").glob("*/meter.json") if "p2" in mm.load(p) and not mm.load(p)["p2"].get("pack_only")])
     check("every meter but Winamp Bars is pack-only and they take the slots after the built-in one", n_static == 1 and sorted(m["p2"]["slot"] for m in mans.values()) == list(range(n_static, n_static + 5)) and all(m["p2"].get("pack_only") for m in mans.values()))
     for key, wf in mans.items():
         slot = wf["p2"]["slot"]

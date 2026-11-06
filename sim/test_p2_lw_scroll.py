@@ -15,7 +15,8 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm; sys.path.insert(0, str(ROOT / "tools"))
 import pack_meter as pm
 import json
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
@@ -84,7 +85,7 @@ def verdict(rows, preset_vals):
         if sum(f[3] for f in frames) < NF // 2: bad.append((pi, -1, "hardly any scroll commands"))
     return bad
 def main():
-    d = json.loads((ROOT / "meters/layered_wave/meter.json").read_text())
+    d = mm.load(ROOT / "meters/layered_wave/meter.json")
     PRESETS = [0, 1, 2, 3, 4, 5, 8, 12]
     pv = [d["presets"][p]["values"] for p in PRESETS]
     with tempfile.TemporaryDirectory() as t:
