@@ -73,6 +73,7 @@ COLD_FN3 LW_HOT static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t
  * the finished box, the same for every context (docs/issues/022, B-520). What is measured here is what only this file knows: commands issued, the CPU time to
  * issue them, and how much of that was reading the PSRAM history. Info > LW COST. */
 static uint32_t lw_t_cpu, lw_t_unw, lw_cmd_last;
+static uint8_t lw_calm;                       /* consecutive cheap redraws (lw_guard_step_t) */
 #endif
 
 /* ---- colours ------------------------------------------------------------------------------------------------------------------- */
@@ -526,6 +527,18 @@ static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
 {
     return (uint8_t)(m > hi ? lw_min(16, (int32_t)stride + 1) : (m < (hi >> 1) && stride > 1u ? (int32_t)stride - 1 : (int32_t)stride));
 }
+/* LW_GUARD_TIME_BEGIN (sim/test_p2_lw_guard.py compiles exactly this text) */
+#define LW_NARROW_HOLD 24u              /* redraws the cost must stay under half the limit before the cell narrows by a pixel (about 0.8 s at the normal tick rate) */
+/* The time guard's rule: widen at once above the limit (the audio comes first), narrow only after a calm stretch. A stricter loud/quiet alternation of the music would otherwise move the cell width by a pixel back and
+ * forth every few redraws, and the bars shimmer at the edges where it changes (DEV 207, NEON: owner, "a little bit on some edges"). `calm` counts the consecutive redraws that cost under half the limit. */
+static inline uint8_t lw_guard_step_t(uint8_t stride, uint32_t m, uint32_t hi, uint8_t *calm)
+{
+    if (m > hi) { *calm = 0u; return (uint8_t)lw_min(16, (int32_t)stride + 1); }
+    if (m < (hi >> 1) && stride > 1u) { if (++*calm >= LW_NARROW_HOLD) { *calm = 0u; return (uint8_t)(stride - 1u); } return stride; }
+    *calm = 0u;
+    return stride;
+}
+/* LW_GUARD_TIME_END */
 COLD_FN3 static int lw_tick(const mtr_in_t *in)
 {
     lw_p_t p;
@@ -607,7 +620,7 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
          * build has no clock and keeps the command-count rule below, which is what the golden test compares. */
         if (bud < 1000000000 && lw_cnt) {
             const uint32_t hi = (CLK_HZ / 1000u) * 9u * (uint32_t)bud / 300u;
-            lw_stride = lw_guard_step(lw_stride, lw_t_cpu, hi);
+            lw_stride = lw_guard_step_t(lw_stride, lw_t_cpu, hi, &lw_calm);
         }
 #else
         if (bud < 1000000000 && lw_cnt) lw_stride = lw_guard_step(lw_stride, (uint32_t)lw_cnt, (uint32_t)bud);
