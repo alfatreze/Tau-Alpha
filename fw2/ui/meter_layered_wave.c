@@ -22,6 +22,9 @@
 #else
 #define MTR_PSRAM
 #endif
+#if !defined(LW_TIME_GUARD) && !defined(P2_HOST)           /* on the real CPU the cost guard counts CPU time (B-948); the host builds keep the command-count rule the golden test compares. The simulated-clock test defines it itself. */
+#define LW_TIME_GUARD 1
+#endif
 #ifdef P2_PACK                                            /* code placement against instruction-cache conflicts: see the comment in layered_wave.inc and fw2/ui/meter_pack.ld */
 #define LW_HOT   __attribute__((section(".text.pk_hot")))
 #define LW_VIEW1 __attribute__((section(".text.pk_view1")))

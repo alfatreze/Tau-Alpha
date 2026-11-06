@@ -64,7 +64,11 @@ COLD_FN3 static uint32_t lw_isqrt(uint64_t n)
 
 COLD_FN3 LW_HOT static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fig_rect(x, y, w, h, c); lw_cnt++; }
 
-#ifdef LW_STATS
+#if defined(LW_STATS) || defined(LW_TIME_GUARD)
+/* LW_TIME_GUARD (B-948): the cost guard counts CPU time, not commands, wherever the code runs on the real CPU (Player 2, built-in and pack); LW_STATS (the old player) also measures it. The host builds define neither and keep the command-count rule. */
+#define LW_TIMED 1
+#endif
+#ifdef LW_TIMED
 /* Where the figure is drawn is not this file's business (B-521): helios_meter() (fw/player.c) points RECT-class commands at the right buffer and presents
  * the finished box, the same for every context (docs/issues/022, B-520). What is measured here is what only this file knows: commands issued, the CPU time to
  * issue them, and how much of that was reading the PSRAM history. Info > LW COST. */
@@ -516,6 +520,12 @@ COLD_FN3 LW_VIEW3 static __attribute__((noinline)) void lw_spectrum(const lw_p_t
     }
 }
 
+/* The cost guard's rule, one step per redraw: `m` is what the redraw cost (commands, or CPU cycles), `hi` the limit. Above it the cell widens by one pixel (at most 16); under half of it the cell narrows by one
+ * (at most down to 1); in between nothing moves, so a steady picture keeps one cell width and does not hunt (a cell width that changes from frame to frame makes the bars shimmer). */
+static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
+{
+    return (uint8_t)(m > hi ? lw_min(16, (int32_t)stride + 1) : (m < (hi >> 1) && stride > 1u ? (int32_t)stride - 1 : (int32_t)stride));
+}
 COLD_FN3 static int lw_tick(const mtr_in_t *in)
 {
     lw_p_t p;
@@ -583,24 +593,24 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
 #if TAU_FX_METER_EXPERIMENTAL
         lay.L = lw_aa_levels[p.aa]; lay.bm = p.bmode; lay.ba = ((int32_t)p.balpha * 255 + 50) / 100; lay.arr = (lay.L || lay.bm) ? 1 : 0;
 #endif
-#ifdef LW_STATS
+#ifdef LW_TIMED
         const uint32_t lw_t0 = cycles();
         lw_t_unw = 0;
 #endif
         if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh, &lay); else lw_history(&p, in, &cl, cy, Hh, &lay);
-#ifdef LW_STATS
+#ifdef LW_TIMED
         if (lw_cnt) { lw_t_cpu = (uint32_t)(cycles() - lw_t0); lw_cmd_last = (uint32_t)lw_cnt; }   /* what the CPU itself spent issuing */
 #endif
-#ifdef LW_STATS
+#ifdef LW_TIMED
         /* On the firmware the cost guard is TIME, not commands (B-524): the redraw is CPU-bound (~60-90 us a command, more in the column maths), so a command
          * budget held the stride high without actually bounding the time. 9 ms of CPU for a redraw on the default guard, scaled by the guard setting. The host
          * build has no clock and keeps the command-count rule below, which is what the golden test compares. */
         if (bud < 1000000000 && lw_cnt) {
             const uint32_t hi = (CLK_HZ / 1000u) * 9u * (uint32_t)bud / 300u;
-            lw_stride = (uint8_t)(lw_t_cpu > hi ? lw_min(16, lw_stride + 1) : (lw_t_cpu < (hi >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
+            lw_stride = lw_guard_step(lw_stride, lw_t_cpu, hi);
         }
 #else
-        if (bud < 1000000000 && lw_cnt) lw_stride = (uint8_t)(lw_cnt > bud ? lw_min(16, lw_stride + 1) : (lw_cnt < (bud >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
+        if (bud < 1000000000 && lw_cnt) lw_stride = lw_guard_step(lw_stride, (uint32_t)lw_cnt, (uint32_t)bud);
 #endif
     }
     wviz_force = 0u;
