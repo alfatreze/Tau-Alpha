@@ -277,14 +277,12 @@ static void pack_tick(const void *vin)                                          
 /* ---- the pack-only rows (descriptors from the packs; B-812) and the accessors every other part of the host uses ---------------------------------------------------------------------------------------- */
 #ifdef P2_PACKS
 #include "../cores/meter_desc_core.h"
-#define DYN_MAX_P 35u                                          /* parameters a pack-only meter may have (its Configure descriptors are copied to hot RAM while it is edited) */
-#define DYN_POOL 880u                                          /* the label and choice strings of those descriptors */
-#define DYN_MAX_V 76u
+#define DYN_MAX_P 36u                                          /* parameters a pack-only meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is edited; the label and choice strings are read from its slot when a row is drawn: meters_param_label / meters_param_choice) */
 typedef struct { uint32_t off, len, cmds, cyc, cmp; uint16_t mid, np, npre; uint8_t ok, code; char name[MD_MAX_STR + 1u]; } dyn_t;
 static dyn_t dyn[DYN_ROWS];
 static meter_def_t dyn_def[DYN_ROWS];
 static uint16_t dyn_mv[DYN_ROWS][DYN_MAX_P];
-static mpd_t dyn_pd[DYN_MAX_P]; static char dyn_pool[DYN_POOL]; static const char *dyn_vp[DYN_MAX_V]; static uint32_t dyn_cached = 0xFFu;
+static mpd_t dyn_pd[DYN_MAX_P]; static uint32_t dyn_cached = 0xFFu;
 static void dyn_stub_tick(const mtr_in_t *in) { if (in->force) gfx_text(in->x + 8u, in->y + in->h / 2u - 8u, "PACK NOT RUNNING", UI_RED, in->bg); }     /* the pack was struck out or refused after it was listed */
 static int desc_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)       /* the descriptor, straight out of the PSRAM slot, a word at a time */
 {
@@ -294,22 +292,31 @@ static int desc_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)       /* t
     for (uint32_t i = 0; i < n; i++) { const uint32_t a = d->off + off + i; dst[i] = (uint8_t)(*(volatile uint32_t *)(base + (a & ~3u)) >> (8u * (a & 3u))); }
     return 1;
 }
-static void dyn_cache_build(uint32_t k)                           /* copy the Configure descriptors of dynamic meter k (labels and choice names into a pool) */
+static void dyn_cache_build(uint32_t k)                           /* copy the numeric Configure descriptors of dynamic meter k (the strings stay in its slot: dyn_str) */
 {
-    md_hdr_t h; uint32_t pool = 0, vp = 0;
+    md_hdr_t h;
     if (!md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return;
     for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) {
         md_param_t p; md_param(desc_rd, &dyn[k], &h, i, &p);
-        mpd_t *o = &dyn_pd[i]; o->label = &dyn_pool[pool]; int n = md_string(desc_rd, &dyn[k], &h, p.label, &dyn_pool[pool], MD_MAX_STR + 1u); pool += (uint32_t)(n < 0 ? 0 : n) + 1u;
-        o->type = p.type; o->hidden = p.hidden; o->min = p.min; o->max = p.max; o->step = p.step; o->nval = p.nval; o->when_idx = p.when_idx; o->when_val = p.when_val; o->vals = 0;
-        if (p.nval) {
-            o->vals = &dyn_vp[vp];
-            for (uint32_t j = 0; j < p.nval; j++) { uint32_t so = 0; md_val_off(desc_rd, &dyn[k], &p, j, &so); dyn_vp[vp++] = &dyn_pool[pool]; n = md_string(desc_rd, &dyn[k], &h, so, &dyn_pool[pool], MD_MAX_STR + 1u); pool += (uint32_t)(n < 0 ? 0 : n) + 1u; }
-        }
+        mpd_t *o = &dyn_pd[i];
+        o->label = 0; o->type = p.type; o->hidden = p.hidden; o->min = p.min; o->max = p.max; o->step = p.step; o->nval = p.nval; o->when_idx = p.when_idx; o->when_val = p.when_val; o->vals = 0;
     }
     dyn_cached = k;
 }
-/* A pack that is installed (status OK) becomes a row when its descriptor is sound and fits the caches; otherwise its status says why (41 descriptor missing or damaged, 42 too big for the host's caches). */
+/* One Configure string of dynamic meter k, read from the descriptor in its PSRAM slot into `buf` (n bytes, always terminated): the label of parameter `id` (choice < 0) or the name of its choice number `choice`. An unknown
+ * meter, parameter or choice gives "". A page is a few thousand cycles of PSRAM reads, once, when a key is pressed. */
+static const char *dyn_str(uint32_t k, uint32_t id, int32_t choice, char *buf, uint32_t n)
+{
+    buf[0] = 0;
+    md_hdr_t h; md_param_t p; uint32_t so;
+    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h) || id >= h.np) return buf;
+    md_param(desc_rd, &dyn[k], &h, id, &p);
+    so = p.label;
+    if (choice >= 0 && !md_val_off(desc_rd, &dyn[k], &p, (uint32_t)choice, &so)) return buf;
+    if (md_string(desc_rd, &dyn[k], &h, so, buf, n) < 0) buf[0] = 0;
+    return buf;
+}
+/* A pack that is installed (status OK) becomes a row when its descriptor is sound and its numeric rows fit the cache; otherwise its status says why (41 descriptor missing or damaged, 42 more parameters than the host's cache holds). */
 static void dyn_register(uint32_t m)
 {
     const uint32_t k = m - METER_N; dyn_t *d = &dyn[k]; const uint32_t size = pack_slot[m].info.size;
@@ -320,13 +327,7 @@ static void dyn_register(uint32_t m)
     d->off = size - len; d->len = len;
     md_hdr_t h;
     if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.slot != m) { pack_slot[m].status = MPK_E_DESC; return; }
-    uint32_t pool = 0, nv = 0;                                     /* will the Configure descriptors fit the caches? */
-    char sbuf[MD_MAX_STR + 2u];
-    for (uint32_t i = 0; i < h.np; i++) {
-        md_param_t p; md_param(desc_rd, d, &h, i, &p); pool += (uint32_t)md_string(desc_rd, d, &h, p.label, sbuf, sizeof sbuf) + 1u; nv += p.nval;
-        for (uint32_t j = 0; j < p.nval; j++) { uint32_t so = 0; md_val_off(desc_rd, d, &p, j, &so); pool += (uint32_t)md_string(desc_rd, d, &h, so, sbuf, sizeof sbuf) + 1u; }
-    }
-    if (h.np > DYN_MAX_P || pool > DYN_POOL || nv > DYN_MAX_V) { pack_slot[m].status = MPK_E_DESC_BIG; return; }
+    if (h.np > DYN_MAX_P) { pack_slot[m].status = MPK_E_DESC_BIG; return; }      /* the numeric rows must fit the cache (the strings are read from the slot when a row is drawn) */
     d->cmds = h.cmds; d->cyc = h.max_cycles; d->cmp = h.cmp; d->mid = h.mid; d->np = h.np; d->npre = h.npre;
     md_string(desc_rd, d, &h, h.name, d->name, sizeof d->name);
     meter_def_t *r = &dyn_def[k];
@@ -391,6 +392,21 @@ static const char *def_pre_name(uint32_t m, uint32_t p) { return meter_table[m].
 static void def_apply(uint32_t m) { meter_table[m].apply(); }
 #endif
 const meter_def_t *meters_def(uint32_t m) { return mdef(m); }
+/* The strings of a Configure row (fw2/ui/configure_view.c): a built-in meter's are static; a pack-only meter's are read from its slot into `buf` (see dyn_str). */
+const char *meters_param_label(uint32_t m, uint32_t id, char *buf, uint32_t n)
+{
+#ifdef P2_PACKS
+    if (m >= METER_N && m < METER_SLOTS) return dyn_str(m - METER_N, id, -1, buf, n);
+#endif
+    (void)buf; (void)n; const meter_def_t *d = mdef(m); return id < d->np ? d->pd[id].label : "";
+}
+const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf, uint32_t n)
+{
+#ifdef P2_PACKS
+    if (m >= METER_N && m < METER_SLOTS) return dyn_str(m - METER_N, id, (int32_t)val, buf, n);
+#endif
+    (void)buf; (void)n; const meter_def_t *d = mdef(m); return id < d->np && d->pd[id].vals && val < d->pd[id].nval ? d->pd[id].vals[val] : "";
+}
 uint32_t meters_list_count(void) { uint32_t n = 0; for (uint32_t m = 0; m < METER_SLOTS; m++) n += (uint32_t)meters_present(m); return n; }
 uint32_t meters_list_row(uint32_t i) { for (uint32_t m = 0; m < METER_SLOTS; m++) if (meters_present(m) && i-- == 0u) return m; return 0u; }       /* the i-th meter that is there -> its row (the saved meter index) */
 uint32_t meters_list_index(uint32_t row) { uint32_t n = 0; for (uint32_t m = 0; m < row && m < METER_SLOTS; m++) n += (uint32_t)meters_present(m); return n; }       /* the other way */

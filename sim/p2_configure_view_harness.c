@@ -10,6 +10,8 @@ static uint32_t cur_pre; static int custom;
 static void tick(const mtr_in_t *i) { (void)i; }
 const meter_def_t meter_table[] = { { "FAKE", tick, 3, 0, 0, mv, pd, 4, 0 } };
 uint32_t meter_count = 1; const meter_def_t *meters_def(uint32_t m) { (void)m; return &meter_table[0]; }
+const char *meters_param_label(uint32_t m, uint32_t id, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].label; }
+const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].vals[val]; }
 uint32_t meters_cur(void) { return 0; } uint32_t meters_preset_of(uint32_t m) { (void)m; return cur_pre; }
 void meters_preset_select(uint32_t m, uint32_t p) { (void)m; cur_pre = p; custom = 0; mv[0] = 16; mv[1] = 0; mv[2] = 1; mv[3] = 200; }
 uint32_t meters_npre(uint32_t m) { (void)m; return 3; }

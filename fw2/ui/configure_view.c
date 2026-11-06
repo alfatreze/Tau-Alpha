@@ -78,14 +78,14 @@ void configure_view_draw_list(void)
         const uint32_t i = cf.top + k, y = LIST_Y + k * ROW_H;
         if (i >= cf.n) { gfx_rect(0, y, GFX_W, ROW_H, BG); continue; }
         const int on = i == cf.sel; const uint16_t bg = on ? UI_ACCENT : BG, fg = on ? UI_ON_ACCENT : UI_WHITE, dm = on ? UI_ON_ACCENT : UI_DIM;
-        const uint8_t id = cf.rows[i]; const char *label; char v[20] = "";
+        const uint8_t id = cf.rows[i]; const char *label; char v[20] = "", lb[24], cv[24];
         if (id == CF_PRESET) { label = "PRESET"; const char *s = meters_preset_name(); uint32_t n = 0; while (*s && n < 18u) v[n++] = *s++; v[n] = 0; }
         else if (id == CF_RESET) label = "RESET TO PRESET";
         else {
-            const mpd_t *p = &d->pd[id]; label = p->label; const uint32_t val = d->mv[id];
+            const mpd_t *p = &d->pd[id]; label = meters_param_label(meter, id, lb, sizeof lb); const uint32_t val = d->mv[id];
             if (p->type == 3u) { v[0] = 0; }
             else if (p->type == 2u) { v[0] = val ? 'O' : 'O'; v[1] = val ? 'N' : 'F'; v[2] = val ? 0 : 'F'; v[3] = 0; }
-            else if (p->type == 1u) { const char *s = p->vals[val < p->nval ? val : 0u]; uint32_t n = 0; while (*s && n < 18u) v[n++] = *s++; v[n] = 0; }
+            else if (p->type == 1u) { const char *s = meters_param_choice(meter, id, val < p->nval ? val : 0u, cv, sizeof cv); uint32_t n = 0; while (*s && n < 18u) v[n++] = *s++; v[n] = 0; }
             else put_num(v, val);
         }
         gfx_rect(0, y, GFX_W, ROW_H, bg);

@@ -1,6 +1,6 @@
 # Configure strings on demand (draft, 2026-11-06; nothing built)
 
-**Status:** plan only, written after B-954. Not on `docs/ROADMAP.md` (the owner sets that order). Evidence labels: the sizes below are read from the code and the DEV 210 link, host-simulated or measured where stated; nothing here has run on a Pocket.
+**Status:** S1 built on branch `lw-perf` (2026-11-06, B-956), host-tested, not yet on a Pocket; S2 not started. Written after B-954. Not on `docs/ROADMAP.md` (the owner sets that order). Evidence labels: the sizes below are read from the code and the DEV 210 link, host-simulated or measured where stated; nothing here has run on a Pocket.
 
 ## 1. The problem
 
