@@ -199,3 +199,13 @@ New dev builds (`alfatreze.TAU DEV NN`, platforms `tau_dev` + `tau`) read TAU's 
 place: no `--carry-from`, which the installer now refuses for them. They appear under **TAU Dev** and in TAU's Select Core list. The
 `TAU Dev` platform stays until the last dev build is removed. Core ids contain spaces, so quote them:
 `--remove "alfatreze.TAU DEV 110"`.
+
+## Factory meter presets (B-967)
+
+The firmware reads a meter's presets from files on the card: `<media root>/tau-presets/<meter id>/index.tpi` and `p<id>.tpr` (`docs/features/METER_PRESETS_EXTERNAL.md`; the media root is the root of the card's library, normally `/Assets/tau/common/`, shared by the release and every developer core). A card without them behaves as before (the presets inside the packs). To put the factory set on a card (ask first, like any card write):
+
+```bash
+python3 tools/install_factory_presets.py --card /Volumes/Pock           # dry run
+python3 tools/install_factory_presets.py --card /Volumes/Pock --yes     # write and verify (51 files, about 5 KB)
+```
+It refuses to overwrite a file that differs (a newer set written by Omega) unless `--force`; `--remove` deletes the folder. The card is not ejected by this script. `sim/test_install_factory_presets.py` holds it (fake card, dry run, write and verify, the second run, the refusal, `--force`, `--remove`, the choice of the Tau library among other cores' libraries).

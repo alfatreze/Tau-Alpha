@@ -12,7 +12,7 @@ static uint8_t tag_mem[4096]; static uint32_t mph_mem[1100]; char _tag_start;
 #define MPH_TAGB ((const volatile uint8_t *)tag_mem)
 #define MPH_PSRAM mph_mem
 static char dir_root[256]; static uint32_t opens, open_fail_all;      /* degrade_level is the budget harness's: the governor's level */
-uint32_t library_root(char *out, uint32_t cap) { (void)cap; out[0] = 0; return 0u + (strcpy(out, "/R"), 2u); }
+uint32_t library_root(char *out, uint32_t cap) { (void)cap; out[0] = 0; return 0u + (strcpy(out, "/R/"), 3u); }          /* the real root ends with a slash too */
 void mp3play_io_quiesce(void) { }
 static char opened[256];
 int slot_open_path(uint32_t slot, const char *path) { (void)slot; opens++; if (open_fail_all) return 0; snprintf(opened, sizeof opened, "%s%s", dir_root, path + 2); FILE *f = fopen(opened, "rb"); if (!f) return 0; fclose(f); return 1; }
