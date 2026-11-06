@@ -47,6 +47,11 @@ static uint16_t lw_head;
 static int16_t  lw_band[LW_MAXL][LW_NB];
 static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[13], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
+/* The history view's per-column constants (P2, B-951): the source position, the taper window and the age band of a cell depend only on the width, the resolution, the taper, the cell width and the draw style, not on the layer or the
+ * frame, so they are worked out once (three divisions by the width per column) and kept, instead of once per cell per layer per frame. One word per cell column: source (17 bits) << 11 | window (8) << 3 | age band (3). */
+static uint32_t lw_col[LW_HMAX - 4u];
+static int32_t  lw_ck[5];
+static uint8_t  lw_ck_ok;
 
 static const uint16_t lw_fw[6] = { 1000, 1600, 2560, 4096, 6554, 10486 };   /* BASS_FINE group weights, 1.6^i x 1000 */
 
@@ -265,6 +270,7 @@ COLD_FN3 static void lw_seg(const int32_t *cen, int32_t n, int32_t pos, int32_t 
 
 COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, const int32_t *soft)
 {
+    lw_ck_ok = 0u;
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
     for (uint32_t i = 0; i < 13u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
@@ -399,25 +405,37 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     lw_dirty = 0u;
     const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
     lw_rect(X, in->y, W, in->h, cl->bg);
+    if (!lw_ck_ok || lw_ck[0] != W || lw_ck[1] != res || lw_ck[2] != tq || lw_ck[3] != s || lw_ck[4] != smooth) {
+        lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck_ok = 1u;
+        for (int32_t ci = 0, xs = 0; xs < W; ci++, xs += s) {
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1));
+            const int32_t src = smooth ? ((2 * xc + 1) * res * 128) / W : lw_min(res - 1, (xc * res) / W);
+            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xc + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);
+            lw_col[ci] = ((uint32_t)src << 11) | ((uint32_t)w8 << 3) | (uint32_t)q;
+        }
+    }
+    const int32_t blendy = lay->bm || lay->arr;
     for (int32_t k = 0; k < n; k++) {
         lw_unwrap(k, (uint32_t)(res + 4));                 /* res + 4 = every sample lw_cr8() and the nearest read can touch */
         const uint8_t *h = lw_row;
         lw_run_t run = { 0, 0, 0, 0, 0 };
         int32_t have = 0;
-        for (int32_t xs = 0; xs < W; xs += s) {
-            const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
+        const uint16_t *tk = cl->tbl[k];
+        for (int32_t ci = 0, xs = 0; xs < W; ci++, xs += s) {
+            const uint32_t e = lw_col[ci];
+            const int32_t src = (int32_t)(e >> 11), w8 = (int32_t)((e >> 3) & 255u), q = (int32_t)(e & 7u);
+            const int32_t wd = lw_min(s, W - xs);
             int32_t a8;
-            if (smooth) { const int32_t t = ((2 * xc + 1) * res * 128) / W - phase - 128; a8 = t <= 0 ? h[0] : lw_cr8(h, res + 4, t >> 8, t & 255); }
-            else a8 = h[lw_min(res - 1, (xc * res) / W)];
-            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xc + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);
+            if (smooth) { const int32_t t = src - phase - 128; a8 = t <= 0 ? h[0] : lw_cr8(h, res + 4, t >> 8, t & 255); }
+            else a8 = h[src];
             int32_t hh, cv = 0;
             if (aaL) lw_half_aa(a8, w8, Hh, aaL, &hh, &cv); else hh = lw_half(a8, w8, Hh);
-            uint16_t c = cl->tbl[k][q];
-            lw_cell(lay, k, xs, wd, xc, &hh, &cv, &c);
+            uint16_t c = tk[q];
+            if (blendy) lw_cell(lay, k, xs, wd, lw_min(W - 1, xs + (s >> 1)), &hh, &cv, &c);
             LW_RUN_STEP(k, hh, c, cv);
         }
         if (have) lw_emit(lay, k, &run);
-        lw_endlayer(lay);
+        if (blendy) lw_endlayer(lay);
     }
     if (p->taper > 0u) {
         static const uint8_t dots[3] = { 4, 3, 3 };
