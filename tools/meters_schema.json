@@ -752,7 +752,7 @@
      "value_help": [
       "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
       "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored.",
-      "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed; Resolution, Taper, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer, no tail fade)."
+      "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed and Tail taper (with its curve) narrows the tail end by covering it with the background, about 100 more commands a picture, no ramp at the head; Resolution, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer)."
      ],
      "group": "general"
     },
@@ -1131,6 +1131,22 @@
      "group": "display"
     },
     {
+     "key": "direction",
+     "label": "Direction",
+     "type": "enum",
+     "values": [
+      "RIGHT",
+      "LEFT"
+     ],
+     "default": 0,
+     "help": "Which way the HISTORY view flows. The SCROLL view always flows left (the engine copies the picture left).",
+     "value_help": [
+      "RIGHT: the newest sample enters at the left and the wave scrolls away to the right (the original).",
+      "LEFT: the newest sample enters at the right and the wave scrolls away to the left, tail on the left; the taper and the tail dots follow."
+     ],
+     "group": "display"
+    },
+    {
      "key": "hstyle",
      "label": "Spectrum style",
      "type": "enum",
@@ -1356,7 +1372,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1396,7 +1413,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1436,7 +1454,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1476,7 +1495,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1516,7 +1536,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1556,7 +1577,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1596,7 +1618,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1636,7 +1659,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      }
     },
     {
@@ -1676,7 +1700,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1717,7 +1742,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1758,7 +1784,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1799,7 +1826,8 @@
       "g4": 20,
       "g5": 23,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1840,7 +1868,8 @@
       "g4": 26,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1881,7 +1910,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1922,7 +1952,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     },
@@ -1963,7 +1994,8 @@
       "g4": 18,
       "g5": 18,
       "g6": 18,
-      "taper_curve": 0
+      "taper_curve": 0,
+      "direction": 0
      },
      "experimental": true
     }

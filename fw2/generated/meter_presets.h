@@ -157,11 +157,12 @@ static const char *const mpl_lw_color_outer[] = { "ACCENT", "TEXT", "TEXT2", "OK
 static const char *const mpl_lw_color_inner[] = { "ACCENT", "TEXT", "TEXT2", "OK", "WARN", "DANGER", "PILL", "ERROR", "SURFACE", "TRACK", "BASE", "BG" };
 static const char *const mpl_lw_color_bg[] = { "ACCENT", "TEXT", "TEXT2", "OK", "WARN", "DANGER", "PILL", "ERROR", "SURFACE", "TRACK", "BASE", "BG" };
 static const char *const mpl_lw_taper_curve[] = { "NORMAL", "SHORT", "SHORTER", "SHARP" };
+static const char *const mpl_lw_direction[] = { "RIGHT", "LEFT" };
 static const char *const mpl_lw_hstyle[] = { "BLOCKS", "EQ BELLS", "CURVE" };
 static const char *const mpl_lw_aa[] = { "OFF", "EDGE 2", "EDGE 4", "EDGE 8" };
 static const char *const mpl_lw_bmode[] = { "OFF", "ALPHA", "AVERAGE", "ADD", "SUBTRACT", "ADD QUARTER" };
 static const char *const mpl_lw_guard[] = { "ON", "RELAXED", "OFF" };
-static const mpd_t mpd_lw[35] = {
+static const mpd_t mpd_lw[36] = {
     { "VIEW", 1, 0, 0, 2, 1, 3, mpl_lw_view, 255, 0 },
     { "LAYERS", 0, 0, 1, 6, 1, 0, 0, 255, 0 },
     { "LAYER SPLIT", 1, 0, 0, 4, 1, 5, mpl_lw_split, 255, 0 },
@@ -186,10 +187,11 @@ static const mpd_t mpd_lw[35] = {
     { "CUSTOM INNER", 3, 0, 0, 65535, 1, 0, 0, 15, 2 },
     { "CUSTOM BACKGROUND", 3, 0, 0, 65535, 1, 0, 0, 15, 2 },
     { "TAPER CURVE", 1, 0, 0, 3, 1, 4, mpl_lw_taper_curve, 255, 0 },
+    { "DIRECTION", 1, 0, 0, 1, 1, 2, mpl_lw_direction, 255, 0 },
     { "SPECTRUM STYLE", 1, 0, 0, 2, 1, 3, mpl_lw_hstyle, 0, 1 },
     { "ANTIALIASING", 1, 0, 0, 3, 1, 4, mpl_lw_aa, 255, 0 },
     { "LAYER BLENDING", 1, 0, 0, 5, 1, 6, mpl_lw_bmode, 255, 0 },
-    { "BLEND ALPHA", 0, 0, 5, 100, 5, 0, 0, 26, 1 },
+    { "BLEND ALPHA", 0, 0, 5, 100, 5, 0, 0, 27, 1 },
     { "COST GUARD", 1, 0, 0, 2, 1, 3, mpl_lw_guard, 255, 0 },
     { "GAIN, LAYER 1", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
     { "GAIN, LAYER 2", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
@@ -198,6 +200,6 @@ static const mpd_t mpd_lw[35] = {
     { "GAIN, LAYER 5", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
     { "GAIN, LAYER 6", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
 };
-#define MPD_LW_N 35u
+#define MPD_LW_N 36u
 #pragma GCC diagnostic pop
 #endif
