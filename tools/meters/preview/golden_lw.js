@@ -33,6 +33,8 @@ for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3
   add(`custom/n${layers}`, v, 'normal', seed++, 0, 13);
   add(`custom-spectrum/n${layers}`, Object.assign({}, v, { view: 1, draw: 1 - (layers & 1) }), 'normal', seed++, 0, 13);
 }
+// The taper curve profiles (B-957): every profile in both views, smooth and blocky, with the taper on
+for (const tc of [1, 2, 3]) for (const view of [0, 1]) add(`taper-curve/c${tc}v${view}`, { taper_curve: tc, taper: 70 + tc * 10, view, draw: tc & 1, layers: 4, res: 160 }, 'normal', seed++, 0, 13);
 // The experimental group (Diagnostic Build only): each setting alone and combined, in both views and with a cost guard that engages
 for (const [name, v] of [['hstyle1', { hstyle: 1, view: 1, draw: 1, split: 0 }], ['hstyle2', { hstyle: 2, view: 1, draw: 0, split: 1, g1: 24, g2: 12, g3: 18, g4: 30 }], ['aa2', { aa: 2 }], ['aa3', { aa: 3, layers: 5, view: 1 }],
   ['bm1', { bmode: 1 }], ['bm2', { bmode: 2, balpha: 40 }], ['bm3', { bmode: 3, layers: 5 }], ['bm4', { bmode: 4, view: 1, draw: 1 }], ['bm5', { bmode: 5, balpha: 30, layers: 4 }],

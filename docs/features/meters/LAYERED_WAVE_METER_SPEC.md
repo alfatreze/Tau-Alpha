@@ -79,6 +79,7 @@ the time constants 1.6x per layer.
 | speed | u8 20..240 px/s | 100 | scroll speed |
 | response | u8 1..100 | 45 | how quickly layers follow |
 | taper | u8 0..100 % | 70 | roll-off toward the tail, pointed head, tail dots; 0 = flat |
+| taper_curve | enum NORMAL, SHORT, SHORTER, SHARP | NORMAL | the profile of the roll-off (B-957): SHORT and SHORTER cut the faintest fifth / third of the tail so it ends sooner, SHARP squares the window so the wave narrows faster. Placed after the colour parameters, before the experimental group |
 | **color_mode** | enum ACCENT, THEME, CUSTOM | THEME | where colours come from |
 | grad | enum TINTS, SHADES, ANALOGOUS, COMPLEMENT (ACCENT only) | TINTS | outer to inner steps from the accent: lighten toward white / darken the outer layers / hue +-30 degrees / opposite hue. Background = a tint of the accent over the theme base. Greys (a white accent) have no hue, so the hue options then stay grey |
 | color_outer, color_inner, color_bg | enum of 12 **theme roles** (ACCENT, TEXT, TEXT2, OK, WARN, DANGER, PILL, ERROR, SURFACE, TRACK, BASE, BG), THEME only | DANGER, ACCENT, BASE | layer k is a ramp outer to inner; the tail fades toward the background |

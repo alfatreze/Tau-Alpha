@@ -222,7 +222,7 @@
       "step": 5,
       "default": 70,
       "unit": "%",
-      "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed.",
+      "help": "Roll-off toward the tail: the wave narrows (its colour no longer fades) and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed. The Taper curve sets the profile of the narrowing.",
       "group": "display"
     },
     {
@@ -384,6 +384,26 @@
         "color_mode": 2
       },
       "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+    },
+    {
+      "key": "taper_curve",
+      "label": "Taper curve",
+      "type": "enum",
+      "values": [
+        "NORMAL",
+        "SHORT",
+        "SHORTER",
+        "SHARP"
+      ],
+      "default": 0,
+      "help": "The profile of the tail taper: how the wave narrows towards the tail. Applies when Tail taper is above 0.",
+      "value_help": [
+        "NORMAL: the original roll-off; a thin sliver trails out to the edge.",
+        "SHORT: the faintest fifth of the tail is cut, so the wave ends a little sooner.",
+        "SHORTER: the faintest third is cut: a clearly shorter tail.",
+        "SHARP: the roll-off is squared: the wave narrows faster and its tail stays thin."
+      ],
       "group": "display"
     },
     {
@@ -611,7 +631,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -650,7 +671,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -689,7 +711,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -728,7 +751,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -767,7 +791,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -806,7 +831,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -845,7 +871,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -884,7 +911,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       }
     },
     {
@@ -923,7 +951,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -963,7 +992,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1003,7 +1033,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1043,7 +1074,8 @@
         "g3": 15,
         "g4": 20,
         "g5": 23,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1083,7 +1115,8 @@
         "g3": 22,
         "g4": 26,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1123,7 +1156,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1163,7 +1197,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     },
@@ -1203,7 +1238,8 @@
         "g3": 18,
         "g4": 18,
         "g5": 18,
-        "g6": 18
+        "g6": 18,
+        "taper_curve": 0
       },
       "experimental": true
     }

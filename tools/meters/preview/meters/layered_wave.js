@@ -54,7 +54,7 @@
     const p = ctx.p, n = p.layers, [co, ci, bgc] = ends(ctx), base = [], tbl = [];
     for (let k = 0; k < n; k++) {
       base.push(n === 1 ? co : mix(co, ci, tdiv(k * 512 + (n - 1), 2 * (n - 1))));
-      const row = []; for (let q = 0; q < AGE; q++) row.push(mix(base[k], bgc, tdiv(p.taper * (2 * q + 1) * 128 + 500, 1000)));
+      const row = []; for (let q = 0; q < AGE; q++) row.push(base[k]);          /* the Taper shapes the tail only: no colour fade towards the background (owner, DEV 210); kept equal to fw2/ui/layered_wave.inc lw_colours */
       tbl.push(row);
     }
     return { base, tbl, bgc, co, ci };
@@ -132,9 +132,16 @@
   const stepTo = (s, t, ca, cr) => s + (((t - s) * (t > s ? ca : cr)) >> 16);
 
   /* ---- shape ----------------------------------------------------------------------------------------------------------------------- */
+  let curTC = 0;                           // the taper curve profile of this picture (0 NORMAL, 1 SHORT, 2 SHORTER, 3 SHARP), set by the tick; kept equal to fw2/ui/layered_wave.inc lw_prof
+  function profile(w, c) {
+    if (c === 1) return w <= 48 ? 0 : Math.min(255, ((w - 48) * 315) >> 8);
+    if (c === 2) return w <= 96 ? 0 : Math.min(255, ((w - 96) * 411) >> 8);
+    if (c === 3) return tdiv(w * w + 127, 255);
+    return w;
+  }
   function win8(tab, q, pos) {             // window 0..255 at pos = a*64 in Q8; q = taper_q 1..20
     const i0 = pos >> 8, fr = pos & 255, i1 = Math.min(64, i0 + 1), t = tab[q - 1];
-    return t[i0] + (((t[i1] - t[i0]) * fr) >> 8);
+    return profile(t[i0] + (((t[i1] - t[i0]) * fr) >> 8), curTC);
   }
   function cr8(h, n, i, f) {               // Catmull-Rom on 0..255 samples (h(j) reads sample j), f in Q8
     const p0 = h(Math.max(i - 1, 0)), p1 = h(Math.min(i, n - 1)), p2 = h(Math.min(i + 1, n - 1)), p3 = h(Math.min(i + 2, n - 1));
@@ -204,7 +211,7 @@
     const cl = colours(ctx);
     // Only the history/band array sizes force a reset (B-523). A forced repaint, a setting change or a moved/resized box just repaints on the next frame and
     // keeps the history, so the meter never restarts when it changes view or enters fullscreen. The frame's own draw wipes the whole box, so no separate wipe.
-    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0].join(',');
+    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0, p.taper_curve | 0].join(',');
     if (!st.init || st.hard !== hard) { reinit(st, ctx, hard); st.geo = geo; }
     else {
         if (st.soft !== soft || ctx.force) st.dirty = true;
@@ -217,6 +224,7 @@
     if (ctx.paused) return;                // the firmware skips drawing while paused: the picture holds
     const cy = Y + (H >> 1), Hh = (H >> 1) - 1;
     st.cnt = 0;
+    curTC = Math.min(3, p.taper_curve | 0);
     const bud = BUDGETS[p.guard | 0];
     if (bud >= 1000000000) st.stride = 1;   // guard OFF: full resolution from the first frame
     const rect = (x, y, w, h, c) => { fb.rect(x, y, w, h, c); st.cnt++; };
