@@ -15,13 +15,14 @@ typedef struct { uint8_t word, shift, width; uint32_t min, max, def; } sf_field_
  *   word 0  Playback + layout version  (layout version 4 bits: 0 = the legacy layout of TAU DEV 181 and older, 1 = this one; which tuning slot is newer; room for shuffle, stretch, speed)
  *   word 1  Appearance                 (accent colour, theme, polarity, font)
  *   word 2  Audio                      (volume, repeat, ReplayGain, Halcyon preset)
- *   word 5  Meters 1                   (the selected meter, the presets of meters 0..5)       word 6 Meters 2 (meters 6..12)       word 15 Meters 3 (meters 13..19)
+ *   word 5  Meters 1                   (the selected meter, the preset positions of meters 0..5)   word 6 Meters 2 (the position of meter 6, the preset ids of meters 0..2)   word 15 Meters 3 (the preset ids of meters 3..6)
  *   words 8..11 and 16, 17, 18, 21     the tuning pool: two slots of four words (a tuning is the delta of ONE meter from its preset, cores/tune_core.h)
  *   words 19, 20                       the last played track (cores/lastplayed_core.h)
  * The Pocket takes 16 persist variables: this is all 16. A word's unused bits are free for later options of its area. */
-#define SF_METERS_MAX 20u              /* meters with a persisted preset: 4 bits each in words 5, 6 and 15 */
+#define SF_METERS_MAX 7u               /* meters with a persisted preset: the list shows seven (tools/player2/gen_meters_p2.py asserts it): a 4-bit position each (meters 0..5 in word 5, meter 6 in word 6) and a 7-bit preset id each (word 6 bits 4..24, word 15 bits 0..27); B-968 */
 enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER, SF_FONT, SF_LAYOUT, SF_TUNE_NEW,
-       SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_MPRE5, SF_MPRE6, SF_MPRE7, SF_MPRE8, SF_MPRE9, SF_MPRE10, SF_MPRE11, SF_MPRE12, SF_MPRE13, SF_MPRE14, SF_MPRE15, SF_MPRE16, SF_MPRE17, SF_MPRE18, SF_MPRE19,
+       SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_MPRE5, SF_MPRE6,
+       SF_MPID0, SF_MPID1, SF_MPID2, SF_MPID3, SF_MPID4, SF_MPID5, SF_MPID6,
        SF_TUNE0, SF_TUNE1, SF_TUNE2, SF_TUNE3, SF_TUNE4, SF_TUNE5, SF_TUNE6, SF_TUNE7, SF_LAST0, SF_LAST1, SF_COUNT };
 #define SF_LAYOUT_VERSION 1u
 #define SF_WORDS 32u                   /* the register file: 32 words (the wide file; an older 16-word bitstream cannot hold word 16 and up) */
@@ -38,10 +39,13 @@ static const sf_field_t sf_table[SF_COUNT] = {
     { 1u, 12u, 3u,  0u, 7u,   0u  },   /* the font: 0 = the font the bitstream powers up with (Tamzen Regular), 1 Tamzen Bold, 2 Space Grotesk SemiBold, 3 Space Grotesk Bold, 4..7 from tau-assets.bin */
     { 0u, 27u, 4u,  0u, 15u,  SF_LAYOUT_VERSION },   /* the layout version (0 = legacy: the word is a volume 0..100), a fresh card defaults to this layout */
     { 0u, 26u, 1u,  0u, 1u,   0u  },   /* which tuning slot was saved last (0 = slot A, words 8..11; 1 = slot B): the other one is evicted next */
-    /* the selected preset of each meter in the table order, four bits each: word 5 holds meters 0..5 above the meter choice, word 6 meters 6..12, word 15 meters 13..19 */
+    /* the selected preset of each meter in the table order, four bits each (the POSITION in the pack's own list, used when the meter has no preset files): word 5 holds meters 0..5 above the meter choice, word 6 meter 6 */
     { 5u,  6u, 4u, 0u, 15u, 0u }, { 5u, 10u, 4u, 0u, 15u, 0u }, { 5u, 14u, 4u, 0u, 15u, 0u }, { 5u, 18u, 4u, 0u, 15u, 0u }, { 5u, 22u, 4u, 0u, 15u, 0u }, { 5u, 26u, 4u, 0u, 15u, 0u },
-    { 6u,  0u, 4u, 0u, 15u, 0u }, { 6u,  4u, 4u, 0u, 15u, 0u }, { 6u,  8u, 4u, 0u, 15u, 0u }, { 6u, 12u, 4u, 0u, 15u, 0u }, { 6u, 16u, 4u, 0u, 15u, 0u }, { 6u, 20u, 4u, 0u, 15u, 0u }, { 6u, 24u, 4u, 0u, 15u, 0u },
-    { 15u, 0u, 4u, 0u, 15u, 0u }, { 15u, 4u, 4u, 0u, 15u, 0u }, { 15u, 8u, 4u, 0u, 15u, 0u }, { 15u, 12u, 4u, 0u, 15u, 0u }, { 15u, 16u, 4u, 0u, 15u, 0u }, { 15u, 20u, 4u, 0u, 15u, 0u }, { 15u, 24u, 4u, 0u, 15u, 0u },
+    { 6u,  0u, 4u, 0u, 15u, 0u },
+    /* the preset FILE each meter was set to, seven bits each: 0 = none (the meter's defaults), else the preset's id + 1 (ids 0..126); word 6 holds meters 0..2 in bits 4..24, word 15 meters 3..6 in bits 0..27 (B-968: unused bits of
+     * words 6 and 15 before, so a card saved earlier reads 0 = none) */
+    { 6u,  4u, 7u, 0u, 127u, 0u }, { 6u, 11u, 7u, 0u, 127u, 0u }, { 6u, 18u, 7u, 0u, 127u, 0u },
+    { 15u, 0u, 7u, 0u, 127u, 0u }, { 15u, 7u, 7u, 0u, 127u, 0u }, { 15u, 14u, 7u, 0u, 127u, 0u }, { 15u, 21u, 7u, 0u, 127u, 0u },
     /* the tuning pool: slot A = words 8..11 (persist ids 20..23), slot B = words 16, 17, 18, 21 (ids 27, 28, 29 and the new id 33); 31 bits each (cores/tune_core.h) */
     SF_T31(8u), SF_T31(9u), SF_T31(10u), SF_T31(11u), SF_T31(16u), SF_T31(17u), SF_T31(18u), SF_T31(21u),
     /* the last played track (cores/lastplayed_core.h): words 19 and 20 = persist ids 31 and 32 (a record that fails its check is ignored) */

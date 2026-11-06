@@ -6,6 +6,8 @@
 #define P2_MPD_T
 /* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off, 3 colour (a raw RGB565 value, edited by the picker); shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
 typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
+/* the hash of a parameter's manifest key and its default: what the preset files need (fw2/cores/mpreset_core.h) */
+typedef struct { uint16_t key, def; } mpkd_t;
 #endif
 enum { MPP_BARS_BANDS, MPP_BARS_EASE, MPP_BARS_ATTACK, MPP_BARS_RELEASE, MPP_BARS_PEAK_ON, MPP_BARS_PEAK_GRAVITY, MPP_BARS_PEAK_HOLD_MS, MPP_BARS_PEAK_FALL, MPP_BARS_N };
 #define MPP_BARS_PRESETS 5u
@@ -30,6 +32,7 @@ static const mpd_t mpd_bars[8] = {
     { "PEAK FALL SPEED", 0, 0, 1, 100, 5, 0, 0, 4, 1 },
 };
 #define MPD_BARS_N 8u
+static const mpkd_t mpk_bars[8] = { { 21971, 16 }, { 43980, 2 }, { 64872, 55 }, { 48712, 22 }, { 33611, 1 }, { 23252, 1 }, { 7379, 200 }, { 61888, 35 } };
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_SCOPE_SCOPE_SMOOTH, MPP_SCOPE_SCOPE_TRAIL, MPP_SCOPE_N };
@@ -47,6 +50,7 @@ static const mpd_t mpd_scope[2] = {
     { "SCOPE TRAIL", 0, 0, 0, 80, 5, 0, 0, 255, 0 },
 };
 #define MPD_SCOPE_N 2u
+static const mpkd_t mpk_scope[2] = { { 65501, 35 }, { 17604, 30 } };
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
@@ -75,6 +79,7 @@ static const mpd_t mpd_chl[11] = {
     { "PAINT", 1, 0, 0, 2, 1, 3, mpl_chl_paint, 255, 0 },
 };
 #define MPD_CHL_N 11u
+static const mpkd_t mpk_chl[11] = { { 46654, 0 }, { 3687, 1245 }, { 43832, 3 }, { 26059, 668 }, { 65338, 401 }, { 20207, 63 }, { 56824, 391 }, { 18242, 26 }, { 7599, 600 }, { 18971, 0 }, { 40331, 0 } };
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
@@ -95,6 +100,7 @@ static const mpd_t mpd_vu[5] = {
     { "RED", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
 };
 #define MPD_VU_N 5u
+static const mpkd_t mpk_vu[5] = { { 2225, 1 }, { 56651, 0 }, { 16309, 0 }, { 14751, 0 }, { 56836, 0 } };
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
@@ -123,6 +129,7 @@ static const mpd_t mpd_wf[7] = {
     { "DIRECTION", 1, 0, 0, 1, 1, 2, mpl_wf_flow, 0, 0 },
 };
 #define MPD_WF_N 7u
+static const mpkd_t mpk_wf[7] = { { 3196, 0 }, { 48128, 90 }, { 15786, 100 }, { 62569, 8 }, { 30078, 450 }, { 5708, 1 }, { 43869, 1 } };
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
@@ -143,6 +150,7 @@ static const mpd_t mpd_smp[4] = {
     { "SECONDS PER COLUMN", 0, 0, 1, 10, 1, 0, 0, 0, 2 },
 };
 #define MPD_SMP_N 4u
+static const mpkd_t mpk_smp[4] = { { 3196, 0 }, { 15786, 100 }, { 62569, 8 }, { 43968, 1 } };
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"

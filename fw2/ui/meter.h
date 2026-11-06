@@ -29,6 +29,7 @@ typedef struct {
 #define P2_MPD_T
 /* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off, 3 colour (a raw RGB565 value); shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
 typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
+typedef struct { uint16_t key, def; } mpkd_t;                 /* the hash of a parameter's manifest key and its default (generated, fw2/generated/meter_presets.h): what the preset files need */
 #endif
 typedef struct {
     const char *name; void (*tick)(const mtr_in_t *in);
@@ -81,6 +82,9 @@ uint32_t    meters_self_degrade(uint32_t meter);   /* the meter's own degrade le
 uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of a meter */
 void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
 void        meters_preset_next(void);
+uint32_t    meters_preset_pos_saved(uint32_t meter);   /* what is persisted for the meter's preset: the position in the pack's own list (0 when a preset file is chosen) */
+uint32_t    meters_preset_id_saved(uint32_t meter);    /* and the preset FILE chosen: 0 = none, else its id + 1 */
+void        meters_preset_restore(uint32_t meter, uint32_t id1, uint32_t pos);   /* the persisted choice at boot: the file with id id1 - 1 (applied when the meter's files are in use, else when they come into use; gone: the defaults), or the position */
 void        meters_ext_enter(uint32_t meter);          /* the meter is now on screen: its preset files, when it has them, become its preset list (boot: call with the saved meter before the saved presets are applied) */
 uint32_t    meters_npre(uint32_t meter);               /* presets of a meter: the built-in ones, or the METR file's */
 #ifdef P2_PACKS

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | meter 5 | preset 4 | count 4 | count x { index 6 | value n bits } in
+"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | meter 5 | preset 7 | count 4 | count x { index 6 | value n bits } in
 4 words of 31 bits), the C reader must give back what the Python writer stored, and anything else (zeros, a flipped bit, an index past the table, a value past its maximum) is refused.
 Mutant: the check byte ignores the data."""
 import random, subprocess, sys, tempfile
@@ -24,13 +24,32 @@ def py_pack(meter, preset, mv, base, mx):
     def put(pos, v, n):
         for i in range(n): bits[pos + i] = (v >> i) & 1
         return pos + n
-    pos, n = 21, 0
+    pos, n = 24, 0
     py_pack.last = []
     for i in range(len(mv)):
         if mv[i] == base[i] or n >= 15: continue
         nb = nbits(mx[i])
         if pos + 6 + nb > 124: continue
         pos = put(pos, i, 6); pos = put(pos, mv[i], nb); n += 1; py_pack.last.append((i, mv[i]))
+    if not n: return 0, [0, 0, 0, 0]
+    put(8, meter & 31, 5); put(13, preset & 127, 7); put(20, n, 4)
+    b = [sum(bits[8 * k + j] << j for j in range(8)) for k in range(16)]
+    c = 0x5A                                       # the seed of the 7-bit-preset layout (0xA5 was the 4-bit one): a tuning saved in the earlier layout is refused (reset once, B-968)
+    for k in range(1, 16): c = (((c << 1) | (c >> 7)) & 255); c = (c + b[k]) & 255
+    put(0, c, 8)
+    return n, [sum(bits[31 * k + j] << j for j in range(31)) for k in range(4)]
+def py_pack_old(meter, preset, mv, base, mx):
+    """the layout before B-968, for the check that a tuning saved then is refused: check 8 | meter 5 | preset 4 | count 4 | entries from bit 21, seed 0xA5"""
+    bits = [0] * 128
+    def put(pos, v, n):
+        for i in range(n): bits[pos + i] = (v >> i) & 1
+        return pos + n
+    pos, n = 21, 0
+    for i in range(len(mv)):
+        if mv[i] == base[i] or n >= 15: continue
+        nb = nbits(mx[i])
+        if pos + 6 + nb > 124: continue
+        pos = put(pos, i, 6); pos = put(pos, mv[i], nb); n += 1
     if not n: return 0, [0, 0, 0, 0]
     put(8, meter & 31, 5); put(13, preset & 15, 4); put(17, n, 4)
     b = [sum(bits[8 * k + j] << j for j in range(8)) for k in range(16)]
@@ -45,7 +64,7 @@ def rand_case():
     mx = [rng.choice([1, 1, 3, 11, 15, 100, 255, 400, 65535]) for _ in range(np_)]
     base = [rng.randint(0, m) for m in mx]
     mv = [rng.randint(0, m) if rng.random() < 0.3 else b for m, b in zip(mx, base)]
-    return rng.randint(0, 31), rng.randint(0, 15), mv, base, mx
+    return rng.randint(0, 31), rng.randint(0, 127), mv, base, mx
 def scenario(exe):
     ok = {}
     cases = [rand_case() for _ in range(300)]
@@ -76,6 +95,13 @@ def scenario(exe):
     ok["an entry whose index is past the meter's table is refused"] = r[0].startswith("0")
     r = run(exe, f"U {' '.join(map(str, w))} 4\n2 255 65535 3\n")
     ok["a value above the parameter's maximum is refused"] = r[0].startswith("0")
+    r2 = random.Random(11); refused = 0; total = 0
+    for _ in range(60):
+        np_ = r2.randint(1, 40); mx2 = [r2.choice([1, 3, 15, 255, 65535]) for _ in range(np_)]; base2 = [r2.randint(0, m) for m in mx2]; mv2 = [r2.randint(0, m) if r2.random() < 0.4 else b for m, b in zip(mx2, base2)]
+        n2, w2 = py_pack_old(r2.randint(0, 6), r2.randint(0, 15), mv2, base2, mx2)
+        if not n2: continue
+        total += 1; rr = run(exe, f"U {' '.join(map(str, w2))} {np_}\n{' '.join(map(str, mx2))}\n"); refused += rr[0].startswith("0")
+    ok["a tuning saved in the earlier layout (4-bit preset) is refused: reset once (%d of %d)" % (refused, total)] = total > 30 and refused >= total - 1
     n, w = py_pack(0, 0, [1] * 40, [0] * 40, [1] * 40)
     ok["only what fits is stored (40 changed flags: the rest are dropped, not corrupted)"] = 0 < n < 40
     return ok

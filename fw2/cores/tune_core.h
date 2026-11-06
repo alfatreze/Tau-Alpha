@@ -1,6 +1,7 @@
 /* fw2/cores/tune_core.h -- saving a tuned meter (the Configure page's edits). The persisted words 8..11 (interact.json ids 20..23, 31 bits each = 124 bits; the old Check summary used them, Player 2 does not) hold ONE
- * tuning: which meter, which preset it started from and the parameters that differ from that preset, so a tuning survives a restart. Layout, least significant bit first, 31 bits of each word in order:
- *   check 8 | meter 5 | preset 4 | count 4 | count x { index 6 | value, as many bits as the parameter's largest value needs }
+ * tuning: which meter, which preset it started from and the parameters that differ from that preset, so a tuning survives a restart. Layout, least significant bit first, 31 bits of each word in order (B-968: `preset` grew
+ * from 4 to 7 bits, the anchor is now the preset FILE's id + 1 when the meter runs on preset files, else the position in the pack's list; the check's seed changed too, so a tuning saved in the earlier layout is refused: reset once):
+ *   check 8 | meter 5 | preset 7 | count 4 | count x { index 6 | value, as many bits as the parameter's largest value needs }
  * `check` folds the bytes after it (so zeros and a stale Check summary are refused). Parameters are taken in index order until the bits run out (the rest go back to the preset after a restart).
  * Pure, host-tested (sim/test_p2_tune.py against an independent Python implementation of this layout). */
 #ifndef TUNE_CORE_H
@@ -17,10 +18,10 @@ static inline void tune_put(uint8_t *b, uint32_t *pos, uint32_t v, uint32_t n) {
 static inline uint32_t tune_get(const uint8_t *b, uint32_t *pos, uint32_t n) { uint32_t v = 0; for (uint32_t i = 0; i < n; i++, (*pos)++) v |= (uint32_t)((b[*pos >> 3] >> (*pos & 7u)) & 1u) << i; return v; }
 static inline uint8_t tune_check(const uint8_t *b)
 {
-    uint8_t c = 0xA5u;
+    uint8_t c = 0x5Au;                                                                      /* the seed of the layout with a 7-bit preset (0xA5 was the 4-bit one) */
     for (uint32_t i = 1; i < 16u; i++) { c = (uint8_t)((c << 1) | (c >> 7)); c = (uint8_t)(c + b[i]); }
 #if BUG == 1
-    c = 0xA5u;                                                                              /* mutant: the check ignores the data */
+    c = 0x5Au;                                                                              /* mutant: the check ignores the data */
 #endif
     return c;
 }
@@ -30,7 +31,7 @@ static inline void tune_from_words(const uint32_t *w, uint8_t *b) { for (uint32_
 static inline uint32_t tune_pack(uint32_t meter, uint32_t preset, const uint16_t *mv, const uint16_t *base, const uint16_t *max, uint32_t np, uint32_t *w)
 {
     uint8_t b[16]; for (uint32_t i = 0; i < 16u; i++) b[i] = 0;
-    uint32_t pos = 21u, n = 0, cnt_pos = 17u;
+    uint32_t pos = 24u, n = 0, cnt_pos = 20u;
     for (uint32_t i = 0; i < np && i < 63u && n < 15u; i++) {
         if (mv[i] == base[i]) continue;
         const uint32_t nb = tune_nbits(max[i]);
@@ -38,7 +39,7 @@ static inline uint32_t tune_pack(uint32_t meter, uint32_t preset, const uint16_t
         tune_put(b, &pos, i, 6u); tune_put(b, &pos, mv[i], nb); n++;
     }
     if (!n) { for (uint32_t k = 0; k < TUNE_WORDS; k++) w[k] = 0; return 0; }
-    uint32_t hp = 8u; tune_put(b, &hp, meter & 31u, 5u); tune_put(b, &hp, preset & 15u, 4u); tune_put(b, &cnt_pos, n, 4u);
+    uint32_t hp = 8u; tune_put(b, &hp, meter & 31u, 5u); tune_put(b, &hp, preset & 127u, 7u); tune_put(b, &cnt_pos, n, 4u);
     uint32_t cp = 0; tune_put(b, &cp, tune_check(b), 8u);
     tune_to_words(b, w);
     return n;
@@ -47,7 +48,7 @@ static inline uint32_t tune_pack(uint32_t meter, uint32_t preset, const uint16_t
 static inline uint32_t tune_unpack(const uint32_t *w, const uint16_t *(*max_of)(uint32_t meter, uint32_t *np), uint32_t *meter, uint32_t *preset, uint8_t *idx, uint16_t *val)
 {
     uint8_t b[16]; tune_from_words(w, b);
-    uint32_t pos = 0; const uint32_t chk = tune_get(b, &pos, 8u); *meter = tune_get(b, &pos, 5u); *preset = tune_get(b, &pos, 4u); const uint32_t n = tune_get(b, &pos, 4u);
+    uint32_t pos = 0; const uint32_t chk = tune_get(b, &pos, 8u); *meter = tune_get(b, &pos, 5u); *preset = tune_get(b, &pos, 7u); const uint32_t n = tune_get(b, &pos, 4u);
     if (!n || chk != tune_check(b)) return 0;
     uint32_t np = 0; const uint16_t *max = max_of(*meter, &np);
     if (!max) return 0;

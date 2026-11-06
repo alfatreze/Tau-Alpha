@@ -4,7 +4,7 @@
   2. the property the old METR section lacked: a preset written for a meter with FEWER parameters (a key missing) keeps working, the new parameter takes its default; a key the meter does not have is ignored;
   3. a value outside a parameter's range is clamped (the writer refuses to write one, so the file is made by hand);
   4. refusals: a wrong meter id, a wrong preset id, a truncated file, an oversize file, and EVERY single-byte change of every factory file of a meter (the CRC covers it);
-  5. the index: 200 presets (the most one 4 KB read holds), names, hidden flag, the position of an id after a reorder;
+  5. the index: 127 presets (ids 0..126, the most the 7-bit persisted field holds), names, hidden flag, the position of an id after a reorder;
   6. the writer refuses: an unknown key, an out-of-range value, a 16-character name, two parameter keys with one hash (checked over every manifest's keys);
   7. mutants: the clamp left out is caught by 3.
 Host-simulated only."""
@@ -85,10 +85,10 @@ with tempfile.TemporaryDirectory() as td:
         try: fn(); return False
         except ValueError: return True
     # 5. the index
-    many = [{"id": i, "name": "PRESET %d" % i, "hidden": i % 7 == 0} for i in range(200)]
+    many = [{"id": i, "name": "PRESET %d" % i, "hidden": i % 7 == 0} for i in range(127)]
     f = tmp / "i.bin"; f.write_bytes(mp.build_index(mid, many)); o = run(exe, "idx", f, mid)
-    check("an index of 200 presets (the most one 4 KB read holds) reads back (names, ids, the hidden flag)", o[0] == "idx 0 200" and o[1] == "0 1 PRESET 0" and o[-1] == "199 0 PRESET 199", (o[0], o[1] if len(o) > 1 else "", o[-1]))
-    check("an index of 201 presets is refused by the writer, and by the reader when one is made by hand", refuses(lambda: mp.build_index(mid, [{"id": i, "name": "P"} for i in range(201)])))
+    check("an index of 127 presets (ids 0..126, the most the persisted 7-bit field holds) reads back (names, ids, the hidden flag)", o[0] == "idx 0 127" and o[1] == "0 1 PRESET 0" and o[-1] == "126 1 PRESET 126", (o[0], o[1] if len(o) > 1 else "", o[-1]))
+    check("an index of 128 presets, or an id of 127, is refused by the writer", refuses(lambda: mp.build_index(mid, [{"id": i, "name": "P"} for i in range(128)])) and refuses(lambda: mp.build_index(mid, [{"id": 127, "name": "P"}])))
     reordered = mp.build_index(mid, [{"id": 7, "name": "SEVEN"}, {"id": 2, "name": "TWO"}, {"id": 40, "name": "FORTY"}]); f.write_bytes(reordered)
     check("the position of an id follows the list: ids 7, 2, 40 are at 0, 1, 2 and id 5 is not there", [run(exe, "find", f, i)[0] for i in (7, 2, 40, 5)] == ["find 0", "find 1", "find 2", "find -1"])
     # 6. the writer refuses

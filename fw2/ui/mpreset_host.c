@@ -94,6 +94,21 @@ P2_COLD_TEXT void mph_name(uint32_t pos, char *out)
     if (pos == 0u) { const char *s = "DEFAULT"; uint32_t k = 0; for (; s[k]; k++) out[k] = s[k]; out[k] = 0; return; }
     if (pos <= idx_n) idx_name_at(pos - 1u, out, 0);
 }
+P2_COLD_TEXT uint32_t mph_id1(uint32_t pos)
+{
+    char nm[MP_NAME]; uint8_t id;
+    if (pos == 0u || pos > idx_n) return 0u;
+    idx_name_at(pos - 1u, nm, &id); return (uint32_t)id + 1u;
+}
+P2_COLD_TEXT int mph_find(uint32_t id1)
+{
+    if (!id1) return -1;
+#if BUG == 13
+    return (int)id1 <= (int)idx_n ? (int)id1 : -1;                                          /* mutant: the remembered id taken for a list position */
+#endif
+    for (uint32_t i = 1u; i <= idx_n; i++) if (mph_id1(i) == id1) return (int)i;
+    return -1;
+}
 P2_COLD_TEXT int mph_values(uint32_t mid, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals)
 {
     if (pos == 0u) { mp_defaults(ps, np, vals); return 1; }
