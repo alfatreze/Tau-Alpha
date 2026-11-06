@@ -146,7 +146,7 @@ static const mpd_t mpd_smp[4] = {
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
-static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
+static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM", "SCROLL" };
 static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };
 static const char *const mpl_lw_nest[] = { "NESTED", "OVERLAP" };
@@ -161,7 +161,7 @@ static const char *const mpl_lw_aa[] = { "OFF", "EDGE 2", "EDGE 4", "EDGE 8" };
 static const char *const mpl_lw_bmode[] = { "OFF", "ALPHA", "AVERAGE", "ADD", "SUBTRACT", "ADD QUARTER" };
 static const char *const mpl_lw_guard[] = { "ON", "RELAXED", "OFF" };
 static const mpd_t mpd_lw[34] = {
-    { "VIEW", 1, 0, 0, 1, 1, 2, mpl_lw_view, 255, 0 },
+    { "VIEW", 1, 0, 0, 2, 1, 3, mpl_lw_view, 255, 0 },
     { "LAYERS", 0, 0, 1, 6, 1, 0, 0, 255, 0 },
     { "LAYER SPLIT", 1, 0, 0, 4, 1, 5, mpl_lw_split, 255, 0 },
     { "OUTER LAYER", 1, 0, 0, 1, 1, 2, mpl_lw_outer, 255, 0 },

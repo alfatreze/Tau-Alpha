@@ -25,11 +25,14 @@
 #if !defined(LW_TIME_GUARD) && !defined(P2_HOST)           /* on the real CPU the cost guard counts CPU time (B-948); the host builds keep the command-count rule the golden test compares. The simulated-clock test defines it itself. */
 #define LW_TIME_GUARD 1
 #endif
+#define LW_SCROLL_VIEW 1                                   /* the SCROLL view (B-952) needs the engine's copy: gfx_scroll_left (ABI 1.2) */
+#define lw_scroll_left gfx_scroll_left
 #ifdef P2_PACK                                            /* code placement against instruction-cache conflicts: see the comment in layered_wave.inc and fw2/ui/meter_pack.ld */
 #define LW_HOT   __attribute__((section(".text.pk_hot")))
 #define LW_VIEW1 __attribute__((section(".text.pk_view1")))
 #define LW_VIEW2 __attribute__((section(".text.pk_view2")))
 #define LW_VIEW3 __attribute__((section(".text.pk_view3")))
+#define LW_VIEW4 __attribute__((section(".text.pk_view4")))
 #endif
 #define MV_LAYERED_WAVE(n) ((int32_t)lw_mv[MP_LAYERED_WAVE_##n])
 #define paused (in->paused)

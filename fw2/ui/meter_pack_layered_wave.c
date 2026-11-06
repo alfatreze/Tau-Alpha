@@ -1,6 +1,7 @@
 /* Layered Wave as a loadable meter pack: meter_layered_wave.c included unchanged under P2_PACK (see meter_pack_winamp_bars.c). Its 6 x 404-byte history ring is the pack's own PSRAM state (.pstate, in the slot after
  * the image, zeroed on activation and proven before first use); the rest of its working state is in the on-chip scratch. Build: tools/player2/pack_meter.py layered_wave. */
 #define P2_PACK 1
+#define MTR_PACK_NEEDS_MINOR 2                    /* gfx_scroll_left (ABI 1.2): the SCROLL view */
 #include <stdint.h>
 #include "meter_pack.h"
 #include "theme.h"
@@ -11,6 +12,7 @@ static const mtr_host_api_t *g_api;
 static uint32_t g_cmds;
 #define gfx_rect(...)   (g_cmds++, g_api->rect(__VA_ARGS__))
 #define gfx_text(...)   (g_cmds++, g_api->text(__VA_ARGS__))
+#define gfx_scroll_left(...) (g_cmds++, g_api->scroll_left(__VA_ARGS__))
 #undef  th_role
 #define th_role         g_api->role
 #include "../generated/desc_layered_wave.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */
