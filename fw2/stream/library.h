@@ -9,6 +9,7 @@ extern uint32_t lib_ms;           /* load time */
 extern uint32_t lib_n_tracks;
 void     library_load(void);
 uint32_t library_path(uint32_t id, char *out, uint32_t cap);      /* returns the length, 0 on failure */
+uint32_t library_root(char *out, uint32_t cap);                     /* the media root of the loaded library, 0 when none (the meter presets live under it: tau-presets/<meter id>/) */
 uint32_t library_albums(void);                                     /* the loaded index's album and artist counts (0 when no library is loaded): the About page */
 uint32_t library_artists(void);
 uint32_t library_size(uint32_t id);                                 /* bytes from the details record, 0 when the index has none */

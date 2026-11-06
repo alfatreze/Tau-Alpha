@@ -163,6 +163,7 @@ test-host:
 	$(PYTHON) sim/test_p2_lw_params.py
 	$(PYTHON) sim/test_layered_wave_flow.py
 	$(PYTHON) sim/test_p2_mpreset.py
+	$(PYTHON) sim/test_p2_mpreset_meters.py
 	$(PYTHON) sim/test_p2_sdram_soak.py
 	$(PYTHON) sim/test_p2_scope_trail.py
 	$(PYTHON) sim/test_p2_chladni_dbuf.py

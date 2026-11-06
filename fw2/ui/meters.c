@@ -84,13 +84,24 @@ static uint8_t tune_meter[TUNE_SLOTS] = { 0xFFu, 0xFFu }, tune_newer;
 static void tune_clear_slot(uint32_t s) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = 0; tune_meter[s] = 0xFFu; }
 static void tune_drop(uint32_t m) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_meter[s] == m) tune_clear_slot(s); }       /* any tuning of meter m */
 uint32_t meters_npre(uint32_t m) { return m >= meter_count || !meters_present(m) ? 1u : user_n[m] ? user_n[m] : def_npre(m); }
-static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)       /* reads preset p of meter m from the PSRAM copy */
+#ifndef P2_PACKS
+void meters_ext_enter(uint32_t m) { (void)m; }                      /* no loadable meters in this build: nothing to switch over */
+#endif
+#ifdef P2_PACKS
+static uint8_t ext_m = 0xFFu, ext_prev, ext_seen;                          /* the meter whose preset files are in use (its index is cached), the user_n it had before, which meters have been switched over */
+static int ext_get(uint32_t m, uint32_t p, uint16_t *vals, char *name);
+#endif
+static int user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)       /* reads preset p of meter m from the PSRAM copy (or, for the meter whose preset files are in use, from them); 0 when it cannot be read now */
 {
+#ifdef P2_PACKS
+    if (m == ext_m) return ext_get(m, p, vals, name);
+#endif
     uint8_t buf[96]; metr_e_t e = ue[m]; const uint32_t at = e.off + p * e.psize, w0 = at & ~3u, w1 = (at + e.psize + 3u) & ~3u;
     for (uint32_t w = w0; w < w1; w += 4u) { const uint32_t v = METR_PSRAM[w >> 2]; for (uint32_t k = 0; k < 4u && w - w0 + k < sizeof buf; k++) buf[w - w0 + k] = (uint8_t)(v >> (8u * k)); }
     e.off = at - w0; e.psize = 0u;
     if (name) metr_name(buf, &e, 0u, name);
     if (vals) metr_values(buf, &e, 0u, shapes(m), mdef(m)->np, vals);
+    return 1;
 }
 void meters_init(void) {
 #ifdef P2_PACKS
@@ -118,9 +129,9 @@ void meters_preset_select(uint32_t m, uint32_t p)
     if (m >= METER_SLOTS) return;
     if (!meters_present(m)) { pre[m] = (uint8_t)(p & 15u); return; }                  /* a pack-only meter whose pack is not there now: its saved preset is kept as it is, not lost */
     if (p >= meters_npre(m)) p = 0u;
-    pre[m] = (uint8_t)p; custom[m] = 0u; tune_drop(m);
-    if (user_n[m]) { uint16_t v[40]; user_preset(m, p, v, 0); const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np; i++) d->mv[i] = v[i]; def_apply(m); }
+    if (user_n[m]) { uint16_t v[40]; if (!user_preset(m, p, v, 0)) return; const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np; i++) d->mv[i] = v[i]; def_apply(m); }      /* a preset file that cannot be read now (busy, damaged): the meter keeps what it has */
     else def_set_pre(m, p);
+    pre[m] = (uint8_t)p; custom[m] = 0u; tune_drop(m);
     if (m == cur) force_next = 1;
 }
 void meters_preset_next(void) { meters_preset_select(cur, (pre[cur] + 1u) % meters_npre(cur)); }
@@ -147,7 +158,7 @@ void meters_tune_save(uint32_t m)            /* the parameters of meter m were e
     if (!custom[m]) { tune_drop(m); return; }
     uint16_t keep[40], base[40];
     for (uint32_t i = 0; i < d->np && i < 40u; i++) keep[i] = d->mv[i];
-    if (user_n[m]) user_preset(m, pre[m], base, 0); else { def_set_pre(m, pre[m]); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
+    if (user_n[m]) { if (!user_preset(m, pre[m], base, 0)) { tune_drop(m); return; } } else { def_set_pre(m, pre[m]); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
     for (uint32_t i = 0; i < d->np && i < 40u; i++) d->mv[i] = keep[i];
     def_apply(m);
     uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np);
@@ -201,11 +212,12 @@ void meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
     gfx_rect(x, y, w, h, th_role[TR_BG_BOTTOM]);
     last_t = cycles();
 }
-void meters_select(uint32_t idx) { cur = idx < meter_count && meters_present(idx) ? idx : 0u; force_next = 1; }
+void meters_select(uint32_t idx) { cur = idx < meter_count && meters_present(idx) ? idx : 0u; force_next = 1; meters_ext_enter(cur); }
 void meters_next(int dir)
 {
     for (uint32_t k = 0; k < METER_SLOTS; k++) { cur = dir > 0 ? (cur + 1u) % meter_count : (cur + meter_count - 1u) % meter_count; if (meters_present(cur)) break; }      /* skipping a row whose pack is not there */
     force_next = 1;                                  /* the new meter repaints everything, the old picture is erased by its forced clear */
+    meters_ext_enter(cur);
 }
 
 static int fetch(uint32_t *m)                        /* a new window, read coherently (the counter must not move while the 16 means are read) */
@@ -349,6 +361,41 @@ static const char *dyn_pre_name(uint32_t k, uint32_t p)
     nm[0] = 0;
     if (dyn[k].ok && md_header(desc_rd, &dyn[k], dyn[k].len, &h) && md_preset(desc_rd, &dyn[k], &h, p < h.npre ? p : 0u, &no, v)) md_string(desc_rd, &dyn[k], &h, no, nm, sizeof nm);
     return nm;
+}
+/* ---- the preset files (B-967; fw2/ui/mpreset_host.c, formats in fw2/cores/mpreset_core.h) ----------------------------------------------------------------------------------------------------------------------------- */
+#include "mpreset_host.h"
+#ifndef MPH_REAL                                                      /* a host test that does not run the preset files (the real ones are in fw2/ui/mpreset_host.c): nothing found */
+__attribute__((weak)) uint32_t mph_enter(uint32_t mid) { (void)mid; return 0u; }
+__attribute__((weak)) void mph_name(uint32_t pos, char *out) { (void)pos; out[0] = 0; }
+__attribute__((weak)) int mph_values(uint32_t mid, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals) { (void)mid; (void)pos; (void)ps; (void)np; (void)vals; return 0; }
+#endif
+static uint32_t ext_params(uint32_t m, mp_param_t *ps)               /* the meter's parameters as the preset reader needs them (key hash, range, default), from its descriptor */
+{
+    const uint32_t k = m - METER_N; md_hdr_t h; uint32_t n = 0;
+    if (m < METER_N || !dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return 0u;
+    for (uint32_t i = 0; i < h.np && i < 40u; i++) { md_param_t p; if (!md_param(desc_rd, &dyn[k], &h, i, &p)) break; ps[n].key = p.key; ps[n].min = p.min; ps[n].max = p.max; ps[n].def = p.def; n++; }
+    return n;
+}
+static int ext_get(uint32_t m, uint32_t p, uint16_t *vals, char *name)
+{
+    if (name) mph_name(p, name);
+    if (!vals) return 1;
+    mp_param_t ps[40]; const uint32_t np = ext_params(m, ps);
+    return np && mph_values(mid_of(m), p, ps, np, vals);
+}
+static void ext_drop(void) { if (ext_m != 0xFFu) { user_n[ext_m] = ext_prev; ext_m = 0xFFu; } }
+void meters_ext_enter(uint32_t m)                                    /* meter m is now the one on screen: its preset files (when it has an index) become its list: [DEFAULT] + the index */
+{
+    if (m < METER_N || m >= METER_SLOTS || !meters_present(m)) { ext_drop(); return; }
+    if (m == ext_m) return;
+    ext_drop();
+    const uint32_t n = mph_enter(mid_of(m));
+    if (!n) return;                                                  /* no files, damaged, or the governor is busy: the descriptor's own presets stay */
+    ext_m = (uint8_t)m; ext_prev = user_n[m]; user_n[m] = (uint8_t)(n + 1u);
+    if (!(ext_seen >> m & 1u)) {                                     /* the first time this meter is switched over: its remembered position now means a place in the new list; a tuned meter keeps what it is */
+        ext_seen = (uint8_t)(ext_seen | (1u << m));
+        if (!custom[m]) meters_preset_select(m, pre[m] < user_n[m] ? pre[m] : 0u);
+    }
 }
 int meters_present(uint32_t m) { return m < METER_N || (m < METER_SLOTS && dyn[m - METER_N].ok && pack_slot[m].status != 0xFFu); }
 static const meter_def_t *mdef(uint32_t m)

@@ -15,7 +15,7 @@ bs = (ROOT / "fw2/build.sh").read_text()
 filt = re.search(r'case "\$s" in (.*?)\) ;;', bs).group(1)
 check("the register lists exactly the sources build.sh filters when DIAG=0", sorted(re.findall(r"\*/(diagnostics/\w+\.c)", filt)) == sorted(s.replace("fw2/", "") for s in reg["sources_left_out_when_off"]), filt)
 def build(diag, td):
-    env = {"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(Path.home()), "TAU_BUILD_OUT": td, "DIAG": str(diag)}
+    env = {"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(Path.home()), "TAU_BUILD_OUT": td, "DIAG": str(diag), "PACKS": "1"}                                   # the shipped builds carry the packs (the preset-file rows MPX ... exist only with them)
     r = subprocess.run(["bash", "fw2/build.sh"], cwd=ROOT, env=env, capture_output=True, text=True)
     if r.returncode: print(r.stdout[-2000:], r.stderr[-2000:]); sys.exit(1)
     elf = Path(td) / "player2/fw2.elf"
