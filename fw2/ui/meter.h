@@ -63,6 +63,8 @@ extern const meter_def_t meter_table[];                 /* the built-in rows (0.
 extern uint32_t meter_count;                            /* the rows in use: a pack-only meter's row (METER_N..) exists only while its pack is installed with a sound descriptor */
 int         meters_present(uint32_t row);               /* the row has a meter (rows in between may be absent) */
 const meter_def_t *meters_def(uint32_t row);            /* the row's definition (a pack-only row's Configure descriptors are copied to hot RAM on first use and stay until another pack-only row is asked for) */
+const char *meters_param_label(uint32_t row, uint32_t id, char *buf, uint32_t n);                  /* a Configure row's label: static for a built-in meter, read from the pack's slot into buf for a pack-only one (the pointer is buf or a static string) */
+const char *meters_param_choice(uint32_t row, uint32_t id, uint32_t val, char *buf, uint32_t n);          /* the name of choice `val` of a choice parameter, the same way */
 uint32_t    meters_list_count(void);                    /* the METER list: the meters that are there, in row order */
 uint32_t    meters_list_row(uint32_t i);                /* list position -> row (the saved meter index) */
 uint32_t    meters_list_index(uint32_t row);            /* row -> list position */

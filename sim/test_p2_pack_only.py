@@ -19,17 +19,21 @@ def build(td, mutant=None):
     (d / "sim").mkdir(exist_ok=True)
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "listed": a = "int meters_present(uint32_t m) { return m < METER_N || (m < METER_SLOTS && dyn[m - METER_N].ok && pack_slot[m].status != 0xFFu); }"; assert a in src; src = src.replace(a, "int meters_present(uint32_t m) { return m < METER_SLOTS; }")
+    if mutant == "choice": a = "!md_val_off(desc_rd, &dyn[k], &p, (uint32_t)choice, &so)"; assert a in src; src = src.replace(a, "!md_val_off(desc_rd, &dyn[k], &p, (uint32_t)choice + 1u, &so)")
+    if mutant == "label": a = "    so = p.label;\n"; assert a in src; src = src.replace(a, "    so = p.label + 1u;\n")
     if mutant == "baddesc": a = "if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.slot != m)"; assert a in src; src = src.replace(a, "if (!md_header(desc_rd, d, len, &h))")
     (d / "fw2/ui/meters.c").write_text(src)
     for f in ["ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"] + LISTS: (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_pack_only_harness.c").read_text())
+    (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return d / "h"
 def run(exe, bundle=None): return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True).stdout.strip().splitlines()
 import os
-def run_row(exe, row, bundle=None):
-    return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True, env=dict(os.environ, ROW=str(row))).stdout.strip().splitlines()
+def run_row(exe, row, bundle=None, desc=None):
+    env = dict(os.environ, ROW=str(row)); env.update({"DESC": str(desc)} if desc else {})
+    return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True, env=env).stdout.strip().splitlines()
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); exe = build(tmp / "good")
     mans = {k: json.loads((ROOT / "meters" / k / "meter.json").read_text()) for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid")}
@@ -54,6 +58,16 @@ with tempfile.TemporaryDirectory() as td:
         check("%s: its presets (names and values) are the manifest's and selecting one fills the live parameters" % key, prs == ["preset %d %s %s" % (k, p["name"], " ".join(str(p["values"][x]) for x in keys)) for k, p in enumerate(wf["presets"])], prs[:2])
         thumb = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
         check("%s: it ticks as a pack, its manifest id goes into the config export, and its preview stream is readable" % key, "ticks pack 2 builtin-text 0" in o and "payload id %d n %d" % (wf["index"], 4 + len(keys) + sum(1 for r in rows if r["type"] == 3 or (r["type"] == 0 and r["max"] > 255))) in o and "thumb len %d" % len(bytes.fromhex(thumb["rle"])) in o, o[-4:])
+    # A descriptor bigger than the old Configure caches (76 choice values, 880 string bytes; B-954): Layered Wave with 4 more choices on its View (80 values, about 890 string bytes) must still be listed and drawn from
+    # its descriptor. On the code that cached the strings it was refused with 42 and the meter vanished from the list (DEV 209).
+    big = json.loads(json.dumps(mans["layered_wave"])); vw = next(p for p in big["params"] if p["key"] == "view"); vw["values"] = vw["values"] + ["EXTRA ONE", "EXTRA TWO", "EXTRA THREE", "EXTRA FOUR"]
+    bigdesc = tmp / "big.desc"; bigdesc.write_bytes(md.build_desc(big, json.loads((ROOT / "meters/layered_wave/thumb.json").read_text())))
+    ob = run_row(exe, big["p2"]["slot"], None, bigdesc)
+    brow = md.param_rows(big)
+    check("a descriptor over the old caches (%d choice values) is still listed (%s)" % (sum(len(r["vals"]) for r in brow), ob[0] if ob else ""), bool(ob) and ob[0].startswith("present 1"), ob[:1])
+    bpds = [l for l in ob if l.startswith("pd ")]
+    bwant = ["pd %s %d %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in brow]
+    check("and its Configure rows (every label and every choice name, the new ones included) are the descriptor's", bpds == bwant, bpds[:1])
     key = "waterfall_grid"; wf = mans[key]; slot = wf["p2"]["slot"]
     blob, _ = pm.build(key, pm.SLOT_BASE + slot * pm.SLOT_SIZE, tmp / (key + ".elf")); bundle = tmp / (key + ".bin")
     none = run_row(exe, slot)
@@ -66,6 +80,10 @@ with tempfile.TemporaryDirectory() as td:
     bb = tmp / "bad.bin"; bb.write_bytes(pb.bundle([bytes(bad)]))
     o2 = run_row(exe, slot, bb)
     check("a pack whose descriptor is damaged (its CRC right) is refused with 41 and the meter is not listed", o2[0] == "present 0 count %d list %d state 41" % (n_static, n_static), o2[0])
+    bpds0 = [l for l in ob if l.startswith("pd ")]
+    for m, name in (("choice", "a choice name is read one entry off"), ("label", "a label is read one character off")):
+        e3 = build(tmp / m, m)
+        check("mutant (%s) is caught" % name, [l for l in run_row(e3, big["p2"]["slot"], None, bigdesc) if l.startswith("pd ")] != bpds0)
     for m, name in (("listed", "the row is listed without a pack"), ("baddesc", "a damaged descriptor is accepted")):
         e2 = build(tmp / m, m)
         check("mutant (%s) is caught" % name, (run_row(e2, slot) == none) is False if m == "listed" else (run_row(e2, slot, bb) == o2) is False)

@@ -15,6 +15,7 @@ static uint32_t pack_calls[8], stub_text, now, win, spend;
 static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 #include "../fw2/ui/meters.c"
 static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)in; (void)api; pack_calls[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE]++; now += spend; return 0; }
+#include "p2_dyn_register.h"
 static uint32_t builtin[METER_N];
 uint32_t host_rd(uint32_t a) { if (a == R_CYCLES) return now; if (a == R_SPEC_ST) return win << 16; return 0; }
 void host_wr(uint32_t a, uint32_t v) { (void)a; (void)v; }
@@ -48,6 +49,7 @@ static void tick(void) { win++; meters_tick(1); }
 int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
+    if (getenv("DESC")) { char *df[1] = { getenv("DESC") }; dyn_load_files(1, df); }          /* a descriptor file in its slot, as if its pack had been installed */
     if (argc > 1) { FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f); meters_packs_load(buf, n); }
     const uint32_t R = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)METER_N;      /* the pack-only row under test */
     printf("present %d count %u list %u state %u\n", meters_present(R), meter_count, meters_list_count(), meters_pack_state(R));
@@ -59,7 +61,7 @@ int main(int argc, char **argv)
     if (!meters_present(R)) return 0;
     const meter_def_t *d = meters_def(R);
     printf("name %s np %u npre %u cmp %u\n", d->name, d->np, meters_npre(R), d->cmp);
-    for (uint32_t i = 0; i < d->np; i++) { const mpd_t *p = &d->pd[i]; printf("pd %s %u %u %u %u %u %u %u %u", p->label, p->type, p->hidden, p->min, p->max, p->step, p->nval, p->when_idx, p->when_val); for (uint32_t j = 0; j < p->nval; j++) printf(" [%s]", p->vals[j]); printf("\n"); }
+    for (uint32_t i = 0; i < d->np; i++) { const mpd_t *p = &d->pd[i]; char lb[24], cb[24]; printf("pd %s %u %u %u %u %u %u %u %u", meters_param_label(R, i, lb, sizeof lb), p->type, p->hidden, p->min, p->max, p->step, p->nval, p->when_idx, p->when_val); for (uint32_t j = 0; j < p->nval; j++) printf(" [%s]", meters_param_choice(R, i, j, cb, sizeof cb)); printf("\n"); }
     for (uint32_t k = 0; k < meters_npre(R); k++) { meters_preset_select(R, k); printf("preset %u", k); meters_select(R); printf(" %s", meters_preset_name()); for (uint32_t i = 0; i < d->np; i++) printf(" %u", d->mv[i]); printf("\n"); }
     meters_select(R); win++; meters_tick(1); win++; meters_tick(1);
     printf("ticks pack %u builtin-text %u\n", pack_calls[R], stub_text);
