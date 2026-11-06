@@ -52,6 +52,7 @@ def main():
                     help="with --variant player2 --semver: the Diagnostic Build of a Player 2 release ('TAU Diagnostics' or 'TAU Preview Diagnostics' by the version's channel), built with DIAG=1; "
                          "without it the core is the normal build (DIAG=0 in the flags): docs/DECISIONS.md D-U02, make_release.py --player2 builds both")
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
+    ap.add_argument("--hang-pack", metavar="KEY[:MODE]", help="a TEST package for the pack watchdog (W4): that meter's pack is replaced by its hang variant (needs --variant player2 and PACKS=1; the core's description says so)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -173,7 +174,7 @@ def main():
     full_ver = (None if args.release_diagnostic else args.semver if args.semver else
                 f"{base_ver}-dev.barcode.{args.barcode}" if args.barcode is not None else f"{base_ver}-dev.{args.number}")
     if not args.release_diagnostic:
-        desc = f"TAU {label}: {kind}, " + (args.note or default_note)
+        desc = f"TAU {label}: {kind}, " + (args.note or default_note) + (f" [HANG TEST: the {args.hang_pack.split(':')[0]} pack hangs after 200 pictures]" if args.hang_pack else "")
     if args.semver and not args.note:
         # A Stable or Preview release keeps the core.json description of dist/ (63 characters at most; it also tells people how to get music onto the card); the fuller text goes to info.txt, the About screen.
         desc = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["description"]
@@ -219,7 +220,7 @@ def main():
     shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
     if with_packs:
-        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")], cwd=root, check=True)     # every pack, from this tree, in slot order
+        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")] + (["--hang", args.hang_pack] if args.hang_pack else []), cwd=root, check=True)     # every pack, from this tree, in slot order
     if full_ver:
         import tau_version
         try:
