@@ -15,6 +15,15 @@
  * (MTR_PSRAM, B-509, see below), the rest -- 6 x 16 band words and a few dozen scalars, plus a 404-byte unwrap scratch -- is plain RAM. */
 #include "../generated/layered_wave_tables.h"
 
+/* Code placement in a pack (plan P1, B-944): the CPU's 4 KiB direct-mapped instruction cache evicts any two hot pieces of code that are a multiple of 4 KiB apart. The pack build (meter_layered_wave.c, P2_PACK)
+ * puts the helpers every view calls in one section (LW_HOT) and each view in its own (LW_VIEW1..3); fw2/ui/meter_pack.ld lays the views out so that each starts where the hot block ends, modulo 4 KiB. A view and the
+ * hot block then never share a cache index (only one view runs per preset). sim/test_p2_icache.py holds the layout to a miss budget. Elsewhere these are empty. */
+#ifndef LW_HOT
+#define LW_HOT
+#define LW_VIEW1
+#define LW_VIEW2
+#define LW_VIEW3
+#endif
 #define LW_MAXL   6u
 #define LW_NB     16u
 #define LW_AGE    8u
@@ -53,7 +62,7 @@ COLD_FN3 static uint32_t lw_isqrt(uint64_t n)
     return (uint32_t)r;
 }
 
-COLD_FN3 static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fig_rect(x, y, w, h, c); lw_cnt++; }
+COLD_FN3 LW_HOT static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fig_rect(x, y, w, h, c); lw_cnt++; }
 
 #ifdef LW_STATS
 /* Where the figure is drawn is not this file's business (B-521): helios_meter() (fw/player.c) points RECT-class commands at the right buffer and presents
@@ -63,7 +72,7 @@ static uint32_t lw_t_cpu, lw_t_unw, lw_cmd_last;
 #endif
 
 /* ---- colours ------------------------------------------------------------------------------------------------------------------- */
-COLD_FN3 static uint16_t lw_mix(uint16_t a, uint16_t b, int32_t t256)
+COLD_FN3 LW_HOT static uint16_t lw_mix(uint16_t a, uint16_t b, int32_t t256)
 {
     const int32_t ar = (a >> 11) & 31, ag = (a >> 5) & 63, ab = a & 31, br = (b >> 11) & 31, bg = (b >> 5) & 63, bb = b & 31;
     return (uint16_t)(((ar + (((br - ar) * t256) >> 8)) << 11) | ((ag + (((bg - ag) * t256) >> 8)) << 5) | (ab + (((bb - ab) * t256) >> 8)));
@@ -209,19 +218,19 @@ static inline int32_t lw_step(int32_t s, int32_t t, uint32_t ca, uint32_t cr) { 
 static inline uint32_t lw_u8(int32_t v) { return (uint32_t)lw_min(255, (v * 255 + 2048) >> 12); }
 
 /* ---- shape --------------------------------------------------------------------------------------------------------------------- */
-COLD_FN3 static int32_t lw_win(const uint8_t (*tab)[65], int32_t q, int32_t pos)
+COLD_FN3 LW_HOT static int32_t lw_win(const uint8_t (*tab)[65], int32_t q, int32_t pos)
 {
     const int32_t i0 = pos >> 8, fr = pos & 255, i1 = lw_min(64, i0 + 1);
     return (int32_t)tab[q - 1][i0] + ((((int32_t)tab[q - 1][i1] - (int32_t)tab[q - 1][i0]) * fr) >> 8);
 }
-COLD_FN3 static int32_t lw_cr8(const uint8_t *h, int32_t n, int32_t i, int32_t f)       /* Catmull-Rom on 0..255 samples, f in Q8 */
+COLD_FN3 LW_HOT static int32_t lw_cr8(const uint8_t *h, int32_t n, int32_t i, int32_t f)       /* Catmull-Rom on 0..255 samples, f in Q8 */
 {
     const int32_t p0 = h[lw_max(i - 1, 0)], p1 = h[lw_min(i, n - 1)], p2 = h[lw_min(i + 1, n - 1)], p3 = h[lw_min(i + 2, n - 1)];
     const int32_t a = p2 - p0, b = 2 * p0 - 5 * p1 + 4 * p2 - p3, c = -p0 + 3 * p1 - 3 * p2 + p3;
     const int32_t t2 = b + ((c * f) >> 8), t1 = a + ((t2 * f) >> 8);
     return lw_clamp(p1 + ((t1 * f) >> 9), 0, 255);
 }
-COLD_FN3 static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)                     /* half height in pixels; a thin centre line stays in silence */
+COLD_FN3 LW_HOT static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)                     /* half height in pixels; a thin centre line stays in silence */
 {
     int32_t h = (a8 * w8 * Hh + 32512) / 65025;
     if (h < 1 && w8 > 64) h = 1;
@@ -229,7 +238,7 @@ COLD_FN3 static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)             
 }
 
 #if TAU_FX_METER_EXPERIMENTAL
-COLD_FN3 static void lw_half_aa(int32_t a8, int32_t w8, int32_t Hh, int32_t L, int32_t *h, int32_t *q)   /* half height with sub-pixel coverage, L levels */
+COLD_FN3 LW_HOT static void lw_half_aa(int32_t a8, int32_t w8, int32_t Hh, int32_t L, int32_t *h, int32_t *q)   /* half height with sub-pixel coverage, L levels */
 {
     const int32_t v = a8 * w8 * Hh;
     int32_t hh = v / 65025, qq = ((v - hh * 65025) * L + 32512) / 65025;
@@ -269,7 +278,7 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
 static const uint8_t lw_aa_levels[4] = { 0, 2, 4, 8 };
 static const int32_t lw_budgets[3] = { LW_BUDGET, 600, 1000000000 };               /* cost guard ON / RELAXED / OFF */
 static inline int32_t lw_gm(const lw_p_t *p, int32_t k) { return lw_gain_q8[lw_clamp(p->g[k], -18, 18) + 18]; }
-COLD_FN3 static int32_t lw_bch(int32_t b, int32_t f, int32_t mode, int32_t alpha, int32_t mx)   /* the blend unit's per-channel arithmetic (mp3_fb.sv blend_ch) */
+COLD_FN3 LW_HOT static int32_t lw_bch(int32_t b, int32_t f, int32_t mode, int32_t alpha, int32_t mx)   /* the blend unit's per-channel arithmetic (mp3_fb.sv blend_ch) */
 {
     switch (mode) {
     case 0:  return (f * alpha + b * (256 - alpha)) >> 8;
@@ -294,7 +303,7 @@ typedef struct { int32_t L, bm, ba, arr, X, Y, H, W, cy; uint16_t bgc;
 } lw_lay_t;
 typedef struct { int32_t x0, x1, h, cv; uint16_t c; } lw_run_t;
 
-COLD_FN3 static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t wd, int32_t xc, int32_t *hh, int32_t *cv, uint16_t *c)
+COLD_FN3 LW_HOT static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t wd, int32_t xc, int32_t *hh, int32_t *cv, uint16_t *c)
 {
 #if TAU_FX_METER_EXPERIMENTAL
     if (l->bm) {                                    /* blending: each layer is clamped to the one outside it, so the colour underneath is known */
@@ -306,7 +315,7 @@ COLD_FN3 static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t w
     (void)l; (void)k; (void)xs; (void)wd; (void)xc; (void)hh; (void)cv; (void)c;
 #endif
 }
-COLD_FN3 static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
+COLD_FN3 LW_HOT static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
 {
 #if TAU_FX_METER_EXPERIMENTAL
     if (l->L && r->cv) {                            /* antialiasing: the row just outside each edge, the layer colour mixed over what is there by the coverage */
@@ -327,7 +336,7 @@ COLD_FN3 static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
 #endif
     lw_rect(l->X + r->x0, l->cy - r->h, r->x1 - r->x0, 2 * r->h, r->c);
 }
-COLD_FN3 static void lw_endlayer(const lw_lay_t *l)
+COLD_FN3 LW_HOT static void lw_endlayer(const lw_lay_t *l)
 {
 #if TAU_FX_METER_EXPERIMENTAL
     if (l->arr) for (int32_t x = 0; x < l->W; x++) { l->ph[x] = l->nh[x]; l->pc[x] = l->nc[x]; }
@@ -364,7 +373,7 @@ COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
 #endif
 }
 
-COLD_FN3 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u, dt = in->dt_ms;
     int32_t tg[LW_MAXL];
@@ -414,7 +423,7 @@ COLD_FN3 static __attribute__((noinline)) void lw_history(const lw_p_t *p, const
 #if TAU_FX_METER_EXPERIMENTAL
 /* CURVE style: one continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of their frequency
  * ranges, with a smooth gain curve through the per-layer gains (all Q8 integer, the same operations as the JS twin's curveOutline). */
-COLD_FN3 static __attribute__((noinline)) void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
+COLD_FN3 LW_VIEW2 static __attribute__((noinline)) void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
 {
     const int32_t W = in->w, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, aaL = lay->L, dt = in->dt_ms;
     const int32_t m = n > 1 ? (int32_t)lw_mul_q8[n - 1 + 5] : 256;
@@ -455,7 +464,7 @@ COLD_FN3 static __attribute__((noinline)) void lw_curve(const lw_p_t *p, const m
 }
 #endif
 
-COLD_FN3 static __attribute__((noinline)) void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+COLD_FN3 LW_VIEW3 static __attribute__((noinline)) void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms, aaL = lay->L;
     const int32_t s = lw_max(lw_stride, (W + (int32_t)p->res - 1) / (int32_t)p->res);   /* Resolution = columns across the width (cell width), never finer than the self-scaling stride allows */
