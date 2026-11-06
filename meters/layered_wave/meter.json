@@ -415,10 +415,10 @@
         "LEFT"
       ],
       "default": 0,
-      "help": "Which way the HISTORY view flows. The SCROLL view always flows left (the engine copies the picture left).",
+      "help": "Which way the picture flows (HISTORY and SCROLL). The head (the pointed start, Head length) is where the newest sound enters and the tail (Tail length, the three dots in HISTORY) is where it leaves, so the two swap sides with the direction.",
       "value_help": [
-        "RIGHT: the newest sample enters at the left and the wave scrolls away to the right (the original).",
-        "LEFT: the newest sample enters at the right and the wave scrolls away to the left. Only the flow reverses: the taper (pointed head at the left, the tail and its dots at the right) and the colours stay where they are on the screen, so the wave moves through them."
+        "RIGHT: the newest sample enters at the left and the wave flows right: head on the left, tail on the right (the original).",
+        "LEFT: the exact mirror: the newest enters at the right and the wave flows left: head on the right, tail and its dots on the left."
       ],
       "group": "display"
     },

@@ -27,6 +27,7 @@
 #endif
 #define LW_SCROLL_VIEW 1                                   /* the SCROLL view (B-952) needs the engine's copy: gfx_scroll_left (ABI 1.2) */
 #define lw_scroll_left gfx_scroll_left
+#define lw_blit gfx_blit
 #ifdef P2_PACK                                            /* code placement against instruction-cache conflicts: see the comment in layered_wave.inc and fw2/ui/meter_pack.ld */
 #define LW_HOT   __attribute__((section(".text.pk_hot")))
 #define LW_VIEW1 __attribute__((section(".text.pk_view1")))

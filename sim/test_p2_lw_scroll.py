@@ -19,6 +19,9 @@ sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "
 import pack_meter as pm
 import json
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
+import re
+_enum = (ROOT / "fw2/generated/lw_presets.h").read_text()
+DIRIDX = [x.replace("MP_LAYERED_WAVE_", "") for x in re.search(r"enum \{ (MP_LAYERED_WAVE_VIEW.*?) \};", _enum).group(1).split(", ")].index("DIRECTION")
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
 NF = 60
 fails = 0
@@ -37,18 +40,18 @@ def run(elf, blob):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf): m.run()
     return [tuple(int(x) for x in ln.split()[1:]) for ln in buf.getvalue().splitlines() if ln.startswith("F ")]
-def harness(tmp, preset, view, taper=None):
-    elf = tmp / ("h_%d_%d_%s.elf" % (preset, view, taper))
+def harness(tmp, preset, view, taper=None, direction=None):
+    elf = tmp / ("h_%d_%d_%s_%s.elf" % (preset, view, taper, direction))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-w"] + SIMREGS + [
-           "-DPACK_LW", "-DTR_NOHASH", "-DLW_TRACE", "-DLW_P=%d" % preset, "-DLW_FS=0", "-DNF=%d" % NF, "-DLW_VIEWOVR=%d" % view, ] + (["-DLW_TAPEROVR=%d" % taper] if taper is not None else []) + ["-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH,
+           "-DPACK_LW", "-DTR_NOHASH", "-DLW_TRACE", "-DLW_P=%d" % preset, "-DLW_FS=0", "-DNF=%d" % NF, "-DLW_VIEWOVR=%d" % view, ] + (["-DLW_TAPEROVR=%d" % taper] if taper is not None else []) + (["-DLW_SETIDX=%d" % DIRIDX, "-DLW_SETVAL=%d" % direction] if direction is not None else []) + ["-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH,
            "-DPACK_METER=%d" % pm.METER_IDS["layered_wave"], "-DPACK_SLOT=%d" % pm.SLOT["layered_wave"], "-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
            str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/p2_lw_cost_harness.c"), "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"), "-I", str(ROOT / "fw"), "-I", str(ROOT / "tools/host"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return elf
 def _job(a): return run(*a)
-def sweep(tmp, blob, presets, view, taper=None):
-    elfs = [harness(tmp, p, view, taper) for p in presets]
+def sweep(tmp, blob, presets, view, taper=None, direction=None):
+    elfs = [harness(tmp, p, view, taper, direction) for p in presets]
     with ProcessPoolExecutor(max_workers=os.cpu_count() or 4, mp_context=multiprocessing.get_context("fork")) as ex:
         return list(ex.map(_job, [(e, blob) for e in elfs]))
 def mutant_blob(tmp, name="mut", old=None, new=None):
@@ -70,13 +73,13 @@ def verdict(rows, preset_vals):
     for pi, (frames, pv) in enumerate(zip(rows, preset_vals)):
         layers, speed = pv["layers"], pv["speed"]
         dmax = (26 * speed + 999) // 1000 + 1
-        for n, cmds, cyc, scr, viol in frames:
+        for n, cmds, cyc, scr, viol, *_ in frames:
             if n in (0,):
                 if scr != 0: bad.append((pi, n, "repaint scrolled"))
             else:
-                if scr > 1: bad.append((pi, n, "more than one scroll"))
-                if scr == 0 and cmds != 0: bad.append((pi, n, "commands without a scroll"))
-                if scr == 1 and cmds > 3 + layers * (dmax + 1) + (2 * (60 // 3 + 2) if pv["taper"] > 0 else 0): bad.append((pi, n, "too many commands: %d" % cmds))     # + the taper's covering: 2 per 3-pixel step of the half height
+                if scr > 4: bad.append((pi, n, "more than one move (a scroll left is one command, a move right is at most four blits)"))
+                if scr == 0 and cmds != 0: bad.append((pi, n, "commands without a move"))
+                if scr >= 1 and cmds > 3 + 3 + layers * (dmax + 1) + (2 * (60 // 3 + 2) if pv["taper"] > 0 else 0): bad.append((pi, n, "too many commands: %d" % cmds))     # + the taper's covering: 2 per 3-pixel step of the half height
             if viol: bad.append((pi, n, "drawn outside the box"))
         if sum(f[3] for f in frames) < NF // 2: bad.append((pi, -1, "hardly any scroll commands"))
     return bad
@@ -91,7 +94,8 @@ def main():
         for i, p in enumerate(PRESETS):
             ms = sum(f[1] for f in rs[i] if f[0] not in (0,)) / (NF - 1); mh = sum(f[1] for f in rh[i] if f[0] not in (0,)) / (NF - 1)
             print("     preset %2d (%s, %d layers, %d px/s): SCROLL %5.1f commands a picture, HISTORY %6.1f" % (p, d["presets"][p]["name"], pv[i]["layers"], pv[i]["speed"], ms, mh))
-        bad = verdict(rs, pv)
+        rl = sweep(tmp, blob, PRESETS, 2, None, 1)                                       # Direction LEFT: the picture flows left (one scroll-left command); the default RIGHT flows right (the copy is made of blits)
+        bad = verdict(rs, pv) + verdict(rl, pv)
         check("every normal picture is one scroll plus a few columns, a forced repaint scrolls nothing, nothing is drawn outside the box", not bad, str(bad[:4]))
         check("the average SCROLL picture costs at most 70 commands, and at most a third of the HISTORY view's where HISTORY costs 150 or more", all(sum(f[1] for f in rs[i] if f[0] not in (0,)) <= 70 * (NF - 1) and (sum(f[1] for f in rh[i] if f[0] not in (0,)) < 150 * (NF - 1) or sum(f[1] for f in rs[i] if f[0] not in (0,)) * 3 <= sum(f[1] for f in rh[i] if f[0] not in (0,))) for i in range(len(PRESETS))))
         rn = sweep(tmp, blob, PRESETS, 2, 0)
@@ -100,7 +104,8 @@ def main():
         print("     taper covering costs (commands a picture, with the preset's taper vs taper 0):", [(round(mean(rs, i), 1), round(mean(rn, i), 1)) for i in tp])
         check("the taper is applied in SCROLL: with the taper on a picture costs at least 15 more commands than with it off (the covering), for every preset that has one", all(mean(rs, i) >= mean(rn, i) + 15 for i in tp))
         check("with the taper off the covering costs nothing: no more than the scroll and the new columns", all(mean(rn, i) <= 3 + pv[i]["layers"] * 9 for i in range(len(PRESETS))))
-        mres = sweep(tmp, mutant_blob(tmp), PRESETS, 2)
+        check("Direction LEFT is one scroll-left command a picture, Direction RIGHT is two to four blits (a move right in chunks of 120 columns)", all(f[3] == 1 for r in rl for f in r if f[0] != 0 and f[1] > 0) and all(2 <= f[3] <= 4 for r in rs for f in r if f[0] != 0 and f[1] > 0))
+        mres = sweep(tmp, mutant_blob(tmp), PRESETS, 2, None, 1)
         check("control: a pack that never issues the scroll command is caught", bool(verdict(mres, pv)))
         mt = sweep(tmp, mutant_blob(tmp, "notaper", "    if (p->taper > 0u) lw_scroll_taper(p, in, cl->bg, cy, Hh);\n", "\n"), PRESETS, 2)
         check("control: a pack that never covers the tail is caught", not all(mean(mt, i) >= mean(rn, i) + 15 for i in tp))

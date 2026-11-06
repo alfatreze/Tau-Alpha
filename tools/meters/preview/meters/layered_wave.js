@@ -262,18 +262,18 @@
       const h = st.hist[k]; let run = null;
       const flush = () => { if (run) { emitRun(lay, k, run); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
-        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;     // xm: where the sample comes from along the history, 0 = the newest
+        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;     // xm: the position along the history, 0 = the newest end; the source, the window and the age band follow it (the whole picture is mirrored)
         let a8;
         if (smooth) { const t = tdiv((2 * xm + 1) * res * 128, W) - phase - 128; a8 = t <= 0 ? h[0] : cr8((j) => h[j], res + 4, t >> 8, t & 255); }
         else a8 = h[Math.min(res - 1, tdiv(xm * res, W))];
-        const w8 = tq === 0 ? 255 : winH(T.winHist, tq, tdiv((2 * xc + 1) * 8192, W), wpkH, thead, ttail), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xc + 1) * 4, W));
+        const w8 = tq === 0 ? 255 : winH(T.winHist, tq, tdiv((2 * xm + 1) * 8192, W), wpkH, thead, ttail), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xm + 1) * 4, W));
         const [hh, cv, c] = cellOut(lay, k, xs, wd, xc, h0, cv0, cl.tbl[k][q]);
         if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
         flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
       }
       flush(); endLayer(lay);
     }
-    if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
+    if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
   }
 
   /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline. With a frequency split every layer draws only the

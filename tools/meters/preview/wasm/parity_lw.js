@@ -14,6 +14,7 @@ WebAssembly.compile(new Uint8Array(Buffer.from(W.b64, 'base64'))).then((mod) => 
     const inst = new WebAssembly.Instance(mod, { env: {
       rect: (x, y, w, h, c) => cur.push('rect ' + [x, y, w, h, c].join(' ')),
       scroll_left: (x, y, w, h, d) => cur.push('scroll_left ' + [x, y, w, h, d].join(' ')),
+      blit: (sx, sy, dx, dy, w, h) => cur.push('blit ' + [sx, sy, dx, dy, w, h].join(' ')),
       text: () => 0 } });
     const x = inst.exports, mem = () => x.memory.buffer, dv = () => new DataView(mem());
     const o = new Uint16Array(mem(), x.offs_ptr(), OFFS.length), off = Object.fromEntries(OFFS.map((k, i) => [k, o[i]]));
