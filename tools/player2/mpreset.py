@@ -7,7 +7,7 @@
   python3 tools/player2/mpreset.py factory OUT_DIR [KEY ...]    writes the factory set of the meters (from meters/<key>/meter.json) under OUT_DIR/tau-presets/
   python3 tools/player2/mpreset.py show FILE                    prints a .tpi or .tpr file
 
-The writer refuses what the firmware would have to repair: a key the meter does not have, a value outside the parameter's range, two parameters whose key hashes collide, a name over 15 characters, more than 200 presets."""
+The writer refuses what the firmware would have to repair: a key the meter does not have, a value outside the parameter's range, two parameters whose key hashes collide, a name over 15 characters, more than 127 presets or an id over 126."""
 import json, struct, sys, zlib
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -39,9 +39,9 @@ def _wrap(magic, ident, meter_id, body):
 
 def build_index(meter_id, presets):
     """presets: [{"id", "name", "hidden"?}] in list order"""
-    if len(presets) > 200: raise ValueError("more than 200 presets (the firmware reads the index in one 4 KB piece)")
+    if len(presets) > 127: raise ValueError("more than 127 presets (the ids are 0..126: the choice is persisted in 7 bits)")
     ids = [p["id"] for p in presets]
-    if len(set(ids)) != len(ids) or any(not 0 <= i <= 255 for i in ids): raise ValueError("preset ids must be distinct bytes")
+    if len(set(ids)) != len(ids) or any(not 0 <= i <= 126 for i in ids): raise ValueError("preset ids must be distinct and 0..126")
     body = struct.pack("<H", len(presets))
     for p in presets:
         nm = p["name"].encode("ascii")

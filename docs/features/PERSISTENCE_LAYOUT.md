@@ -12,8 +12,8 @@
 | 1 (11) | **Appearance** | colour 5, theme 6, polarity 1, font 3 | about 16 (cover style, blank timeout, ...) |
 | 2 (12) | **Audio** | volume 7, repeat 2, ReplayGain mode 2, Halcyon preset 5 | about 15 |
 | 5 (15) | **Meters 1** | selected meter 6, presets of meters 0..5 (4 bits each) | bit 30 mark |
-| 6 (16) | **Meters 2** | presets of meters 6..12 | bit 30 mark |
-| 15 (30) | **Meters 3** | presets of meters 13..19 | bit 30 mark |
+| 6 (16) | **Meters 2** | the preset position of meter 6, the preset ids of meters 0..2 (7 bits each, id + 1, 0 = none; B-968) | bit 30 mark |
+| 15 (30) | **Meters 3** | the preset ids of meters 3..6 (7 bits each) | bit 30 mark |
 | 19, 20 (31, 32) | **Last played** | unchanged (two 31-bit words, 14-bit track, 27-bit check) | |
 | 8..11 (ids 20..23) and 16, 17, 18, 21 (ids 27, 28, 29, **33 new**) | **Tuning pool** | two slots of four words: two meters keep a full tuning each; the slot saved least recently is evicted | |
 
@@ -35,7 +35,7 @@
 3. Meter capacity: 28 now, a fourth words gives 38.
 
 ## As built: what differs from the proposal
-* **Presets are 4 bits, not 3** (Layered Wave has more than 8 presets), so **20 meters** persist (words 5, 6 and 15), not 28; a 21st needs a spare word (word 0 and the appearance and audio words have bits to spare).
+* **Presets are 4 bits, not 3** (Layered Wave has more than 8 presets) for the POSITION in a pack's own list; the list shows at most seven meters (the generator asserts it), so the positions of meters 0..5 sit in word 5 and meter 6's in word 6. **B-968: the preset FILE a meter was set to is remembered by its id** (7 bits each, id + 1, 0 = none, ids 0..126), in the bits of words 6 and 15 that no field used (a card saved earlier reads 0 = none). The tuning (`cores/tune_core.h`) is anchored to the file's id + 1 while the meter runs on files, else to the position; its preset field grew from 4 to 7 bits and its check seed changed, so a tuning saved in the earlier layout is refused (reset once).
 * **Tuning pool: two slots**, one tuning each, instead of a variable-length pool: a slot is the existing 124-bit record, so a tuned meter keeps up to the same number of parameters as before and two meters keep theirs. The record header carries a 5-bit meter number (was 3); a tuning saved before this build is NOT carried over (its header differs), presets and everything else are.
 * **The Core Settings sliders are gone** for Colour, Volume, Repeat, Meter and Halcyon (owner's choice): the words are named "(internal) ..." in `interact.json` and are changed only inside the player.
 * **Resumable migration:** each word a legacy word is converted INTO (1, 2, 5, 6, 15) carries bit 30 as the "already new" mark, and the words are written in a fixed order (`sf_write_order`) in which a legacy word is overwritten only after every new word built from it, word 0 last. A power loss after any write is resumed by the next boot (host-tested after every prefix). My first design ("migrate again from the legacy words") was wrong: the words already written destroy the legacy values; the test that simulated an interruption found it.

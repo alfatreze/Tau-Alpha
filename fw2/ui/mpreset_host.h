@@ -9,5 +9,7 @@ uint32_t mph_enter(uint32_t mid);                       /* reads the index of me
 uint32_t mph_count(void);                               /* presets in the cached index */
 void     mph_name(uint32_t pos, char *out);             /* the name at list position pos (0 = "DEFAULT", 1.. = the index entries), at most 15 characters */
 int      mph_values(uint32_t mid, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals);   /* the values of list position pos; 0 when the file cannot be read now (the caller keeps what it has) */
+uint32_t mph_id1(uint32_t pos);                         /* the id + 1 of list position pos (0 for DEFAULT or out of range) */
+int      mph_find(uint32_t id1);                        /* the list position (1..) of the preset with id id1 - 1, or -1 */
 extern uint32_t mph_idx_ok, mph_reads, mph_fails, mph_err, mph_read_max, mph_open_max;      /* diagnostics (Report rows MPX ...): indexes loaded, preset files read, failures, the last error, the worst times in cycles */
 #endif

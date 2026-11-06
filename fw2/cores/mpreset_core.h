@@ -3,7 +3,7 @@
  *
  * Two kinds of file per meter, under <media root>/tau-presets/<meter key>/ (written by Omega; the factory set by tools/player2/mpreset.py):
  *   index.tpi  "TPRI" | version u8 = 1 | reserved u8 = 0 | meter id u16 | crc32 u32 (of everything after these 12 bytes) | count u16 | count x { id u8 | flags u8 (bit 0: hidden) | name[16] NUL padded }
- *              the presets of the meter in list order (up to 200; the id is what is remembered, never the position);
+ *              the presets of the meter in list order (up to 127, ids 0..126; the id is what is remembered, never the position);
  *   p<id>.tpr  "TPRS" | version u8 = 1 | id u8 | meter id u16 | crc32 u32 (of everything after these 12 bytes) | nkeys u8 | name_len u8 (0..15) | name | nkeys x { key u16 | value u16 }   (little endian)
  * A preset is SPARSE and keyed by parameter name: `key` is a 16-bit hash of the manifest's parameter key (mp_key_hash, the same function in tools/player2/mpreset.py). A parameter the preset does not mention takes the
  * meter's default, a key the meter does not have is ignored, a value is clamped to the parameter's range: a preset survives a meter that gained or lost parameters. */
@@ -18,7 +18,8 @@
 #define MP_VERSION 1u
 #define MP_NAME 16u
 #define MP_IDX_ENTRY (2u + MP_NAME)
-#define MP_IDX_MAX 200u                                       /* presets per meter: the index is read in one piece into the 4,096-byte tag buffer (14 + 200 x 18 = 3,614 bytes); the 8-bit id allows 255 */
+#define MP_ID_MAX 126u                                        /* the largest preset id: the choice is persisted in 7 bits as id + 1 (SF_MPID*, B-968) */
+#define MP_IDX_MAX 127u                                       /* presets per meter: ids 0..126 (14 + 127 x 18 = 2,300 bytes, one read into the 4,096-byte tag buffer) */
 #define MP_IDX_MAX_BYTES (14u + MP_IDX_MAX * MP_IDX_ENTRY)
 #define MP_PRE_MAX_BYTES (14u + 15u + 4u * 64u)
 enum { MP_OK = 0, MP_E_SIZE = 1, MP_E_MAGIC = 2, MP_E_VERSION = 3, MP_E_CRC = 4, MP_E_METER = 5, MP_E_ID = 6, MP_E_LAYOUT = 7 };
@@ -47,6 +48,7 @@ static inline int mp_index_check(const uint8_t *d, uint32_t n, uint32_t meter_id
     if (mp_crc(d + 12, n - 12u) != mp_ld32(d + 8)) return MP_E_CRC;
     if (mp_ld16(d + 6) != meter_id) return MP_E_METER;
     if (d[5] != 0u || mp_ld16(d + 12) > MP_IDX_MAX || n != 14u + mp_ld16(d + 12) * MP_IDX_ENTRY) return MP_E_LAYOUT;      /* byte 5 is reserved and must be 0: it is outside the CRC */
+    for (uint32_t i = 0; i < mp_ld16(d + 12); i++) if (d[14u + i * MP_IDX_ENTRY] > MP_ID_MAX) return MP_E_ID;               /* an id the persisted field cannot hold */
     return MP_OK;
 }
 static inline uint32_t mp_index_count(const uint8_t *d) { return mp_ld16(d + 12); }
@@ -73,7 +75,7 @@ static inline int mp_preset_check(const uint8_t *d, uint32_t n, uint32_t meter_i
     if (d[4] != MP_VERSION) return MP_E_VERSION;
     if (mp_crc(d + 12, n - 12u) != mp_ld32(d + 8)) return MP_E_CRC;
     if (mp_ld16(d + 6) != meter_id) return MP_E_METER;
-    if (d[5] != want_id) return MP_E_ID;
+    if (d[5] != want_id || d[5] > MP_ID_MAX) return MP_E_ID;
     if (d[13] > 15u || n != 14u + d[13] + 4u * (uint32_t)d[12]) return MP_E_LAYOUT;
     return MP_OK;
 }
