@@ -160,6 +160,7 @@ test-host:
 	$(PYTHON) sim/test_p2_lw_guard.py
 	$(PYTHON) sim/test_p2_lw_scroll.py
 	$(PYTHON) sim/test_p2_preset_probe.py
+	$(PYTHON) sim/test_p2_lw_params.py
 	$(PYTHON) sim/test_p2_sdram_soak.py
 	$(PYTHON) sim/test_p2_scope_trail.py
 	$(PYTHON) sim/test_p2_chladni_dbuf.py

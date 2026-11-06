@@ -62,6 +62,9 @@ static void custom_lw(void)
 #ifdef LW_TAPEROVR
     params[MP_LAYERED_WAVE_TAPER] = LW_TAPEROVR;           /* sim/test_p2_lw_scroll.py: the same preset with another taper */
 #endif
+#ifdef LW_SETIDX
+    params[LW_SETIDX] = LW_SETVAL;                      /* any one parameter, by its MP_LAYERED_WAVE_* index (sim/test_p2_lw_params.py) */
+#endif
 #ifdef LW_VIEWOVR
     params[MP_LAYERED_WAVE_VIEW] = LW_VIEWOVR;            /* sim/test_p2_lw_scroll.py: run a preset's parameters in another view */
 #endif
@@ -78,7 +81,7 @@ static void custom_lw(void)
 #ifdef LW_TRACE                                    /* sim/test_p2_lw_guard.py: per frame, the draw commands issued and the cycles the (modelled) clock counted */
         const uint32_t c0 = *(volatile uint32_t *)0xF000100Cu, n0 = tr_N;
         tr_box_of(&in); run(&in);
-        hputs("F "); hputu((uint32_t)n); hputc(' '); hputu(tr_N - n0); hputc(' '); hputu(*(volatile uint32_t *)0xF000100Cu - c0); hputc(' '); hputu(tr_nscroll); hputc(' '); hputu(tr_viol); hnl(); tr_nscroll = 0;
+        hputs("F "); hputu((uint32_t)n); hputc(' '); hputu(tr_N - n0); hputc(' '); hputu(*(volatile uint32_t *)0xF000100Cu - c0); hputc(' '); hputu(tr_nscroll); hputc(' '); hputu(tr_viol); hputc(' '); hputu((uint32_t)tr_H); hnl(); tr_nscroll = 0;
 #else
         tr_box_of(&in); run(&in);
 #endif
