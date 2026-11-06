@@ -104,9 +104,9 @@ static mtr_data_t mtr_d_vu_master = { VIZ_VU_MASTER, "MASTER VU", MP_VU_MASTER_N
 #define MV_VU_MASTER(name) (mtr_v_vu_master[MP_VU_MASTER_##name])
 
 /* LAYERED WAVE (id 16) */
-#define MP_LAYERED_WAVE_NTOT 36u   /* all parameters, experimental included (host tests) */
+#define MP_LAYERED_WAVE_NTOT 38u   /* all parameters, experimental included (host tests) */
 #if TAU_FX_METER_EXPERIMENTAL
-enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_XO1, MP_LAYERED_WAVE_XO2, MP_LAYERED_WAVE_XO3, MP_LAYERED_WAVE_XO4, MP_LAYERED_WAVE_XO5, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_TAPER_CURVE, MP_LAYERED_WAVE_DIRECTION, MP_LAYERED_WAVE_HSTYLE, MP_LAYERED_WAVE_AA, MP_LAYERED_WAVE_BMODE, MP_LAYERED_WAVE_BALPHA, MP_LAYERED_WAVE_GUARD, MP_LAYERED_WAVE_G1, MP_LAYERED_WAVE_G2, MP_LAYERED_WAVE_G3, MP_LAYERED_WAVE_G4, MP_LAYERED_WAVE_G5, MP_LAYERED_WAVE_G6, MP_LAYERED_WAVE_N };
+enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_XO1, MP_LAYERED_WAVE_XO2, MP_LAYERED_WAVE_XO3, MP_LAYERED_WAVE_XO4, MP_LAYERED_WAVE_XO5, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_TAPER_CURVE, MP_LAYERED_WAVE_DIRECTION, MP_LAYERED_WAVE_TAPER_HEAD, MP_LAYERED_WAVE_TAPER_TAIL, MP_LAYERED_WAVE_HSTYLE, MP_LAYERED_WAVE_AA, MP_LAYERED_WAVE_BMODE, MP_LAYERED_WAVE_BALPHA, MP_LAYERED_WAVE_GUARD, MP_LAYERED_WAVE_G1, MP_LAYERED_WAVE_G2, MP_LAYERED_WAVE_G3, MP_LAYERED_WAVE_G4, MP_LAYERED_WAVE_G5, MP_LAYERED_WAVE_G6, MP_LAYERED_WAVE_N };
 static const char *const mtr_en_layered_wave_view[] = { "HISTORY", "SPECTRUM", "SCROLL" };
 static const char *const mtr_en_layered_wave_split[] = { "OCTAVES", "BASS_FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mtr_en_layered_wave_outer[] = { "BASS", "TREBLE" };
@@ -149,10 +149,12 @@ static const mtr_param_t mtr_p_layered_wave[MP_LAYERED_WAVE_N] COLD_DATA = {
     { "CUSTOM BACKGROUND", MTR_U16, 0, 65535, 1, 6277, 15, 2, "", 0, 0 },
     { "TAPER CURVE", MTR_ENUM, 0, 3, 1, 0, 255, 0, "", mtr_en_layered_wave_taper_curve, 0 },
     { "DIRECTION", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_layered_wave_direction, 0 },
+    { "HEAD LENGTH", MTR_U8, 0, 50, 1, 0, 255, 0, "%", 0, 0 },
+    { "TAIL LENGTH", MTR_U8, 10, 100, 5, 100, 255, 0, "%", 0, 0 },
     { "SPECTRUM STYLE", MTR_ENUM, 0, 2, 1, 0, 0, 1, "", mtr_en_layered_wave_hstyle, 0 },
     { "ANTIALIASING", MTR_ENUM, 0, 3, 1, 0, 255, 0, "", mtr_en_layered_wave_aa, 0 },
     { "LAYER BLENDING", MTR_ENUM, 0, 5, 1, 0, 255, 0, "", mtr_en_layered_wave_bmode, 0 },
-    { "BLEND ALPHA", MTR_U8, 5, 100, 5, 60, 27, 1, "%", 0, 0 },
+    { "BLEND ALPHA", MTR_U8, 5, 100, 5, 60, 29, 1, "%", 0, 0 },
     { "COST GUARD", MTR_ENUM, 0, 2, 1, 0, 255, 0, "", mtr_en_layered_wave_guard, 0 },
     { "GAIN, LAYER 1", MTR_U8, 0, 36, 1, 18, 255, 0, " DB", 0, -18 },
     { "GAIN, LAYER 2", MTR_U8, 0, 36, 1, 18, 255, 0, " DB", 0, -18 },
@@ -163,28 +165,28 @@ static const mtr_param_t mtr_p_layered_wave[MP_LAYERED_WAVE_N] COLD_DATA = {
 };
 static const char *mtr_pn_layered_wave[16] = { "AURORA", "SUNSET", "DEEP OCEAN", "HALO", "NEON", "PULSE", "TIDE", "RIDGE", "SILK [EX]", "GLOW [EX]", "STAINED [EX]", "BELLS [EX]", "RIBBON [EX]", "VELVET [EX]", "INK [EX]", "FULLRES [EX]" };
 static const uint16_t mtr_pre_layered_wave[16 * MP_LAYERED_WAVE_N] COLD_DATA = {
-    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* AURORA */
-    0, 5, 1, 0, 0, 3, 5, 8, 11, 13, 1, 160, 130, 50, 55, 0, 1, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* SUNSET */
-    0, 4, 2, 1, 1, 3, 5, 8, 11, 13, 1, 120, 80, 40, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* DEEP OCEAN */
-    0, 4, 3, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 30, 85, 1, 0, 2, 1, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* HALO */
-    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 240, 80, 0, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* NEON */
-    0, 1, 3, 0, 0, 3, 5, 8, 11, 13, 0, 64, 160, 70, 60, 2, 0, 5, 0, 10, 63981, 65067, 4228, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* PULSE */
-    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* TIDE */
-    1, 4, 4, 0, 0, 2, 5, 9, 11, 13, 0, 48, 100, 55, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* RIDGE */
-    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 2, 0, 60, 1, 18, 18, 18, 18, 18, 18,   /* SILK [EX] */
-    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 1, 0, 3, 60, 1, 18, 18, 18, 18, 18, 18,   /* GLOW [EX] */
-    0, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 40, 60, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 1, 50, 0, 18, 18, 18, 18, 18, 18,   /* STAINED [EX] */
-    1, 5, 1, 0, 1, 3, 5, 8, 11, 13, 1, 300, 100, 50, 45, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0, 1, 0, 0, 60, 0, 22, 18, 15, 20, 23, 18,   /* BELLS [EX] */
-    1, 4, 2, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 2, 1, 0, 60, 0, 12, 18, 22, 26, 18, 18,   /* RIBBON [EX] */
-    0, 3, 1, 0, 0, 3, 5, 8, 11, 13, 1, 300, 70, 35, 80, 1, 0, 6, 3, 9, 57905, 41662, 6277, 0, 0, 0, 1, 2, 60, 0, 18, 18, 18, 18, 18, 18,   /* VELVET [EX] */
-    0, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 240, 100, 45, 60, 2, 0, 5, 0, 10, 55812, 8452, 59097, 0, 0, 0, 0, 4, 60, 0, 18, 18, 18, 18, 18, 18,   /* INK [EX] */
-    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 150, 60, 40, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 3, 0, 60, 2, 18, 18, 18, 18, 18, 18,   /* FULLRES [EX] */
+    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* AURORA */
+    0, 5, 1, 0, 0, 3, 5, 8, 11, 13, 1, 160, 130, 50, 55, 0, 1, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* SUNSET */
+    0, 4, 2, 1, 1, 3, 5, 8, 11, 13, 1, 120, 80, 40, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* DEEP OCEAN */
+    0, 4, 3, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 30, 85, 1, 0, 2, 1, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* HALO */
+    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 240, 80, 0, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* NEON */
+    0, 1, 3, 0, 0, 3, 5, 8, 11, 13, 0, 64, 160, 70, 60, 2, 0, 5, 0, 10, 63981, 65067, 4228, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* PULSE */
+    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* TIDE */
+    1, 4, 4, 0, 0, 2, 5, 9, 11, 13, 0, 48, 100, 55, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18,   /* RIDGE */
+    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 2, 0, 60, 1, 18, 18, 18, 18, 18, 18,   /* SILK [EX] */
+    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 1, 0, 3, 60, 1, 18, 18, 18, 18, 18, 18,   /* GLOW [EX] */
+    0, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 40, 60, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 1, 50, 0, 18, 18, 18, 18, 18, 18,   /* STAINED [EX] */
+    1, 5, 1, 0, 1, 3, 5, 8, 11, 13, 1, 300, 100, 50, 45, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 1, 0, 0, 60, 0, 22, 18, 15, 20, 23, 18,   /* BELLS [EX] */
+    1, 4, 2, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 2, 1, 0, 60, 0, 12, 18, 22, 26, 18, 18,   /* RIBBON [EX] */
+    0, 3, 1, 0, 0, 3, 5, 8, 11, 13, 1, 300, 70, 35, 80, 1, 0, 6, 3, 9, 57905, 41662, 6277, 0, 0, 0, 100, 0, 1, 2, 60, 0, 18, 18, 18, 18, 18, 18,   /* VELVET [EX] */
+    0, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 240, 100, 45, 60, 2, 0, 5, 0, 10, 55812, 8452, 59097, 0, 0, 0, 100, 0, 0, 4, 60, 0, 18, 18, 18, 18, 18, 18,   /* INK [EX] */
+    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 150, 60, 40, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 3, 0, 60, 2, 18, 18, 18, 18, 18, 18,   /* FULLRES [EX] */
 };
-static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18 };
+static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100, 0, 0, 0, 60, 0, 18, 18, 18, 18, 18, 18 };
 static uint8_t mtr_pi_layered_wave = 0;
 static mtr_data_t mtr_d_layered_wave = { VIZ_LAYERED_WAVE, "LAYERED WAVE", MP_LAYERED_WAVE_N, mtr_p_layered_wave, 16, 16, mtr_pn_layered_wave, 0, (uint16_t *)mtr_pre_layered_wave, mtr_v_layered_wave, &mtr_pi_layered_wave, 1 };
 #else
-enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_XO1, MP_LAYERED_WAVE_XO2, MP_LAYERED_WAVE_XO3, MP_LAYERED_WAVE_XO4, MP_LAYERED_WAVE_XO5, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_TAPER_CURVE, MP_LAYERED_WAVE_DIRECTION, MP_LAYERED_WAVE_N };
+enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_XO1, MP_LAYERED_WAVE_XO2, MP_LAYERED_WAVE_XO3, MP_LAYERED_WAVE_XO4, MP_LAYERED_WAVE_XO5, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_TAPER_CURVE, MP_LAYERED_WAVE_DIRECTION, MP_LAYERED_WAVE_TAPER_HEAD, MP_LAYERED_WAVE_TAPER_TAIL, MP_LAYERED_WAVE_N };
 static const char *const mtr_en_layered_wave_view[] = { "HISTORY", "SPECTRUM", "SCROLL" };
 static const char *const mtr_en_layered_wave_split[] = { "OCTAVES", "BASS_FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mtr_en_layered_wave_outer[] = { "BASS", "TREBLE" };
@@ -223,19 +225,21 @@ static const mtr_param_t mtr_p_layered_wave[MP_LAYERED_WAVE_N] COLD_DATA = {
     { "CUSTOM BACKGROUND", MTR_U16, 0, 65535, 1, 6277, 15, 2, "", 0, 0 },
     { "TAPER CURVE", MTR_ENUM, 0, 3, 1, 0, 255, 0, "", mtr_en_layered_wave_taper_curve, 0 },
     { "DIRECTION", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_layered_wave_direction, 0 },
+    { "HEAD LENGTH", MTR_U8, 0, 50, 1, 0, 255, 0, "%", 0, 0 },
+    { "TAIL LENGTH", MTR_U8, 10, 100, 5, 100, 255, 0, "%", 0, 0 },
 };
 static const char *mtr_pn_layered_wave[8] = { "AURORA", "SUNSET", "DEEP OCEAN", "HALO", "NEON", "PULSE", "TIDE", "RIDGE" };
 static const uint16_t mtr_pre_layered_wave[8 * MP_LAYERED_WAVE_N] COLD_DATA = {
-    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0,   /* AURORA */
-    0, 5, 1, 0, 0, 3, 5, 8, 11, 13, 1, 160, 130, 50, 55, 0, 1, 5, 0, 10, 57905, 41662, 6277, 0, 0,   /* SUNSET */
-    0, 4, 2, 1, 1, 3, 5, 8, 11, 13, 1, 120, 80, 40, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0,   /* DEEP OCEAN */
-    0, 4, 3, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 30, 85, 1, 0, 2, 1, 10, 57905, 41662, 6277, 0, 0,   /* HALO */
-    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 240, 80, 0, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0,   /* NEON */
-    0, 1, 3, 0, 0, 3, 5, 8, 11, 13, 0, 64, 160, 70, 60, 2, 0, 5, 0, 10, 63981, 65067, 4228, 0, 0,   /* PULSE */
-    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277, 0, 0,   /* TIDE */
-    1, 4, 4, 0, 0, 2, 5, 9, 11, 13, 0, 48, 100, 55, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0,   /* RIDGE */
+    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* AURORA */
+    0, 5, 1, 0, 0, 3, 5, 8, 11, 13, 1, 160, 130, 50, 55, 0, 1, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* SUNSET */
+    0, 4, 2, 1, 1, 3, 5, 8, 11, 13, 1, 120, 80, 40, 40, 0, 2, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* DEEP OCEAN */
+    0, 4, 3, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 30, 85, 1, 0, 2, 1, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* HALO */
+    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 240, 80, 0, 0, 3, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* NEON */
+    0, 1, 3, 0, 0, 3, 5, 8, 11, 13, 0, 64, 160, 70, 60, 2, 0, 5, 0, 10, 63981, 65067, 4228, 0, 0, 0, 100,   /* PULSE */
+    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277, 0, 0, 0, 100,   /* TIDE */
+    1, 4, 4, 0, 0, 2, 5, 9, 11, 13, 0, 48, 100, 55, 50, 0, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100,   /* RIDGE */
 };
-static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0 };
+static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277, 0, 0, 0, 100 };
 static uint8_t mtr_pi_layered_wave = 0;
 static mtr_data_t mtr_d_layered_wave = { VIZ_LAYERED_WAVE, "LAYERED WAVE", MP_LAYERED_WAVE_N, mtr_p_layered_wave, 8, 8, mtr_pn_layered_wave, 0, (uint16_t *)mtr_pre_layered_wave, mtr_v_layered_wave, &mtr_pi_layered_wave, 1 };
 #endif
