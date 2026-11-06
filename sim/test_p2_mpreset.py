@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2"))
 import mpreset as mp
+import meter_manifest as mm
 fails = 0
 def check(name, ok, info=""):
     global fails
@@ -33,7 +34,7 @@ def pre(exe, td, data, meter_id, ident, params):
     return int(head[1]), int(head[2]), (o[1].split() if len(o) > 1 else [])
 mans = {}
 for p in sorted((ROOT / "meters").glob("*/meter.json")):
-    d = json.loads(p.read_text())
+    d = mm.load(p)
     if "p2" in d: mans[d["key"]] = d
 with tempfile.TemporaryDirectory() as td:
     exe = build(td); tmp = Path(td)

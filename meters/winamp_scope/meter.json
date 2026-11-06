@@ -31,43 +31,6 @@
       "note": "percent of the old trace kept each frame (needs the alpha-blend bitstream; without it the trace is erased as before)"
     }
   ],
-  "presets": [
-    {
-      "name": "FLUID",
-      "values": {
-        "scope_smooth": 35,
-        "scope_trail": 30
-      }
-    },
-    {
-      "name": "CLASSIC",
-      "values": {
-        "scope_smooth": 0,
-        "scope_trail": 0
-      }
-    },
-    {
-      "name": "BOUNCY",
-      "values": {
-        "scope_smooth": 45,
-        "scope_trail": 20
-      }
-    },
-    {
-      "name": "SLOW FADE",
-      "values": {
-        "scope_smooth": 55,
-        "scope_trail": 40
-      }
-    },
-    {
-      "name": "SNAPPY",
-      "values": {
-        "scope_smooth": 15,
-        "scope_trail": 5
-      }
-    }
-  ],
   "p2": {"pack_only": true, "cmds": 128, "max_cycles": 1200000, "slot": 1, "tag": "SCOPE", "compose": false, "budget": {"cold": 1300, "hot_ram": 160}},
   "default_preset": 0
 }

@@ -1,0 +1,70 @@
+{
+  "about": "The factory presets of this meter (tools/player2/mpreset.py writes them as the preset files under tau-presets/, B-966/B-969). The values are keyed by the parameter keys of meter.json; a parameter a preset does not name takes its default.",
+  "presets": [
+    {
+      "name": "FLUID",
+      "values": {
+        "bands": 16,
+        "ease": 2,
+        "attack": 55,
+        "release": 22,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 200,
+        "peak_fall": 35
+      }
+    },
+    {
+      "name": "CLASSIC",
+      "values": {
+        "bands": 16,
+        "ease": 0,
+        "attack": 100,
+        "release": 100,
+        "peak_on": 1,
+        "peak_gravity": 0,
+        "peak_hold_ms": 0,
+        "peak_fall": 60
+      }
+    },
+    {
+      "name": "BOUNCY",
+      "values": {
+        "bands": 12,
+        "ease": 3,
+        "attack": 60,
+        "release": 25,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 250,
+        "peak_fall": 30
+      }
+    },
+    {
+      "name": "SLOW FADE",
+      "values": {
+        "bands": 8,
+        "ease": 2,
+        "attack": 30,
+        "release": 12,
+        "peak_on": 1,
+        "peak_gravity": 0,
+        "peak_hold_ms": 500,
+        "peak_fall": 15
+      }
+    },
+    {
+      "name": "SNAPPY",
+      "values": {
+        "bands": 16,
+        "ease": 1,
+        "attack": 90,
+        "release": 90,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 100,
+        "peak_fall": 70
+      }
+    }
+  ]
+}

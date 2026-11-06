@@ -55,38 +55,6 @@
       "when": { "color_mode": 1 }
     }
   ],
-  "presets": [
-    {
-      "name": "THEME",
-      "values": {
-        "info": 1,
-        "color_mode": 0,
-        "color_green": 0,
-        "color_yellow": 0,
-        "color_red": 0
-      }
-    },
-    {
-      "name": "STANDARD",
-      "values": {
-        "info": 1,
-        "color_mode": 1,
-        "color_green": 2016,
-        "color_yellow": 64992,
-        "color_red": 63488
-      }
-    },
-    {
-      "name": "CUSTOM EXAMPLE",
-      "values": {
-        "info": 1,
-        "color_mode": 1,
-        "color_green": 1622,
-        "color_yellow": 43835,
-        "color_red": 61775
-      }
-    }
-  ],
   "p2": {"pack_only": true, "cmds": 32, "max_cycles": 200000, "slot": 4, "tag": "VU", "compose": false, "label": "VU MASTER", "budget": {"cold": 2400, "hot_ram": 48}},
   "default_preset": 0
 }

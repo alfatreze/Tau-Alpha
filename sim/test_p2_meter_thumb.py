@@ -10,6 +10,7 @@ def check(n, ok, i=""):
     print(("ok   " if ok else "FAIL ") + n + ("  " + i if i and not ok else ""))
     fails += 0 if ok else 1
 sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm
 def run(mutant):
     with tempfile.TemporaryDirectory() as td:
         d = Path(td)
@@ -44,7 +45,7 @@ def decode(t):
     px = []
     for b in bytes.fromhex(t["rle"]): px += [b >> 5] * ((b & 31) + 1)
     return "".join(str(v) for v in px)
-mans = sorted((json.loads(p.read_text()) for p in (ROOT / "meters").glob("*/meter.json")), key=lambda m: m.get("p2", {}).get("slot", 99))
+mans = sorted((mm.load(p) for p in (ROOT / "meters").glob("*/meter.json")), key=lambda m: m.get("p2", {}).get("slot", 99))
 mans = [m for m in mans if "p2" in m]
 out = run(False)
 ok_all = True

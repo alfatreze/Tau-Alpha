@@ -7,7 +7,8 @@ These are properties of the design, written down so that "the setting does nothi
 import contextlib, importlib.util, io, json, re, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm; sys.path.insert(0, str(ROOT / "tools"))
 import pack_meter as pm
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
 fails = 0
@@ -17,7 +18,7 @@ def check(name, ok, info=""):
     fails += 0 if ok else 1
 ns = {"__name__": "rv"}; exec(compile((ROOT / "tools/rv32sim.py").read_text(), "rv", "exec"), ns)
 sp = importlib.util.spec_from_file_location("devmodel", ROOT / "tools/p2_dev_model.py")
-man = json.loads((ROOT / "meters/layered_wave/meter.json").read_text())
+man = mm.load(ROOT / "meters/layered_wave/meter.json")
 enum = (ROOT / "fw2/generated/lw_presets.h").read_text()
 names = re.search(r"enum \{ (MP_LAYERED_WAVE_VIEW.*?) \};", enum).group(1).split(", ")
 IDX = {x.replace("MP_LAYERED_WAVE_", ""): i for i, x in enumerate(names)}

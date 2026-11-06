@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from meter_desc import param_rows, cmp_code_int, gate_code_int       # the one place that turns a manifest into descriptors (also what a pack carries, B-812)
+import meter_manifest as mm                                           # the manifest with its presets.json merged in (B-969)
 import mpreset                                                        # the key hash and the default of every parameter (the preset files are keyed by name, B-967)
 def descriptors(tag, d):
     res = []; rows = []
@@ -29,7 +30,7 @@ def keydefs(tag, d):
 def load():
     man = {}
     for p in sorted((ROOT / "meters").glob("*/meter.json")):
-        d = json.loads(p.read_text())
+        d = mm.load(p)
         if "p2" in d: man[d["key"]] = d
     slots = sorted(d["p2"]["slot"] for d in man.values())
     assert slots == list(range(len(man))), f"the p2 slots must be exactly 0..{len(man) - 1}: {slots}"

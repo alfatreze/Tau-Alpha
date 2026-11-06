@@ -14,13 +14,14 @@ import json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm
 import meter_desc as md, mpreset as mp
 fails = 0
 def check(name, ok, info=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else "  " + str(info)))
     fails += 0 if ok else 1
-d = json.loads((ROOT / "meters/layered_wave/meter.json").read_text()); t = json.loads((ROOT / "meters/layered_wave/thumb.json").read_text())
+d = mm.load(ROOT / "meters/layered_wave/meter.json"); t = json.loads((ROOT / "meters/layered_wave/thumb.json").read_text())
 params = mp.params_of(d); keys = [p[0] for p in params]; mid = d["index"]; slot = d["p2"]["slot"]
 def build(td, mut=None):
     exe = Path(td) / ("h%s" % (mut or ""))
@@ -109,7 +110,7 @@ with tempfile.TemporaryDirectory() as td:
     o = subprocess.run([str(exe), str(desc), str(nofile), "0", "choose", "5"], capture_output=True, text=True, env=dict(os.environ, ROW=str(slot))).stdout.strip().splitlines()
     check("without preset files the pack's own preset is remembered by its position (5) and no id: %s" % o[0], o[0].split()[2] == "0" and o[0].split()[4] == "5", o[0])
     # the built-in meter (Winamp Bars: no pack, its descriptors are in the firmware): the same files work through the generated key hashes and defaults
-    wb = json.loads((ROOT / "meters/winamp_bars/meter.json").read_text()); wbp = mp.params_of(wb); wbk = [x[0] for x in wbp]
+    wb = mm.load(ROOT / "meters/winamp_bars/meter.json"); wbp = mp.params_of(wb); wbk = [x[0] for x in wbp]
     rootb = setup(td, "bars", files=mp.factory_files(wb))
     o = subprocess.run([str(exe), str(desc), str(rootb), "0"], capture_output=True, text=True, env=dict(os.environ, ROW="0")).stdout.strip().splitlines()
     rb = parse(o); nb = len(wb["presets"])

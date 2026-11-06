@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "tools"))
 import pack_meter as pm
+import meter_manifest as mm
 import pack_bundle as pb
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
 fails = 0
@@ -39,7 +40,7 @@ def generic_meters():
     import json
     out = {}
     for p in sorted((ROOT / "meters").glob("*/meter.json")):
-        d = json.loads(p.read_text())
+        d = mm.load(p)
         if "p2" in d and d["key"] not in METERS: out[d["key"]] = d["p2"]["tag"]
     return out
 GENERIC = generic_meters()
