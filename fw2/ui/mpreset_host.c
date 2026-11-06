@@ -22,6 +22,7 @@ P2_COLD_TEXT static uint32_t build_path(char *out, uint32_t cap, uint32_t mid, i
 {
     uint32_t n = library_root(out, cap);
     if (!n || n + 40u > cap) return 0;
+    if (out[n - 1u] == '/') n--;                                                          /* the library's root ends with a slash ("/Assets/tau/common/") */
     const char *a = "/tau-presets/"; for (; *a; a++) out[n++] = *a;
     char d[4]; uint32_t k = 0; uint32_t v = mid; do { d[k++] = (char)('0' + v % 10u); v /= 10u; } while (v && k < 3u); while (k) out[n++] = d[--k];
     out[n++] = '/';
