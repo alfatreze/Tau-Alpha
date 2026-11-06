@@ -17,7 +17,7 @@ then runs the generators (`gen_meters_p2.py`, `gen_meters.py`) and `pack_meter.p
 
 ## What to edit
 1. The manifest: parameters (the order is the host's parameter table; `when` hides one until another has a value), presets (every parameter in every preset), the limits. Run `python3 tools/player2/gen_meters_p2.py` after a change.
-2. The drawing in `meter_<key>.c`. Draw only inside the box (`in->x, y, w, h`); the host composes, degrades and budgets it (`p2.cmds`, `p2.max_cycles`; three overruns disable the pack, decision D-M20). A meter with its own history keeps it in a ring, a meter made of cells uses the grid helper.
+2. The drawing in `meter_<key>.c`. Draw only inside the box (`in->x, y, w, h`); the host composes, degrades and budgets it (`p2.cmds`, `p2.max_cycles`; three overruns disable the pack, decision D-M20; a tick that runs far over its limit, or never returns, is cut off by the hardware watchdog and the pack is struck out at once, see METER_PACKS_PLAYER2.md). A meter with its own history keeps it in a ring, a meter made of cells uses the grid helper.
 3. The thumbnail (`thumb.json`: `rle` is `(palette index << 5) | (run - 1)` row by row; `palette_roles` names theme roles or ramps between two).
 4. `make test-host`: the pack test picks the meter up from its manifest (generic trace: every preset, loud and quiet stretches, a pause, the degrade levels, the fullscreen box) and checks the pack on rv32sim against the source compiled straight in, inside its box, and that its descriptor parses.
 5. Deliver the pack to the Pocket: `python3 tools/player2/pack_meter.py <key> --out work/packs-p2/<key>.tmpk`, bundle all packs (`pack_bundle.py`), merge into `tau-assets.bin` (`MPKB`), install with `tools/install_dev_core.py ... --assets`.
