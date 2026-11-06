@@ -31,7 +31,7 @@
 #define LW_BUDGET 300u
 #define LW_HMAX   404u                 /* res (<= 400) + 4 */
 
-typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, tcurve, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
+typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, tcurve, dir, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
 
 /* HISTORY lives in PSRAM as a ring (B-509, the meter framework's rule for mutable state, fw/meter.h / METER_MODULE_SPEC.md D-M14): 6 x 404 bytes
  * (2,424 B) off the scarce on-chip RAM. The old design SHIFTED up to 400 bytes per layer per push, free in SRAM and ruinous through a ~32-cycle
@@ -46,12 +46,12 @@ static uint32_t lw_ring[LW_MAXL][LW_RW] MTR_PSRAM;
 static uint8_t  lw_row[LW_HMAX];
 static uint16_t lw_head;
 static int16_t  lw_band[LW_MAXL][LW_NB];
-static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[14], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
+static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[15], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
 /* The history view's per-column constants (P2, B-951): the source position, the taper window and the age band of a cell depend only on the width, the resolution, the taper, the cell width and the draw style, not on the layer or the
  * frame, so they are worked out once (three divisions by the width per column) and kept, instead of once per cell per layer per frame. One word per cell column: source (17 bits) << 11 | window (8) << 3 | age band (3). */
 static uint32_t lw_col[LW_HMAX - 4u];
-static int32_t  lw_ck[6];
+static int32_t  lw_ck[7];
 #ifdef LW_SCROLL_VIEW
 static int32_t lw_sacc;                                           /* Q8 pixels of scroll owed */
 static uint8_t lw_prev8[LW_MAXL], lw_sgood;                       /* the last picture's value per layer; the picture holds a history (a repaint has run since the last reset) */
@@ -249,12 +249,14 @@ COLD_FN3 LW_HOT static int32_t lw_win(const uint8_t (*tab)[65], int32_t q, int32
     const int32_t i0 = pos >> 8, fr = pos & 255, i1 = lw_min(64, i0 + 1);
     return lw_prof((int32_t)tab[q - 1][i0] + ((((int32_t)tab[q - 1][i1] - (int32_t)tab[q - 1][i0]) * fr) >> 8), lw_tc);
 }
-COLD_FN3 LW_HOT static int32_t lw_cr8(const uint8_t *h, int32_t n, int32_t i, int32_t f)       /* Catmull-Rom on 0..255 samples, f in Q8 */
+COLD_FN3 LW_HOT static int32_t lw_cr8(const uint8_t *h, int32_t n, int32_t i, int32_t f)       /* Catmull-Rom on 0..255 samples, f in Q8: the four weights from the powers of f (B-958; the same integers as the JS twin's cr8) */
 {
-    const int32_t p0 = h[lw_max(i - 1, 0)], p1 = h[lw_min(i, n - 1)], p2 = h[lw_min(i + 1, n - 1)], p3 = h[lw_min(i + 2, n - 1)];
-    const int32_t a = p2 - p0, b = 2 * p0 - 5 * p1 + 4 * p2 - p3, c = -p0 + 3 * p1 - 3 * p2 + p3;
-    const int32_t t2 = b + ((c * f) >> 8), t1 = a + ((t2 * f) >> 8);
-    return lw_clamp(p1 + ((t1 * f) >> 9), 0, 255);
+    int32_t p0, p1, p2, p3;
+    if (i >= 1 && i + 2 < n) { p0 = h[i - 1]; p1 = h[i]; p2 = h[i + 1]; p3 = h[i + 2]; }          /* the common case: no end of the history to clamp at */
+    else { p0 = h[lw_max(i - 1, 0)]; p1 = h[lw_min(i, n - 1)]; p2 = h[lw_min(i + 1, n - 1)]; p3 = h[lw_min(i + 2, n - 1)]; }
+    const int32_t t2 = (f * f) >> 8, t3 = (t2 * f) >> 8;
+    const int32_t w0 = 2 * t2 - t3 - f, w2 = 4 * t2 - 3 * t3 + f, w3 = t3 - t2, w1 = 512 - w0 - w2 - w3;          /* Q9, the four sum to 512 */
+    return lw_clamp((w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3 + 256) >> 9, 0, 255);
 }
 COLD_FN3 LW_HOT static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)                     /* half height in pixels; a thin centre line stays in silence */
 {
@@ -291,7 +293,7 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
 #endif
     lw_ck_ok = 0u;
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
-    for (uint32_t i = 0; i < 14u; i++) lw_soft[i] = soft[i];
+    for (uint32_t i = 0; i < 15u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
     lw_head = 0;
     for (uint32_t k = 0; k < LW_MAXL; k++) {
@@ -431,14 +433,14 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     const int32_t pushes = lw_advance(p, in);
     if (!smooth && pushes == 0 && !lw_dirty) return;
     lw_dirty = 0u;
-    const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
+    const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L, dir = p->dir;
     lw_rect(X, in->y, W, in->h, cl->bg);
-    if (!lw_ck_ok || lw_ck[0] != W || lw_ck[1] != res || lw_ck[2] != tq || lw_ck[3] != s || lw_ck[4] != smooth || lw_ck[5] != lw_tc) {
-        lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck[5] = lw_tc; lw_ck_ok = 1u;
+    if (!lw_ck_ok || lw_ck[0] != W || lw_ck[1] != res || lw_ck[2] != tq || lw_ck[3] != s || lw_ck[4] != smooth || lw_ck[5] != lw_tc || lw_ck[6] != dir) {
+        lw_ck[6] = dir; lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck[5] = lw_tc; lw_ck_ok = 1u;
         for (int32_t ci = 0, xs = 0; xs < W; ci++, xs += s) {
-            const int32_t xc = lw_min(W - 1, xs + (s >> 1));
-            const int32_t src = smooth ? ((2 * xc + 1) * res * 128) / W : lw_min(res - 1, (xc * res) / W);
-            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xc + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;          /* xm: the position along the history, 0 = the newest end (the right edge when the history flows left) */
+            const int32_t src = smooth ? ((2 * xm + 1) * res * 128) / W : lw_min(res - 1, (xm * res) / W);
+            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xm + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xm + 1) * 4) / W);
             lw_col[ci] = ((uint32_t)src << 11) | ((uint32_t)w8 << 3) | (uint32_t)q;
         }
     }
@@ -467,7 +469,7 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     }
     if (p->taper > 0u) {
         static const uint8_t dots[3] = { 4, 3, 3 };
-        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }
+        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }
     }
 }
 
@@ -577,8 +579,35 @@ static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
 /* SCROLL view (P3, B-952; Player 2 only: it needs the engine's copy, `lw_scroll_left`, which the old player's build and the golden test do not have). The picture scrolls itself: the engine moves the box left by the pixels that
  * the scroll speed asks for this time, and only the new columns on the right edge are drawn (newest on the right), one flat colour per layer, the height of each column stepping linearly from the previous picture's value to
  * the current one. About 8 commands per layer per picture at 240 px/s, whatever the width or the Resolution, so it can scroll as smoothly as the engine copy allows. The history ring is kept up to date as in HISTORY (same
- * cadence) and is what a full repaint (a forced one, a parameter change, a new box) is drawn from, in cells of the guard's width. Not drawn here: the tail taper and age colours (they depend on the position, which a copy
- * cannot change), anti-aliasing, blending, the Draw style. */
+ * cadence) and is what a full repaint (a forced one, a parameter change, a new box) is drawn from, in cells of the guard's width. Not drawn here: the age colours (a copy cannot recolour), anti-aliasing, blending and the Draw style. The tail taper is applied by covering (lw_scroll_taper), without the head ramp. */
+/* The taper of the SCROLL view (B-958). A copy cannot reshape what it moved, so the tail is narrowed by covering: after the new columns are drawn, the part of every cell above and below the taper window's height (the window
+ * along the history, newest end on the right, with the Taper curve profile) is painted with the background, in runs of equal height. The window only ever falls along the motion, so what was covered stays covered and
+ * what scrolls into a narrower window is covered further: the picture ends up as if each column had been drawn with the window of its place. The head ramp (the window's rise over the first eighth) is not applied: a
+ * column that has been drawn cannot grow. The edge is quantised to steps of LW_TAPER_STEP (3) pixels so it costs at most about 2 x (half height / 3 + 1) commands (about 44 in a 122-pixel box), none with the taper off. */
+#define LW_TAPER_STEP 3
+COLD_FN3 static void lw_scroll_taper(const lw_p_t *p, const mtr_in_t *in, uint16_t bg, int32_t cy, int32_t Hh)
+{
+    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride;
+    if (tq == 0) return;
+    int32_t pk = 0;
+    for (int32_t i = 1; i <= 64; i++) if (lw_win_hist[tq - 1][i] > lw_win_hist[tq - 1][pk]) pk = i;
+    int32_t x0 = 0, hp = -1;
+    for (int32_t xs = 0; xs <= W; xs += s) {
+        int32_t hm = -2;
+        if (xs < W) {
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), pos = ((2 * (W - 1 - xc) + 1) * 8192) / W;
+            hm = lw_half(255, (pos >> 8) < pk ? 255 : lw_win(lw_win_hist, tq, pos), Hh);
+            hm = lw_min(Hh, ((hm + LW_TAPER_STEP - 1) / LW_TAPER_STEP) * LW_TAPER_STEP);      /* up to a whole step: the covered edge is a staircase of LW_TAPER_STEP-pixel steps, fixed on the screen while the wave flows through it, and never cuts the wave */
+        }
+        if (hm != hp) {
+            if (hp >= 0 && hp < Hh) {
+                if (cy - hp > Y) lw_rect(X + x0, Y, xs - x0, cy - hp - Y, bg);
+                if (cy + hp < Y + H) lw_rect(X + x0, cy + hp, xs - x0, Y + H - (cy + hp), bg);
+            }
+            x0 = xs; hp = hm;
+        }
+    }
+}
 COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, n = p->layers, res = p->res;
@@ -619,6 +648,7 @@ COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *
             }
         }
     }
+    if (p->taper > 0u) lw_scroll_taper(p, in, cl->bg, cy, Hh);
     for (int32_t k = 0; k < n; k++) lw_prev8[k] = cur[k];
 }
 #endif
@@ -648,6 +678,7 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
     p.taper = (uint8_t)lw_min(100, (int32_t)MV_LAYERED_WAVE(TAPER));
     p.tcurve = (uint8_t)lw_min(3, (int32_t)MV_LAYERED_WAVE(TAPER_CURVE));
     lw_tc = p.tcurve;
+    p.dir = (uint8_t)lw_min(1, (int32_t)MV_LAYERED_WAVE(DIRECTION));
     p.xo[0] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO1), 1, 15); p.xo[1] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO2), 1, 15); p.xo[2] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO3), 1, 15);
     p.xo[3] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO4), 1, 15); p.xo[4] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO5), 1, 15);
     p.color_mode = (uint8_t)MV_LAYERED_WAVE(COLOR_MODE); p.grad = (uint8_t)MV_LAYERED_WAVE(GRAD);
@@ -674,12 +705,12 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
      * draw wipes the whole box (inside helios_meter's compose), so no separate wipe is needed here. */
     const int32_t key[6] = { p.layers, p.res, 0, 0, 0, 0 };
     const int32_t geo[4] = { in->w, in->h, in->x, in->y };
-    const int32_t soft[14] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle, p.tcurve };
+    const int32_t soft[15] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle, p.tcurve, p.dir };
     int32_t same = lw_init;
     for (uint32_t i = 0; i < 2u && same; i++) if (lw_key[i] != key[i]) same = 0;
     if (!same) { lw_reinit(&p, in->w, key, soft); for (uint32_t i = 0; i < 4u; i++) lw_geo[i] = geo[i]; }
     else {
-        for (uint32_t i = 0; i < 14u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
+        for (uint32_t i = 0; i < 15u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
         if (in->force) lw_dirty = 1u;
         for (uint32_t i = 0; i < 4u; i++) if (lw_geo[i] != geo[i]) {                       /* the box moved or resized: repaint, and size the stride for the new width */
             for (uint32_t k = 0; k < 4u; k++) lw_geo[k] = geo[k];

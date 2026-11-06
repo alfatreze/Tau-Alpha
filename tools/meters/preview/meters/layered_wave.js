@@ -143,11 +143,11 @@
     const i0 = pos >> 8, fr = pos & 255, i1 = Math.min(64, i0 + 1), t = tab[q - 1];
     return profile(t[i0] + (((t[i1] - t[i0]) * fr) >> 8), curTC);
   }
-  function cr8(h, n, i, f) {               // Catmull-Rom on 0..255 samples (h(j) reads sample j), f in Q8
+  function cr8(h, n, i, f) {               // Catmull-Rom on 0..255 samples (h(j) reads sample j), f in Q8: the four weights from the powers of f; kept equal to fw2/ui/layered_wave.inc lw_cr8 (B-958)
     const p0 = h(Math.max(i - 1, 0)), p1 = h(Math.min(i, n - 1)), p2 = h(Math.min(i + 1, n - 1)), p3 = h(Math.min(i + 2, n - 1));
-    const a = p2 - p0, b = 2 * p0 - 5 * p1 + 4 * p2 - p3, c = -p0 + 3 * p1 - 3 * p2 + p3;
-    const t2 = b + ((c * f) >> 8), t1 = a + ((t2 * f) >> 8);
-    return clamp(p1 + ((t1 * f) >> 9), 0, 255);
+    const t2 = (f * f) >> 8, t3 = (t2 * f) >> 8;
+    const w0 = 2 * t2 - t3 - f, w2 = 4 * t2 - 3 * t3 + f, w3 = t3 - t2, w1 = 512 - w0 - w2 - w3;
+    return clamp((w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3 + 256) >> 9, 0, 255);
   }
   const halfPx = (a8, w8, Hh) => { let h = tdiv(a8 * w8 * Hh + 32512, 65025); if (h < 1 && w8 > 64) h = 1; return h; };   // a thin centre line stays in silence
 
@@ -211,7 +211,7 @@
     const cl = colours(ctx);
     // Only the history/band array sizes force a reset (B-523). A forced repaint, a setting change or a moved/resized box just repaints on the next frame and
     // keeps the history, so the meter never restarts when it changes view or enters fullscreen. The frame's own draw wipes the whole box, so no separate wipe.
-    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0, p.taper_curve | 0].join(',');
+    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0, p.taper_curve | 0, p.direction | 0].join(',');
     if (!st.init || st.hard !== hard) { reinit(st, ctx, hard); st.geo = geo; }
     else {
         if (st.soft !== soft || ctx.force) st.dirty = true;
@@ -249,24 +249,24 @@
     for (let i = 0; i < pushes; i++) for (let k = 0; k < n; k++) { const h = st.hist[k]; h.copyWithin(1, 0, h.length - 1); h[0] = toU8(st.s[k]); }
     if (!smooth && pushes === 0 && !st.dirty) return;          // nothing changed on the column grid: no commands at all
     st.dirty = false;
-    const phase = st.acc, tq = tdiv(p.taper + 2, 5), s = st.stride;
+    const phase = st.acc, tq = tdiv(p.taper + 2, 5), s = st.stride, dir = Math.min(1, p.direction | 0);
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     for (let k = 0; k < n; k++) {
       const h = st.hist[k]; let run = null;
       const flush = () => { if (run) { emitRun(lay, k, run); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
-        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
+        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;     // xm: the position along the history, 0 = the newest end
         let a8;
-        if (smooth) { const t = tdiv((2 * xc + 1) * res * 128, W) - phase - 128; a8 = t <= 0 ? h[0] : cr8((j) => h[j], res + 4, t >> 8, t & 255); }
-        else a8 = h[Math.min(res - 1, tdiv(xc * res, W))];
-        const w8 = tq === 0 ? 255 : win8(T.winHist, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xc + 1) * 4, W));
+        if (smooth) { const t = tdiv((2 * xm + 1) * res * 128, W) - phase - 128; a8 = t <= 0 ? h[0] : cr8((j) => h[j], res + 4, t >> 8, t & 255); }
+        else a8 = h[Math.min(res - 1, tdiv(xm * res, W))];
+        const w8 = tq === 0 ? 255 : win8(T.winHist, tq, tdiv((2 * xm + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xm + 1) * 4, W));
         const [hh, cv, c] = cellOut(lay, k, xs, wd, xc, h0, cv0, cl.tbl[k][q]);
         if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
         flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
       }
       flush(); endLayer(lay);
     }
-    if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
+    if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
   }
 
   /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline. With a frequency split every layer draws only the
