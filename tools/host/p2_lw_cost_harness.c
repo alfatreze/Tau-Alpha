@@ -69,7 +69,13 @@ static void custom_lw(void)
         mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
         in.force = (uint8_t)(n == 0); in.peak_l = pl; in.peak_r = pr;
         if (LW_FS) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
+#ifdef LW_TRACE                                    /* sim/test_p2_lw_guard.py: per frame, the draw commands issued and the cycles the (modelled) clock counted */
+        const uint32_t c0 = *(volatile uint32_t *)0xF000100Cu, n0 = tr_N;
         tr_box_of(&in); run(&in);
+        hputs("F "); hputu((uint32_t)n); hputc(' '); hputu(tr_N - n0); hputc(' '); hputu(*(volatile uint32_t *)0xF000100Cu - c0); hnl();
+#else
+        tr_box_of(&in); run(&in);
+#endif
     }
 }
 int main(void)
