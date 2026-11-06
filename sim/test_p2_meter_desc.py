@@ -30,19 +30,26 @@ with tempfile.TemporaryDirectory() as td:
         rows = md.param_rows(d)
         ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d mid %d slot %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), len(d["presets"]), d["index"], d["p2"]["slot"])
         ps = [l for l in out if l.startswith("p ")]
-        want = ["p %s %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in rows]
+        import mpreset as _mp
+        pk = _mp.params_of(d)                                                                       # (key, hash, min, max, default): the descriptor carries the hash and the default (v2, B-967)
+        want = ["p %s %d %d %d %d %d %d %d k%d d%d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], r["when_idx"], r["when_val"], pk[i][1], pk[i][4]) + "".join(" [%s]" % v for v in r["vals"]) for i, r in enumerate(rows)]
         ok &= ps == want
         rs = [l for l in out if l.startswith("r ")]
         ok &= rs == ["r %s %s" % (p["name"], " ".join(str(p["values"][r["key"]]) for r in rows)) for p in d["presets"]]
         cs = [l for l in out if l.startswith("c ")]
         ok &= cs == ["c %d %d %d %d %d" % e for e in md.palette_entries(t)]
         ok &= out[-1] == "rle " + " ".join(str(b) for b in bytes.fromhex(t["rle"]))
-        ok &= py["name"] == d["p2"].get("label", d["name"]) and len(py["params"]) == len(rows) and len(py["presets"]) == len(d["presets"]) and py["rle"] == bytes.fromhex(t["rle"])
+        ok &= py["name"] == d["p2"].get("label", d["name"]) and len(py["params"]) == len(rows) and len(py["presets"]) == len(d["presets"]) and py["rle"] == bytes.fromhex(t["rle"]) and [(q["key"], q["def"]) for q in py["params"]] == [(x[1], x[4]) for x in pk]
         check("%s: the C reader, the Python reader and the manifest agree (%d B, %d parameters, %d presets)" % (key, len(blob), len(rows), len(d["presets"])), ok, out[:2])
         fz = run(exe, blob, tmp, "fuzz")[0].split()
         check("%s: every single-bit flip is refused or harmless and none reads outside the descriptor (%s refused, %s accepted)" % (key, fz[4], fz[2]), fz[6] == "0", fz)
     blob = md.for_meter("waterfall_grid")
     check("a wrong length is refused", all(run(exe, blob, tmp, n)[0].split()[1] != "0" for n in (0, 7, len(blob) - 4, len(blob) + 4, len(blob) - 1)))
+    po = int.from_bytes(blob[22:24], "little")                                                       # the first parameter record: key at +16, default at +18 (v2)
+    b = bytearray(blob); b[po + 18:po + 20] = (65535).to_bytes(2, "little")
+    check("a default outside its parameter's range is refused (code 4)", run(exe, bytes(b), tmp)[0].split()[1] == "4", run(exe, bytes(b), tmp)[0])
+    b = bytearray(blob); b[po + 20 + 16:po + 20 + 18] = blob[po + 16:po + 18]
+    check("two parameters with one key hash are refused (code 4)", run(exe, bytes(b), tmp)[0].split()[1] == "4", run(exe, bytes(b), tmp)[0])
     b = bytearray(blob); b[-1] ^= 1; check("a damaged trailer is refused", run(exe, bytes(b), tmp)[0].split()[1] != "0")
     py = md.parse_desc(blob); presets_off = int.from_bytes(blob[24:26], "little")
     b = bytearray(blob); b[presets_off + 2 + 2 * 3: presets_off + 2 + 2 * 3 + 2] = (65535).to_bytes(2, "little")      # preset 0, the cell size, far above its maximum

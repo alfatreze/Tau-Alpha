@@ -15,7 +15,8 @@ Layout (little endian; every offset from the start of the descriptor; the whole 
 import json, struct, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
-MAGIC, TRAILER, VERSION = 0x4353444D, 0x31435344, 1
+MAGIC, TRAILER, VERSION = 0x4353444D, 0x31435344, 2
+PREC = 20                                    # bytes of one parameter record (v2: + key hash + default)
 MAX_PARAMS, MAX_PRESETS, MAX_NVAL, MAX_STR = 48, 16, 12, 23
 ROLES = ["bg_top", "bg_bottom", "surface", "surface_track", "text_primary", "text_secondary", "accent", "on_accent", "accent2", "ok", "warn", "danger", "base", "chrome", "pill", "error", "faint", "splash_bg", "splash_bar", "fs_red", "fs_track"]
 HIDE_EXACT = {"info"}
@@ -57,6 +58,9 @@ def build_desc(d, thumb):
     rows = param_rows(d); np_, npre = len(rows), len(d["presets"])
     assert np_ <= MAX_PARAMS and 0 < npre <= MAX_PRESETS and len(d["name"]) <= MAX_STR
     keys = [p["key"] for p in d["params"]]
+    import mpreset
+    pr = mpreset.params_of(d)                                   # refuses two keys with one hash
+    key_hash = mpreset.key_hash; defaults = [x[4] for x in pr]
     pool = bytearray(); offs = {}
     def S(text):
         assert len(text) <= MAX_STR, text
@@ -65,7 +69,7 @@ def build_desc(d, thumb):
     name_s = S(d["p2"].get("label", d["name"])); label_s = [S(r["label"]) for r in rows]; val_s = [[S(v) for v in r["vals"]] for r in rows]; pre_s = [S(p["name"]) for p in d["presets"]]
     rle = bytes.fromhex(thumb["rle"]); assert (thumb["w"], thumb["h"]) == (56, 32) and sum((b & 31) + 1 for b in rle) == 56 * 32 and len(thumb["palette"]) == 8
     stride = (2 + 2 * np_ + 3) & ~3
-    off = 40; params_off = off; off += 16 * np_
+    off = 40; params_off = off; off += PREC * np_
     vals_off = []
     for r in rows: vals_off.append(off if r["vals"] else 0); off += 2 * len(r["vals"])
     off = (off + 3) & ~3; presets_off = off; off += stride * npre
@@ -76,7 +80,7 @@ def build_desc(d, thumb):
     struct.pack_into("<HHHHHH", b, 20, pool_off + name_s, params_off, presets_off, pal_off, rle_off, len(rle))
     struct.pack_into("<HHI", b, 32, d["index"], d["p2"]["slot"], 0)
     for i, r in enumerate(rows):
-        struct.pack_into("<HBBHHHBBHH", b, params_off + 16 * i, pool_off + label_s[i], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"], vals_off[i])
+        struct.pack_into("<HBBHHHBBHHHH", b, params_off + PREC * i, pool_off + label_s[i], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"], vals_off[i], key_hash(r["key"]), defaults[i])
         for j, so in enumerate(val_s[i]): struct.pack_into("<H", b, vals_off[i] + 2 * j, pool_off + so)
     for k, p in enumerate(d["presets"]):
         struct.pack_into("<H", b, presets_off + stride * k, pool_off + pre_s[k])
@@ -99,8 +103,8 @@ def parse_desc(b):
     mid, slot_, _ = struct.unpack_from("<HHI", b, 32)
     out = {"mid": mid, "slot": slot_, "name": string(name_o), "cmds": cmds, "cmp": cmp_, "max_cycles": maxc, "params": [], "presets": [], "palette": [], "rle": bytes(b[rle_o:rle_o + rle_n])}
     for i in range(np_):
-        lab, ty, hid, lo, hi, st, nv, wi, wv, vo = struct.unpack_from("<HBBHHHBBHH", b, params_o + 16 * i)
-        out["params"].append({"label": string(lab), "type": ty, "hidden": hid, "min": lo, "max": hi, "step": st, "vals": [string(u16(vo + 2 * j)) for j in range(nv)], "when_idx": wi, "when_val": wv})
+        lab, ty, hid, lo, hi, st, nv, wi, wv, vo, key, dflt = struct.unpack_from("<HBBHHHBBHHHH", b, params_o + PREC * i)
+        out["params"].append({"label": string(lab), "type": ty, "hidden": hid, "min": lo, "max": hi, "step": st, "vals": [string(u16(vo + 2 * j)) for j in range(nv)], "when_idx": wi, "when_val": wv, "key": key, "def": dflt})
     stride = (2 + 2 * np_ + 3) & ~3
     for k in range(npre): out["presets"].append({"name": string(u16(presets_o + stride * k)), "values": [u16(presets_o + stride * k + 2 + 2 * i) for i in range(np_)]})
     for i in range(8): out["palette"].append(struct.unpack_from("<HBBBB", b, pal_o + 8 * i))

@@ -20,6 +20,7 @@ int main(int argc, char **argv)
     for (uint32_t i = 0; i < h.np; i++) {
         md_param_t p; md_param(rd, 0, &h, i, &p); md_string(rd, 0, &h, p.label, s, sizeof s);
         printf("p %s %u %u %u %u %u %u %u", s, p.type, p.hidden, p.min, p.max, p.step, p.when_idx, p.when_val);
+        printf(" k%u d%u", p.key, p.def);
         for (uint32_t j = 0; j < p.nval; j++) { uint32_t o; md_val_off(rd, 0, &p, j, &o); md_string(rd, 0, &h, o, s, sizeof s); printf(" [%s]", s); }
         printf("\n");
     }
