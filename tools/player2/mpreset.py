@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Meter presets as separate files (docs/features/METER_PRESETS_EXTERNAL.md, B-966): the writer, the reader and the factory generator for the two file kinds that fw2/cores/mpreset_core.h reads.
 
-  <meter key>/index.tpi   the presets of one meter in list order (id, hidden flag, name)
-  <meter key>/p<id>.tpr   one preset: a sparse list of (parameter key hash, value)
+  <meter id>/index.tpi    the presets of one meter in list order (id, hidden flag, name); the folder is the meter's manifest id
+  <meter id>/p<id>.tpr    one preset: a sparse list of (parameter key hash, value)
 
   python3 tools/player2/mpreset.py factory OUT_DIR [KEY ...]    writes the factory set of the meters (from meters/<key>/meter.json) under OUT_DIR/tau-presets/
   python3 tools/player2/mpreset.py show FILE                    prints a .tpi or .tpr file
@@ -102,9 +102,9 @@ def factory_files(manifest):
     for i, pr in enumerate(manifest["presets"]):
         nm = pr["name"].upper()[:15]
         vals = {k: int(pr["values"][k]) for k in keys if k in pr["values"]}
-        files["%s/p%d.tpr" % (key, i)] = build_preset(mid, i, nm, vals, params)
+        files["%d/p%d.tpr" % (mid, i)] = build_preset(mid, i, nm, vals, params)
         entries.append({"id": i, "name": nm})
-    files["%s/index.tpi" % key] = build_index(mid, entries)
+    files["%d/index.tpi" % mid] = build_index(mid, entries)
     return files
 
 def main(argv):

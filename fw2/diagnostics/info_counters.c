@@ -12,6 +12,9 @@
 #if P2_DIAG
 #include "preset_probe.h"
 #endif
+#ifdef P2_PACKS
+#include "../ui/mpreset_host.h"
+#endif
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
@@ -147,6 +150,14 @@ const cnt_t counters_table[] = {
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
+#ifdef P2_PACKS
+    { "MPX IDX",      CK_U32, CU_NONE,   &mph_idx_ok },             /* preset files (B-967): indexes read, preset files read, failures, the last error code, the worst open and read in cycles */
+    { "MPX READS",    CK_U32, CU_NONE,   &mph_reads },
+    { "MPX FAILS",    CK_U32, CU_NONE,   &mph_fails },
+    { "MPX ERR",      CK_U32, CU_NONE,   &mph_err },                /* 1 no path, 2 index too long, 3 preset too long, 10 governor busy, 11 open, 12 read, 2x index check, 3x preset check */
+    { "MPX OPEN MAX", CK_U32, CU_CYC,    &mph_open_max },
+    { "MPX READ MAX", CK_U32, CU_CYC,    &mph_read_max },
+#endif
     { "PP RUNS",      CK_U32, CU_NONE,   &pp_runs },                /* preset-read probe (B-963): one per new track */
     { "PP OK",        CK_U32, CU_NONE,   &pp_ok },
     { "PP BAD",       CK_U32, CU_NONE,   &pp_bad },

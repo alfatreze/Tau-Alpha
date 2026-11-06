@@ -40,11 +40,11 @@ with tempfile.TemporaryDirectory() as td:
     # 1. the factory set of every meter
     for key, d in mans.items():
         params = mp.params_of(d); files = mp.factory_files(d); mid = d["index"]; keys = [p[0] for p in params]
-        f = tmp / "i.bin"; f.write_bytes(files[key + "/index.tpi"]); o = run(exe, "idx", f, mid)
+        f = tmp / "i.bin"; f.write_bytes(files["%d/index.tpi" % mid]); o = run(exe, "idx", f, mid)
         ok = o[0] == "idx 0 %d" % len(d["presets"]) and [l.split(" ", 2)[2] for l in o[1:]] == [p["name"].upper()[:15] for p in d["presets"]]
         good = True
         for i, pr in enumerate(d["presets"]):
-            code, hit, vals = pre(exe, td, files["%s/p%d.tpr" % (key, i)], mid, i, params)
+            code, hit, vals = pre(exe, td, files["%d/p%d.tpr" % (mid, i)], mid, i, params)
             want = [str(pr["values"][k]) if k in pr["values"] else str(dflt) for k, _, _, _, dflt in params]
             good = good and code == 0 and vals == want and hit == len([k for k in keys if k in pr["values"]])
         check("%s: the index (%d presets) and every preset check out and apply exactly the manifest's values" % (key, len(d["presets"])), ok and good, (o[:2], key))
@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory() as td:
     code, hit, vals = pre(exe, td, hand, mid, 9, params)
     check("a value outside the range is clamped to its maximum (%d -> %s)" % (60000, vals[idx["layers"]] if vals else ""), code == 0 and vals and vals[idx["layers"]] == str(hi))
     # 4. refusals
-    good = mp.factory_files(d)["layered_wave/p0.tpr"]
+    good = mp.factory_files(d)["%d/p0.tpr" % mid]
     check("a wrong meter id is refused (5)", pre(exe, td, good, mid + 1, 0, params)[0] == 5)
     check("a wrong preset id is refused (6)", pre(exe, td, good, mid, 1, params)[0] == 6)
     check("a truncated file is refused", all(pre(exe, td, good[:n], mid, 0, params)[0] != 0 for n in (0, 5, 13, len(good) - 1)))

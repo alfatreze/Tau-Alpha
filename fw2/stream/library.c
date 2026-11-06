@@ -127,6 +127,10 @@ uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16
     }
     return n;
 }
+uint32_t library_root(char *out, uint32_t cap)                       /* the media root the library was built for ("/Assets/tau/common"): where Omega puts the per-core files that are not tracks (the meter presets, B-967); 0 when no library is loaded */
+{
+    return lib_state == 1 ? lib_str(&lib, lib.root, out, cap) : 0u;
+}
 uint32_t library_cover_path(uint32_t id, char *out, uint32_t cap)
 {
     lib_det_t d; char p[LIBP_MAX_PATH];

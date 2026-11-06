@@ -81,6 +81,7 @@ uint32_t    meters_self_degrade(uint32_t meter);   /* the meter's own degrade le
 uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of a meter */
 void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
 void        meters_preset_next(void);
+void        meters_ext_enter(uint32_t meter);          /* the meter is now on screen: its preset files, when it has them, become its preset list (boot: call with the saved meter before the saved presets are applied) */
 uint32_t    meters_npre(uint32_t meter);               /* presets of a meter: the built-in ones, or the METR file's */
 #ifdef P2_PACKS
 void        meters_packs_load(const uint8_t *p, uint32_t n);    /* the MPKB section of tau-assets.bin: loadable meters (a PACKS build) */

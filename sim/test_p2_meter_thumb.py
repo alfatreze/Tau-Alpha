@@ -21,7 +21,7 @@ def run(mutant):
             a = "rc_ramp(th_role[a], th_role[b], t, n)"; assert a in src; src = src.replace(a, "rc_ramp(th_role[a], th_role[a], t, n)")
         (d / "ui/meterlist_thumb.c").write_text(src)
         (d / "cores").mkdir()
-        for f in ("ui/meterlist_thumb.h", "ui/meter.h", "cores/meter_desc_core.h", "ui/theme.h", "cores/ramp_core.h", "gfx/gfx.h", "generated/meter_registry.h", "generated/meter_thumbs.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+        for f in ("ui/meterlist_thumb.h", "ui/meter.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "ui/mpreset_host.h", "ui/theme.h", "cores/ramp_core.h", "gfx/gfx.h", "generated/meter_registry.h", "generated/meter_thumbs.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
         (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_thumb_harness.c").read_text().replace('"../fw2/ui/meterlist_thumb.c"', '"../ui/meterlist_thumb.c"').replace('"../fw2/cores/meter_desc_core.h"', '"../cores/meter_desc_core.h"'))
         sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
         for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid", "sound_map"): (d / ("%s.desc" % k)).write_bytes(_md.for_meter(k))
