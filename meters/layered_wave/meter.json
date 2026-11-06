@@ -418,8 +418,32 @@
       "help": "Which way the HISTORY view flows. The SCROLL view always flows left (the engine copies the picture left).",
       "value_help": [
         "RIGHT: the newest sample enters at the left and the wave scrolls away to the right (the original).",
-        "LEFT: the newest sample enters at the right and the wave scrolls away to the left, tail on the left; the taper and the tail dots follow."
+        "LEFT: the newest sample enters at the right and the wave scrolls away to the left. Only the flow reverses: the taper (pointed head at the left, the tail and its dots at the right) and the colours stay where they are on the screen, so the wave moves through them."
       ],
+      "group": "display"
+    },
+    {
+      "key": "taper_head",
+      "label": "Head length",
+      "type": "u8",
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "default": 0,
+      "unit": "%",
+      "help": "How much of the width the pointed head takes to rise to full height (HISTORY and SCROLL). 0 = the original, very short ramp.",
+      "group": "display"
+    },
+    {
+      "key": "taper_tail",
+      "label": "Tail length",
+      "type": "u8",
+      "min": 10,
+      "max": 100,
+      "step": 5,
+      "default": 100,
+      "unit": "%",
+      "help": "How much of the remaining width the tail takes to narrow to nothing (HISTORY and SCROLL). 100 = the original, which narrows all the way across; lower values keep full height longer and taper over the last part only.",
       "group": "display"
     },
     {
@@ -649,7 +673,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -690,7 +716,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -731,7 +759,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -772,7 +802,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -813,7 +845,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -854,7 +888,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -895,7 +931,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -936,7 +974,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       }
     },
     {
@@ -977,7 +1017,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1019,7 +1061,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1061,7 +1105,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1103,7 +1149,9 @@
         "g5": 23,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1145,7 +1193,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1187,7 +1237,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1229,7 +1281,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     },
@@ -1271,7 +1325,9 @@
         "g5": 18,
         "g6": 18,
         "taper_curve": 0,
-        "direction": 0
+        "direction": 0,
+        "taper_head": 0,
+        "taper_tail": 100
       },
       "experimental": true
     }
