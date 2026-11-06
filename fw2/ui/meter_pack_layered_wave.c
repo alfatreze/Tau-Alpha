@@ -13,6 +13,7 @@ static uint32_t g_cmds;
 #define gfx_rect(...)   (g_cmds++, g_api->rect(__VA_ARGS__))
 #define gfx_text(...)   (g_cmds++, g_api->text(__VA_ARGS__))
 #define gfx_scroll_left(...) (g_cmds++, g_api->scroll_left(__VA_ARGS__))
+#define gfx_blit(...)   (g_cmds++, g_api->blit(__VA_ARGS__))
 #undef  th_role
 #define th_role         g_api->role
 #include "../generated/desc_layered_wave.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */

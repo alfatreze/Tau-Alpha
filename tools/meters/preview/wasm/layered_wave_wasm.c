@@ -20,9 +20,11 @@ static uint32_t psram_state[16];                                                
 #include "../generated/lw_presets.h"
 WASM_IMPORT("rect") void js_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t c);
 WASM_IMPORT("scroll_left") void js_scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);
+WASM_IMPORT("blit") void js_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);       /* a copy inside the box being drawn into (the SCROLL view moving right is made of these) */
 WASM_IMPORT("text") uint32_t js_text(uint32_t x, uint32_t y, const char *s, uint32_t fg, uint32_t bg);
 #define gfx_rect(...)        js_rect(__VA_ARGS__)
 #define gfx_scroll_left(...) js_scroll_left(__VA_ARGS__)
+#define gfx_blit(...)        js_blit(__VA_ARGS__)
 #define gfx_text(...)        js_text(__VA_ARGS__)
 uint16_t th_role[TR_COUNT];                   /* the lab writes the theme's roles here (index = the TR_* enum of fw2/ui/theme.h) */
 #include "meter_layered_wave.c"

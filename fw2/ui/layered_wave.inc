@@ -452,9 +452,9 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
         lw_ck[6] = dir; lw_ck[7] = p->thead; lw_ck[8] = p->ttail; lw_ck[0] = W; lw_ck[1] = res; lw_ck[2] = tq; lw_ck[3] = s; lw_ck[4] = smooth; lw_ck[5] = lw_tc; lw_ck_ok = 1u;
         const int32_t wpk = tq == 0 ? 0 : lw_wpk(lw_win_hist, tq);
         for (int32_t ci = 0, xs = 0; xs < W; ci++, xs += s) {
-            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;          /* xm: where the sample comes from along the history, 0 = the newest (the right edge when the history flows left) */
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;          /* xm: the position along the history, 0 = the newest end (the right edge when the history flows left); the source, the window and the age band all follow it */
             const int32_t src = smooth ? ((2 * xm + 1) * res * 128) / W : lw_min(res - 1, (xm * res) / W);
-            const int32_t w8 = tq == 0 ? 255 : lw_winh(tq, ((2 * xc + 1) * 8192) / W, wpk, p->thead, p->ttail), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);      /* the taper window and the age band stay where they are on the screen: only the flow reverses */
+            const int32_t w8 = tq == 0 ? 255 : lw_winh(tq, ((2 * xm + 1) * 8192) / W, wpk, p->thead, p->ttail), q = lw_min((int32_t)LW_AGE - 1, ((2 * xm + 1) * 4) / W);      /* the head (the newest end) and the tail follow the direction: the whole picture is mirrored */
             lw_col[ci] = ((uint32_t)src << 11) | ((uint32_t)w8 << 3) | (uint32_t)q;
         }
     }
@@ -483,7 +483,7 @@ COLD_FN3 LW_VIEW1 static __attribute__((noinline)) void lw_history(const lw_p_t 
     }
     if (p->taper > 0u) {
         static const uint8_t dots[3] = { 4, 3, 3 };
-        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }
+        for (int32_t j = 0; j < 3; j++) { const int32_t d = dots[j]; lw_rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl->tbl[n - 1][LW_AGE - 1u]); }      /* the tail dots are at the tail end */
     }
 }
 
@@ -594,6 +594,17 @@ static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
  * the scroll speed asks for this time, and only the new columns on the right edge are drawn (newest on the right), one flat colour per layer, the height of each column stepping linearly from the previous picture's value to
  * the current one. About 8 commands per layer per picture at 240 px/s, whatever the width or the Resolution, so it can scroll as smoothly as the engine copy allows. The history ring is kept up to date as in HISTORY (same
  * cadence) and is what a full repaint (a forced one, a parameter change, a new box) is drawn from, in cells of the guard's width. Not drawn here: the age colours (a copy cannot recolour), anti-aliasing, blending and the Draw style. The tail taper is applied by covering (lw_scroll_taper), without the head ramp. */
+/* A move RIGHT, the engine's copy mirrored (B-965): chunks of at most 120 columns, RIGHT TO LEFT, because a chunk's destination only covers columns that were already moved (the engine reads every row whole before it writes it, so one
+ * chunk is exact whatever the overlap; fw2/gfx/scroll.c does the same for a move left). It is made of the plain blit every pack already has (ABI 1.0), so no new interface is needed. */
+COLD_FN3 static void lw_scroll_right(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
+{
+    if (!h || !d || d >= w) return;
+    for (uint32_t rem = w - d; rem; ) {
+        const uint32_t n = rem < 120u ? rem : 120u, xs = x + rem - n;
+        lw_blit(xs, y, xs + d, y, n, h); lw_cnt++;
+        rem -= n;
+    }
+}
 /* The taper of the SCROLL view (B-958). A copy cannot reshape what it moved, so the tail is narrowed by covering: after the new columns are drawn, the part of every cell above and below the taper window's height (the window
  * along the history, newest end on the right, with the Taper curve profile) is painted with the background, in runs of equal height. The window only ever falls along the motion, so what was covered stays covered and
  * what scrolls into a narrower window is covered further: the picture ends up as if each column had been drawn with the window of its place. The head ramp (the window's rise over the first eighth) is not applied: a
@@ -601,14 +612,14 @@ static inline uint8_t lw_guard_step(uint8_t stride, uint32_t m, uint32_t hi)
 #define LW_TAPER_STEP 3
 COLD_FN3 static void lw_scroll_taper(const lw_p_t *p, const mtr_in_t *in, uint16_t bg, int32_t cy, int32_t Hh)
 {
-    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride;
+    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, dir = p->dir;
     if (tq == 0) return;
     const int32_t pk = lw_wpk(lw_win_hist, tq);
     int32_t x0 = 0, hp = -1;
     for (int32_t xs = 0; xs <= W; xs += s) {
         int32_t hm = -2;
         if (xs < W) {
-            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), pos = ((2 * (W - 1 - xc) + 1) * 8192) / W;
+            const int32_t xc = lw_min(W - 1, xs + (s >> 1)), pos = ((2 * (dir ? W - 1 - xc : xc) + 1) * 8192) / W;       /* the position along the history: 0 at the newest end, the right edge when the picture flows left */
             hm = lw_half(255, (pos >> 8) < pk ? 255 : lw_winh(tq, pos, pk, 0, p->ttail), Hh);
             hm = lw_min(Hh, ((hm + LW_TAPER_STEP - 1) / LW_TAPER_STEP) * LW_TAPER_STEP);      /* up to a whole step: the covered edge is a staircase of LW_TAPER_STEP-pixel steps, fixed on the screen while the wave flows through it, and never cuts the wave */
         }
@@ -623,7 +634,7 @@ COLD_FN3 static void lw_scroll_taper(const lw_p_t *p, const mtr_in_t *in, uint16
 }
 COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
-    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, n = p->layers, res = p->res;
+    const int32_t W = in->w, X = in->x, Y = in->y, H = in->h, n = p->layers, res = p->res, dir = p->dir;      /* dir 0: the picture flows right (the newest enters at the left), 1: it flows left */
     (void)lw_advance(p, in);
     lw_sacc += (in->dt_ms * (int32_t)p->speed * 256) / 1000;
     const int32_t d = lw_sacc >> 8;
@@ -642,7 +653,7 @@ COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *
             int32_t have = 0;
             for (int32_t xs = 0; xs < W; xs += s) {
                 const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
-                const int32_t hh = lw_half(h[lw_min(res - 1, ((W - 1 - xc) * res) / W)], 255, Hh), cv = 0;
+                const int32_t hh = lw_half(h[lw_min(res - 1, ((dir ? W - 1 - xc : xc) * res) / W)], 255, Hh), cv = 0;
                 const uint16_t c = cl->base[k];
                 LW_RUN_STEP(k, hh, c, cv);
             }
@@ -650,13 +661,15 @@ COLD_FN3 LW_VIEW4 static __attribute__((noinline)) void lw_scroll(const lw_p_t *
         }
     } else {                                                        /* the engine moves the picture; only the d new columns are drawn */
         lw_guard_on = 0u;
-        lw_scroll_left((uint32_t)X, (uint32_t)Y, (uint32_t)W, (uint32_t)H, (uint32_t)d);
-        lw_rect(X + W - d, Y, d, H, cl->bg);
+        const int32_t sx = dir ? X + W - d : X;                                         /* where the d new columns are */
+        if (dir) lw_scroll_left((uint32_t)X, (uint32_t)Y, (uint32_t)W, (uint32_t)H, (uint32_t)d); else lw_scroll_right((uint32_t)X, (uint32_t)Y, (uint32_t)W, (uint32_t)H, (uint32_t)d);
+        lw_rect(sx, Y, d, H, cl->bg);
         for (int32_t k = 0; k < n; k++) {
             int32_t x0 = 0, hp = 0;
             for (int32_t j = 0; j <= d; j++) {
-                const int32_t hh = j < d ? lw_half((lw_prev8[k] * (d - j - 1) + cur[k] * (j + 1)) / d, 255, Hh) : -1;
-                if (j > 0 && hh != hp) { if (hp > 0) lw_rect(X + W - d + x0, cy - hp, j - x0, 2 * hp, cl->base[k]); x0 = j; }
+                const int32_t jj = dir ? j : d - 1 - j;                                 /* column j of the strip counted from the old picture towards the newest: the left strip is read from its right end */
+                const int32_t hh = j < d ? lw_half((lw_prev8[k] * (d - jj - 1) + cur[k] * (jj + 1)) / d, 255, Hh) : -1;
+                if (j > 0 && hh != hp) { if (hp > 0) lw_rect(sx + x0, cy - hp, j - x0, 2 * hp, cl->base[k]); x0 = j; }
                 hp = hh;
             }
         }

@@ -19,7 +19,8 @@ static void tr_hash_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16
 static uint32_t tr_hash_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { uint32_t sh = 5381u; for (; *s; s++) sh = sh * 33u + (uint8_t)*s; const uint32_t v[6] = { 3, x, y, sh, fg, bg }; tr_mix(v, 6); tr_chk(x, y, 1u, 16u); return x + 16u; }   /* a text cell is 16 px tall */
 static void tr_hash_blend_on(uint32_t a) { const uint32_t v[2] = { 4, a }; tr_mix(v, 2); }
 static void tr_hash_blend_off(void) { const uint32_t v[1] = { 5 }; tr_mix(v, 1); }
-static void tr_hash_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 6, sx, sy, dx, dy, w, h }; tr_mix(v, 7); tr_chk(dx, dy, w, h); }
+static uint32_t tr_nscroll;                         /* scroll-left commands and blits issued: the moves of a SCROLL picture (sim/test_p2_lw_scroll.py) */
+static void tr_hash_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 6, sx, sy, dx, dy, w, h }; tr_mix(v, 7); tr_nscroll++; tr_chk(dx, dy, w, h); }
 static int tr_ready(void) { return tr_blend_ready; }
 /* a sparse model of the framebuffer SDRAM words the Chladni probe uses (mailbox write, engine copy, mailbox read): address-keyed, linear probing */
 static uint32_t tr_mk[16384], tr_mv[16384];
@@ -48,7 +49,6 @@ static void tr_bar_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t
 static void tr_clut_hash(uint32_t start, const uint16_t *c, uint32_t n) { uint32_t v[4 + 8] = { 13, start, n }; uint32_t k = 3; for (uint32_t i = 0; i < n && k < 12; i++) v[k++] = c[i]; tr_mix(v, (int)k); }
 static void tr_cblit_hash(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 14, sx, sy, dx, dy, w, h }; tr_mix(v, 7); tr_chk(dx, dy, w, h); }
 static void tr_scroll_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { const uint32_t v[6] = { 12, x, y, w, h, d }; tr_mix(v, 6); tr_chk(x, y, w, h); }
-static uint32_t tr_nscroll;                         /* scroll commands issued (sim/test_p2_lw_scroll.py) */
 static void tr_scroll_left_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { const uint32_t v[6] = { 16, x, y, w, h, d }; tr_mix(v, 6); tr_nscroll++; tr_chk(x, y, w, h); }
 /* params: the live setting values; apply: makes a built-in meter re-read them (0 for a pack, which reads the table each tick); run: the meter's tick. */
 #ifdef PACK_BARS
