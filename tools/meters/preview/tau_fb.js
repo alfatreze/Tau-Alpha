@@ -48,18 +48,47 @@
     /* The off-screen stash and the palette engine (the Waterfall, B-983): the stash is the framebuffer memory below and beside the visible frame (rows 360.., columns up to 511); rect_stash writes raw values there (palette
      * indices for a plane), clut_load fills the palette, cblit shows a stash rectangle through the palette in the drawing target, scroll_down moves a box down (the top d rows stay). One command each, except clut_load (a few register puts). */
     _st() { return this.stash || (this.stash = new Uint16Array(512 * 1024)); }
+    _get(y, x) { return y < this.h && x < this.w ? this.px[y * this.w + x] : this._st()[y * 512 + x]; }          // the engine's memory: the visible frame, and the stash below and beside it (pitch 512)
+    _set(y, x, v) { if (y < this.h && x < this.w) this.px[y * this.w + x] = v; else this._st()[y * 512 + x] = v; }
     rectStash(x, y, w, h, c) {
-      this._rec('rect_stash', [x, y, w, h, c]); const st = this._st();
-      for (let yy = y; yy < Math.min(1024, y + h); yy++) for (let xx = x; xx < Math.min(512, x + w); xx++) st[yy * 512 + xx] = c;
+      this._rec('rect_stash', [x, y, w, h, c]);
+      for (let yy = y; yy < Math.min(1024, y + h); yy++) for (let xx = x; xx < Math.min(512, x + w); xx++) this._set(yy, xx, c);
     }
     clutLoad(start, colors) {
       if (this.log) this.log.push('clut_load ' + [start, colors.length].concat(Array.from(colors)).join(' '));
       this.clut = this.clut || new Uint16Array(256); for (let i = 0; i < colors.length; i++) this.clut[(start + i) & 255] = colors[i];
     }
     cblit(sx, sy, dx, dy, w, h) {
-      this._rec('cblit', [sx, sy, dx, dy, w, h]); const st = this._st(); this.clut = this.clut || new Uint16Array(256);
+      this._rec('cblit', [sx, sy, dx, dy, w, h]); this.clut = this.clut || new Uint16Array(256);
       this.pix += 2 * w * h; this.ops += 2 * w * h;
-      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const X = dx + xx, Y = dy + yy; if (X >= 0 && X < this.w && Y >= 0 && Y < this.h) this.px[Y * this.w + X] = this.clut[st[(sy + yy) * 512 + sx + xx] & 255]; }
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const X = dx + xx, Y = dy + yy; if (X >= 0 && X < this.w && Y >= 0 && Y < this.h) this.px[Y * this.w + X] = this.clut[this._get(sy + yy, sx + xx) & 255]; }
+    }
+    /* Chladni's engine path (B-983): blit_abs = a copy inside the engine's memory (stash to stash, whole-memory coordinates), the mailbox = two pixels a word at a pixel address (row * 512 + column, the lower address in the low half),
+     * fence = every queued command has executed (logged, not counted), sblit = w x h SOURCE pixels from the stash scaled by 1, 2 or 3 into the drawing target (the output is clamped at 127 columns). */
+    blitAbs(sx, sy, dx, dy, w, h) {
+      this._rec('blit_abs', [sx, sy, dx, dy, w, h]); const rows = [];
+      for (let yy = 0; yy < h; yy++) { const r = []; for (let xx = 0; xx < w; xx++) r.push(this._get(sy + yy, sx + xx)); rows.push(r); }
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) this._set(dy + yy, dx + xx, rows[yy][xx]);
+    }
+    mbWrite(addr, d) { if (this.log) this.log.push('mb_write ' + addr + ' ' + (d >>> 0)); this._set(addr >> 9, addr & 511, d & 0xFFFF); this._set((addr + 1) >> 9, (addr + 1) & 511, (d >>> 16) & 0xFFFF); return 0; }
+    mbRead(addr) { if (this.log) this.log.push('mb_read ' + addr); return ((this._get((addr + 1) >> 9, (addr + 1) & 511) << 16) | this._get(addr >> 9, addr & 511)) >>> 0; }
+    fence() { if (this.log) this.log.push('fence'); }
+    sblit(sx, sy, dx, dy, w, h, scale) {
+      this._rec('sblit', [sx, sy, dx, dy, w, h, scale]); const ow = Math.min(127, w * scale), oh = h * scale;
+      this.pix += 2 * ow * oh; this.ops += 2 * ow * oh;
+      for (let yy = 0; yy < oh; yy++) for (let xx = 0; xx < ow; xx++) { const X = dx + xx, Y = dy + yy; if (X >= 0 && X < this.w && Y >= 0 && Y < this.h) this.px[Y * this.w + X] = this._get(sy + Math.trunc(yy / scale), sx + Math.trunc(xx / scale)); }
+    }
+    /* The pipelined blend of a stash rectangle (the Scope's trail): blend_on(a) sets the source weight (of 256), blend_blit shows the stash rectangle over the target with it, blend_off ends it. */
+    blendOn(a) { if (this.log) this.log.push('blend_on ' + a); this._ba = a; }
+    blendOff() { if (this.log) this.log.push('blend_off'); this._ba = undefined; }
+    blendBlit(sx, sy, dx, dy, w, h) {
+      this._rec('blend_blit', [sx, sy, dx, dy, w, h]); const a = this._ba == null ? 255 : this._ba;
+      const ch = (b, f) => (f * a + b * (256 - a)) >> 8;
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+        const X = dx + xx, Y = dy + yy; if (X < 0 || X >= this.w || Y < 0 || Y >= this.h) continue;
+        const f = this._get(sy + yy, sx + xx), i = Y * this.w + X, b = this.px[i];
+        this.px[i] = (ch(b >> 11, f >> 11) << 11) | (ch((b >> 5) & 63, (f >> 5) & 63) << 5) | ch(b & 31, f & 31); this.pix++; this.ops += 3;
+      }
     }
     scrollDown(x, y, w, h, d) {
       this._rec('scroll_down', [x, y, w, h, d]);

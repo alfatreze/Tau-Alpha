@@ -7,6 +7,8 @@ pack-only meter you can edit instead of seven hand-wired places. It creates
   fw2/ui/meter_<key>.c      the drawing: <tag>_load(params) and <tag>_tick(in) under P2_PACK; LEVELS lights a cell grid from the band levels (fw2/ui/meter_grid.h), HISTORY scrolls a loudness history kept in a
                             ring (fw2/cores/histring_core.h)
   fw2/ui/meter_pack_<key>.c the pack wrapper: the redirects to the host table, the descriptor, the entry point
+  tools/meters/preview/wasm/<key>_wasm.c   the WebAssembly wrapper of the same source (owner decision D-M15: every Player 2 meter has a module for the lab and Tau Omega), and
+  tools/meters/preview/meters/<key>.js     its adapter; the committed module meters/<key>_wasm.js is built by tools/meters/preview/wasm/build_wasm.py (Homebrew llvm + lld)
 
 then runs the generators (tools/player2/gen_meters_p2.py, tools/gen_meters.py) and builds the pack (tools/player2/pack_meter.py). The pack test (sim/test_p2_meter_pack.py) picks the meter up from its manifest with a generic
 trace (every preset, loud and quiet stretches, a pause, the degrade levels, the fullscreen box) and checks the pack against the source compiled straight in. Edit the source, the manifest and the thumbnail, then `make test-host`
@@ -113,6 +115,56 @@ uint32_t mtr_pack_entry(const mtr_in_t *in, const mtr_host_api_t *api)
     return g_cmds;
 }
 '''
+WASM = '''/* %(label)s for the meter lab (Tau Omega's Meter Lab, tools/meters/preview/index.html): the pack's OWN drawing source (fw2/ui/meter_%(key)s.c, as the pack builds it with P2_PACK) compiled to WebAssembly, so the preview is
+ * the firmware's code, not a port that can drift (owner decision D-M15: every Player 2 meter has a module). Scaffolded by tools/player2/new_meter.py: the engine calls the meter makes (gfx_rect, gfx_bar, gfx_text) become
+ * imports of the module and land in the lab's framebuffer (tools/meters/preview/tau_fb.js); a meter that uses another engine call adds its import here, the adapter's environment (meters/_wasm_meter.js) and a model in
+ * tau_fb.js. Build: python3 tools/meters/preview/wasm/build_wasm.py %(key)s (needs Homebrew llvm + lld; the result is committed as meters/%(key)s_wasm.js). Freestanding: no libc. */
+#define P2_PACK 1
+#include <stdint.h>
+#include <stddef.h>
+#include "meter.h"
+#include "theme.h"
+#include "../gfx/gfx.h"          /* before the redirects below: its declarations must not be rewritten */
+#include "../generated/meter_presets.h"
+#include "../cores/ramp_core.h"
+#define WASM_IMPORT(n) __attribute__((import_module("env"), import_name(n)))
+#define WASM_EXPORT(n) __attribute__((export_name(n), used))
+WASM_IMPORT("rect") void js_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t c);
+WASM_IMPORT("bar") void js_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint32_t fg, uint32_t bg);
+WASM_IMPORT("text") uint32_t js_text(uint32_t x, uint32_t y, const char *s, uint32_t fg, uint32_t bg);
+#define gfx_rect(...) js_rect(__VA_ARGS__)
+#define gfx_bar(...)  js_bar(__VA_ARGS__)
+#define gfx_text(...) js_text(__VA_ARGS__)
+uint16_t th_role[TR_COUNT];                   /* the lab writes the theme's roles here (index = the TR_* enum of fw2/ui/theme.h) */
+#include "meter_%(key)s.c"
+
+void *memset(void *d, int c, unsigned n) { uint8_t *p = (uint8_t *)d; while (n--) *p++ = (uint8_t)c; return d; }
+void *memcpy(void *d, const void *s, unsigned n) { uint8_t *p = (uint8_t *)d; const uint8_t *q = (const uint8_t *)s; while (n--) *p++ = *q++; return d; }
+
+static mtr_in_t in_buf;
+static uint8_t spec_buf[MTR_BANDS];
+static uint16_t params_buf[MPP_%(TAG)s_N];
+/* where the lab writes each field of mtr_in_t (byte offsets), in this order: x y w h bg force paused degrade frame dt_ms peak_l peak_r */
+static const uint16_t offs[] = { offsetof(mtr_in_t, x), offsetof(mtr_in_t, y), offsetof(mtr_in_t, w), offsetof(mtr_in_t, h), offsetof(mtr_in_t, bg), offsetof(mtr_in_t, force), offsetof(mtr_in_t, paused),
+    offsetof(mtr_in_t, degrade), offsetof(mtr_in_t, frame), offsetof(mtr_in_t, dt_ms), offsetof(mtr_in_t, peak_l), offsetof(mtr_in_t, peak_r) };
+WASM_EXPORT("in_ptr") uint8_t *in_ptr(void) { return (uint8_t *)&in_buf; }
+WASM_EXPORT("spec_ptr") uint8_t *spec_ptr(void) { return spec_buf; }
+WASM_EXPORT("params_ptr") uint16_t *params_ptr(void) { return params_buf; }
+WASM_EXPORT("roles_ptr") uint16_t *roles_ptr(void) { return th_role; }
+WASM_EXPORT("offs_ptr") const uint16_t *offs_ptr(void) { return offs; }
+WASM_EXPORT("n_roles") uint32_t n_roles(void) { return TR_COUNT; }
+WASM_EXPORT("n_params") uint32_t n_params(void) { return MPP_%(TAG)s_N; }
+/* the pack as the host calls it: the live parameters, then the picture */
+WASM_EXPORT("tick_raw") void tick_raw(void) { in_buf.spec = spec_buf; %(lc)s_load(params_buf); %(lc)s_tick(&in_buf); }
+'''
+ADAPTER = '''/* %(key)s: the lab's twin of %(label)s: the pack's own source (fw2/ui/meter_%(key)s.c) compiled to WebAssembly (wasm/%(key)s_wasm.c; owner decision D-M15), through the shared adapter _wasm_meter.js.
+ * Scaffolded by tools/player2/new_meter.py. sim/test_meter_wasm_golden.py compares its command stream with the native C. */
+(function (root) {
+  const WM = typeof module !== 'undefined' ? require('./_wasm_meter.js') : root.TauWasmMeter;
+  const api = WM.make({ key: '%(key)s', global: 'Tau%(camel)sWasm' });
+  if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).%(key)s = api;
+})(typeof globalThis !== 'undefined' ? globalThis : window);
+'''
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0]); ap.add_argument("key"); ap.add_argument("--tag"); ap.add_argument("--label"); ap.add_argument("--no-generate", action="store_true")
     a = ap.parse_args(); key = a.key
@@ -135,14 +187,19 @@ def main():
              ROOT / "meters" / key / "thumb.json": json.dumps({"w": 56, "h": 32, "palette": [0x10A3, 0x5DDC, 0xEF5D, 0, 0, 0, 0, 0], "palette_roles": ["chrome", "accent", "text_primary", None, None, None, None, None], "rle": rle_preview(),
                                                                "note": "56x32 preview (scaffolded), 8-colour RGB565 palette (fallback) with theme roles, raster run-length: byte = (palette index << 5) | (run - 1)."}, indent=1) + "\n",
              ROOT / "fw2/ui" / ("meter_%s.c" % key): SRC % {"key": key, "TAG": tag, "lc": tag.lower(), "label": label},
-             ROOT / "fw2/ui" / ("meter_pack_%s.c" % key): PACK % {"key": key, "lc": tag.lower(), "label": label}}
+             ROOT / "fw2/ui" / ("meter_pack_%s.c" % key): PACK % {"key": key, "lc": tag.lower(), "label": label},
+             ROOT / "tools/meters/preview/wasm" / ("%s_wasm.c" % key): WASM % {"key": key, "TAG": tag, "lc": tag.lower(), "label": label},
+             ROOT / "tools/meters/preview/meters" / ("%s.js" % key): ADAPTER % {"key": key, "label": label, "camel": "".join(x.capitalize() for x in key.split("_"))}}
     for p in files:
         if p.exists(): sys.exit("%s exists" % p)
     for p, t in files.items(): p.parent.mkdir(parents=True, exist_ok=True); p.write_text(t)
     print("created slot %d, manifest index %d, tag %s:" % (slot, index, tag)); [print("  " + str(p.relative_to(ROOT))) for p in files]
     if a.no_generate: return
     py = sys.executable
-    for cmd in ([py, "tools/player2/gen_meters_p2.py"], [py, "tools/gen_meters.py"], [py, "tools/player2/pack_meter.py", key, "--out", "work/packs-p2/%s.tmpk" % key]):
+    # ALL modules are rebuilt: the generated fw2/generated/meter_presets.h gained this meter and every module records its hash (a stale module fails sim/test_meter_wasm_coverage.py)
+    wasm_cmds = [[py, "tools/meters/preview/wasm/build_wasm.py"]] if Path("/opt/homebrew/opt/llvm/bin/clang").exists() and Path("/opt/homebrew/opt/lld/bin/wasm-ld").exists() else []
+    if not wasm_cmds: print("  NOTE: Homebrew llvm + lld are not installed: the WebAssembly module of %s is NOT built (owner decision D-M15: every Player 2 meter has one; sim/test_meter_wasm_coverage.py fails until `python3 tools/meters/preview/wasm/build_wasm.py %s` has run)" % (key, key))
+    for cmd in ([py, "tools/player2/gen_meters_p2.py"], [py, "tools/gen_meters.py"], [py, "tools/player2/pack_meter.py", key, "--out", "work/packs-p2/%s.tmpk" % key]) + tuple(wasm_cmds):
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         print("  $ " + " ".join(cmd[1:]) + ("" if r.returncode == 0 else "   FAILED\n" + r.stdout + r.stderr))
         if r.returncode: sys.exit(1)
