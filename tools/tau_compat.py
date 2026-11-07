@@ -532,6 +532,8 @@ def check_card(doc, card, core=None, max_pattern_files=2000):
                 if not f.is_file():
                     if e["role"] == "owned" and not e["required"]:
                         out.append(("warn", f"{p['core_id']}: optional {e['path']} is missing (the core falls back without it)"))
+                    elif "/tau-presets/" in e["path"]:                                # a factory preset the owner or Tau Omega removed: their choice, the firmware lists what the index names
+                        out.append(("warn", f"{p['core_id']}: factory preset file {e['path']} is missing (removed by the owner or Tau Omega; a release unzipped over the card restores it)"))
                     else:
                         out.append(("error", f"{p['core_id']}: {e['path']} is missing"))
                 elif sha(f.read_bytes()) != e["sha256"]:
