@@ -58,8 +58,10 @@ def interact(ids=None):
 
 DATA = (ROOT / "dist/Cores/alfatreze.TAU/data.json").read_text()      # the shipped slot map
 
+PRESETS = {"Assets/tau/common/tau-presets/1/index.tpi": b"TPRI-factory", "Assets/tau/common/tau-presets/1/p0.tpr": b"TPRS-factory"}      # the factory meter presets a Stable zip ships (B-982)
 def make(d, core, plat, rom, version="0.6.0", date="2026-10-08", bit=REVB, ids=None, extra=None, data=DATA):
     author, short = core.split(".")
+    if core == "alfatreze.TAU" and plat == "tau": extra = {**PRESETS, **(extra or {})}
     p = d / f"{core}_{version}_{date}.zip"
     with zipfile.ZipFile(p, "w") as z:
         z.writestr = (lambda w: (lambda name, data: w(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), data)))(z.writestr)   # fixed time: same inputs, same zip hash
@@ -183,6 +185,9 @@ with tempfile.TemporaryDirectory() as t:
         check(lay[cs + "tau.rom"]["role"] == "owned" and lay[cs + "tau.rom"]["required"] and lay[cs + "tau.rom"]["slot"] == 1
               and lay[cs + "tau-cold.bin"]["slot"] == 6 and lay[cs + "tau-loading.bin"]["slot"] == 4, "tau.rom, cold image, splash: owned, core-specific, their slots (H4)")
         check(lay[f"Platforms/{plat}.json"]["role"] == "shared", "platform files are shared")
+        if p["core_id"] == "alfatreze.TAU":
+            check(all(lay[c + "tau-presets/1/" + n]["role"] == "shared" and not lay[c + "tau-presets/1/" + n]["required"] and lay[c + "tau-presets/1/" + n]["slot"] is None for n in ("index.tpi", "p0.tpr")),
+                  "the factory meter presets (tau-presets/) are shared: seeded when missing, an edited copy is only a warning (B-982)")
         check(lay[c + "tau-library.tdb"]["role"] == "generated" and lay[c + "tau-library.tdb"]["format"] == {"name": "tau-library", "version": 1, "root": "/" + c}, "library index: generated, format v1")
         check(lay[c + "tau-assets.bin"]["role"] == "user" and lay[c + "tau-assets.bin"]["format"]["name"] == "TAUA", "tau-assets.bin: user data, TAUA")
         cov = [e for e in p["layout"] if e.get("pattern") and e["role"] == "generated"]

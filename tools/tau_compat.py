@@ -341,10 +341,12 @@ def layout(pkg, root=ROOT, obsolete=()):
             role, slot = "owned", by_name[path[len(common):]]
         elif path.startswith("Platforms/"):
             role, slot = "shared", None
+        elif path.startswith(common + "tau-presets/"):             # the factory meter presets (B-982): seeded when missing, a user's edited copy is only a warning (Tau Omega writes the user's)
+            role, slot = "shared", None
         else:
             raise CompatError(f"{pkg['zip']}: {path} has no layout role (not the core's folders, not a data-slot file, not Platforms/)")
         e = {"path": path, "role": role, "sha256": h, "slot": slot["id"] if slot else None,
-             "required": slot is None or bool(slot.get("required"))}      # a file with no data slot (core.json, data.json, the bitstream...) is essential; only a data-slot file the core can run without (tau-cold.bin, tau-loading.bin, tau-packs.bin) is optional (R-011, B-876)
+             "required": (slot is None and not path.startswith(common + "tau-presets/")) or bool(slot and slot.get("required"))}      # a file with no data slot (core.json, data.json, the bitstream...) is essential; only a data-slot file the core can run without (tau-cold.bin, tau-loading.bin, tau-packs.bin) is optional (R-011, B-876)
         out.append(e)
     shipped = {e["path"] for e in out}
     # Where each slot's file lives on the card: parameter bit 1 (core folder) and bits [25:24] (which of platform_ids). Dev builds read
