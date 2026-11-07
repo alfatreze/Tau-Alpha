@@ -9,6 +9,11 @@ run exits 1. `make test-host` stays the serial reference.
   python3 tools/run_host_tests.py [-j 8] [--only SUBSTRING]
 """
 import argparse, os, re, subprocess, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+import toolchain
+ENV = toolchain.host_env()                      # a working SDKROOT for the native compiles (the default SDK can be unusable for the linker), B-985
+try: ENV.setdefault("RISCV_TOOLCHAIN_BIN", str(toolchain.riscv_bin()))     # a git worktree uses the main checkout's RISC-V toolchain
+except toolchain.ToolchainError: pass
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,7 +35,7 @@ def recipe(target="test-host"):
 
 def run(cmd):
     t = time.time()
-    p = subprocess.run(cmd, shell=True, cwd=ROOT, stdin=subprocess.DEVNULL,
+    p = subprocess.run(cmd, shell=True, cwd=ROOT, env=ENV, stdin=subprocess.DEVNULL,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return cmd, p.returncode, time.time() - t, p.stdout
 

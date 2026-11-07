@@ -2,6 +2,7 @@
  "about": "CHLADNI compiled to WebAssembly from fw2/ui/meter_chladni.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "8931bbb2aa9dbcafb965dc5abfe477e9531bca258db20f3129bf8b50ca001f2b",
  "bytes": 8736,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw2/cores/chladni_core.h": "d3334a60cb2a50b569b9d32e59fa788fa99774a6e127acc4747b6083d95e6941",
   "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",

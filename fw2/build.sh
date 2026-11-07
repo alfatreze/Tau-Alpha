@@ -3,7 +3,7 @@
 # Usage: bash fw2/build.sh        (no flags: Player 2 is a single configuration, the 192 KB / CLK66 link)
 set -euo pipefail
 FW2="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$(cd -- "$FW2/.." && pwd)"
-BIN="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
+BIN="${RISCV_TOOLCHAIN_BIN:-$(python3 "$ROOT/tools/toolchain.py" bin)}" || exit 1      # tools/toolchain.py: the env, this tree, the main checkout (a worktree), PATH (B-985)
 GCC="${CC_RISCV:-$BIN/riscv-none-elf-gcc}"; OBJCOPY="${OBJCOPY_RISCV:-$BIN/riscv-none-elf-objcopy}"; SIZE="${SIZE_RISCV:-$BIN/riscv-none-elf-size}"
 OUT="${TAU_BUILD_OUT:-$ROOT/work/diagnostics}/player2"; mkdir -p "$OUT"
 rm -f "$OUT/fw2.elf" "$OUT/tau.rom"

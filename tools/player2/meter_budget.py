@@ -20,8 +20,8 @@ FRAMEWORK = {"meters": {"hot_ram": 736, "cold": 12000}}                      # f
 
 
 def objdump():
-    tb = os.environ.get("RISCV_TOOLCHAIN_BIN")
-    return str(Path(tb) / "riscv-none-elf-objdump") if tb else str(ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objdump")
+    sys.path.insert(0, str(ROOT / "tools")); import toolchain
+    return toolchain.riscv("objdump")
 
 
 def sections(obj):

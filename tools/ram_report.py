@@ -48,10 +48,9 @@ def group_of(name):
 
 
 def tool(name):
-    base = os.environ.get("RISCV_TOOLCHAIN_BIN", "")
-    vend = ROOT / "toolchain" / "xpack-riscv-none-elf-gcc-15.2.0-1" / "bin"
-    if not base and (vend / "riscv-none-elf-gcc").exists():
-        base = str(vend)
+    sys.path.insert(0, str(ROOT / "tools")); import toolchain
+    try: base = str(toolchain.riscv_bin())                                 # the env, this tree, the main checkout, PATH
+    except toolchain.ToolchainError: base = ""
     prefix = os.environ.get("RISCV_PREFIX", "riscv-none-elf-")
     return (base + "/" if base else "") + prefix + name
 

@@ -22,7 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "sim" / "fixtures" / "art"
 BUILD = ROOT / "build" / "art_decode"
-GCC = ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc"
+sys.path.insert(0, str(ROOT / "tools")); import toolchain
+GCC = Path(toolchain.riscv("gcc"))
 
 
 def syncsafe(n):

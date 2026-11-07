@@ -164,3 +164,5 @@ Open an issue or pull request at <https://github.com/alfatreze/Tau-Alpha>. Befor
 3. Run `make test` before you push; a timing claim needs two fitted seeds.
 4. Log the result in the audit trail with its evidence label, and keep licences straight: never copy GPL code into the MIT tree ([ATTRIBUTIONS.md](ATTRIBUTIONS.md)).
 5. Commit only your own files (documents in this repository are edited by more than one session; stage exact hunks).
+
+**Build tools:** `python3 tools/check_env.py` (or `make check-env`) says what is installed and how to fix what is not; the rules (RISC-V toolchain in worktrees, the macOS SDK, the WebAssembly toolchain) are in `docs/HOST_TOOLCHAIN.md`.

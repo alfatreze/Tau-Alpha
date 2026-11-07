@@ -197,8 +197,8 @@ def main():
     if a.no_generate: return
     py = sys.executable
     # ALL modules are rebuilt: the generated fw2/generated/meter_presets.h gained this meter and every module records its hash (a stale module fails sim/test_meter_wasm_coverage.py)
-    wasm_cmds = [[py, "tools/meters/preview/wasm/build_wasm.py"]] if Path("/opt/homebrew/opt/llvm/bin/clang").exists() and Path("/opt/homebrew/opt/lld/bin/wasm-ld").exists() else []
-    if not wasm_cmds: print("  NOTE: Homebrew llvm + lld are not installed: the WebAssembly module of %s is NOT built (owner decision D-M15: every Player 2 meter has one; sim/test_meter_wasm_coverage.py fails until `python3 tools/meters/preview/wasm/build_wasm.py %s` has run)" % (key, key))
+    wasm_cmds = [[py, "tools/meters/preview/wasm/build_wasm.py"]] if (sys.path.insert(0, str(ROOT / "tools")), __import__("toolchain").wasm_tools())[1] else []
+    if not wasm_cmds: print("  NOTE: no WebAssembly toolchain (brew install llvm lld, or WASM_CLANG / WASM_LD): the WebAssembly module of %s is NOT built (owner decision D-M15: every Player 2 meter has one; sim/test_meter_wasm_coverage.py fails until `python3 tools/meters/preview/wasm/build_wasm.py %s` has run)" % (key, key))
     for cmd in ([py, "tools/player2/gen_meters_p2.py"], [py, "tools/gen_meters.py"], [py, "tools/player2/pack_meter.py", key, "--out", "work/packs-p2/%s.tmpk" % key]) + tuple(wasm_cmds):
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         print("  $ " + " ".join(cmd[1:]) + ("" if r.returncode == 0 else "   FAILED\n" + r.stdout + r.stderr))
