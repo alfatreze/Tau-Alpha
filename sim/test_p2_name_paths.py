@@ -7,7 +7,9 @@ Firmware side (slot_open_path): the 0192 parameter struct is the 0190 template w
   B. a Latin-1 byte (0xE9) the same;
   C. the mechanism of the old player's bug: a TEMPLATE that holds a non-ASCII byte (the longest printable-ASCII run is a fragment): the length word is not recognised, so it is not patched, and APF would read the
      OLD length: the path is wrong. Player 2 is immune only because its template is always the library slot's own ASCII path;
-  D. the capacity: the path must fit the 256-byte struct after the template's path offset; a long path of 3-byte characters is refused with SLOT_E_TOOLONG at a CHARACTER count a third of an ASCII name's.
+  D. the capacity of the MODEL's template shape (a length word and header words before the path): the path must fit the 256-byte struct after the path offset; a long path of 3-byte characters is refused with SLOT_E_TOOLONG at a CHARACTER count a third of an ASCII name's.
+   CORRECTION 2026-11-07 (B-992): the 0192 struct in the Analogue docs is a 256-byte NUL-terminated path at offset 0, flags at 0x100, a size at 0x104: there is NO length word (the one this model assumes belongs to the old player's template heuristic and never fires on the documented struct), and the
+   real limit is 255 bytes (the Pocket opened a 220-byte ASCII path). A, B, C below stand as characterisations of the firmware's copy; the capacity numbers of D are a property of the assumed shape, not of the Pocket.
 Host-tool side (tools/sync_media.py, tools/tau_library.py): names are folded to ASCII; the folding merges distinct names (a collision stops the sync) and gives 'track.ext' to a name with no ASCII letter.
 Mutants of the harness are not needed: the assertions fail if the firmware's behaviour changes, which is the point (a fix flips them on purpose)."""
 import subprocess, sys, tempfile, unicodedata
