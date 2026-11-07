@@ -2,7 +2,8 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
-| O007/R-025 | New lab drop at or after `696ff9ad` with all seven modules, `lab-data.json`, built `meter_lab.html`, module hash/clang as manifest fields (Omega 007, 008) | Tau-Alpha | **ACCEPTED, message 009; timing is the owner's, not set; generator change not done** |
+| O007/R-025 | New lab drop at or after `696ff9ad` with all seven modules, `lab-data.json`, built `meter_lab.html`, module hash/clang as manifest fields (Omega 007, 008) | closed | **DONE 2026-11-07, message 010: `docs/interop/lab-drop/pre-0.7.0-d6d43725/` (pins `d6d43725`)** |
+| A010/2 | `tau-names.bin` / `tau-names.json` listed in `tau-compat.json` (generated, optional, checked) | closed | **DONE 2026-11-07, message 010 (schema enum extended)** |
 | O007/Q-026 | Seeding rule for `tau-presets/` | closed | **ANSWERED, message 009: per meter folder (index.tpi present = the owner's); `check-card` now warns on a removed file (B-1008)** |
 | O007/Q-027 | Slot to meter lookup | closed | **ANSWERED, message 009: confirmed (descriptor offset 32 id, 34 slot; fields for slots 0 to 6)** |
 | O007/Q-031 | Lab preview of a preset | Tau-Alpha | **ACCEPTED, shape proposed in message 009 (`tau-lab-set`); not built** |
