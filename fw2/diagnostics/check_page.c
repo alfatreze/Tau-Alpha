@@ -13,18 +13,19 @@
 #include "../cores/icon_core.h"
 #include "blit_check.h"
 #include "sdram_soak.h"
+#include "name_matrix.h"
 
 #define BG UI_BG_SCREEN
 #define DIM UI_DIM
 #define FG UI_WHITE
 #define ACC UI_ACCENT
-#define ROW_H 22u
+#define ROW_H 20u
 #define TOP_Y 40u
 
 /* The tests. Steady ones (AUDIO, the six rates) fail on any FIFO stall; TRACKS fails when a skip does not land or the reader falls behind data it holds. Rates are MP3 only (skipped on FLAC). */
-enum { T_FONT = 0, T_ICONS, T_AUDIO, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_GFX, T_BLIT, T_N };   /* T_GFX last: the bits of the others in CHECK MASK keep their places */
-static const char *const names[T_N] = { "FONT MEMORY", "ICONS", "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X", "GFX ISSUE", "BLIT OPS" };
-static const uint8_t mode_of[T_N] = { 0, 0, 0, 0, 2, 2, 2, 1, 1, 1, 0, 0 }, sel_of[T_N] = { 0, 0, 0, 0, 0, 2, 4, 2, 5, 7, 0, 0 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
+enum { T_FONT = 0, T_ICONS, T_AUDIO, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_GFX, T_BLIT, T_NAMES, T_N };   /* T_GFX last: the bits of the others in CHECK MASK keep their places */
+static const char *const names[T_N] = { "FONT MEMORY", "ICONS", "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X", "GFX ISSUE", "BLIT OPS", "NAME MATRIX" };
+static const uint8_t mode_of[T_N] = { 0, 0, 0, 0, 2, 2, 2, 1, 1, 1, 0, 0, 0 }, sel_of[T_N] = { 0, 0, 0, 0, 0, 2, 4, 2, 5, 7, 0, 0, 0 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
 uint32_t check_mask, check_under;
 static uint8_t res[T_N]; static uint32_t val[T_N];
 static uint8_t state, cur, step, dirty = 1;               /* state 0 ready, 1 running, 2 done, 3 refused */
@@ -104,6 +105,7 @@ static void gfx_issue_bench(void)
 }
 static void begin_test(uint32_t i)
 {
+    if (i == T_NAMES) { val[i] = name_matrix_run(); res[i] = (val[i] || nm_err) ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }      /* BUG-001: the accented-name matrix (tools/name_matrix.py wrote it on the card); the per-variant result is on Info (NM RES A / B) */
     if (i == T_BLIT) { blit_check_mask = blit_check_run(); res[i] = blit_check_mask ? 2u : 1u; val[i] = blit_check_mask; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     if (i == T_GFX) { gfx_issue_bench(); res[i] = 1u; val[i] = 0; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     if (i == T_ICONS) { val[i] = icon_check(); res[i] = val[i] ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
@@ -123,6 +125,7 @@ void check_page_exit(void) { if (state == 1u) finish(2u); }
 int check_page_key(uint32_t edge)
 {
     if (edge & KEY_X) { soak_cycle(); dirty = 1; return 0; }                                    /* X: the SDRAM soak, off / 16 k / 64 k / 128 k operations a second, beside whatever plays and draws */
+    if ((edge & KEY_Y) && state != 1u) { for (uint32_t i = 0; i < T_N; i++) { res[i] = 0; val[i] = 0; } begin_test(T_NAMES); state = 2u; publish(); dirty = 1; return 0; }   /* Y: only the accented-name matrix (no track needed); the result is the NAME MATRIX row and Info NM RES A / B */
     if (edge & KEY_B) { if (state == 1u) { finish(2u); return 0; } return 1; }
     if ((edge & KEY_A) && state != 1u) {
         if (!mp.playing || mp.held) { state = 3; dirty = 1; return 0; }  /* a track must be playing */
@@ -134,7 +137,7 @@ int check_page_key(uint32_t edge)
 void check_page_tick(void)
 {
     if (state != 1u) return;
-    if (cur == T_FONT || cur == T_ICONS || cur == T_GFX || cur == T_BLIT) { next_test(); return; }                          /* the font memory test ran in begin_test and needs no audio */
+    if (cur == T_FONT || cur == T_ICONS || cur == T_GFX || cur == T_BLIT || cur == T_NAMES) { next_test(); return; }                          /* the font memory test ran in begin_test and needs no audio */
     if (!mp.playing || mp.held) { res[cur] = 2; val[cur] = 0xFFFFu; next_test(); return; }      /* playback stopped or paused: the test did not run to its end */
     if (cur >= T_ST110 && res[cur] == 3u) { next_test(); return; }
     switch (cur) {
@@ -164,13 +167,13 @@ void check_page_draw(void)
         const char *r = res[i] == 1u ? "PASS" : res[i] == 2u ? "FAIL" : res[i] == 3u ? "SKIP" : (state == 1u && cur == i) ? "RUN" : "-";
         for (const char *p = r; *p; p++) v[n++] = *p; v[n] = 0;
         gfx_rect(0, y, GFX_W, ROW_H, BG);
-        gfx_text(10, y + 4, names[i], DIM, BG);
-        gfx_text(GFX_W - 10 - gfx_text_width(v), y + 4, v, res[i] == 2u ? ACC : FG, BG);
+        gfx_text(10, y + 2, names[i], DIM, BG);
+        gfx_text(GFX_W - 10 - gfx_text_width(v), y + 2, v, res[i] == 2u ? ACC : FG, BG);
     }
     gfx_rect(0, GFX_H - 44, GFX_W, 44, BG);
     { char s[40]; uint32_t n = 0; const char *p = "X SOAK L"; while (*p) s[n++] = *p++; s[n++] = (char)('0' + soak_level()); s[n++] = ' '; s[n++] = 'F'; const uint32_t f = soak_st.fails > 99u ? 99u : soak_st.fails; if (f > 9u) s[n++] = (char)('0' + f / 10u); s[n++] = (char)('0' + f % 10u); s[n++] = ' '; s[n++] = 'P'; s[n++] = (char)('0' + (soak_st.pass > 9u ? 9u : soak_st.pass)); s[n] = 0;
       gfx_text(10, GFX_H - 40, s, soak_st.fails ? ACC : DIM, BG); }
-    gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  B BACK", DIM, BG);
+    gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  Y NAMES  B BACK", DIM, BG);
     dirty = 0;
 }
 uint32_t check_page_dirty(void) { return dirty; }

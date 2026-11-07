@@ -7,7 +7,8 @@
     "fw2/diagnostics/info_page.c",
     "fw2/diagnostics/sdram_soak.c",
     "fw2/diagnostics/soak_hot.c",
-    "fw2/diagnostics/preset_probe.c"
+    "fw2/diagnostics/preset_probe.c",
+    "fw2/diagnostics/name_matrix.c"
   ],
   "settings_rows_left_out_when_off": [
     "DIAGNOSTICS",
@@ -48,7 +49,12 @@
     "PP READ",
     "PP READ MAX",
     "PP FILL MIN",
-    "PP DRY"
+    "PP DRY",
+    "NM RES A",
+    "NM RES B",
+    "NM BAD",
+    "NM ERR",
+    "NM DRY"
   ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
@@ -64,7 +70,8 @@
     "info_page_key",
     "soak_step",
     "soak_cycle",
-    "preset_probe_run"
+    "preset_probe_run",
+    "name_matrix_run"
   ],
   "symbols_present_when_off": [
     "about_page_draw",
