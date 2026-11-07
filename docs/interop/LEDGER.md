@@ -2,6 +2,9 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| O011/1 | Lab message shape (`tau-lab-set`, `tau-lab-ready` with hashes, `tau-lab-applied`) | closed | **BUILT 2026-11-07, message 011 (`tau_host.js`, test + sandboxed-frame run)** |
+| A011/2 | Name test library generator in the repository | closed | **DONE, message 011: `tools/make_name_test_library.py`** |
+| A011/3 | Lab drop with the handler | closed | **DONE, message 011: `docs/interop/lab-drop/pre-0.7.0-bfe351d4/`** |
 | O007/R-025 | New lab drop at or after `696ff9ad` with all seven modules, `lab-data.json`, built `meter_lab.html`, module hash/clang as manifest fields (Omega 007, 008) | closed | **DONE 2026-11-07, message 010: `docs/interop/lab-drop/pre-0.7.0-d6d43725/` (pins `d6d43725`)** |
 | A010/2 | `tau-names.bin` / `tau-names.json` listed in `tau-compat.json` (generated, optional, checked) | closed | **DONE 2026-11-07, message 010 (schema enum extended)** |
 | O007/Q-026 | Seeding rule for `tau-presets/` | closed | **ANSWERED, message 009: per meter folder (index.tpi present = the owner's); `check-card` now warns on a removed file (B-1008)** |
