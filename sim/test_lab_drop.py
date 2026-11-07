@@ -19,9 +19,19 @@ with tempfile.TemporaryDirectory() as td:
         check("a clean tree makes a drop", r.returncode == 0)
         m = json.loads((out / "MANIFEST.json").read_text())
         tracked = [f for f in subprocess.run(["git", "ls-files", "tools/meters/preview"], capture_output=True, text=True, cwd=ROOT).stdout.split("\n") if f]
-        check(len(m["files"]) == len(tracked), f"every tracked file is in the manifest ({len(tracked)})")
+        check(len(m["files"]) == len(tracked) + 2, f"every tracked file is in the manifest ({len(tracked)}) plus the built meter_lab.html and lab-data.json")
         check(any(e["path"] == "preview/meters/sound_map_wasm.js" for e in m["files"]) and m["wasm"]["wasm_bytes"] > 0, "the wasm module is in the drop with its size and SHA-256")
+        mods = {x["module"]: x for x in m["modules"]}
+        wasm_files = sorted(f for f in tracked if f.endswith("_wasm.js"))
+        check(len(mods) == len(wasm_files) >= 8 and all(x["wasm_sha256"] and x["wasm_bytes"] > 0 and x["clang"] for x in mods.values()), f"EVERY wasm module has its SHA-256, size and compiler as plain fields ({len(mods)} modules)")
+        ld = json.loads((out / "lab-data.json").read_text())
+        keys = {x["key"] for x in ld["schema"]["meters"]}
+        check({"winamp_bars", "winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid", "sound_map"} <= keys and ld["themes"] and ld["palette"] and all(x["params"] is not None and "presets" in x for x in ld["schema"]["meters"]), "lab-data.json has the meters (parameters, factory presets), the themes and the accent palette")
+        html = (out / "meter_lab.html").read_text()
+        check("/*DATA*/" not in html and "/*SCRIPTS*/" not in html and html.count("<script") >= 1 and len(html) > 100000, "the built meter_lab.html has no unresolved placeholder")
         check(run("--check", str(out)).returncode == 0, "a fresh drop verifies")
+        mf = out / "preview/meters/winamp_bars_wasm.js"; mb = mf.read_bytes(); mf.write_bytes(mb.replace(b"b64: \"", b"b64: \"AAAA", 1))
+        check(run("--check", str(out)).returncode == 1, "a module whose bytes no longer match its record is caught"); mf.write_bytes(mb)
         f = out / "preview/render.js"; b = f.read_bytes(); f.write_bytes(b + b" ")
         check(run("--check", str(out)).returncode == 1, "a changed file is caught"); f.write_bytes(b)
         f.unlink(); check(run("--check", str(out)).returncode == 1, "a missing file is caught"); f.write_bytes(b)

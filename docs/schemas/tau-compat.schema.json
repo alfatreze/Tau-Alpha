@@ -141,7 +141,9 @@
                         "tau-library",
                         "TAUA",
                         "TIM1",
-                        "interact_persist"
+                        "interact_persist",
+                        "tau-names",
+                        "tau-names-manifest"
                       ]
                     },
                     "version": {
