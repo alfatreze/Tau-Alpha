@@ -21,6 +21,7 @@ too, with why. Newest last. Detail lives in the spec each entry points at.
 | D-M12 | Public preset gallery | **Parked** (owner) |
 | D-M13 | Build order M0 to M6 as in the spec | Decided |
 | D-M14 | A meter's persistent mutable state (1 KB or more, append-and-scan) lives in PSRAM via `MTR_PSRAM`, as a ring unwrapped into a hot scratch; this is the framework's strategy for all future meters | Decided (owner, 2026-10-02) |
+| D-M15 | **A WebAssembly module of the firmware's own drawing source must exist for every Player 2 meter** (the lab and Tau Omega run it instead of a hand-written twin): a new meter ships with its module; the meters without one are listed in `sim/test_meter_wasm_coverage.py` until they get theirs | Decided (owner, 2026-11-07) |
 
 ### D-M12 detail: public preset gallery (parked)
 

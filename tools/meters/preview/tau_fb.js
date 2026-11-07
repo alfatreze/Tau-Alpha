@@ -45,6 +45,29 @@
       for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((y + yy) * this.w + x + d, (y + yy) * this.w + x + w));
       for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (y + yy) * this.w + x);
     }
+    /* The off-screen stash and the palette engine (the Waterfall, B-983): the stash is the framebuffer memory below and beside the visible frame (rows 360.., columns up to 511); rect_stash writes raw values there (palette
+     * indices for a plane), clut_load fills the palette, cblit shows a stash rectangle through the palette in the drawing target, scroll_down moves a box down (the top d rows stay). One command each, except clut_load (a few register puts). */
+    _st() { return this.stash || (this.stash = new Uint16Array(512 * 1024)); }
+    rectStash(x, y, w, h, c) {
+      this._rec('rect_stash', [x, y, w, h, c]); const st = this._st();
+      for (let yy = y; yy < Math.min(1024, y + h); yy++) for (let xx = x; xx < Math.min(512, x + w); xx++) st[yy * 512 + xx] = c;
+    }
+    clutLoad(start, colors) {
+      if (this.log) this.log.push('clut_load ' + [start, colors.length].concat(Array.from(colors)).join(' '));
+      this.clut = this.clut || new Uint16Array(256); for (let i = 0; i < colors.length; i++) this.clut[(start + i) & 255] = colors[i];
+    }
+    cblit(sx, sy, dx, dy, w, h) {
+      this._rec('cblit', [sx, sy, dx, dy, w, h]); const st = this._st(); this.clut = this.clut || new Uint16Array(256);
+      this.pix += 2 * w * h; this.ops += 2 * w * h;
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const X = dx + xx, Y = dy + yy; if (X >= 0 && X < this.w && Y >= 0 && Y < this.h) this.px[Y * this.w + X] = this.clut[st[(sy + yy) * 512 + sx + xx] & 255]; }
+    }
+    scrollDown(x, y, w, h, d) {
+      this._rec('scroll_down', [x, y, w, h, d]);
+      if (d <= 0 || d >= h) return;
+      this.pix += 2 * w * (h - d); this.ops += 2 * w * (h - d); const rows = [];
+      for (let yy = 0; yy < h - d; yy++) rows.push(this.px.slice((y + yy) * this.w + x, (y + yy) * this.w + x + w));
+      for (let yy = 0; yy < h - d; yy++) this.px.set(rows[yy], (y + yy + d) * this.w + x);
+    }
     /* Lab-only: a rect drawn through the hardware blend (B5), F = c over the pixel already there B; mode 0..4 as in mp3_fb.sv (0 DSP alpha, 1 average,
        2 add, 3 subtract, 4 B+F/4). Counted as ONE command: on hardware it is an OP_BLIT with blend from a one-row strip of the colour (src_stride 0). */
     blend(x, y, w, h, c, mode, alpha) {
