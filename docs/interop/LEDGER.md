@@ -2,6 +2,10 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| F-023 | The Pocket opens paths as code page 437; the firmware reads the sidecar (hardware, `TAU DEV 219`) | closed | **FACT sent in message 006** |
+| R-024 | Omega writes `tau-names.json` + `tau-names.bin` when it builds a library | Omega | **OPEN, sent in message 006** |
+| R-025 | Omega follows `CARD_NAME_RULES.md` and the 62-case corpus invariants | Omega | **OPEN, sent in message 006** |
+| Q-026 | Does Omega build the library index itself? | Omega | **OPEN, message 006** |
 | R-014 | Built `meter_lab.html` in the lab drop (Omega 004) | Tau-Alpha | **ACCEPTED 2026-10-26 (D-O02), message 005**; generated at the v0.7.0 release drop, not built yet |
 | R-017 | `lab-data.json` (schema, themes, accents) in the lab drop (Omega 005) | Tau-Alpha | **ACCEPTED (D-O02), message 005**; same drop, not built yet |
 | Q-016 | Lab frame sandbox | closed | **ANSWERED:** `allow-scripts` only; ask with an R-id before widening |
