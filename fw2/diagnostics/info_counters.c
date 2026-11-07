@@ -172,9 +172,11 @@ const cnt_t counters_table[] = {
     { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
     { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },
     { "NM RES C",     CK_HEX32, CU_NONE, &nm_res[2] },              /* variants 16..23: the encoding probes */
+    { "NM RES D",     CK_HEX32, CU_NONE, &nm_res[3] },              /* variants 24..31: the code page 437 probes */
     { "NM COD A",     CK_HEX32, CU_NONE, &nm_cod[0] },              /* the target's own error code of each variant's open, one nibble each (0 it opened; 3 file not found, 4 malformed path, 5 general error; 9 no template, 10 refused by the firmware, 12 timeout) */
     { "NM COD B",     CK_HEX32, CU_NONE, &nm_cod[1] },
     { "NM COD C",     CK_HEX32, CU_NONE, &nm_cod[2] },
+    { "NM COD D",     CK_HEX32, CU_NONE, &nm_cod[3] },
     { "NM RUNS",      CK_U32, CU_NONE,   &nm_runs },                /* runs since boot: Select+Start runs the matrix once by itself, Check (A or Y) again */
     { "NM BAD",       CK_U32, CU_NONE,   &nm_bad },                 /* unmet expectations: 0 = every name that should open did, every negative control failed cleanly */
     { "NM ERR",       CK_U32, CU_NONE,   &nm_err },                 /* 0 ran; 1 no library root, 2 matrix.tnm did not open, 3 did not read, 4 audio under pressure, 5 bad header, 6 bad line */

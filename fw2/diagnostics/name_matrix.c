@@ -14,10 +14,10 @@ extern uint32_t mp3play_degrade_now(void);
 #endif
 #define NM_SLOT 7u                                   /* the cover's slot, as the preset probe uses it */
 #define NM_MANIFEST 3072u                            /* matrix.tnm is exactly this long (tools/name_matrix.py pads it), so a fixed read works; the opened file's first bytes are read right after it in the 4 KB tag zone */
-#define NM_MAX 24u
+#define NM_MAX 32u
 #define NM_HDR 32u                                   /* the first bytes of the opened file that are read back */
 
-uint32_t nm_res[3], nm_cod[3], nm_bad, nm_err, nm_dry, nm_runs;
+uint32_t nm_res[4], nm_cod[4], nm_bad, nm_err, nm_dry, nm_runs;
 
 P2_COLD_TEXT static uint32_t check_open(uint32_t fid)      /* after an open that worked: 1 the right file, 2 another file, 3 the read failed */
 {
@@ -38,7 +38,7 @@ P2_COLD_TEXT uint32_t name_matrix_run(void)
 {
     char path[304]; uint8_t rn[NM_MAX], rc[NM_MAX];                    /* a path longer than the 255 bytes the open accepts is read whole: the firmware must refuse it, not cut it */
     for (uint32_t i = 0; i < NM_MAX; i++) rn[i] = rc[i] = 0;
-    for (uint32_t i = 0; i < 3u; i++) nm_res[i] = nm_cod[i] = 0;
+    for (uint32_t i = 0; i < 4u; i++) nm_res[i] = nm_cod[i] = 0;
     nm_bad = 0; nm_err = 0; nm_dry = 0;
     if (mp3play_degrade_now()) { nm_err = 4u; return 1u; }
     nm_runs++;

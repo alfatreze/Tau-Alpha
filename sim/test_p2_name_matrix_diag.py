@@ -7,6 +7,7 @@
   5. nothing runs without the card's help: no matrix.tnm (nm_err 2), a bad header (5), the audio under pressure (4), no library root (1);
   6. the contracts with the tool: matrix.tnm is exactly 3,072 bytes, the title 'NM07' sits at byte 21, the constants agree, every nibble/word layout holds 22 variants in three words;
   6b. Select+Start (the Report) runs the matrix once per boot by itself, so no Check run is needed first;
+  3b. round 3: the code page 437 probes (variants 22 to 31) read as expected on a model of a code page 437 Pocket;
   7. mutant: the title not checked (a wrong file passes).
 Host-simulated: it does not say what the Pocket does (that is the run on a Pocket)."""
 import subprocess, sys, tempfile
@@ -49,21 +50,24 @@ def card(only_ascii=True, extra=(), drop=(), swap=None):
     return lines, vs
 def run(exe, lines):
     o = subprocess.run([str(exe)], input="\n".join(lines) + "\n", capture_output=True, text=True).stdout.split()
-    w = [int(x, 16) for x in o[:6]]; nib = lambda ws: [(ws[i // 8] >> (4 * (i % 8))) & 15 for i in range(24)]
-    return nib(w[0:3]), nib(w[3:6]), int(o[6]), int(o[7]), int(o[8])
+    w = [int(x, 16) for x in o[:8]]; nib = lambda ws: [(ws[i // 8] >> (4 * (i % 8))) & 15 for i in range(32)]
+    return nib(w[0:4]), nib(w[4:8]), int(o[8]), int(o[9]), int(o[10])
 with tempfile.TemporaryDirectory() as td:
     exe = build(td)
     # 1. round 1
     L, vs = card(); res, cod, bad, err, dry = run(exe, L)
     asc = [not any(b >= 0x80 for b in v[3]) and v[1] != "f" for v in vs]
-    want_res = [1 if asc[i] else 5 for i in range(22)]; want_res[13] = 6; want_res[14] = 5; want_res[15] = 5
-    check("1. a card that opens ASCII paths only: nibbles %s, nm_bad 10 (as the Pocket answered in round 1)" % "".join("%x" % n for n in res[:22]), res[:22] == want_res and bad == 10 and err == 0, (res[:22], bad, err))
-    check("1. the error codes: 0 where it opened, 3 (file not found) where the card said no, 10 for the over-limit path", all(cod[i] == (0 if want_res[i] == 1 else 10 if i == 13 else 3) for i in range(22)), cod[:22])
+    want_res = [1 if asc[i] else 5 for i in range(32)]; want_res[13] = 6; want_res[14] = 5; want_res[15] = 5
+    check("1. a card that opens ASCII paths only: nibbles %s, nm_bad 10 (as the Pocket answered in round 1)" % "".join("%x" % n for n in res[:32]), res[:32] == want_res and bad == 10 and err == 0, (res[:32], bad, err))
+    check("1. the error codes: 0 where it opened, 3 (file not found) where the card said no, 10 for the over-limit path", all(cod[i] == (0 if want_res[i] == 1 else 10 if i == 13 else 3) for i in range(32)), cod[:32])
     res, cod, bad, err, dry = run(exe, ["missing 4"] + L)
-    check("1. a card that answers MALFORMED PATH (code 4) instead: nibble 4, code 4 for every name it does not find", all(res[i] == 4 and cod[i] == 4 for i in range(22) if want_res[i] == 5 and i != 13), (res[:22], cod[:22]))
+    check("1. a card that answers MALFORMED PATH (code 4) instead: nibble 4, code 4 for every name it does not find", all(res[i] == 4 and cod[i] == 4 for i in range(32) if want_res[i] == 5 and i != 13), (res[:32], cod[:32]))
     # 3. single-byte encodings
     res, cod, bad, err, dry = run(exe, card(extra=(17, 18, 20, 21))[0])
     check("3. the Latin-1 / code page 850 paths that open show nibble 1 (variants 17, 18, 20, 21), the UTF-8 ones (16, 19) still fail", [res[i] for i in (16, 17, 18, 19, 20, 21)] == [5, 1, 1, 5, 1, 1] and bad == 10, (res[16:22], bad))
+    # 3b. round 3: a Pocket that decodes the path as code page 437 opens the single-byte names of the 437 probes (18, 27, 29, 31) and not their UTF-8 forms (26, 28, 30)
+    res, cod, bad, err, dry = run(exe, card(extra=(18, 27, 29, 31))[0])
+    check("3b. a code page 437 Pocket: the 437 paths of ss, ae, the cent sign and pi open (nibble 1), their UTF-8 forms (26, 28, 30) and the e-acute probes (22 to 25, against names macOS stored decomposed) do not", [res[i] for i in (18, 27, 29, 31)] == [1, 1, 1, 1] and [res[i] for i in (22, 23, 24, 25, 26, 28, 30)] == [5] * 7, (res[16:32],))
     # 4. other outcomes
     base = card(only_ascii=False)[0]; vs0 = vs
     res, cod, bad, err, dry = run(exe, card(only_ascii=False, swap={5: 4})[0]); check("4. a name that opens ANOTHER file (title NM04, not NM05): nibble 2", res[5] == 2 and bad == 1, (res[5], bad))
@@ -78,8 +82,8 @@ with tempfile.TemporaryDirectory() as td:
     res, cod, bad, err, dry = run(exe, ["root "] + card()[0][1:]); check("5. no library root: nm_err 1", err == 1, err)
     # 6. contracts with the tool
     fs = nm.files(); src = (ROOT / "fw2/diagnostics/name_matrix.c").read_text()
-    check("6. matrix.tnm is exactly 3,072 bytes and the firmware's constants agree (slot 7, 3,072, 24 variants at most)", len(fs[b"matrix.tnm"]) == 3072 == nm.MANIFEST and "#define NM_MANIFEST 3072u" in src and "#define NM_SLOT 7u" in src and "#define NM_MAX 24u" in src and len(nm.variants()) <= 24 and "slot_open_path_len" not in src)
-    mp = nm.mp3(7); check("6. the title 'NM07' sits at byte 21 of the MP3 the tool writes; the manifest header is TNM2 and the lines carry the file id", mp[21:25] == b"NM07" and fs[b"matrix.tnm"].startswith(b"TNM2 22\n") and b"\n17|p|16|" in fs[b"matrix.tnm"])
+    check("6. matrix.tnm is exactly 3,072 bytes and the firmware's constants agree (slot 7, 3,072, 32 variants at most)", len(fs[b"matrix.tnm"]) == 3072 == nm.MANIFEST and "#define NM_MANIFEST 3072u" in src and "#define NM_SLOT 7u" in src and "#define NM_MAX 32u" in src and len(nm.variants()) <= 32 and "slot_open_path_len" not in src)
+    mp = nm.mp3(7); check("6. the title 'NM07' sits at byte 21 of the MP3 the tool writes; the manifest header is TNM2 and the lines carry the file id", mp[21:25] == b"NM07" and fs[b"matrix.tnm"].startswith(b"TNM2 32\n") and b"\n17|p|16|" in fs[b"matrix.tnm"])
     # 6b. Select+Start: the matrix runs once by itself (name_matrix_auto), a run refused for audio pressure does not use the turn
     def auto(lines, **env):
         import os
