@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as td:
     (cp / "dist/Cores/alfatreze.TAU").mkdir(parents=True); shutil.copy(ROOT / "dist/Cores/alfatreze.TAU/interact.json", cp / "dist/Cores/alfatreze.TAU/interact.json")
     # the seven slots are all in use (the last one is SOUND MAP): the copy gives its slot back so the scaffold has somewhere to go
     shutil.rmtree(cp / "meters/sound_map")
-    for f in ("fw2/ui/meter_sound_map.c", "fw2/ui/meter_pack_sound_map.c", "fw2/generated/desc_sound_map.h"): (cp / f).unlink()
+    for f in ("fw2/ui/meter_sound_map.c", "fw2/ui/meter_pack_sound_map.c", "fw2/generated/desc_sound_map.h", "tools/meters/preview/wasm/sound_map_wasm.c", "tools/meters/preview/meters/sound_map.js", "tools/meters/preview/meters/sound_map_wasm.js"): (cp / f).unlink()
     tc = ROOT / "toolchain"
     env = dict(os.environ, RISCV_TOOLCHAIN_BIN=str(next(tc.glob("*/bin")))) if tc.exists() and list(tc.glob("*/bin")) else dict(os.environ)
     def make(*args): return subprocess.run(["make", "new-meter"] + list(args), cwd=cp, capture_output=True, text=True, env=env)
@@ -48,4 +48,14 @@ with tempfile.TemporaryDirectory() as td:
         lines = r2.stdout.splitlines()
         mine = [l for l in lines if l.startswith("ok   sparks") or l.startswith("FAIL sparks")]
         check("the pack test, run in the copy, covers the new meter and passes: native trace equals the pack on rv32sim, no draw outside the box, a descriptor", r2.returncode == 0 and len([l for l in mine if l.startswith("ok")]) >= 6 and not [l for l in lines if l.startswith("FAIL")], "\n".join(mine) + r2.stdout[-500:] + r2.stderr[-500:])
+    # owner decision D-M15: the scaffold also writes the meter's WebAssembly wrapper and lab adapter, and (with the Homebrew llvm + lld) builds its module, which the golden test and the coverage test then check
+    if r.returncode == 0:
+        check("the scaffold writes the WebAssembly wrapper and the lab adapter", all((cp / f).exists() for f in ("tools/meters/preview/wasm/sparks_wasm.c", "tools/meters/preview/meters/sparks.js")))
+        if Path("/opt/homebrew/opt/llvm/bin/clang").exists() and Path("/opt/homebrew/opt/lld/bin/wasm-ld").exists() and shutil.which("node"):
+            check("the scaffold builds the module (meters/sparks_wasm.js)", (cp / "tools/meters/preview/meters/sparks_wasm.js").exists(), r.stdout[-500:])
+            r3 = subprocess.run([sys.executable, "sim/test_meter_wasm_coverage.py"], cwd=cp, capture_output=True, text=True, env=env)
+            check("the coverage test passes with the new meter (every Player 2 meter has a module)", r3.returncode == 0 and "sparks: the committed module is current" in r3.stdout, r3.stdout[-600:])
+            r4 = subprocess.run([sys.executable, "sim/test_meter_wasm_golden.py"], cwd=cp, capture_output=True, text=True, env=env)
+            check("the golden test picks the new meter up: the module and the source compiled natively issue the same commands", r4.returncode == 0 and "sparks: every scenario draws identically" in r4.stdout, r4.stdout[-800:] + r4.stderr[-400:])
+        else: print("note: no wasm toolchain (Homebrew llvm + lld) or node: the module of the new meter was not built or checked")
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

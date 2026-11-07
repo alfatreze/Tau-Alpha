@@ -6,7 +6,7 @@ module now (delete the entry). The list only shrinks."""
 import json, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-KNOWN_GAPS = {"winamp_bars", "winamp_scope", "vu_master", "chladni"}        # 2026-11-07: Layered Wave, Sound Map and Waterfall Grid have theirs
+KNOWN_GAPS = set()        # 2026-11-07: every Player 2 meter has its module (Layered Wave, Sound Map, Waterfall Grid, Winamp Bars, Winamp Scope, Master VU, Chladni); `make new-meter` scaffolds one
 fails = 0
 def check(name, ok, info=""):
     global fails
@@ -20,7 +20,8 @@ check("a listed gap that now has its module is removed from the list (%s)" % sor
 check("every listed gap is a Player 2 meter (%s)" % sorted(KNOWN_GAPS - set(keys)), KNOWN_GAPS <= set(keys))
 for k in sorted(have):
     ad = ROOT / f"tools/meters/preview/meters/{k}.js"
-    check(f"{k}: the adapter meters/{k}.js exists and has ready() (the module compiles asynchronously in a browser)", ad.is_file() and "ready" in ad.read_text(), ad)
+    ok = ad.is_file() and __import__("subprocess").run(["node", "-e", "const a=require(process.argv[1]); if(typeof a.ready!=='function'||typeof a.tick!=='function'||typeof a.state!=='function') process.exit(1)", str(ad)], capture_output=True).returncode == 0
+    check(f"{k}: the adapter meters/{k}.js exists and exports state, tick and ready (the module compiles asynchronously in a browser)", ok, ad)
     r = __import__("subprocess").run([sys.executable, str(ROOT / "tools/meters/preview/wasm/build_wasm.py"), "--check", k], capture_output=True, text=True)
     check(f"{k}: the committed module is current", r.returncode == 0, r.stdout[-200:])
 print("%d of %d Player 2 meters have their module; still to do (D-M15): %s" % (len(have), len(keys), ", ".join(sorted(missing)) or "none"))

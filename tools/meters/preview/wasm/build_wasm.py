@@ -14,9 +14,22 @@ CLANG, WASM_LD = "/opt/homebrew/opt/llvm/bin/clang", "/opt/homebrew/opt/lld/bin/
 MODULES = {
     "sound_map": {"wrapper": "sound_map_wasm.c", "global": "TauSoundMapWasm", "extra": [], "about": "SOUND MAP compiled to WebAssembly from fw2/ui/meter_sound_map.c by tools/meters/preview/wasm/build_wasm.py"},
     "waterfall_grid": {"wrapper": "waterfall_grid_wasm.c", "global": "TauWaterfallGridWasm", "extra": [], "about": "WATERFALL GRID compiled to WebAssembly from fw2/ui/meter_waterfall_grid.c (the pack's own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
+    "winamp_bars": {"wrapper": "winamp_bars_wasm.c", "global": "TauWinampBarsWasm", "extra": [], "about": "WINAMP BARS compiled to WebAssembly from fw2/ui/meter_winamp_bars.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
+    "winamp_scope": {"wrapper": "winamp_scope_wasm.c", "global": "TauWinampScopeWasm", "extra": [], "about": "WINAMP SCOPE compiled to WebAssembly from fw2/ui/meter_winamp_scope.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
+    "vu_master": {"wrapper": "vu_master_wasm.c", "global": "TauVuMasterWasm", "extra": [], "about": "MASTER VU compiled to WebAssembly from fw2/ui/meter_vu_master.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
+    "chladni": {"wrapper": "chladni_wasm.c", "global": "TauChladniWasm", "extra": [], "about": "CHLADNI compiled to WebAssembly from fw2/ui/meter_chladni.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
     "layered_wave": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveWasm", "extra": ["-I", str(ROOT / "fw")], "about": "LAYERED WAVE compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
     "layered_wave_timed": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveTimedWasm", "extra": ["-I", str(ROOT / "fw"), "-DWASM_TIMED=1"], "about": "LAYERED WAVE (modelled CPU-time cost guard, -DWASM_TIMED) compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
 }
+def _discover():
+    """a meter whose module is just its wrapper <key>_wasm.c (tools/player2/new_meter.py writes one) needs no entry above: the adapter's global is Tau<CamelKey>Wasm"""
+    for w in sorted(HERE.glob("*_wasm.c")):
+        key = w.name[:-len("_wasm.c")]
+        if key not in MODULES:
+            MODULES[key] = {"wrapper": w.name, "global": "Tau" + "".join(x.capitalize() for x in key.split("_")) + "Wasm", "extra": [], "about": "%s compiled to WebAssembly from fw2/ui/meter_%s.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py" % (key.upper().replace("_", " "), key)}
+
+
+_discover()
 INCLUDES = ["-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2")]
 
 
@@ -63,12 +76,15 @@ def check(key):
     print("%s_wasm.js is current (%d B)" % (key, len(wasm))); return 0
 
 
-ENUMS = {"layered_wave": ("lw_presets.h", "MP_LAYERED_WAVE_"), "layered_wave_timed": ("lw_presets.h", "MP_LAYERED_WAVE_"), "waterfall_grid": ("meter_presets.h", "MPP_WF_")}
+ENUMS = {"winamp_bars": ("meter_presets.h", "MPP_BARS_"), "winamp_scope": ("meter_presets.h", "MPP_SCOPE_"), "vu_master": ("meter_presets.h", "MPP_VU_"), "chladni": ("meter_presets.h", "MPP_CHL_"), "layered_wave": ("lw_presets.h", "MP_LAYERED_WAVE_"), "layered_wave_timed": ("lw_presets.h", "MP_LAYERED_WAVE_"), "waterfall_grid": ("meter_presets.h", "MPP_WF_")}
 
 
 def param_keys(key):
     """the parameter keys of a module in the order of its params buffer (the generated enum of the meter's parameters), so the lab adapter needs no copy of the list"""
-    if key not in ENUMS: return None
+    if key not in ENUMS:                                     # a meter made by new_meter.py: its parameters are the generated MPP_<TAG>_ enum, the tag from its manifest
+        mf = ROOT / "meters" / key / "meter.json"
+        if not mf.is_file(): return None
+        ENUMS[key] = ("meter_presets.h", "MPP_%s_" % json.loads(mf.read_text())["p2"]["tag"])
     f, pre = ENUMS[key]
     t = (ROOT / "fw2/generated" / f).read_text()
     e = re.search(r"enum \{([^}]*%sN[^}]*)\}" % re.escape(pre), t).group(1)
@@ -86,7 +102,7 @@ def build(key):
 
 
 def main():
-    keys = [a for a in sys.argv[1:] if not a.startswith("--")] or list(MODULES)
+    keys = [a for a in sys.argv[1:] if not a.startswith("--")] or [k for k, m in MODULES.items() if (HERE / m["wrapper"]).exists()]        # a meter that was removed takes its wrapper with it
     bad = [k for k in keys if k not in MODULES]
     if bad: sys.exit("unknown module %s (have: %s)" % (", ".join(bad), ", ".join(MODULES)))
     if "--check" in sys.argv: return max(check(k) for k in keys)
