@@ -163,6 +163,13 @@ with tempfile.TemporaryDirectory() as td:
     m4 = NS.load_manifest((common4 / "tau-names.json").read_bytes()) if (common4 / "tau-names.json").exists() else {"tracks": []}
     check("--ascii-only: the manifest still holds the original names (accented ones now differ from the card name)", rc == 0 and any(r["orig"].endswith("Café/") or "ü" in r["orig"] for r in m4["tracks"]), out[-200:])
 
+    # ---- a card listing returns accented names decomposed (macOS on ExFAT): the builder must still sort the way the checker reads the stored (precomposed) names
+    nfd_dir = td / "nfdlib" / "Album"
+    for nm in ("\u00f6\u00fc\u00e4 Stra\u00dfe", "S\u00e6m Pi", "Caf\u00e9"):
+        utf8_mp3(nfd_dir / (unicodedata.normalize("NFD", nm) + ".mp3"), nm, "Artist", "Album")
+    r5 = subprocess.run([sys.executable, str(ROOT / "tools/tau_library.py"), "build", str(td / "nfdlib"), "--playlists"], capture_output=True, text=True)
+    check("a library whose file names are listed decomposed (NFD) builds and verifies (play order uses the precomposed names)", r5.returncode == 0, (r5.stdout + r5.stderr)[-300:])
+
 if fails:
     print("FAILED:", fails)
     sys.exit(1)
