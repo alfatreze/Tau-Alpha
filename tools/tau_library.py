@@ -55,17 +55,28 @@ _TYPO = {0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'", 0x201C: '"', 0x201D
 
 def latin1_text(s, limit=63):
     """Display text for the index (docs/features/FONT_SPEC.md 3.6): Latin-1, one byte per character. Code points up to U+00FF stay (the firmware draws the accented letters as their plain letter until the font memory
-    carries them), the common typographic ones are folded (curly quotes, dashes, the ellipsis), a letter that decomposes to a Latin-1 letter loses only its mark, anything else becomes '?'. A text with no real
+    carries them), the common typographic ones are folded (curly quotes, dashes, the ellipsis), a letter that decomposes to a Latin-1 letter loses only its mark, anything else (a run of Cyrillic, Greek, CJK, a Turkish dotless i ...) is transliterated like a card name (sync_media._translit; emoji dropped), and only if that is not possible '?'. A text with no real
     character left (only '?' and spaces) is empty, so the caller falls back to the file name. Never splits a character; the limit counts characters."""
-    out = []
+    out, run = [], []
+
+    def flush():
+        if run:
+            t = "".join(run); run.clear()
+            try:
+                import sync_media                                   # the same transliteration the card names use (anyascii, pykakasi when installed); emoji and symbols give nothing
+                out.append(sync_media._translit(t))
+            except Exception:
+                out.append("?" * len(t))
     for c in unicodedata.normalize("NFC", s):
         o = ord(c)
-        if o in _TYPO: out.append(_TYPO[o])
-        elif 0x20 <= o <= 0x7E or 0xA1 <= o <= 0xFF and o != 0xAD: out.append(c)
-        elif unicodedata.combining(c) or o == 0xAD or o < 0x20 or 0x7F <= o <= 0xA0: out.append(" " if o in (0x09, 0x0A, 0x0D, 0xA0) else "")
+        if o in _TYPO: flush(); out.append(_TYPO[o])
+        elif 0x20 <= o <= 0x7E or 0xA1 <= o <= 0xFF and o != 0xAD: flush(); out.append(c)
+        elif unicodedata.combining(c) or o == 0xAD or o < 0x20 or 0x7F <= o <= 0xA0: flush(); out.append(" " if o in (0x09, 0x0A, 0x0D, 0xA0) else "")
         else:
             base = "".join(x for x in unicodedata.normalize("NFKD", c) if not unicodedata.combining(x))
-            out.append(base if base and all(0x20 <= ord(x) <= 0x7E or 0xA1 <= ord(x) <= 0xFF for x in base) else "?")
+            if base and all(0x20 <= ord(x) <= 0x7E or 0xA1 <= ord(x) <= 0xFF for x in base): flush(); out.append(base)
+            else: run.append(c)                                     # a run of characters the font has no letter for: transliterated together, not '?' each
+    flush()
     r = " ".join("".join(out).split())[:limit].strip()
     return r if r.replace("?", "").strip() else ""
 

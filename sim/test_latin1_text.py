@@ -15,9 +15,9 @@ def check(name, ok, extra=""):
 L = tl.latin1_text
 check("accented Latin-1 letters stay as they are", L("Café Tacvba – Ñandú Ö Å ß") == "Café Tacvba - Ñandú Ö Å ß", L("Café Tacvba – Ñandú Ö Å ß"))
 check("curly quotes, dashes and the ellipsis fold; the no-break space is a space", L("It’s “fine” — really… ok") == 'It\'s "fine" - really... ok' and L("a b") == "a b")
-check("a letter that decomposes to a plain letter keeps that letter (ź is z); one with no Latin-1 form becomes '?' (Ł)", L("Łódź") == "?ódz", L("Łódź"))
-check("a character with no Latin-1 form inside a text is '?'; a text of only such characters is empty", L("a日b") == "a?b" and L("Я") == "")
-check("a text with nothing real left is empty (so the file name is used)", L("日本語") == "" and L("???") == "")
+check("a letter that decomposes to a plain letter keeps that letter (ź is z); one with no Latin-1 form is transliterated (Ł is L), not '?'", L("Łódź") == "Lódz", L("Łódź"))
+check("a run of characters with no Latin-1 form is transliterated like a card name (Cyrillic, Greek, Turkish dotless i, CJK), never '?'; emoji give nothing", L("Café Привет 2") == "Café Privet 2" and L("ışık İstanbul ğ") == "isik Istanbul g" and L("Party \U0001F389 Time") == "Party Time" and "?" not in L("a日b") and L("Я") == "Ya")
+check("a text with nothing real left is empty (so the file name is used): only emoji or '?'", L("\U0001F600") == "" and L("???") == "" and L("日本語") != "")
 check("combining marks fold into the base letter (NFC), control characters vanish, runs of spaces collapse", L("éx") == "éx" and L("a\x00b\x1f  c") == "ab c")
 check("the limit counts characters and never splits one", L("é" * 100, 10) == "é" * 10 and len(L("é" * 100, 10).encode("latin-1")) == 10)
 check("every result encodes as Latin-1 (the index stores one byte per character)", all(L(s).encode("latin-1") is not None for s in ("Å ß ø", "日本語a", "€ 5", "™")))
@@ -34,7 +34,8 @@ check("the advance index maps 0x20..0x7E to 0..94 and 0xA0..0xFF to 95..190, as 
 # mutants: the checks above must be able to fail
 def mutant_dec(enc, b): return b.decode("latin-1") if enc == 0 else tl._dec(enc, b)
 check("mutant (no UTF-8 guess) is caught", mutant_dec(0, "Café".encode("utf-8")) != "Café")
-orig = dict(tl._TYPO); tl._TYPO.pop(0x2019); ok_mut = L("It’s") != "It's"; tl._TYPO.update(orig)
-check("mutant (curly quote not folded) is caught", ok_mut)
+import sync_media as _sm
+_orig_tr = _sm._translit; _sm._translit = lambda run: "?" * len(run); ok_mut = L("Café Привет 2") != "Café Privet 2"; _sm._translit = _orig_tr
+check("mutant (no transliteration: '?' again) is caught", ok_mut)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
