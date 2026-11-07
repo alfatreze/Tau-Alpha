@@ -2,6 +2,15 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| F-027 | All seven meters have a WebAssembly module (D-M15) | closed | **FACT sent in message 007** |
+| F-028 | The pinned drop `pre-0.7.0-b163ebb2` predates the modules for Bars/Scope/VU/Chladni/Waterfall | closed | **FACT, message 007**; a new drop comes with the v0.7.0 release |
+| F-029 | Module `/*META{...}*/` header: wasm sha256, clang version, source hashes | closed | **FACT, message 007** |
+| F-030 | Meter presets are files under `tau-presets/<meter key>/` (`index.tpi`, `p<id>.tpr`) | closed | **FACT, message 007** |
+| F-031 | `tau-presets/` role `shared` (warning only on a changed hash) | closed | **FACT, message 007** |
+| R-032 | Omega's preview uses the modules for every meter | Omega | **OPEN, message 007** |
+| R-033 | Omega writes preset files in the F-030 format | Omega | **OPEN, message 007** |
+| Q-034 | User preset id numbering (proposal: above the factory ids, never reused) | Omega + owner | **OPEN, message 007** |
+| Q-035 | Show or only check the module provenance | Omega | **OPEN, message 007** |
 | F-023 | The Pocket opens paths as code page 437; the firmware reads the sidecar (hardware, `TAU DEV 219`) | closed | **FACT sent in message 006** |
 | R-024 | Omega writes `tau-names.json` + `tau-names.bin` when it builds a library | Omega | **OPEN, sent in message 006** |
 | R-025 | Omega follows `CARD_NAME_RULES.md` and the 62-case corpus invariants | Omega | **OPEN, sent in message 006** |
