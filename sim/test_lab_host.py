@@ -60,4 +60,67 @@ with tempfile.TemporaryDirectory() as td:
     check("each meter's reported wasm_sha256 equals the committed module's own record", ok and rd["meters"], bad)
     lwe = next(e for e in rd["meters"] if e["key"] == "layered_wave")
     check("Layered Wave also reports the timed build's SHA-256", lwe.get("wasm_sha256_timed") and lwe["wasm_sha256_timed"] != lwe["wasm_sha256"], lwe)
+
+# ---- contract 1 (Tau Omega message 014): views, options, cost windows, the contract number ----
+import re
+D = lab.data()
+check("lab-data carries the contract number", D["contract"] == 1 and rd.get("contract") is None, D.get("contract"))   # the ready payload carries it only when the page passes it
+V = D["views"]; fs = (ROOT / "fw2/ui/fullscreen_view.c").read_text(); rg = (ROOT / "fw2/ui/regions.h").read_text()
+def const(txt, name): return int(re.search(r"#define\s+%s\s+(\d+)u?" % name, txt).group(1))
+check("the full view is the firmware's fullscreen figure (400 x 323 at 0,0)", V["rects"]["full"] == {"x": 0, "y": 0, "w": const(fs, "FS_W"), "h": const(fs, "FS_FIG_H")}, V["rects"])
+sm = V["rects"]["small"]
+check("the small view has the firmware's Now Playing meter size and x", (sm["x"], sm["w"], sm["h"]) == (const(rg, "NP_METER_X"), const(rg, "NP_METER_W"), const(rg, "NP_METER_Y1") - const(rg, "NP_METER_Y0")), sm)
+sel = {str(m["id"]) for m in S["meters"] if m.get("selectable") and not m.get("retired")}
+check("every selectable meter has both views, a retired one neither", {k for k, v in V["meters"].items() if v["small"] and v["full"]} == sel and not any(v["small"] or v["full"] for k, v in V["meters"].items() if k not in sel), V["meters"])
+check("the views do not touch schema.meters (Omega compares that registry meter by meter)", all("views" not in m for m in S["meters"]))
+JS2 = r'''
+const H = require(process.argv[1] + "/tau_host.js"); const D = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8")); const S = D.schema;
+const defs = H.optionDefs(S, D); const id = (k) => S.meters.find((m) => m.key === k).id;
+const out = {};
+out.defs = defs.map((d) => ({ id: d.id, type: d.type, applies_to: d.applies_to, n: d.choices ? d.choices.length : null, min: d.min, max: d.max, dom: !!d.dom }));
+const vals = { theme: 0, mode: 0, accent: 1, src: 0, fullfig: false, barready: true, timedg: false, statsok: true, corr: 120 };
+out.wire = {}; for (const k of ["winamp_bars", "layered_wave", "sound_map", "chladni"]) out.wire[k] = H.wireOptions(defs, vals, id(k)).map((o) => o.id);
+out.wireLeak = H.wireOptions(defs, vals, id("sound_map")).some((o) => "dom" in o);
+const sm = id("sound_map");
+out.chk = { ok: H.checkOption(defs, sm, "corr", 100), hi: H.checkOption(defs, sm, "corr", 999), lo: H.checkOption(defs, sm, "corr", -999), frac: H.checkOption(defs, sm, "corr", 1.5), str: H.checkOption(defs, sm, "corr", "3"),
+  enumHi: H.checkOption(defs, sm, "theme", 999), enumOk: H.checkOption(defs, sm, "mode", 1), boolT: H.checkOption(defs, sm, "statsok", true), boolI: H.checkOption(defs, sm, "statsok", 0), boolBad: H.checkOption(defs, sm, "statsok", 2),
+  unknown: H.checkOption(defs, sm, "zoom", 1), wrongMeter: H.checkOption(defs, id("chladni"), "corr", 1), strId: H.checkOption(defs, String(sm), "corr", 1), srcHi: H.checkOption(defs, sm, "src", 7) };
+const B = [40, 100, 400];
+const c = []; for (let i = 0; i < 150; i++) c.push(i < 100 ? 10 : (i === 149 ? 450 : 20));
+out.w = H.costWindows(c, 2, B); out.w1 = H.costWindows(c, 1, B); out.wnull = H.costWindows([], null, B); out.wshort = H.costWindows([5, 7], 0, B);
+out.old = H.costWindows(Array(130).fill(500).concat(Array(120).fill(10)), 2, B);   // a spike older than the window no longer counts
+console.log(JSON.stringify(out));
+'''
+with tempfile.TemporaryDirectory() as td:
+    dj = Path(td) / "data.json"; dj.write_text(json.dumps(D))
+    r = subprocess.run(["node", "-e", JS2, str(ROOT / "tools/meters/preview"), str(dj)], capture_output=True, text=True, cwd=ROOT)
+    if r.returncode: print(r.stderr[-600:]); sys.exit(1)
+    o = json.loads(r.stdout)
+dd = {d["id"]: d for d in o["defs"]}
+check("the preview controls are exactly the nine documented options", list(dd) == ["theme", "mode", "accent", "src", "fullfig", "barready", "timedg", "statsok", "corr"], list(dd))
+check("source offers only the three that need no file or microphone", dd["src"]["n"] == 3 and dd["src"]["dom"], dd["src"])
+check("theme and accent list the registry's own names", dd["theme"]["n"] == len(D["themes"]) and dd["accent"]["n"] == len(D["palette"]), dd)
+check("each option applies to the right meters (Hard-coded by Omega until now)", o["wire"]["winamp_bars"] == ["theme", "mode", "accent", "src", "fullfig", "barready"] and o["wire"]["layered_wave"] == ["theme", "mode", "accent", "src", "fullfig", "timedg"]
+      and o["wire"]["sound_map"] == ["theme", "mode", "accent", "src", "fullfig", "statsok", "corr"] and o["wire"]["chladni"] == ["theme", "mode", "accent", "src", "fullfig"], o["wire"])
+check("the page's own control values (dom) are not sent", not o["wireLeak"])
+k = o["chk"]
+check("an in-range range value is accepted as is", k["ok"] == {"ok": True, "value": 100, "clamped": False}, k["ok"])
+check("a range value out of range is clamped and said so", k["hi"] == {"ok": True, "value": 256, "clamped": True} and k["lo"] == {"ok": True, "value": -256, "clamped": True}, k)
+check("a fraction or a string is refused as not a number", k["frac"]["error"] == "not a number" and k["str"]["error"] == "not a number", k)
+check("an enum past the last choice is clamped", k["enumHi"]["clamped"] and k["enumHi"]["value"] == len(D["themes"]) - 1 and k["srcHi"]["value"] == 2, k)
+check("a bool takes true/false/0/1 and refuses 2", k["boolT"]["value"] == 1 and k["boolI"]["value"] == 0 and k["boolBad"]["error"] == "not a number", k)
+check("an unknown option and an option of another meter are refused", k["unknown"]["error"] == "unknown option" and k["wrongMeter"]["error"] == "not for this meter", k)
+check("the meter may be given as a string", k["strId"]["ok"], k["strId"])
+w = o["w"]
+check("cost window: 120-frame verdict window and 30-frame recent window", w["window"]["n"] == 120 and w["recent"]["n"] == 30 and w["frame"] == 450, w)
+check("the verdict is the worst of the last 120 frames against the class budget", w["window"]["max"] == 450 and w["budget"] == 400 and w["over"] is True and o["w1"]["budget"] == 100 and o["w1"]["over"] is True, w)
+check("the means are of their own window", w["window"]["mean"] == round(sum(([10] * 100 + [20] * 49 + [450])[-120:]) / 120, 1) and w["recent"]["mean"] == round((20 * 29 + 450) / 30, 1), w)
+check("a spike older than the window no longer counts", o["old"]["over"] is False and o["old"]["window"]["max"] == 10, o["old"])
+check("an empty or short history is safe; no class means the largest budget", o["wnull"]["window"]["n"] == 0 and o["wnull"]["budget"] == 400 and o["wnull"]["class"] == 2 and o["wshort"]["window"]["n"] == 2 and o["wshort"]["over"] is False, o)
+# the page wires every message of the contract (checked in the browser by hand; here the source is checked for each type and for the ids the contract documents as stable)
+html = (ROOT / "tools/meters/preview/index.html").read_text()
+for t in ("tau-lab-set", "tau-lab-embed", "tau-lab-option", "tau-lab-info-get", "tau-lab-options", "tau-lab-size", "tau-lab-cost", "tau-lab-info", "tau-lab-option-applied"):
+    check("index.html handles or sends " + t, ("'" + t + "'") in html, t)
+for eid in ("theme", "mode", "accent", "src", "fullfig", "barready", "timedg", "statsok", "corr", "cv", "meter", "infod"):
+    check("the documented element id #" + eid + " is in the page", ('id="%s"' % eid) in html, eid)
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

@@ -25,6 +25,9 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px *
 details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp summary{cursor:pointer;font-weight:600;padding:4px 0}.grpbody{padding-left:2px}
 .panel select,.panel input[type=range]{flex:1}.val{min-width:70px;color:var(--mut);font-variant-numeric:tabular-nums}
 .cost{margin-top:12px;color:var(--mut)}.over{color:#c4221b;font-weight:600}
+#cv{max-width:none}   /* never scaled by the window: a fractional scale of the pixelated canvas makes uneven bars and black slits (Tau Omega 014 F-4); .stage scrolls instead */
+body.embed{background:transparent;padding:0;overflow:hidden}body.embed h1,body.embed .panel,body.embed .infod,body.embed #controls,body.embed #splitwrap{display:none}   /* embed mode (contract 1): the embedder owns the meter and its parameters */
+body.embed .wrap{display:block}body.embed .stage{position:static;padding:0;width:auto;max-width:none;max-height:none;overflow:visible;background:transparent;box-shadow:none}body.embed #cv{border:0;display:block;object-fit:none}
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
@@ -58,19 +61,41 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  S.meters.filter(m=>modules.includes(m.key)).forEach(m=>{const o=document.createElement('option');o.value=m.key;o.textContent=m.name;$('meter').appendChild(o)});
  D.themes.forEach((t,i)=>{const o=document.createElement('option');o.value=i;o.textContent=t.name;$('theme').appendChild(o)});
  D.palette.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('accent').appendChild(o)});$('accent').value=1;
+ const V=D.views.rects;                                                    /* the small and the full-screen view: lab-data.json `views` (the sizes are the firmware's) */
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
  let ctl=null;
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const m2=m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const m2=m;ctl=TauControls.build($('controls'),m2,p=>{params=p;costs=[];works=[];pixs=[];infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
  const COST_KEYS=new Set(['view','split','nest','draw','hstyle','bmode','aa']);
  ['meter'].forEach(i=>$(i).onchange=rebuild);
- /* the embedding page (Tau Omega's preset editor) sets a meter and its preset values; see tau_host.js */
- if(window.parent!==window){
-  window.addEventListener('message',ev=>{const d=ev.data;if(ev.source!==window.parent||!d||d.type!=='tau-lab-set')return;
-   const r=TauHost.plan(S,TauMeters,d.meter,d.values);
-   if(r.meter){if($('meter').value!==r.meter.key){$('meter').value=r.meter.key;rebuild();}ctl.setMany(r.full);}
-   window.parent.postMessage(r.reply,'*');});
-  Promise.all(modules.map(k=>TauMeters[k].ready?TauMeters[k].ready():true)).then(()=>window.parent.postMessage(TauHost.readyPayload(S,TauMeters),'*'));
+ /* the embedding page (Tau Omega's editor): the messages are in tau_host.js, the contract in docs/features/LAB_EMBED_CONTRACT.md */
+ const embedded=window.parent!==window,defs=TauHost.optionDefs(S,D);let listening=false,embedOn=false,lastSize='';
+ const send=m=>{if(embedded)window.parent.postMessage(m,'*');};
+ const meterId=()=>{const m=S.meters.find(x=>x.key===key);return m?m.id:null};
+ const view=()=>$('fullfig').checked?'full':'small';
+ function optValues(){const v={};for(const d of defs){const e=$(d.id);if(!e)continue;v[d.id]=d.type==='bool'?!!e.checked:d.dom?d.dom.indexOf(e.value):+e.value;}return v;}
+ function sendOptions(){send({type:'tau-lab-options',meter:meterId(),options:TauHost.wireOptions(defs,optValues(),meterId())});}
+ function applyCrop(){const r=V[view()];   /* embed mode: the canvas shows only the current view, at its own pixel size, never scaled */
+  if(embedOn){cv.style.width=r.w+'px';cv.style.height=r.h+'px';cv.style.objectPosition='-'+r.x+'px -'+r.y+'px';}else{cv.style.width=cv.style.height=cv.style.objectPosition='';}
+  const z=embedOn?{w:r.w,h:r.h}:{w:cv.clientWidth,h:cv.clientHeight},k=view()+embedOn+z.w+'x'+z.h;
+  if(k!==lastSize){lastSize=k;send({type:'tau-lab-size',view:view(),rect:r,w:z.w,h:z.h});}}
+ function setEmbed(on){embedOn=!!on;document.body.classList.toggle('embed',embedOn);applyCrop();}
+ if(location.hash==='#embed')setEmbed(true);
+ function clearCost(){costs=[];works=[];pixs=[];}          /* the cost window starts again when a setting that changes the drawing changes (Tau Omega 014 F-5) */
+ if(embedded){
+  window.addEventListener('message',ev=>{const d=ev.data;if(ev.source!==window.parent||!d||typeof d.type!=='string'||d.type.indexOf('tau-lab-')!==0)return;
+   if(d.type==='tau-lab-set'){listening=true;const r=TauHost.plan(S,TauMeters,d.meter,d.values);
+    if(r.meter){if($('meter').value!==r.meter.key){$('meter').value=r.meter.key;rebuild();}ctl.setMany(r.full);}
+    window.parent.postMessage(r.reply,'*');sendOptions();}
+   else if(d.type==='tau-lab-embed'){listening=true;setEmbed(d.on!==false);}
+   else if(d.type==='tau-lab-option'){listening=true;const c=TauHost.checkOption(defs,meterId(),d.id,d.value),ans={type:'tau-lab-option-applied',id:d.id};
+    if(!c.ok){ans.error=c.error;}
+    else{const df=defs.find(x=>x.id===d.id),e=$(d.id);ans.value=c.value;ans.clamped=c.clamped;
+     if(df.type==='bool')e.checked=!!c.value;else if(df.dom)e.value=df.dom[c.value];else e.value=String(c.value);
+     e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}
+    window.parent.postMessage(ans,'*');sendOptions();}
+   else if(d.type==='tau-lab-info-get'){listening=true;postInfo();}});
+  Promise.all(modules.map(k=>TauMeters[k].ready?TauMeters[k].ready():true)).then(()=>{window.parent.postMessage(TauHost.readyPayload(S,TauMeters,D.contract),'*');sendOptions();applyCrop();});
  }
  ['theme','mode','accent'].forEach(i=>$(i).onchange=retheme);   // no reset: the meter repaints in the new colours and keeps its history
  ['src','barready'].forEach(i=>$(i).onchange=()=>{});
@@ -79,14 +104,15 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence(),file:live.frame,mic:live.frame};
  $('audiofile').onchange=e=>{const f=e.target.files[0];if(f)live.useFile(f,$('repeat').checked).then(()=>{$('src').value='file';}).catch(err=>alert('Audio file: '+err.message));};
  $('src').addEventListener('change',()=>{if($('src').value==='mic')live.useMic().catch(err=>{alert('Microphone: '+err.message);$('src').value='demo';});});
- $('fullfig').onchange=()=>{st=null;};
+ ['src','barready','statsok','corr'].forEach(i=>['input','change'].forEach(t=>$(i).addEventListener(t,clearCost)));
+ $('fullfig').onchange=()=>{st=null;applyCrop();sendOptions();};
  $('zoom').onchange=()=>document.documentElement.style.setProperty('--z',$('zoom').value);
  $('repeat').onchange=()=>live.setLoop($('repeat').checked);
  $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';});};
- let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[],works=[],pixs=[];
- function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];box=$('fullfig').checked?{x:0,y:0,w:400,h:323}:{x:16,y:152,w:368,h:122};theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+ let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[],works=[],pixs=[],lastInfo=null;
+ function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];box=Object.assign({},$('fullfig').checked?V.full:V.small);theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
   fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];works=[];pixs=[];frame=0;
-  ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);}
+  ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);infoSoon();}
  function retheme(){if(!st)return;theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
   if(key!=='layered_wave'){st=null;return;}   // other meters keep change caches the lab cannot invalidate: they restart as before
   for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));infoSoon();}
@@ -96,10 +122,12 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   costs.push(fb.cmds-c0);works.push(st.work||0);pixs.push(fb.pix-p0);if(costs.length>120){costs.shift();works.shift();pixs.shift();}frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
   splitMap();
+  if(listening&&frame%2===0){const mm=S.meters.find(x=>x.key===key);send(Object.assign({type:'tau-lab-cost',meter:mm.id},TauHost.costWindows(costs,mm.cost_class,TauCost.BUDGET)));}
   const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
   $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;
   const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works)),cellW=params.view===1&&params.res?Math.max(st.stride||1,Math.ceil(box.w/params.res)):(st.stride||1);
   $('cost').innerHTML+='<br>drawing cell width: <b>'+cellW+' px</b>'+(cellW>1&&params.layers!==undefined?' (widened by the cost guard and the Resolution setting: edges and the taper step at this width; set Cost guard to RELAXED or OFF in the experimental section to see more)':' (full resolution)');
+  lastInfo={mean:c.mean,max:c.max,budget:c.budget,class:m.cost_class,over:c.over,verdict:c.over?'OVER BUDGET':'within budget',basis:c.basis,vs_bars:c.vsBars,cell_width:cellW,cpu_low:cp.low,cpu_high:cp.high,engine_kpx:Math.round(avg(pixs)/1000)};
   $('cost').innerHTML+='<br>CPU estimate: <b>'+cp.low+'–'+cp.high+'%</b> of one core (model: command issue 60–400 cycles, column evaluation 30–80, 38 Hz, 66.7 MHz; unmeasured) · engine writes '+Math.round(avg(pixs)/1000)+'k px/frame';}
  const strip=$('strip'),hbar=$('hbar');let handles=[],drag=-1;
  const bandsNow=()=>mod.boundsFor(params.split,params.layers,st||{},mod.xoOf(params));
@@ -164,11 +192,14 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  function optionNote(pk,i){if(!mod||!mod.state)return'';const base=estimate(params),alt=estimate(Object.assign({},params,{[pk]:i}));
   const d=mid(alt.cpu)-mid(base.cpu),de=base.ops?(alt.ops/base.ops-1)*100:0;
   return 'CPU '+alt.cpu.low+'–'+alt.cpu.high+'% ('+sgn(d)+'), engine '+Math.round(alt.ops/1000)+'k ops/frame ('+(de>=0?'+':'')+Math.round(de)+'%)';}
- let infoTimer=0;function infoSoon(){clearTimeout(infoTimer);infoTimer=setTimeout(()=>{if(!$('infod').open||!mod||!mod.state)return;costTable();},500);}
- function costTable(){const m=S.meters.find(x=>x.key===key),all=m.params;const rows=[];
-  for(const x of all){if(x.type!=='enum'||!COST_KEYS.has(x.key)||(x.when&&!Object.entries(x.when).every(([k,v])=>params[k]===v)))continue;
-   rows.push('<tr><th>'+x.label+'</th>'+x.values.map((v,i)=>{const alt=estimate(Object.assign({},params,{[x.key]:i})),base=estimate(params),d=mid(alt.cpu)-mid(base.cpu);
-    return '<td'+(i===params[x.key]?' class="sel"':'')+'>'+v+'<br>'+alt.cpu.low+'–'+alt.cpu.high+'% <small>('+sgn(d)+')</small><br><small>'+Math.round(alt.ops/1000)+'k ops</small></td>';}).join('')+'</tr>');}
+ let infoTimer=0;function infoSoon(){clearTimeout(infoTimer);infoTimer=setTimeout(()=>{if(!mod||!mod.state)return;if($('infod').open)costTable();if(listening)postInfo();},500);}
+ function postInfo(){if(!mod||!mod.state||!lastInfo)return;send({type:'tau-lab-info',meter:meterId(),cost:lastInfo,table:costRows()});}
+ function costRows(){const m=S.meters.find(x=>x.key===key),rows=[],base=estimate(params);       /* what each cost-relevant option would cost: the data of the Info table */
+  for(const x of m.params){if(x.type!=='enum'||!COST_KEYS.has(x.key)||(x.when&&!Object.entries(x.when).every(([k,v])=>params[k]===v)))continue;
+   rows.push({key:x.key,label:x.label,options:x.values.map((v,i)=>{const alt=estimate(Object.assign({},params,{[x.key]:i})),d=mid(alt.cpu)-mid(base.cpu);
+    return {value:v,selected:i===params[x.key],cpu_low:alt.cpu.low,cpu_high:alt.cpu.high,delta:Math.round(d*10)/10,kops:Math.round(alt.ops/1000)};})});}
+  return rows;}
+ function costTable(){const rows=costRows().map(r=>'<tr><th>'+r.label+'</th>'+r.options.map(o=>'<td'+(o.selected?' class="sel"':'')+'>'+o.value+'<br>'+o.cpu_low+'–'+o.cpu_high+'% <small>('+sgn(o.delta)+')</small><br><small>'+o.kops+'k ops</small></td>').join('')+'</tr>');
   $('costtable').innerHTML=rows.length?'<table>'+rows.join('')+'</table><div class="cost">Each cell: model CPU range of one core (change vs your current setting) and SDRAM word operations of the drawing engine per frame, demo audio, current other settings.</div>':'';}
  $('infod').addEventListener('toggle',()=>{if($('infod').open)costTable();});
  rebuild();   // after everything it uses is defined

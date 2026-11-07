@@ -1,6 +1,6 @@
 # Lab embed contract: plan for Omega's message 014 (2026-11-07)
 
-Status: plan only, nothing built. Host-only work (lab page, `lab-data.json`, one new drop); no firmware, no Pocket. Omega's asks are `O014/R-1` to `R-5`, findings `F-1` to `F-6`, questions `Q-1`, `Q-2` (Omega repo `docs/interop/to-alpha/014-...md`).
+Status: BUILT 2026-11-07 as contract 1 (`docs/features/LAB_EMBED_CONTRACT.md`, audit B-1018); this file keeps the reasoning. Original status: plan only. Host-only work (lab page, `lab-data.json`, one new drop); no firmware, no Pocket. Omega's asks are `O014/R-1` to `R-5`, findings `F-1` to `F-6`, questions `Q-1`, `Q-2` (Omega repo `docs/interop/to-alpha/014-...md`).
 
 ## Q-1 answered (from the code)
 - Table rows are `METER_SLOTS` = 7 (`fw2/generated/meter_registry.h`, generated from the manifests). Row 0 is **Winamp Bars** (built in, `METER_N` = 1); rows 1 to 6 are the pack-only meters: 1 Winamp Scope, 2 Chladni, 3 Layered Wave, 4 Master VU, 5 Waterfall, 6 Sound Map.

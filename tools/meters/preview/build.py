@@ -22,7 +22,18 @@ def data():
     themes = [{"name": t["name"], "dark": t["dark"], "light": t["light"]} for t in gt.load()]
     pal = [{"name": n, "c565": c} for n, c in gt.palette()]
     schema = json.loads((ROOT / "tools" / "meters_schema.json").read_text())
-    return {"themes": themes, "palette": pal, "lightAccMaxL": gt.LIGHT_ACC_MAX_L, "schema": schema}
+    return {"contract": CONTRACT, "themes": themes, "palette": pal, "lightAccMaxL": gt.LIGHT_ACC_MAX_L, "schema": schema, "views": views(schema)}
+
+
+CONTRACT = 1   # the embedding contract (docs/features/LAB_EMBED_CONTRACT.md): bump it when a message, a field or a documented element id changes or goes
+# The two views a meter is drawn in, as rectangles of the lab's 400 x 360 canvas. The sizes and x are the firmware's (fw2/ui/regions.h NP_METER_*, fw2/ui/fullscreen_view.c FS_*; checked by
+# sim/test_lab_host.py); the small view's y is the lab's own 152 (the firmware's Now Playing meter starts at 154: a two-pixel offset of the lab's canvas, not changed here because the golden vectors are drawn in this box).
+VIEW_RECTS = {"small": {"x": 16, "y": 152, "w": 368, "h": 122}, "full": {"x": 0, "y": 0, "w": 400, "h": 323}}
+
+
+def views(schema):
+    """Per meter (by manifest id) which views it has. The firmware's fullscreen view (Select+Y) draws whichever meter is selected in the whole figure area, so every selectable meter has both; a retired one has neither."""
+    return {"rects": VIEW_RECTS, "meters": {str(m["id"]): {"small": bool(m.get("selectable")) and not m.get("retired"), "full": bool(m.get("selectable")) and not m.get("retired")} for m in schema["meters"]}}
 
 
 def html():
