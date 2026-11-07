@@ -7,6 +7,9 @@ extern uint8_t  lib_state;        /* 0 not loaded, 1 loaded, 2 failed */
 extern uint8_t  lib_err;          /* LIB_E_* when failed, 0x80 = no PSRAM window */
 extern uint32_t lib_ms;           /* load time */
 extern uint32_t lib_n_tracks;
+extern uint8_t  names_state;      /* the name sidecar tau-names.bin: 0 not tried, 1 loaded, 2 absent or refused */
+extern uint8_t  names_err;        /* when 2: 0 not on the card, 1 no root, else NAMES_E_* (cores/names_core.h) */
+extern uint32_t names_ms;         /* open + load time */
 void     library_load(void);
 uint32_t library_path(uint32_t id, char *out, uint32_t cap);      /* returns the length, 0 on failure */
 uint32_t library_root(char *out, uint32_t cap);                     /* the media root of the loaded library, 0 when none (the meter presets live under it: tau-presets/<meter id>/) */

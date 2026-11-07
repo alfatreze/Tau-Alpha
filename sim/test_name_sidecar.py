@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory() as td:
     want = {root_pfx + str(p) for p in CARD.values()}
     check("track_path gives every card path", set(paths) == want)
     check("every path in the index is openable", all(L.reachable(p) and len(L.path_bytes(p)) <= 200 for p in paths))
-    crc = zlib.crc32(data) & 0xFFFFFFFF
+    crc = ix.build_id
 
     # original tags per index track id (the tags the original files carried)
     def orig_of(card_path):
@@ -171,20 +171,20 @@ with tempfile.TemporaryDirectory() as td:
         except NS.SidecarError:
             return True
     flip = lambda b, i: b[:i] + bytes([b[i] ^ 0xFF]) + b[i + 1:]
-    check("reader rejects bad magic", rejects(flip(raw, 0), index_crc=crc))
-    check("reader rejects a damaged header (crc)", rejects(flip(raw, 13), index_crc=crc))
-    check("reader rejects a sidecar for another index (rebuilt library)", rejects(raw, index_crc=crc ^ 1))
-    check("reader rejects wrong counts", rejects(raw, index_crc=crc, counts=(n3[0] + 1, n3[1], n3[2])))
-    check("reader rejects a truncated file", rejects(raw[:len(raw) - 40], index_crc=crc))
+    check("reader rejects bad magic", rejects(flip(raw, 0), index_bid=crc))
+    check("reader rejects a damaged header (crc)", rejects(flip(raw, 13), index_bid=crc))
+    check("reader rejects a sidecar for another index (rebuilt library)", rejects(raw, index_bid=crc ^ 1))
+    check("reader rejects wrong counts", rejects(raw, index_bid=crc, counts=(n3[0] + 1, n3[1], n3[2])))
+    check("reader rejects a truncated file", rejects(raw[:len(raw) - 40], index_bid=crc))
     check("reader rejects a file shorter than its header", rejects(raw[:20]))
     newer = bytearray(raw); struct.pack_into("<H", newer, 4, 9); struct.pack_into("<I", newer, 32, zlib.crc32(bytes(newer[:32])) & 0xFFFFFFFF)
-    check("reader rejects a newer version", rejects(bytes(newer), index_crc=crc))
+    check("reader rejects a newer version", rejects(bytes(newer), index_bid=crc))
     o_trk = 48
     bent = bytearray(raw); first = struct.unpack_from("<I", bent, o_trk + 4)[0]
     struct.pack_into("<I", bent, o_trk + 4, first + 1 if first else 3)
-    check("reader rejects an offset that is not the start of a string", rejects(bytes(bent), index_crc=crc) or first == 0)
+    check("reader rejects an offset that is not the start of a string", rejects(bytes(bent), index_bid=crc) or first == 0)
     nonterm = bytearray(raw); nonterm[-1] = ord("x")
-    check("reader rejects an unterminated pool", rejects(bytes(nonterm), index_crc=crc))
+    check("reader rejects an unterminated pool", rejects(bytes(nonterm), index_bid=crc))
     big = [{"title": ("東" * 127) + str(i), "file": ("京" * 85) + str(i)} for i in range(9000)]
     try:
         NS.build_bin(0, big, [], []); capped = False
