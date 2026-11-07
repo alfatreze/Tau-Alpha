@@ -1,0 +1,417 @@
+{
+ "format": 1,
+ "tau_alpha_commit": "d6d43725f6da4a5835a054049718029f8b584da4",
+ "source_dir": "tools/meters/preview",
+ "files": [
+  {
+   "path": "preview/build.py",
+   "sha256": "05048fe2ff6dff9773eed7e809a36d89608518946effea4f44fbc5b5e6093350",
+   "bytes": 4427
+  },
+  {
+   "path": "preview/fixtures/core_vectors.json",
+   "sha256": "92b53813e40ed41d15bffff11c3bc44088786cee652038830fd13244e84c359b",
+   "bytes": 58563
+  },
+  {
+   "path": "preview/fixtures/theme_vectors.json",
+   "sha256": "2cc22e46cb509c663203e04f319e5807346e58dc25943c14e26205390970929f",
+   "bytes": 4955
+  },
+  {
+   "path": "preview/golden.js",
+   "sha256": "28f93fb6efbda207ae4971f9d6b3543f45898fe3e7650cc425f2b3672ba54611",
+   "bytes": 2500
+  },
+  {
+   "path": "preview/golden_lw.js",
+   "sha256": "fddab1cb60874dd8fe42bcc0798e65b181977e13b27b5fb3d5b590e841b863de",
+   "bytes": 9524
+  },
+  {
+   "path": "preview/golden_meters.js",
+   "sha256": "eed03b1917b642e3aa5702f05b044fba2e1176f8c6ca499f0844659ecdc9e548",
+   "bytes": 4854
+  },
+  {
+   "path": "preview/golden_wf.js",
+   "sha256": "c75d02904048abdb6819cec4ae442c256da62885974f5c4dde6f41ed974f5241",
+   "bytes": 3639
+  },
+  {
+   "path": "preview/index.html",
+   "sha256": "c1fb973d47a483c0ba258ebecdf3f85ea9633cb858be7665b86f2dd0e0b07670",
+   "bytes": 19975
+  },
+  {
+   "path": "preview/lw_tables.js",
+   "sha256": "56301a478f3e9aa78059ab787c0f21c0644e2055387100fa2112d7711e97333e",
+   "bytes": 13338
+  },
+  {
+   "path": "preview/meters/_wasm_meter.js",
+   "sha256": "89a3ee2ee59737352525702256fa75be836645c290c24a4113c598ac38c3bb1b",
+   "bytes": 5414
+  },
+  {
+   "path": "preview/meters/chladni.js",
+   "sha256": "1a242e9c8fa3322d20f5bbcf851e0eae6d69cfc59b0225cc85552ffaf5fb4792",
+   "bytes": 808
+  },
+  {
+   "path": "preview/meters/chladni_wasm.js",
+   "sha256": "281b43598c01edae88d3d038a69952c7e91615b7afba10ee7625c2ee85a701b6",
+   "bytes": 13304
+  },
+  {
+   "path": "preview/meters/layered_wave.js",
+   "sha256": "231a97bdbe9333686cb5fed466f50bcb52b20e78b2958490ed884fb5f6ecd6fe",
+   "bytes": 15176
+  },
+  {
+   "path": "preview/meters/layered_wave_timed_wasm.js",
+   "sha256": "2cc5fa80270d4022e01452351ce55bcdba785394c6ef89529215b341a0a69d12",
+   "bytes": 35625
+  },
+  {
+   "path": "preview/meters/layered_wave_wasm.js",
+   "sha256": "4d5e5443cb3e8c6718f961eead7e6b0e9b501b5a46045986d9f2126c378a57c9",
+   "bytes": 35383
+  },
+  {
+   "path": "preview/meters/sound_map.js",
+   "sha256": "69f0fb32dcd3984c47f245951bc0c73d276341a6a000ad3cdbf2c73dd0fedfa0",
+   "bytes": 5614
+  },
+  {
+   "path": "preview/meters/sound_map_wasm.js",
+   "sha256": "ae87638d1066e58eff0bcb8a5ec7dd9605ca561deefc89aaed823eb727ad6e10",
+   "bytes": 12257
+  },
+  {
+   "path": "preview/meters/vu_master.js",
+   "sha256": "1681694e0d81945bea2bedb2221377b24be7496b737e952bc405235dff82e11d",
+   "bytes": 1045
+  },
+  {
+   "path": "preview/meters/vu_master_wasm.js",
+   "sha256": "919cd3b1f8582ffe76b54e8354b223a0b5c99da78cbd88e41dcde92389ae3501",
+   "bytes": 4592
+  },
+  {
+   "path": "preview/meters/waterfall_grid.js",
+   "sha256": "1ed20dafe3f3d390a9d27872ddbeb1d0b1f12b05a5053e16232f0d79c3afe694",
+   "bytes": 4633
+  },
+  {
+   "path": "preview/meters/waterfall_grid_wasm.js",
+   "sha256": "29d0f24ab317b5e257deadd462442e49650b10910fde175772d187aa6f434a7a",
+   "bytes": 10766
+  },
+  {
+   "path": "preview/meters/winamp_bars.js",
+   "sha256": "b0284e719c8472b9c23c293ef5bbda7972aa25aaeca361b0a46e0e51d3950ece",
+   "bytes": 590
+  },
+  {
+   "path": "preview/meters/winamp_bars_wasm.js",
+   "sha256": "412cb1d3a1d46c36015c390464b37c442f2ff05b19aa9cd30dc68f514cc177aa",
+   "bytes": 3756
+  },
+  {
+   "path": "preview/meters/winamp_scope.js",
+   "sha256": "df24f359819a18fae3338304d9cf921fcddc50db5acb15702642b87f8ceb4a66",
+   "bytes": 1596
+  },
+  {
+   "path": "preview/meters/winamp_scope_wasm.js",
+   "sha256": "62d373d059094a28890cb5cf438f8b9b15401f1ea4c20732fa45bd4111d3688e",
+   "bytes": 3255
+  },
+  {
+   "path": "preview/render.js",
+   "sha256": "0d0e3607ae307e64a26443ac3a2e98c7558708fcf1e8bd636009afe8122d229c",
+   "bytes": 2620
+  },
+  {
+   "path": "preview/tau_audio.js",
+   "sha256": "2d81d8e9c1ecf3923fbc38a2c1c2209c7f81103710ac0d9139a8dbdd913a9f9c",
+   "bytes": 2438
+  },
+  {
+   "path": "preview/tau_ballistics.js",
+   "sha256": "3df18cd5e39439d0f63a8d7b91d909aba804b372b518fdfb2a71fc11886b9894",
+   "bytes": 675
+  },
+  {
+   "path": "preview/tau_controls.js",
+   "sha256": "c2023a96dbebe8bfe14dc50f0b7d218051885ec6f73ca94677bc6ee6f147ae49",
+   "bytes": 7753
+  },
+  {
+   "path": "preview/tau_core.js",
+   "sha256": "f1b0ad9e1764c8513c2d986002a8c8ccd9f362748f51b5e59be61d51d3d8c528",
+   "bytes": 2437
+  },
+  {
+   "path": "preview/tau_cost.js",
+   "sha256": "42c733348637af1c0db2eb8f48fa584d65ab918ddcfac0553a425854702413f1",
+   "bytes": 1571
+  },
+  {
+   "path": "preview/tau_fb.js",
+   "sha256": "68d9d2bd861b506aaa00c61ca7b72d415507b88b902746c245e362897d999e32",
+   "bytes": 10707
+  },
+  {
+   "path": "preview/tau_live.js",
+   "sha256": "b5b6865873cf242048174912736881ef143638e87f13f445a0e3e29fa13177d7",
+   "bytes": 3291
+  },
+  {
+   "path": "preview/tau_run.js",
+   "sha256": "87eb1b5c8e3eb90d244288fb2dcf95cef8a48e67ee6ea3501f862fc863bbc7e0",
+   "bytes": 2246
+  },
+  {
+   "path": "preview/tau_tags.js",
+   "sha256": "397863823e1e6d0c42d47f450f46fd617847864085db445b1f776ea4d646e8e9",
+   "bytes": 10840
+  },
+  {
+   "path": "preview/tau_theme.js",
+   "sha256": "50181617b2b405502da9c72fe40778b80c2b52f9cdc3fb9aad1f39dc7230ff16",
+   "bytes": 3325
+  },
+  {
+   "path": "preview/test.js",
+   "sha256": "2cceb55a09a47e120302ae050362558692071f5c53f9e4254b575d5e45a95975",
+   "bytes": 12474
+  },
+  {
+   "path": "preview/wasm/build_wasm.py",
+   "sha256": "ec81adefc868ebfc39424a1f0ad62af631ef2040a3680b24e0229b8931250960",
+   "bytes": 10105
+  },
+  {
+   "path": "preview/wasm/chladni_wasm.c",
+   "sha256": "3be4914e8de44ce7f600f2b6aaa130be4551bd8467d9f21ca2416bcc0ae59c83",
+   "bytes": 4744
+  },
+  {
+   "path": "preview/wasm/flow_lw.js",
+   "sha256": "0745b21fe31256a3ac04f56504cc062c0c1ff25859b2c2fe4391a8e8421d8ef2",
+   "bytes": 4985
+  },
+  {
+   "path": "preview/wasm/layered_wave_wasm.c",
+   "sha256": "7656e634516115cc0b016e0d64906cea307c348b13d9637b49a9e850ac32c95c",
+   "bytes": 6349
+  },
+  {
+   "path": "preview/wasm/parity.js",
+   "sha256": "fd5d25e22ec5dd96f41799ee827010e1014645200fa780ed4c586a5ea997fd29",
+   "bytes": 1775
+  },
+  {
+   "path": "preview/wasm/parity_lw.js",
+   "sha256": "f6a6a47f00670473c0595d87ea7627cb7b4b5aa66299374ec8ffc0f5266d1e30",
+   "bytes": 3786
+  },
+  {
+   "path": "preview/wasm/sound_map_wasm.c",
+   "sha256": "19997f66a2279f19c117bb0a06d1f36f3bb56467f9518e99799d3ad0579f4319",
+   "bytes": 4449
+  },
+  {
+   "path": "preview/wasm/vu_master_wasm.c",
+   "sha256": "ab8a39211e480c24b3ae120e7c9f612fecc6759e33fa23d6f70665c2b561db79",
+   "bytes": 3152
+  },
+  {
+   "path": "preview/wasm/waterfall_grid_wasm.c",
+   "sha256": "5b2049a2af8849d69ac83240222fb65d2e4148633d0bfb63a48098054960c733",
+   "bytes": 4187
+  },
+  {
+   "path": "preview/wasm/winamp_bars_wasm.c",
+   "sha256": "2ad6a756a482899ab89d61a9b77ba32b85f41014f5b6b555f35c873ebb28873c",
+   "bytes": 3089
+  },
+  {
+   "path": "preview/wasm/winamp_scope_wasm.c",
+   "sha256": "036dcffe405580e27032f00497509173f50a5229710aafc1fdc9b10aa3b5f5c8",
+   "bytes": 4650
+  },
+  {
+   "path": "meter_lab.html",
+   "sha256": "0cf03a9b1ed6254429cc430f2ba548b8c35341ed020208b0928ac3cda02d9ae3",
+   "bytes": 260227
+  },
+  {
+   "path": "lab-data.json",
+   "sha256": "c9d0b6bd3bb74f6936ac208890514257bc9e08c5b497044f05c5151df409036c",
+   "bytes": 57924
+  }
+ ],
+ "wasm": {
+  "module": "preview/meters/sound_map_wasm.js",
+  "wasm_sha256": "91dfbb6918c0a2d932bbe1b3fa8c42ac23dabffae26a045e472d3ddf4a22a74a",
+  "wasm_bytes": 7878,
+  "built_from": {
+   "fw2/cores/audio_stats_core.h": "d7347d3ff9ce0f6f9e1e8c61cc4b13c1b1e6ef6a1c4dd17b9bc22932490576fa",
+   "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
+   "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
+   "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",
+   "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+   "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+   "fw2/ui/meter_grid.h": "7ace1452e7c2ed5deaeb02b58bbd2a4d8844738bfe511002d8e04e0adb94cabd",
+   "fw2/ui/meter_sound_map.c": "15452530925b54e38224fcd8f49843889e273fd0053087c4ab6dfe4d9274a105",
+   "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+   "tools/meters/preview/wasm/sound_map_wasm.c": "19997f66a2279f19c117bb0a06d1f36f3bb56467f9518e99799d3ad0579f4319"
+  }
+ },
+ "modules": [
+  {
+   "module": "preview/meters/chladni_wasm.js",
+   "wasm_sha256": "8931bbb2aa9dbcafb965dc5abfe477e9531bca258db20f3129bf8b50ca001f2b",
+   "wasm_bytes": 8736,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/cores/chladni_core.h": "d3334a60cb2a50b569b9d32e59fa788fa99774a6e127acc4747b6083d95e6941",
+    "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_chladni.c": "5bd605f69bf1ef663cd58f0b7f15937cabaf4982394f9ea668b920ef6e68f610",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/chladni_wasm.c": "3be4914e8de44ce7f600f2b6aaa130be4551bd8467d9f21ca2416bcc0ae59c83"
+   }
+  },
+  {
+   "module": "preview/meters/layered_wave_timed_wasm.js",
+   "wasm_sha256": "38bb38255f44ee075db53b92640182d1198f4d3584530a2e2b3c36c77ad06353",
+   "wasm_bytes": 25083,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw/diag_features.h": "2bb31cbe135fe7bfae1d915a5c82196eff2aff2bb8f808835a10a02df54744a8",
+    "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
+    "fw2/generated/layered_wave_tables.h": "0fc375b489bca6f85e24a17e393064c88fbda27b682156770bd61b6d7a4705b4",
+    "fw2/generated/lw_presets.h": "19f744608fa22c90f47b8621ad2fe06a3e712a28dadebd61ae4e2abf00714d57",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
+    "fw2/ui/layered_wave.inc": "0f4eb9ecccf2197bb748a83ac760372f744717fdfe40209ef5ff63132ef0803c",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_layered_wave.c": "82afb93c174e09c2d9a19dbc14d65669b50939dbe5738d720b70acf744f1985a",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/layered_wave_wasm.c": "7656e634516115cc0b016e0d64906cea307c348b13d9637b49a9e850ac32c95c"
+   }
+  },
+  {
+   "module": "preview/meters/layered_wave_wasm.js",
+   "wasm_sha256": "a214afcd640bc9714d55a52f0755105ec3b4c8bb51e68256bb65dbf21464e193",
+   "wasm_bytes": 24938,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw/diag_features.h": "2bb31cbe135fe7bfae1d915a5c82196eff2aff2bb8f808835a10a02df54744a8",
+    "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
+    "fw2/generated/layered_wave_tables.h": "0fc375b489bca6f85e24a17e393064c88fbda27b682156770bd61b6d7a4705b4",
+    "fw2/generated/lw_presets.h": "19f744608fa22c90f47b8621ad2fe06a3e712a28dadebd61ae4e2abf00714d57",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
+    "fw2/ui/layered_wave.inc": "0f4eb9ecccf2197bb748a83ac760372f744717fdfe40209ef5ff63132ef0803c",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_layered_wave.c": "82afb93c174e09c2d9a19dbc14d65669b50939dbe5738d720b70acf744f1985a",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/layered_wave_wasm.c": "7656e634516115cc0b016e0d64906cea307c348b13d9637b49a9e850ac32c95c"
+   }
+  },
+  {
+   "module": "preview/meters/sound_map_wasm.js",
+   "wasm_sha256": "91dfbb6918c0a2d932bbe1b3fa8c42ac23dabffae26a045e472d3ddf4a22a74a",
+   "wasm_bytes": 7878,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/cores/audio_stats_core.h": "d7347d3ff9ce0f6f9e1e8c61cc4b13c1b1e6ef6a1c4dd17b9bc22932490576fa",
+    "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
+    "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
+    "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_grid.h": "7ace1452e7c2ed5deaeb02b58bbd2a4d8844738bfe511002d8e04e0adb94cabd",
+    "fw2/ui/meter_sound_map.c": "15452530925b54e38224fcd8f49843889e273fd0053087c4ab6dfe4d9274a105",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/sound_map_wasm.c": "19997f66a2279f19c117bb0a06d1f36f3bb56467f9518e99799d3ad0579f4319"
+   }
+  },
+  {
+   "module": "preview/meters/vu_master_wasm.js",
+   "wasm_sha256": "d3637dd7c90ec2d22b351018dded4de8d5117698297a5db6945aaf8fcb57d0aa",
+   "wasm_bytes": 2219,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",
+    "fw2/cores/vu_master_core.h": "e6b2dc1b5bbb907186fa1cf9f7cb74f61e56b269fc13e077c9d4393d99f6d65e",
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/generated/vu_segment_table.h": "19d3c87761c8c3407125ebbf8528fbb19776338e4ce2f0f8b117cb18c0b8d3df",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_vu_master.c": "365a3a8589793205f06eb1704b2fcc0a2a08b0dcb65e24afadac656c923905c5",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/vu_master_wasm.c": "ab8a39211e480c24b3ae120e7c9f612fecc6759e33fa23d6f70665c2b561db79"
+   }
+  },
+  {
+   "module": "preview/meters/waterfall_grid_wasm.js",
+   "wasm_sha256": "77cc37c2a1a06423ac5a80fde7b9c06116b81da4ea809d439eec608fe3da2d35",
+   "wasm_bytes": 6774,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
+    "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",
+    "fw2/cores/ramp_core.h": "6b36f16835c37826a7f1123b6a5a37d3b32db3a5735550197f86e84c6ac66ba7",
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_grid.h": "7ace1452e7c2ed5deaeb02b58bbd2a4d8844738bfe511002d8e04e0adb94cabd",
+    "fw2/ui/meter_waterfall_grid.c": "6436c0505bd05a5eb1217e29aae3dcde11209d745fc091500e0d8fdc303ce9f1",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/waterfall_grid_wasm.c": "5b2049a2af8849d69ac83240222fb65d2e4148633d0bfb63a48098054960c733"
+   }
+  },
+  {
+   "module": "preview/meters/winamp_bars_wasm.js",
+   "wasm_sha256": "ed982961f81e98faf7c5ed505cb8e56f609d1deaec0247fe916766fb3e957cb4",
+   "wasm_bytes": 1719,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_winamp_bars.c": "65550be18b67c640a1e83e0e9500510ed585b6c83c1b6b73bf9c8562c6d2dd55",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/winamp_bars_wasm.c": "2ad6a756a482899ab89d61a9b77ba32b85f41014f5b6b555f35c873ebb28873c"
+   }
+  },
+  {
+   "module": "preview/meters/winamp_scope_wasm.js",
+   "wasm_sha256": "4cfe1505619b7b05f5080094e65fde4e3c5919c2dd4c55bc9af1928d329b74e5",
+   "wasm_bytes": 1389,
+   "clang": "Homebrew clang version 23.1.3",
+   "built_from": {
+    "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
+    "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
+    "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
+    "fw2/ui/meter.h": "228ed7dfac57416761f005eb78b6a1ed09a161ebb670623e1d9b511daca5d6b5",
+    "fw2/ui/meter_winamp_scope.c": "a944e130fb251d3d458425cf2307e6e1fcc64f698c4134cb93a5ccf3846ed415",
+    "fw2/ui/theme.h": "1d603aa78173a0ab7f6abf39702e56391da798051804db8ca5a3b105ab21471f",
+    "tools/meters/preview/wasm/winamp_scope_wasm.c": "036dcffe405580e27032f00497509173f50a5229710aafc1fdc9b10aa3b5f5c8"
+   }
+  }
+ ],
+ "note": "Generated by tools/make_lab_drop.py. Pinned copy for Tau Omega (D-007). Never edit; ask Tau-Alpha for a new drop."
+}
