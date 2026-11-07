@@ -8,9 +8,9 @@
   python3 tools/name_matrix.py remove --card /Volumes/Pock --yes    delete the folder
 
 Everything goes under <media root>/name-test/ (the media root is the `root` of the card's tau-library.tdb, normally /Assets/tau/common/): per variant a tiny valid silent MP3 whose ID3 title is "NM<id>" (the diagnostic reads it back
-to prove it opened THAT file), `matrix.tnm` (2,048 bytes, padded with newlines; what the firmware reads: first line "TNM1 <count>", then one line per variant "<id 2 digits>|<o or f>|<absolute path, raw bytes>"; o = expect the open to work, f = a negative control
+to prove it opened THAT file), `matrix.tnm` (3,072 bytes, padded with newlines; what the firmware reads: first line "TNM2 <count>", then one line per variant "<id 2 digits>|<o, f or p>|<file id 2 digits>|<absolute path, raw bytes>"; o = expect the open to work, p = a probe (the result is the information), f = a negative control
 that must fail cleanly) and MATRIX.txt (the paths and their bytes for the record). The variants: ASCII control; NFC and NFD (what macOS writes) accents; several accents; Cyrillic; CJK; an emoji (4-byte UTF-8); accented FOLDERS
-(NFC, NFD, with an accented file inside); punctuation; paths of 220 bytes in ASCII and of about 210 bytes in 3-byte characters (near the 222-byte limit of fw2/stream/slot.c); and negative controls: a path over the limit, a
+(NFC, NFD, with an accented file inside); punctuation; paths of 250 bytes in ASCII and of about 250 bytes in 3-byte characters (the 0192 path field is 256 bytes); and negative controls: a path over the limit, a
 missing file, a path that is not valid UTF-8 (a raw Latin-1 byte). The library index builder (tools/tau_library.py) scans common/ and WOULD list these files as tracks (folded to ASCII): remove the folder before rebuilding the
 index, or keep it to see them. The card is not ejected: eject it yourself. Nothing here runs on the Pocket."""
 import argparse, hashlib, shutil, struct, sys, unicodedata
@@ -19,8 +19,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import tau_library as tl
 DIR = "name-test"
-MANIFEST = 2048                  # the length of matrix.tnm (padded with newlines)
-LIMIT = 222                       # the longest path slot_open_path accepts (sim/test_p2_name_paths.py, ASCII template shape assumed)
+MANIFEST = 3072                  # the length of matrix.tnm (padded with newlines)
+FID = {17: 16, 18: 16, 20: 19, 21: 19}      # a probe that names the same file as another variant (another encoding of its path): variant -> the variant whose file it is
+LIMIT = 255                       # the path field of the 0192 open struct is 256 bytes, NUL-terminated (docs: open_dataslot_file_t); fw2/stream/slot.c refuses a longer one (SLOT_E_TOOLONG). The Pocket opened a 220-byte ASCII path (B-991)
 N = lambda s: unicodedata.normalize("NFC", s)
 D = lambda s: unicodedata.normalize("NFD", s)
 
@@ -42,13 +43,20 @@ def variants(root="/Assets/tau/common/"):
     add("accented folder and file (NFC)", N("Álbum Ñ/Café.mp3"))
     add("accented folder (NFD), ASCII file", D("Café Dir/a.mp3"))
     add("punctuation and spaces", "a b & c (1) [x] 'q' #5.mp3")
-    n = LIMIT - 2 - len((base + ".mp3").encode())
-    add("ASCII path of %d bytes (near the limit)" % (len(base) + n + 4 - 0), "L" * n + ".mp3")
-    cjk = "日" * ((LIMIT - 12 - len(base)) // 3)
+    n = 250 - len((base + ".mp3").encode())
+    add("ASCII path of %d bytes (near the limit)" % (len(base) + n + 4), "L" * n + ".mp3")
+    cjk = "日" * ((250 - 4 - len(base)) // 3)
     add("CJK path of about %d bytes (near the limit, 3 bytes a character)" % (len(base) + len(cjk) * 3 + 4), cjk + ".mp3")
-    add("negative control: an ASCII path over the %d-byte limit (SLOT_E_TOOLONG expected)" % LIMIT, "T" * (LIMIT + 10 - len(base) - 4) + ".mp3", "f")
+    add("negative control: an ASCII path over the 255-byte limit (262 bytes; SLOT_E_TOOLONG expected)", "T" * (262 - len(base) - 4) + ".mp3", "f")
     add("negative control: no such file", "does_not_exist.mp3", "f")
     add("negative control: not valid UTF-8 (a raw Latin-1 byte 0xE9)", b"Caf\xe9.mp3", "f")
+    # round 2 (B-992): letters with no decomposition (NFC = NFD), so the bytes on disk are what was written; the same file named in other encodings. 'p' = a probe: no pass or fail, the nibbles are the result
+    add("probe: ss (U+00DF), UTF-8 path (c3 9f)", "Stra\u00dfe.mp3", "p")
+    add("probe: the same file, Latin-1 byte 0xDF", b"Stra\xdfe.mp3", "p")
+    add("probe: the same file, code page 437/850 byte 0xE1", b"Stra\xe1e.mp3", "p")
+    add("probe: o-slash (U+00F8), UTF-8 path (c3 b8)", "S\u00f8ren.mp3", "p")
+    add("probe: the same file, Latin-1 byte 0xF8", b"S\xf8ren.mp3", "p")
+    add("probe: the same file, code page 850 byte 0x9B", b"S\x9bren.mp3", "p")
     return out
 
 
@@ -68,8 +76,8 @@ def files(root="/Assets/tau/common/"):
     """{relative path under name-test/ as bytes: content} for every variant that is a file to write, plus the manifest and the record"""
     out = {}; vs = variants(root); prefix = (root + DIR + "/").encode()
     for vid, expect, what, path in vs:
-        if expect == "o": out[path[len(prefix):]] = mp3(vid)
-    man = b"TNM1 %d\n" % len(vs) + b"".join(b"%02d|%s|%s\n" % (vid, expect.encode(), path) for vid, expect, what, path in vs)
+        if expect in "op" and vid not in FID: out[path[len(prefix):]] = mp3(vid)
+    man = b"TNM2 %d\n" % len(vs) + b"".join(b"%02d|%s|%02d|%s\n" % (vid, expect.encode(), FID.get(vid, vid), path) for vid, expect, what, path in vs)
     assert len(man) <= MANIFEST, "matrix.tnm outgrew its %d bytes" % MANIFEST
     out[b"matrix.tnm"] = man + b"\n" * (MANIFEST - len(man))                     # exactly MANIFEST bytes: the firmware (fw2/diagnostics/name_matrix.c) reads a fixed length
     rec = ["BUG-001 name matrix (tools/name_matrix.py): id | expect | what | path | raw UTF-8 bytes (hex)"]

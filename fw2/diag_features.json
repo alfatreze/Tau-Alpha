@@ -52,6 +52,10 @@
     "PP DRY",
     "NM RES A",
     "NM RES B",
+    "NM RES C",
+    "NM COD A",
+    "NM COD B",
+    "NM COD C",
     "NM BAD",
     "NM ERR",
     "NM DRY"

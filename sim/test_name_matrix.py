@@ -17,10 +17,10 @@ def check(name, ok, info=""):
 def run(*a):
     r = subprocess.run([sys.executable, str(ROOT / "tools/name_matrix.py")] + [str(x) for x in a], capture_output=True, text=True); return r.returncode, r.stdout + r.stderr
 vs = nm.variants()
-check("16 variants with ids 0..15", [v[0] for v in vs] == list(range(16)))
-check("three negative controls (over the limit, no such file, invalid UTF-8) and the rest expect to open", [v[0] for v in vs if v[1] == "f"] == [13, 14, 15])
+check("22 variants with ids 0..21 (16 from round 1, six encoding probes)", [v[0] for v in vs] == list(range(22)))
+check("three negative controls (over the limit, no such file, invalid UTF-8), six probes (16..21), the rest expect to open", [v[0] for v in vs if v[1] == "f"] == [13, 14, 15] and [v[0] for v in vs if v[1] == "p"] == list(range(16, 22)) and set(nm.FID) == {17, 18, 20, 21})
 near = [len(v[3]) for v in vs if v[0] in (11, 12)]
-check("the near-limit paths fit the firmware's %d bytes (%s), the control is over (%d)" % (nm.LIMIT, near, len(vs[13][3])), all(200 <= n <= nm.LIMIT for n in near) and len(vs[13][3]) > nm.LIMIT)
+check("the near-limit paths fit the firmware's %d bytes (%s), the control is over (%d bytes; the Pocket opened a 220-byte ASCII path in round 1)" % (nm.LIMIT, near, len(vs[13][3])), all(240 <= n <= nm.LIMIT for n in near) and len(vs[13][3]) > nm.LIMIT)
 check("NFC and NFD are different bytes for the same letters", vs[1][3].replace(b"nfc_", b"") != vs[2][3].replace(b"nfd_", b"") and "Café".encode() in vs[2][3] and "Café".encode() in vs[1][3])
 try: vs[15][3].decode("utf-8"); inv = False
 except UnicodeDecodeError: inv = True
@@ -49,9 +49,9 @@ with tempfile.TemporaryDirectory() as td:
         try: tags = tl.read_tags(Path(os.path.join(os.fsencode(str(dest)), rel).decode("utf-8", "surrogateescape")))
         except Exception as e: why = repr(e)
         if b"NM%02d" % vid not in data[:64] or data[:3] != b"ID3" or tags is None: ok = False; why = why or rel
-    check("every MP3 (%d) carries its id and the repository's tag reader accepts it" % len(mp3s), ok and len(mp3s) == 13, why)
+    check("every MP3 (%d) carries its id and the repository's tag reader accepts it" % len(mp3s), ok and len(mp3s) == 15, why)
     man = open(dest / "matrix.tnm", "rb").read().split(b"\n"); lines = [l for l in man[1:] if l]
-    check("matrix.tnm: header TNM1 16, one line per variant, the raw path bytes equal the plan", man[0] == b"TNM1 16" and len(lines) == 16 and all(l.split(b"|", 2)[2] == vs[i][3] and l.split(b"|")[1] == vs[i][1].encode() for i, l in enumerate(lines)), man[:3])
+    check("matrix.tnm: header TNM2 22, one line per variant (id|expect|file id|path), the raw path bytes equal the plan", man[0] == b"TNM2 22" and len(lines) == 22 and all(l.split(b"|", 3)[3] == vs[i][3] and l.split(b"|")[1] == vs[i][1].encode() and int(l.split(b"|")[2]) == nm.FID.get(i, i) for i, l in enumerate(lines)), man[:3])
     rec = (dest / "MATRIX.txt").read_text(encoding="utf-8"); check("MATRIX.txt records every path with its hex bytes", all(v[3].hex() in rec for v in vs))
     # mutants
     victim = os.path.join(os.fsencode(str(dest)), mp3s[3]); keep = open(victim, "rb").read(); os.remove(victim)

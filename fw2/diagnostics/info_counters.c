@@ -169,8 +169,12 @@ const cnt_t counters_table[] = {
     { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
     { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
     { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
-    { "NM RES A",     CK_HEX32, CU_NONE, &nm_res_lo },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
-    { "NM RES B",     CK_HEX32, CU_NONE, &nm_res_hi },
+    { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
+    { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },
+    { "NM RES C",     CK_HEX32, CU_NONE, &nm_res[2] },              /* variants 16..23: the encoding probes */
+    { "NM COD A",     CK_HEX32, CU_NONE, &nm_cod[0] },              /* the target's own error code of each variant's open, one nibble each (0 it opened; 3 file not found, 4 malformed path, 5 general error; 9 no template, 10 refused by the firmware, 12 timeout) */
+    { "NM COD B",     CK_HEX32, CU_NONE, &nm_cod[1] },
+    { "NM COD C",     CK_HEX32, CU_NONE, &nm_cod[2] },
     { "NM BAD",       CK_U32, CU_NONE,   &nm_bad },                 /* unmet expectations: 0 = every name that should open did, every negative control failed cleanly */
     { "NM ERR",       CK_U32, CU_NONE,   &nm_err },                 /* 0 ran; 1 no library root, 2 matrix.tnm did not open, 3 did not read, 4 audio under pressure, 5 bad header, 6 bad line */
     { "NM DRY",       CK_U32, CU_NONE,   &nm_dry },                 /* times the audio fell behind during the run */
