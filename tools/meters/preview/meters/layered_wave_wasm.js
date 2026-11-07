@@ -2,6 +2,7 @@
  "about": "LAYERED WAVE compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "a214afcd640bc9714d55a52f0755105ec3b4c8bb51e68256bb65dbf21464e193",
  "bytes": 24938,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw/diag_features.h": "2bb31cbe135fe7bfae1d915a5c82196eff2aff2bb8f808835a10a02df54744a8",
   "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",

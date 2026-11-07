@@ -2,6 +2,7 @@
  "about": "MASTER VU compiled to WebAssembly from fw2/ui/meter_vu_master.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "d3637dd7c90ec2d22b351018dded4de8d5117698297a5db6945aaf8fcb57d0aa",
  "bytes": 2219,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",
   "fw2/cores/vu_master_core.h": "e6b2dc1b5bbb907186fa1cf9f7cb74f61e56b269fc13e077c9d4393d99f6d65e",

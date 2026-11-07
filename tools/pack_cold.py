@@ -19,7 +19,8 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TOOLCHAIN = ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
+sys.path.insert(0, str(ROOT / "tools")); import toolchain
+TOOLCHAIN = toolchain.riscv_bin()
 MAGIC = 0x444C4354          # 'TCLD'
 COLD_BASE = 0xA4800000
 CODE_BASE = 0x24800000

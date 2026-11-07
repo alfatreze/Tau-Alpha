@@ -27,9 +27,8 @@ SLOT = {k: v[1] for k, v in _IDS.items()}
 
 
 def tool(name):
-    tb = os.environ.get("RISCV_TOOLCHAIN_BIN")
-    base = Path(tb) if tb else ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
-    return str(base / ("riscv-none-elf-" + name))
+    sys.path.insert(0, str(ROOT / "tools")); import toolchain
+    return toolchain.riscv(name)                                          # RISCV_TOOLCHAIN_BIN, this tree, the main checkout, PATH (tools/toolchain.py)
 
 
 def symbols(elf):

@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import pack_cold as P
 
-GCC = ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc"
+sys.path.insert(0, str(ROOT / "tools")); import toolchain
+GCC = Path(toolchain.riscv("gcc"))
 fails = []
 
 

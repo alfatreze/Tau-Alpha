@@ -2,6 +2,7 @@
  "about": "WINAMP BARS compiled to WebAssembly from fw2/ui/meter_winamp_bars.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "ed982961f81e98faf7c5ed505cb8e56f609d1deaec0247fe916766fb3e957cb4",
  "bytes": 1719,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",
   "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",

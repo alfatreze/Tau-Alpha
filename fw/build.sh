@@ -28,6 +28,9 @@ VENDORED_TOOL_BIN="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
 if [[ -z "$TOOL_BIN" && -x "$VENDORED_TOOL_BIN/riscv-none-elf-gcc" ]]; then
     TOOL_BIN="$VENDORED_TOOL_BIN"
 fi
+if [[ -z "$TOOL_BIN" ]] && command -v python3 >/dev/null 2>&1; then        # a git worktree has no toolchain/ of its own: the main checkout's (tools/toolchain.py, B-985); empty when there is none (PATH is used)
+    TOOL_BIN="$(python3 "$ROOT/tools/toolchain.py" bin 2>/dev/null || true)"
+fi
 GCC="${CC_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}gcc}"
 OBJCOPY="${OBJCOPY_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}objcopy}"
 SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"

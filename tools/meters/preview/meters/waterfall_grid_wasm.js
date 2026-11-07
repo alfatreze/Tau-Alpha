@@ -2,6 +2,7 @@
  "about": "WATERFALL GRID compiled to WebAssembly from fw2/ui/meter_waterfall_grid.c (the pack's own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "77cc37c2a1a06423ac5a80fde7b9c06116b81da4ea809d439eec608fe3da2d35",
  "bytes": 6774,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw2/cores/cellgrid_core.h": "1297e8df63b32407b66d0dbc76ef83f1ca71ab49daa6045532c4c984cc4e5059",
   "fw2/cores/meter_core.h": "8c6704b3b637a38893f43471fc3329ee55ca8b1b3342c3b58291b394f37ea124",

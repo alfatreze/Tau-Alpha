@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT / "sim"))
 import tau_library as L
 import test_library_index as T
 
-GCC = ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc"
+sys.path.insert(0, str(ROOT / "tools")); import toolchain
+GCC = Path(toolchain.riscv("gcc"))
 fails = []
 
 

@@ -2,6 +2,7 @@
  "about": "WINAMP SCOPE compiled to WebAssembly from fw2/ui/meter_winamp_scope.c (the pack own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py",
  "wasm_sha256": "4cfe1505619b7b05f5080094e65fde4e3c5919c2dd4c55bc9af1928d329b74e5",
  "bytes": 1389,
+ "clang": "Homebrew clang version 23.1.3",
  "sources": {
   "fw2/generated/meter_presets.h": "4d40c2e925bb9b7389473b51a0260dcd4ac1236d1f5a59fe34d0dc1f94e4dc62",
   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",

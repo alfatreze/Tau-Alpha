@@ -9,7 +9,8 @@ def check(name, ok, extra=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else "  " + str(extra)))
     if not ok: fails += 1
-NM = str(ROOT / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-nm")
+sys.path.insert(0, str(ROOT / "tools")); import toolchain
+NM = toolchain.riscv("nm")
 reg = json.loads((ROOT / "fw2/diag_features.json").read_text())
 bs = (ROOT / "fw2/build.sh").read_text()
 filt = re.search(r'case "\$s" in (.*?)\) ;;', bs).group(1)

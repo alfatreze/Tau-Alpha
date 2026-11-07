@@ -2,7 +2,8 @@
 import sys, subprocess, collections, json
 import prof_sim
 import pathlib
-T = str(pathlib.Path(__file__).resolve().parents[3] / "toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2])); import toolchain          # tools/toolchain.py: the env, this tree, the main checkout, PATH
+T = str(toolchain.riscv_bin() / "riscv-none-elf-")
 args = sys.argv[1:]
 elf, blob = args[0], args[1]
 N = None; fail = -1; show_lines = '--lines' in args
