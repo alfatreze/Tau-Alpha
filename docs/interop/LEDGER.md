@@ -2,6 +2,9 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| O014/R-1..R-5 | Lab embed mode, options, info, views, cost message (+ contract number) | closed | **BUILT 2026-11-07, message 012: contract 1 (`docs/features/LAB_EMBED_CONTRACT.md`), drop `pre-0.7.0-d8633caa`** |
+| O014/Q-1 | Winamp Bars slot 0 of how many | closed | **ANSWERED, message 012: slot 0; the player lists 7 rows (not 8); a raise is parked (D-M21)** |
+| O014/Q-2 | P1 manifest key for a user-chosen `tau-packs.bin`, pack library asset | owner | **OPEN: a timing decision, no date** |
 | O011/1 | Lab message shape (`tau-lab-set`, `tau-lab-ready` with hashes, `tau-lab-applied`) | closed | **BUILT 2026-11-07, message 011 (`tau_host.js`, test + sandboxed-frame run)** |
 | A011/2 | Name test library generator in the repository | closed | **DONE, message 011: `tools/make_name_test_library.py`** |
 | A011/3 | Lab drop with the handler | closed | **DONE, message 011: `docs/interop/lab-drop/pre-0.7.0-bfe351d4/`** |
