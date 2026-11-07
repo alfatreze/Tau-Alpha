@@ -16,8 +16,9 @@ def check(name, ok, info=""):
     fails += 0 if ok else 1
 if subprocess.run(["node", "--version"], capture_output=True).returncode:
     print("node not found: skipped"); sys.exit(0)
-r = subprocess.run([sys.executable, str(ROOT / "tools/meters/preview/wasm/build_wasm.py"), "--check", "layered_wave"], capture_output=True, text=True)
-check("the committed module is current (%s)" % r.stdout.strip().splitlines()[-1][:120], r.returncode == 0, r.stdout + r.stderr)
+for key in ("layered_wave", "layered_wave_timed"):          # the timed build (-DWASM_TIMED, the lab's modelled CPU-time guard) is the same source with another guard
+    r = subprocess.run([sys.executable, str(ROOT / "tools/meters/preview/wasm/build_wasm.py"), "--check", key], capture_output=True, text=True)
+    check("the committed module %s is current (%s)" % (key, r.stdout.strip().splitlines()[-1][:120]), r.returncode == 0, r.stdout + r.stderr)
 with tempfile.TemporaryDirectory() as td:
     scen = subprocess.run(["node", str(ROOT / "tools/meters/preview/golden_lw.js")], capture_output=True, text=True, cwd=ROOT)
     if scen.returncode: print(scen.stderr); sys.exit(1)

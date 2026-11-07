@@ -2,13 +2,19 @@
  * preview is the Pocket's code, not a hand-written twin that can drift (B-959; the same approach as SOUND MAP, sound_map_wasm.c). The engine calls the meter makes (gfx_rect, gfx_scroll_left) become imports of the module and land
  * in the lab's framebuffer; the hardware registers it reads (the PSRAM window proof) are answered here as the simulator's device model answers them. Build: python3 tools/meters/preview/wasm/build_wasm.py (needs Homebrew
  * llvm + lld; the result is committed as meters/layered_wave_wasm.js so nobody else needs the toolchain). Freestanding: no libc.
- * The module is built the host way (P2_HOST): the cost guard counts commands (the Pocket counts CPU time, which a browser cannot model), exactly like the golden test's C build. */
+ * The module is built the host way (P2_HOST): the cost guard counts commands, exactly like the golden test's C build. A second build, -DWASM_TIMED (layered_wave_timed_wasm.js), counts modelled CPU time like the Pocket: the lab's `clock` import is its cycle counter. */
 #define P2_HOST 1
 #include <stdint.h>
 #include <stddef.h>
 #define WASM_IMPORT(n) __attribute__((import_module("env"), import_name(n)))
 #define WASM_EXPORT(n) __attribute__((export_name(n), used))
-static uint32_t reg_rd(uint32_t a) { return a == 0x80000088u ? 0x50535231u : a == 0x800000A0u ? 0x10000u : 0u; }       /* the PSRAM controller and its CPU window are "in the bitstream" (tools/p2_dev_model.py) */
+#ifdef WASM_TIMED
+#define LW_TIME_GUARD 1                                  /* the cost guard counts CPU time, as on the Pocket (B-948); the lab models the clock (layered_wave_timed_wasm.js, B-977) */
+WASM_IMPORT("clock") uint32_t js_clock(void);
+static uint32_t reg_rd(uint32_t a) { return a == 0x80000088u ? 0x50535231u : a == 0x800000A0u ? 0x10000u : a == 0x8000000Cu ? js_clock() : 0u; }       /* R_CYCLES: the lab's modelled cycle counter */
+#else
+static uint32_t reg_rd(uint32_t a) { return a == 0x80000088u ? 0x50535231u : a == 0x800000A0u ? 0x10000u : 0u; }
+#endif       /* the PSRAM controller and its CPU window are "in the bitstream" (tools/p2_dev_model.py) */
 #define REG_RD(a) reg_rd(a)
 #define REG_WR(a, v) ((void)(a), (void)(v))
 static uint32_t psram_state[16];                                                 /* the history ring's proof words (mtr_psram_ready): plain memory here */
@@ -47,6 +53,9 @@ WASM_EXPORT("params_ptr") uint16_t *params_ptr(void) { return meter_layered_wave
 WASM_EXPORT("roles_ptr") uint16_t *roles_ptr(void) { return th_role; }
 WASM_EXPORT("offs_ptr") const uint16_t *offs_ptr(void) { return offs; }
 WASM_EXPORT("n_roles") uint32_t n_roles(void) { return TR_COUNT; }
+WASM_EXPORT("ebounds_ptr") const uint8_t *ebounds_ptr(void) { return lw_ebounds; }                     /* the ENERGY split's learned boundaries (layers + 1 bytes, band indices), for the lab's split map */
+WASM_EXPORT("ebounds_ok") uint32_t ebounds_ok(void) { return lw_ebounds_ok; }
+WASM_EXPORT("stride") uint32_t stride_now(void) { return lw_stride; }                                   /* the cost guard's cell width in pixels (the lab shows it) */
 WASM_EXPORT("n_params") uint32_t n_params(void) { return MP_LAYERED_WAVE_N; }
 /* the module's own idea of the accent (ui_accent is a role here) is th_role[TR_ACCENT]: the lab sets it with the other roles */
 /* the picture as the Pocket's player makes it: the meter's entry (the waveform is the loudest peak as a flat envelope, as fw2/ui/meters.c hands it over) */

@@ -73,6 +73,20 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
     assert.ok(r.cost.mean > 0);
     for (let y = 323; y < 360; y++) for (let x = 0; x < 400; x++) assert.strictEqual(r.fb.px[y * 400 + x], Run.run({ data, schema, key: 'layered_wave', params: lm.presets[0].values, source: Audio.demo(2), frames: 0, box: { x: 0, y: 0, w: 400, h: 323 } }).fb.px[y * 400 + x]);
   });
+  check('layered_wave: the timed build (modelled CPU-time guard) widens the cell under load, stays fine when light, and the ENERGY split reports its learned boundaries', () => {
+    const Th = require('./tau_theme.js'), { Fb } = require('./tau_fb.js'), theme = Th.makeTheme(data, 0, false, 13, 360);
+    const drive = (vals, timed, frames) => {
+      const fb = new Fb(400, 360), st = LW.state(), demo = Audio.demo(5), p = Object.assign({}, ...lm.params.map((x) => ({ [x.key]: x.default })), lm.presets[0].values, vals);
+      for (let n = 0; n < frames; n++) { const f = demo(n); LW.tick({ fb, x: box.x, y: box.y, w: box.w, h: box.h, bg: 0, theme, spec: f.spec, wave: f.wave, paused: false, p, st, force: n === 0, timed }); }
+      return st;
+    };
+    const heavy = drive({ layers: 6, res: 400, draw: 1, view: 0, taper: 0, guard: 0 }, true, 60), light = drive({ layers: 1, res: 48, draw: 0, view: 0 }, true, 60);
+    assert.ok(heavy.stride > 1, 'a heavy picture must widen the cell (stride ' + heavy.stride + ')'); assert.strictEqual(light.stride, 1);
+    assert.ok(drive({ layers: 6, res: 400, draw: 1, view: 0, taper: 0, guard: 0 }, false, 60).stride >= 1);
+    const en = drive({ split: 2, layers: 4, view: 0 }, false, 90).ebounds;
+    assert.ok(en && en.length === 5 && en[0] === 0 && en[4] === 16 && en.every((v, i) => i === 0 || v > en[i - 1]), 'ENERGY boundaries ' + JSON.stringify(en));
+    assert.strictEqual(drive({ split: 0, layers: 4, view: 0 }, false, 30).ebounds, null);
+  });
   check('layered_wave: nested layers never cross, for every split and both orders; groups tile the 16 bands', () => {
     const rng = Audio.rng(7);
     for (const split of [0, 1, 2, 4]) for (const outer of [0, 1]) for (let n = 1; n <= 6; n++) {

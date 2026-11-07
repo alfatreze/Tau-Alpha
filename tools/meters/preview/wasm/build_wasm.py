@@ -14,6 +14,7 @@ CLANG, WASM_LD = "/opt/homebrew/opt/llvm/bin/clang", "/opt/homebrew/opt/lld/bin/
 MODULES = {
     "sound_map": {"wrapper": "sound_map_wasm.c", "global": "TauSoundMapWasm", "extra": [], "about": "SOUND MAP compiled to WebAssembly from fw2/ui/meter_sound_map.c by tools/meters/preview/wasm/build_wasm.py"},
     "layered_wave": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveWasm", "extra": ["-I", str(ROOT / "fw")], "about": "LAYERED WAVE compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
+    "layered_wave_timed": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveTimedWasm", "extra": ["-I", str(ROOT / "fw"), "-DWASM_TIMED=1"], "about": "LAYERED WAVE (modelled CPU-time cost guard, -DWASM_TIMED) compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
 }
 INCLUDES = ["-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2")]
 
@@ -63,7 +64,7 @@ def check(key):
 
 def param_keys(key):
     """the parameter keys of a module in the order of its params buffer (the generated MP_LAYERED_WAVE_* enum), so the lab adapter needs no copy of the list"""
-    if key != "layered_wave": return None
+    if not key.startswith("layered_wave"): return None
     t = (ROOT / "fw2/generated/lw_presets.h").read_text()
     e = re.search(r"enum \{([^}]*)\}", t).group(1)
     return [m.lower() for m in re.findall(r"MP_LAYERED_WAVE_([A-Z0-9_]+)", e) if m != "N"]
