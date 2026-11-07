@@ -16097,3 +16097,6 @@ Evidence: host-simulated. `tools/run_host_tests.py`: 168 of 173 pass; the five f
 
 ## B-972: factory preset files installed beside `TAU DEV 213` (owner: "card mounted, install the factory presets", 2026-11-07)
 `tools/install_factory_presets.py --card /Volumes/Pock --yes` after a clean dry run: 51 files (4,970 B) in `/Assets/tau/common/tau-presets/`, written and verified (a second dry run: 51 identical); card ejected. To check on the Pocket: Configure PRESET row lists DEFAULT + the factory presets for each meter; Layered Wave in SCROLL with Direction; the MPX Report rows. Not run on a Pocket.
+
+## B-973: DEV 213 on a Pocket: preset files work (owner-observed, 2026-11-07)
+Owner: the PRESET row lists "default + presets fine" with the factory files from B-972 on the card (Layered Wave Configure shot `20261107_011506.png` shows DEFAULT; the second shot, `_011659`, was the LOSSLESS GRID report page, not the MPX rows). Evidence: owner-observed on a Pocket. Not yet checked: the MPX Report rows, the remembered preset id across a reboot, a vanished preset, Direction in SCROLL on 213, audio during a preset change mid-track.
