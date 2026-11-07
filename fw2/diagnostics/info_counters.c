@@ -11,6 +11,7 @@
 #include "check_page.h"
 #if P2_DIAG
 #include "preset_probe.h"
+#include "name_matrix.h"
 #endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"
@@ -168,6 +169,11 @@ const cnt_t counters_table[] = {
     { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
     { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
     { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
+    { "NM RES A",     CK_HEX32, CU_NONE, &nm_res_lo },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
+    { "NM RES B",     CK_HEX32, CU_NONE, &nm_res_hi },
+    { "NM BAD",       CK_U32, CU_NONE,   &nm_bad },                 /* unmet expectations: 0 = every name that should open did, every negative control failed cleanly */
+    { "NM ERR",       CK_U32, CU_NONE,   &nm_err },                 /* 0 ran; 1 no library root, 2 matrix.tnm did not open, 3 did not read, 4 audio under pressure, 5 bad header, 6 bad line */
+    { "NM DRY",       CK_U32, CU_NONE,   &nm_dry },                 /* times the audio fell behind during the run */
     { "GFX CMDS",     CK_U32, CU_NONE,   &gfx_cmds },               /* draw-engine commands issued since boot */
     { "GFX POLLS",    CK_U32, CU_NONE,   &gfx_polls },              /* command-FIFO "full" reads (one per command, plus the waits) */
     { "GFX STALLS",   CK_U32, CU_NONE,   &gfx_stalls },             /* of those, the times the FIFO was full and the CPU had to wait */

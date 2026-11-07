@@ -8,7 +8,7 @@
   python3 tools/name_matrix.py remove --card /Volumes/Pock --yes    delete the folder
 
 Everything goes under <media root>/name-test/ (the media root is the `root` of the card's tau-library.tdb, normally /Assets/tau/common/): per variant a tiny valid silent MP3 whose ID3 title is "NM<id>" (the diagnostic reads it back
-to prove it opened THAT file), `matrix.tnm` (what the firmware reads: first line "TNM1 <count>", then one line per variant "<id 2 digits>|<o or f>|<absolute path, raw bytes>"; o = expect the open to work, f = a negative control
+to prove it opened THAT file), `matrix.tnm` (2,048 bytes, padded with newlines; what the firmware reads: first line "TNM1 <count>", then one line per variant "<id 2 digits>|<o or f>|<absolute path, raw bytes>"; o = expect the open to work, f = a negative control
 that must fail cleanly) and MATRIX.txt (the paths and their bytes for the record). The variants: ASCII control; NFC and NFD (what macOS writes) accents; several accents; Cyrillic; CJK; an emoji (4-byte UTF-8); accented FOLDERS
 (NFC, NFD, with an accented file inside); punctuation; paths of 220 bytes in ASCII and of about 210 bytes in 3-byte characters (near the 222-byte limit of fw2/stream/slot.c); and negative controls: a path over the limit, a
 missing file, a path that is not valid UTF-8 (a raw Latin-1 byte). The library index builder (tools/tau_library.py) scans common/ and WOULD list these files as tracks (folded to ASCII): remove the folder before rebuilding the
@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import tau_library as tl
 DIR = "name-test"
+MANIFEST = 2048                  # the length of matrix.tnm (padded with newlines)
 LIMIT = 222                       # the longest path slot_open_path accepts (sim/test_p2_name_paths.py, ASCII template shape assumed)
 N = lambda s: unicodedata.normalize("NFC", s)
 D = lambda s: unicodedata.normalize("NFD", s)
@@ -69,7 +70,8 @@ def files(root="/Assets/tau/common/"):
     for vid, expect, what, path in vs:
         if expect == "o": out[path[len(prefix):]] = mp3(vid)
     man = b"TNM1 %d\n" % len(vs) + b"".join(b"%02d|%s|%s\n" % (vid, expect.encode(), path) for vid, expect, what, path in vs)
-    out[b"matrix.tnm"] = man
+    assert len(man) <= MANIFEST, "matrix.tnm outgrew its %d bytes" % MANIFEST
+    out[b"matrix.tnm"] = man + b"\n" * (MANIFEST - len(man))                     # exactly MANIFEST bytes: the firmware (fw2/diagnostics/name_matrix.c) reads a fixed length
     rec = ["BUG-001 name matrix (tools/name_matrix.py): id | expect | what | path | raw UTF-8 bytes (hex)"]
     for vid, expect, what, path in vs: rec.append("%02d | %s | %s | %s | %s" % (vid, expect, what, path.decode("utf-8", "backslashreplace"), path.hex()))
     out[b"MATRIX.txt"] = ("\n".join(rec) + "\n").encode("utf-8")
