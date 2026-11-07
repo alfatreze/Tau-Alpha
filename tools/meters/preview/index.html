@@ -64,6 +64,14 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const m2=m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
  const COST_KEYS=new Set(['view','split','nest','draw','hstyle','bmode','aa']);
  ['meter'].forEach(i=>$(i).onchange=rebuild);
+ /* the embedding page (Tau Omega's preset editor) sets a meter and its preset values; see tau_host.js */
+ if(window.parent!==window){
+  window.addEventListener('message',ev=>{const d=ev.data;if(ev.source!==window.parent||!d||d.type!=='tau-lab-set')return;
+   const r=TauHost.plan(S,TauMeters,d.meter,d.values);
+   if(r.meter){if($('meter').value!==r.meter.key){$('meter').value=r.meter.key;rebuild();}ctl.setMany(r.full);}
+   window.parent.postMessage(r.reply,'*');});
+  Promise.all(modules.map(k=>TauMeters[k].ready?TauMeters[k].ready():true)).then(()=>window.parent.postMessage(TauHost.readyPayload(S,TauMeters),'*'));
+ }
  ['theme','mode','accent'].forEach(i=>$(i).onchange=retheme);   // no reset: the meter repaints in the new colours and keeps its history
  ['src','barready'].forEach(i=>$(i).onchange=()=>{});
  $('timedg').onchange=()=>{st=null;};          // the other build of the module: a fresh meter
