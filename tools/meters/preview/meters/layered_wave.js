@@ -187,6 +187,6 @@
   }
   const layerColours = (theme, p) => colours({ p, theme }).base;
 
-  const api = { key: 'layered_wave', ready, state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
+  const api = { key: 'layered_wave', get wasm_sha256() { return W(false).sha256; }, get wasm_sha256_timed() { return W(true).sha256; }, ready, state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
   if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).layered_wave = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
