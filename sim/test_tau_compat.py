@@ -189,6 +189,8 @@ with tempfile.TemporaryDirectory() as t:
             check(all(lay[c + "tau-presets/1/" + n]["role"] == "shared" and not lay[c + "tau-presets/1/" + n]["required"] and lay[c + "tau-presets/1/" + n]["slot"] is None for n in ("index.tpi", "p0.tpr")),
                   "the factory meter presets (tau-presets/) are shared: seeded when missing, an edited copy is only a warning (B-982)")
         check(lay[c + "tau-library.tdb"]["role"] == "generated" and lay[c + "tau-library.tdb"]["format"] == {"name": "tau-library", "version": 1, "root": "/" + c}, "library index: generated, format v1")
+        check(all(lay[c + n]["role"] == "generated" and not lay[c + n]["required"] and lay[c + n]["slot"] is None for n in ("tau-names.bin", "tau-names.json"))
+              and lay[c + "tau-names.bin"]["format"] == {"name": "tau-names", "version": 1} and lay[c + "tau-names.json"]["format"]["name"] == "tau-names-manifest", "the name sidecar is listed: generated, optional, no data slot, format tau-names v1 / manifest")
         check(lay[c + "tau-assets.bin"]["role"] == "user" and lay[c + "tau-assets.bin"]["format"]["name"] == "TAUA", "tau-assets.bin: user data, TAUA")
         cov = [e for e in p["layout"] if e.get("pattern") and e["role"] == "generated"]
         check(len(cov) == 1 and cov[0]["path"].endswith("tau-art/cover_128.pal256.timg"), "covers: generated pattern with the firmware's own file name (fw/timg.inc)")
@@ -243,6 +245,28 @@ with tempfile.TemporaryDirectory() as t:
     check(any("index root is /Assets/tau_other/common/" in m for l, m in tc.check_card(doc, card)), "card: an index built for another platform's root is refused (B-136, review M8)")
     tdb.write_bytes(tau_library.build_index(ent))
     check(tc.check_card(doc, card) == [], "card: a real v1 index with this core's root is accepted")
+    import struct, zlib                                                          # the name sidecar (B-1009): generated beside the index, optional, never shipped
+    ix = tau_library.parse(tdb.read_bytes(), sample_walk=False)
+    def sidecar(bid, ver=1):
+        h = b"TNMS" + struct.pack("<HHIIIIII", ver, 0, bid, 2, 1, 1, 96, 4)
+        return h + struct.pack("<I", zlib.crc32(h) & 0xFFFFFFFF) + bytes(12)
+    nb = card / "Assets/tau/common/tau-names.bin"; nj = card / "Assets/tau/common/tau-names.json"
+    nb.write_bytes(sidecar(ix.build_id)); nj.write_text(json.dumps({"index_build_id": ix.build_id, "tracks": []}))
+    check(tc.check_card(doc, card) == [], "card: a name sidecar bound to this index (binary and manifest) checks clean")
+    nb.write_bytes(b"XXXX" + bytes(60))
+    check(any(l == "error" and "not a name sidecar" in m for l, m in tc.check_card(doc, card)), "card: a name sidecar binary with the wrong magic is an error")
+    nb.write_bytes(sidecar(ix.build_id, ver=2))
+    check(any(l == "error" and "reader version 2" in m for l, m in tc.check_card(doc, card)), "card: a name sidecar a newer reader wrote is an error")
+    b = bytearray(sidecar(ix.build_id)); b[10] ^= 1; nb.write_bytes(bytes(b))
+    check(any(l == "error" and "damaged header" in m for l, m in tc.check_card(doc, card)), "card: a name sidecar with a damaged header is an error")
+    nb.write_bytes(sidecar(ix.build_id ^ 1))
+    check([l for l, m in tc.check_card(doc, card)] == ["warn"] and "stale" in tc.check_card(doc, card)[0][1], "card: a name sidecar bound to another build of the index is only a warning (the firmware ignores it)")
+    nb.write_bytes(sidecar(ix.build_id)); nj.write_text("{broken")
+    check(any(l == "error" and "not valid JSON" in m for l, m in tc.check_card(doc, card)), "card: a corrupt name sidecar manifest is an error")
+    nj.write_text(json.dumps({"x": 1}))
+    check(any(l == "error" and "not a name sidecar manifest" in m for l, m in tc.check_card(doc, card)), "card: a JSON that is not a sidecar manifest is an error")
+    nb.unlink(); nj.unlink()
+    check(tc.check_card(doc, card) == [], "card: no name sidecar at all is fine (optional)")
     asb = card / "Assets/tau/common/tau-assets.bin"
     asb.write_bytes(b"TAUA" + (2).to_bytes(2, "little") + bytes(6))
     check(any("TAUA version 2" in m for l, m in tc.check_card(doc, card)), "card: a TAUA v2 file is refused")
@@ -287,6 +311,8 @@ with tempfile.TemporaryDirectory() as t:
     check(any(l == "warn" and "obsolete" in m for l, m in tc.check_card(tc.build(**dict(kw, omega_cfg=cfg)), card)), "card: an obsolete file still present is reported")
     zx = make(new, "alfatreze.TAU", "tau", ROM_N, extra={"Assets/tau/alfatreze.TAU/TAU.json": "{}"})
     raises(lambda: tc.build(**dict(kw, omega_cfg=cfg)), "a path listed obsolete that the release still ships", "obsolete")
+    zx = make(new, "alfatreze.TAU", "tau", ROM_N, extra={"Assets/tau/common/tau-names.bin": "x"})
+    raises(lambda: tc.build(**kw), "a release that ships the user's name sidecar", "generated data")
     zx = make(new, "alfatreze.TAU", "tau", ROM_N, extra={"README.txt": "hi"})
     raises(lambda: tc.build(**kw), "a zip file with no layout role", "no layout role")
     dj = json.loads(DATA); dj["data"]["data_slots"].append({"name": "New", "id": 9, "deferload": True, "parameters": "0x0", "filename": "tau-new.bin"})

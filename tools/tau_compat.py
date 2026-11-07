@@ -304,7 +304,11 @@ def firmware_formats(root=ROOT):
     if not taua or not tail:
         raise CompatError("cannot read the TAUA version check (fw/assets_core.h) or the cover file name (fw/timg.inc)")
     t = tree_facts(root)
-    return {"tau-library.tdb": {"name": "tau-library", "version": t["library_index_version"]},
+    nm = re.search(r"lib_ld16\(win \+ 4\) > (\d+)u\) return NAMES_E_HDR", (root / "fw2/cores/names_core.h").read_text())
+    if not nm:
+        raise CompatError("cannot read the name sidecar version check (fw2/cores/names_core.h)")
+    return {"tau-names.bin": {"name": "tau-names", "version": int(nm.group(1))}, "tau-names.json": {"name": "tau-names-manifest", "version": 1},
+            "tau-library.tdb": {"name": "tau-library", "version": t["library_index_version"]},
             "tau-assets.bin": {"name": "TAUA", "version": int(taua.group(1)), "sections": t["assets_sections"],
                                "max_bytes": t["assets_read_limit_bytes"], "preserve_unknown_sections": True},
             "cover": {"name": "TIM1", "version": 1, "tail": tail.group(1)}}
@@ -313,6 +317,8 @@ def firmware_formats(root=ROOT):
 # Files a data slot names that are NOT shipped in the zip, and what they are. A slot filename missing from both the zip and
 # this table stops the release: someone added a slot and must say who makes the file.
 NOT_SHIPPED = {"tau-library.tdb": "generated", "tau-assets.bin": "user"}
+# Generated files in the media root that have NO data slot (the firmware opens tau-names.bin by path, like the cover and the skip list): the name sidecar of docs/features/NAME_SIDECAR_SPEC.md.
+GENERATED_NO_SLOT = ("tau-names.bin", "tau-names.json")
 # Slots opened by name at run time (no filename), by extension set.
 BY_EXTENSION = {("flac", "mp3"): "media", ("timg",): "cover"}
 
@@ -335,6 +341,8 @@ def layout(pkg, root=ROOT, obsolete=()):
             role, slot = "owned", by_name[path[len(mine):]]
         elif path.startswith((f"Cores/{core}/", mine)):
             role, slot = "owned", None
+        elif path.startswith(common) and path[len(common):] in GENERATED_NO_SLOT:
+            raise CompatError(f"{pkg['zip']}: ships {path}, which is generated data (the name sidecar of the user's own library): installing it would overwrite the user's copy")
         elif path.startswith(common) and path[len(common):] in NOT_SHIPPED:
             raise CompatError(f"{pkg['zip']}: ships {path}, which is {NOT_SHIPPED[path[len(common):]]} data: installing it would overwrite the user's copy")
         elif path.startswith(common) and path[len(common):] in by_name:
@@ -378,6 +386,8 @@ def layout(pkg, root=ROOT, obsolete=()):
                             "required": False, "format": f})
             else:
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} has no filename and extensions {sl.get('extensions')} that tau_compat.BY_EXTENSION does not know")
+    for fn in GENERATED_NO_SLOT:                           # the name sidecar (B-1009): generated beside the index, optional (the firmware shows the index text without it), never shipped
+        out.append({"path": media + fn, "role": "generated", "slot": None, "required": False, "format": dict(fmts[fn])})
     out.append({"path": f"Settings/{core}/Interact/interact_persist.json", "role": "user", "slot": None, "required": False,
                 "format": {"name": "interact_persist", "version": 1}})
     for ob in obsolete:
@@ -453,6 +463,30 @@ def _format_ok(path, fmt):
             return f"TAUA version {int.from_bytes(b[4:6], 'little')}, this release reads {fmt['version']}"
         if len(b) > fmt["max_bytes"]:
             return f"{len(b)} bytes, this release reads at most {fmt['max_bytes']}"
+    elif n == "tau-names":
+        import struct, zlib
+        if len(b) < 48 or b[:4] != b"TNMS":
+            return "not a name sidecar (magic)"
+        ver, _fl, bid = struct.unpack_from("<HHI", b, 4)
+        if ver > fmt["version"]:
+            return f"sidecar needs reader version {ver}, this release reads <= {fmt['version']}"
+        if zlib.crc32(b[:32]) & 0xFFFFFFFF != struct.unpack_from("<I", b, 32)[0]:
+            return "damaged header (crc)"
+        idx = Path(path).with_name("tau-library.tdb")
+        if idx.is_file():
+            try:
+                import tau_library
+                if tau_library.parse(idx.read_bytes(), sample_walk=False).build_id != bid:
+                    return "stale: bound to another build of the library index; the firmware ignores it (rebuild the library to refresh it)"
+            except Exception:
+                pass                                       # the index's own check reports a damaged index
+    elif n == "tau-names-manifest":
+        try:
+            d = json.loads(b)
+        except ValueError:
+            return "not valid JSON"
+        if not isinstance(d, dict) or "index_build_id" not in d or not isinstance(d.get("tracks"), list):
+            return "not a name sidecar manifest (no index_build_id / tracks)"
     elif n == "TIM1":
         if b[:4] != b"TIM1":
             return "not a TIM1 image (magic)"
@@ -546,12 +580,12 @@ def check_card(doc, card, core=None, max_pattern_files=2000):
                     for g in _glob(card, e["path"])[:max_pattern_files]:
                         why = _format_ok(g, e["format"])
                         if why:
-                            out.append(("error", f"{p['core_id']}: {g.relative_to(card)}: {why}"))
+                            out.append(("warn" if why.startswith("stale:") else "error", f"{p['core_id']}: {g.relative_to(card)}: {why}"))
             elif f.is_file():
                 if "format" in e:
                     why = _format_ok(f, e["format"])
                     if why:
-                        out.append(("error", f"{p['core_id']}: {e['path']}: {why}"))
+                        out.append(("warn" if why.startswith("stale:") else "error", f"{p['core_id']}: {e['path']}: {why}"))
             elif e["required"]:
                 out.append(("error", f"{p['core_id']}: required {e['path']} is missing"))
         plat = next((e["path"].split("/")[1] for e in p["layout"] if e["path"].startswith("Assets/") and f"/{p['core_id']}/" in e["path"]),
