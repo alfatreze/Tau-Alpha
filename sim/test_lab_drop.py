@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as td:
         check({"winamp_bars", "winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid", "sound_map"} <= keys and ld["themes"] and ld["palette"] and all(x["params"] is not None and "presets" in x for x in ld["schema"]["meters"]), "lab-data.json has the meters (parameters, factory presets), the themes and the accent palette")
         html = (out / "meter_lab.html").read_text()
         check("/*DATA*/" not in html and "/*SCRIPTS*/" not in html and html.count("<script") >= 1 and len(html) > 100000, "the built meter_lab.html has no unresolved placeholder")
-        check(m.get("contract") == 1 and ld.get("contract") == 1 and set(ld["views"]) == {"rects", "meters"}, "the manifest and lab-data.json carry contract 1 and the views", (m.get("contract"), ld.get("contract")))
+        check(m.get("contract") == 1 and ld.get("contract") == 1 and set(ld["views"]) == {"rects", "meters"}, "the manifest and lab-data.json carry contract 1 and the views")
         check(run("--check", str(out)).returncode == 0, "a fresh drop verifies")
         mf = out / "preview/meters/winamp_bars_wasm.js"; mb = mf.read_bytes(); mf.write_bytes(mb.replace(b"b64: \"", b"b64: \"AAAA", 1))
         check(run("--check", str(out)).returncode == 1, "a module whose bytes no longer match its record is caught"); mf.write_bytes(mb)
