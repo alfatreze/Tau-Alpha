@@ -56,6 +56,7 @@
     "NM COD A",
     "NM COD B",
     "NM COD C",
+    "NM RUNS",
     "NM BAD",
     "NM ERR",
     "NM DRY"
@@ -75,7 +76,8 @@
     "soak_step",
     "soak_cycle",
     "preset_probe_run",
-    "name_matrix_run"
+    "name_matrix_run",
+    "name_matrix_auto"
   ],
   "symbols_present_when_off": [
     "about_page_draw",
