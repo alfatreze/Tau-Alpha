@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Runs the golden scenarios of tools/meters/preview/golden_lw.js (the JS twin's command logs) through the LAYERED WAVE WebAssembly module (the firmware's own drawing source, wasm/layered_wave_wasm.c) and compares the engine
+/* Runs the golden scenarios of tools/meters/preview/golden_lw.js (the lab adapter's command logs) through the LAYERED WAVE WebAssembly module (the firmware's own drawing source, wasm/layered_wave_wasm.c) and compares the engine
  * commands frame by frame: node parity_lw.js SCENARIOS.json. Exit 0 when every command is identical. (sim/test_layered_wave_wasm.py runs it.) */
 const fs = require('fs'), path = require('path');
 const W = require(path.join(__dirname, '..', 'meters', 'layered_wave_wasm.js'));
@@ -38,6 +38,6 @@ WebAssembly.compile(new Uint8Array(Buffer.from(W.b64, 'base64'))).then((mod) => 
       }
     }
   }
-  console.log(bad ? `${bad} scenarios differ` : `layered wave wasm: ${total} commands identical to the JS twin in ${scen.length} scenarios`);
+  console.log(bad ? `${bad} scenarios differ` : `layered wave wasm: ${total} commands identical to the lab adapter's golden logs in ${scen.length} scenarios`);
   process.exit(bad ? 1 : 0);
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Golden frames for the Layered Wave meter: the JS integer twin (tools/meters/preview/meters/layered_wave.js) and the REAL firmware code
+"""Golden frames for the Layered Wave meter: the WebAssembly module of the firmware's source (tools/meters/preview/meters/layered_wave_wasm.js, which the lab runs) and the REAL firmware code
 (fw2/ui/layered_wave.inc, compiled on the host with stub engine calls) must issue the same engine commands, line for line, for the same input trace --
 every preset plus a grid of views, draw modes, layer counts, splits, colour sources and boxes, with a paused stretch in the middle of each run.
 A change to either side that alters drawing fails here, not on a card.
@@ -24,6 +24,11 @@ HARNESS = r'''
 static uint16_t ui_accent;
 static uint8_t paused, wviz_force;
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { printf("rect %u %u %u %u %u\n", x, y, w, h, c); }
+static void gfx_scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { printf("scroll_left %u %u %u %u %u\n", x, y, w, h, d); }
+static void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { printf("blit %u %u %u %u %u %u\n", sx, sy, dx, dy, w, h); }
+#define LW_SCROLL_VIEW 1                                   /* the SCROLL view (B-952), as meter_layered_wave.c turns it on */
+#define lw_scroll_left gfx_scroll_left
+#define lw_blit gfx_blit
 #include "layered_wave.inc"
 
 int main(int argc, char **argv) {
@@ -74,7 +79,7 @@ def main():
         # the main build has no experimental settings at all: only scenarios that leave them at their defaults must match there
         sc = [x for x in scen if diag or all(x["params"][keys.index(k)] == v and x["params2"][keys.index(k)] == v for k, v in EXP_DEF.items())]
         f, t = compare(sc, diag); fails += f; total += t
-    print("layered wave golden frames OK: %d commands identical between the firmware code (Diagnostic and main build) and the JS twin" % total if not fails else "%d scenarios differ" % fails)
+    print("layered wave golden frames OK: %d commands identical between the firmware code (Diagnostic and main build, native C) and the WebAssembly module" % total if not fails else "%d scenarios differ" % fails)
     sys.exit(1 if fails else 0)
 
 
@@ -107,13 +112,13 @@ def compare(scen, diag):
             frame.append(ln)
     fails = 0
     if len(got) != len(scen):
-        print("scenario count differs: js %d, c %d" % (len(scen), len(got))); sys.exit(1)
+        print("scenario count differs: wasm %d, c %d" % (len(scen), len(got))); sys.exit(1)
     for s, cframes in zip(scen, got):
         for n, (jl, cl) in enumerate(zip(s["log"], cframes)):
             if jl != cl:
                 fails += 1
                 i = next((k for k in range(min(len(jl), len(cl))) if jl[k] != cl[k]), min(len(jl), len(cl)))
-                print(f"MISMATCH {s['name']} frame {n}: command {i} js {jl[i:i+2]} vs c {cl[i:i+2]} (js {len(jl)} commands, c {len(cl)})")
+                print(f"MISMATCH {s['name']} frame {n}: command {i} wasm {jl[i:i+2]} vs c {cl[i:i+2]} (wasm {len(jl)} commands, c {len(cl)})")
                 break
     total = sum(len(x) for s in scen for x in s["log"])
     return fails, total

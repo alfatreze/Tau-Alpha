@@ -1,13 +1,12 @@
 /* layered_wave: nested, mirrored envelope layers on a SOLID background (docs/features/meters/LAYERED_WAVE_METER_SPEC.md).
- * ctx = {fb, x, y, w, h, theme, spec[16] (0..255, after the firmware's spectrum ballistics), wave[64] (-100..100), paused, p, st, force, dt}.
+ * ctx = {fb, x, y, w, h, bg, theme, spec[16] (0..255, after the firmware's spectrum ballistics), wave[64] (-100..100), paused, p (parameters by key), st, force, dt}.
  *
- * INTEGER twin of fw2/ui/layered_wave.inc: every operation here is the same integer operation the C does (C division truncates, so every / is
- * Math.trunc; >> is arithmetic; products stay inside 32 bits or go through an exact isqrt), so the two issue the SAME engine commands for the
- * same input (sim/test_layered_wave_golden.py compares them command for command). Floating point exists only in tools/gen_layered_wave_tables.py.
- *
- * Draw modes: BLOCKS (flat columns) and SMOOTH (Catmull-Rom between history points). A scrolling-by-copy mode (SCROLL, one engine copy plus the new
- * columns) was prototyped in commit 419fea5 and parked: it needs the blit_shift capability (overlapping copy), unproven on hardware. A self-scaling
- * stride keeps the commands per frame near BUDGET whatever the layer count or resolution (graceful degradation instead of audio jitter).
+ * Since B-975 this is NOT a port: the drawing is the firmware's own source (fw2/ui/layered_wave.inc through fw2/ui/meter_layered_wave.c) compiled to WebAssembly
+ * (wasm/layered_wave_wasm.c, tools/meters/preview/wasm/build_wasm.py; committed as layered_wave_wasm.js), so the lab, the golden test and Tau Omega draw what the Pocket
+ * draws, command for command. The engine calls land in the lab's framebuffer (rect, blit, scrollLeft). What stays here is the lab's own help, not drawing: the colours
+ * of the split map, the band split and the layer targets (checked by test.js), and the bridge to the module. The module compiles asynchronously in a browser (ready());
+ * in node the compile is synchronous, so Run.run and the tests need no waiting. Differences from the Pocket, on purpose: the cost guard counts commands (a browser cannot
+ * time the CPU), and the ENERGY split's learned boundaries live inside the module (the split map shows the default boundaries for it).
  */
 (function (root) {
   const T = (typeof module !== 'undefined') ? require('../lw_tables.js') : root.LwTables;
@@ -118,235 +117,44 @@
     return out;
   }
 
-  /* ---- ballistics: coef = 1 - exp(-dt/tau), integer ------------------------------------------------------------------------------ */
-  function coef(response, mulQ8, dt, att) {                      // Q16
-    let tau = tdiv(4200 * 256, 6 + response);                    // release time constant, ms in Q8
-    if (att) tau = tau >> 2;
-    tau = (tau * mulQ8) >> 8;
-    const y = tdiv(dt * 16777216, tau) >> 3, y2 = Math.floor(y * y / 65536), y3 = Math.floor(y2 * y / 65536), y4 = Math.floor(y3 * y / 65536);
-    const D = 65536 + y + (y2 >> 1) + tdiv(y3, 6) + tdiv(y4, 24);
-    let E = tdiv(2147483648, D >> 1); if (E > 65535) E = 65535;
-    for (let i = 0; i < 3; i++) E = Math.floor(E * E / 65536);   // E*E can pass 2^31
-    return 65536 - E;
+  /* ---- the module ---------------------------------------------------------------------------------------------------------------------------- */
+  const W = () => (typeof module !== 'undefined' ? require('./layered_wave_wasm.js') : root.TauLayeredWaveWasm);     // looked up when first used: in the lab page the data file comes after this one
+  const MROLES = ['bg_top', 'bg_bottom', 'surface', 'surface_track', 'text_primary', 'text_secondary', 'accent', 'on_accent', 'accent2', 'ok', 'warn', 'danger', 'base', 'chrome', 'pill', 'error', 'faint', 'splash_bg', 'splash_bar', 'fs_red', 'fs_track'];     // the TR_* order of fw2/ui/theme.h
+  const OFFS = ['x', 'y', 'w', 'h', 'bg', 'force', 'paused', 'degrade', 'frame', 'dt_ms', 'peak_l', 'peak_r'];
+  const WIDTH = { x: 2, y: 2, w: 2, h: 2, bg: 2, force: 1, paused: 1, degrade: 1, dt_ms: 2, frame: 4, peak_l: 4, peak_r: 4 };
+  let compiled = null, compiling = null;
+  const bytes = () => (typeof module !== 'undefined' ? new Uint8Array(Buffer.from(W().b64, 'base64')) : Uint8Array.from(atob(W().b64), (c) => c.charCodeAt(0)));
+  function ready() { if (!compiling) compiling = WebAssembly.compile(bytes()).then((m) => { compiled = m; return true; }); return compiling; }
+  function state() { return { inst: null, cur: null, frames: 0 }; }
+  function instantiate(st) {
+    if (!compiled) { if (typeof module === 'undefined') return false; compiled = new WebAssembly.Module(bytes()); }       // node: a synchronous compile is fine
+    st.inst = new WebAssembly.Instance(compiled, { env: {
+      rect: (x, y, w, h, c) => st.cur.fb.rect(x, y, w, h, c),
+      scroll_left: (x, y, w, h, d) => st.cur.fb.scrollLeft(x, y, w, h, d),
+      blit: (sx, sy, dx, dy, w, h) => st.cur.fb.blit(sx, sy, dx, dy, w, h),
+      text: () => 0 } });
+    const x = st.inst.exports, o = new Uint16Array(x.memory.buffer, x.offs_ptr(), OFFS.length);
+    st.off = Object.fromEntries(OFFS.map((k, i) => [k, o[i]]));
+    return true;
   }
-  const stepTo = (s, t, ca, cr) => s + (((t - s) * (t > s ? ca : cr)) >> 16);
-
-  /* ---- shape ----------------------------------------------------------------------------------------------------------------------- */
-  let curTC = 0;                           // the taper curve profile of this picture (0 NORMAL, 1 SHORT, 2 SHORTER, 3 SHARP), set by the tick; kept equal to fw2/ui/layered_wave.inc lw_prof
-  function profile(w, c) {
-    if (c === 1) return w <= 48 ? 0 : Math.min(255, ((w - 48) * 315) >> 8);
-    if (c === 2) return w <= 96 ? 0 : Math.min(255, ((w - 96) * 411) >> 8);
-    if (c === 3) return tdiv(w * w + 127, 255);
-    return w;
+  function put(st, field, v) {
+    const dv = new DataView(st.inst.exports.memory.buffer), a = st.inst.exports.in_ptr() + st.off[field];
+    if (WIDTH[field] === 1) dv.setUint8(a, v & 255); else if (WIDTH[field] === 2) dv.setUint16(a, v & 65535, true); else dv.setUint32(a, v >>> 0, true);
   }
-  function win8(tab, q, pos) {             // window 0..255 at pos = a*64 in Q8; q = taper_q 1..20
-    const i0 = pos >> 8, fr = pos & 255, i1 = Math.min(64, i0 + 1), t = tab[q - 1];
-    return profile(t[i0] + (((t[i1] - t[i0]) * fr) >> 8), curTC);
-  }
-  function wpk(tab, q) { let pk = 0; for (let i = 1; i <= 64; i++) if (tab[q - 1][i] > tab[q - 1][pk]) pk = i; return pk; }
-  function winH(tab, q, pos, pk, head, tail) {          // the HISTORY window with the length controls; kept equal to fw2/ui/layered_wave.inc lw_winh (B-961)
-    const pkp = pk * 256, full = 16384; let pm = pos;
-    if (head > 0) { const hp = tdiv(head * full + 50, 100); pm = pos < hp ? tdiv(pos * pkp, hp) : pkp + tdiv((pos - hp) * (full - pkp), full - hp); }
-    if (tail < 100 && pm > pkp) { const rem = full - pkp, d = pm - pkp, start = tdiv(rem * (100 - tail), 100); pm = pkp + (d <= start ? 0 : tdiv((d - start) * 100, tail)); }
-    return win8(tab, q, pm);
-  }
-  function cr8(h, n, i, f) {               // Catmull-Rom on 0..255 samples (h(j) reads sample j), f in Q8: the four weights from the powers of f; kept equal to fw2/ui/layered_wave.inc lw_cr8 (B-958)
-    const p0 = h(Math.max(i - 1, 0)), p1 = h(Math.min(i, n - 1)), p2 = h(Math.min(i + 1, n - 1)), p3 = h(Math.min(i + 2, n - 1));
-    const t2 = (f * f) >> 8, t3 = (t2 * f) >> 8;
-    const w0 = 2 * t2 - t3 - f, w2 = 4 * t2 - 3 * t3 + f, w3 = t3 - t2, w1 = 512 - w0 - w2 - w3;
-    return clamp((w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3 + 256) >> 9, 0, 255);
-  }
-  const halfPx = (a8, w8, Hh) => { let h = tdiv(a8 * w8 * Hh + 32512, 65025); if (h < 1 && w8 > 64) h = 1; return h; };   // a thin centre line stays in silence
-
-  /* ---- experimental settings (manifest group "experimental"; compiled into the firmware only in the Diagnostic Build) ---------------------------------
-     With every one at its default (0 dB gains, BLOCKS, no antialiasing, no blending, guard ON) every operation below is skipped and the output is the
-     plain meter, bit for bit. */
-  const gm = (p, k) => T.gainQ8[clamp(p['g' + (k + 1)] | 0, 0, 36)];       // layer gain, Q8 (256 = 0 dB)
-  const AA_LEVELS = [0, 2, 4, 8];
-  const BUDGETS = [BUDGET, 600, 1000000000];                                      // cost guard ON / RELAXED / OFF
-  const halfPxAA = (a8, w8, Hh, L) => { const v = a8 * w8 * Hh; let h = tdiv(v, 65025), q = tdiv((v - h * 65025) * L + 32512, 65025); if (q >= L) { h++; q = 0; } if (h < 1 && w8 > 64) { h = 1; q = 0; } return [h, q]; };
-  /* The five hardware blend modes (mp3_fb.sv blend_ch), applied here in software to colours the CPU already knows (no destination read needed). */
-  const blendCh = (b, f, mode, alpha, mx) => mode === 0 ? ((f * alpha + b * (256 - alpha)) >> 8) : mode === 1 ? ((b + f) >> 1) : mode === 2 ? Math.min(mx, b + f) : mode === 3 ? (f > b ? 0 : b - f) : Math.min(mx, b + (f >> 2));
-  const blendPx = (bg, fg, mode, alpha) => (blendCh(bg >> 11, fg >> 11, mode, alpha, 31) << 11) | (blendCh((bg >> 5) & 63, (fg >> 5) & 63, mode, alpha, 63) << 5) | blendCh(bg & 31, fg & 31, mode, alpha, 31);
-
-  /* Per-frame context for the layer functions: antialiasing level, blend mode and alpha, and the per-column memory of the layer drawn just before
-     (height st.ph, final colour st.pc), which blending and the antialiasing edge colour both need. Layer k's own values go to st.nh/st.nc and replace
-     ph/pc when the layer is done. Layers draw outermost first. */
-  function cellOut(lay, k, xs, wd, xc, hh, cv, c) {
-    const st = lay.st;
-    if (lay.bm) {                                   // blending composites over the layer outside: each layer is clamped to it so the colour underneath is known
-      if (k > 0) { const ph = st.ph[xc]; if (hh > ph) { hh = ph; cv = 0; } }
-      c = blendPx(k > 0 ? st.pc[xc] : lay.bgc, c, lay.bm - 1, lay.ba);
-    }
-    if (lay.arr) for (let x = xs; x < xs + wd; x++) { st.nh[x] = hh; st.nc[x] = c; }
-    return [hh, cv, c];
-  }
-  function emitRun(lay, k, r) {
-    const st = lay.st, X = lay.X, cy = lay.cy;
-    if (lay.L && r.cv) {                            // antialiasing: the row just outside each edge, the layer colour mixed over what is there by the coverage
-      const d = r.h + 1, yt = cy - r.h - 1, yb = cy + r.h;
-      const under = (x) => (k > 0 && st.ph[x] >= d ? st.pc[x] : lay.bgc);
-      let a = r.x0, cur = under(r.x0);
-      for (let x = r.x0 + 1; x <= r.x1; x++) {
-        const u = x < r.x1 ? under(x) : -1;
-        if (u !== cur) {
-          const ec = mix(cur, r.c, tdiv(r.cv * 256, lay.L));
-          if (yt >= lay.Y) lay.rect(X + a, yt, x - a, 1, ec);
-          if (yb < lay.Y + lay.H) lay.rect(X + a, yb, x - a, 1, ec);
-          a = x; cur = u;
-        }
-      }
-    }
-    lay.rect(X + r.x0, cy - r.h, r.x1 - r.x0, 2 * r.h, r.c);
-  }
-  function endLayer(lay) { if (lay.arr) { lay.st.ph.set(lay.st.nh); lay.st.pc.set(lay.st.nc); } }
-
-  /* ---- state ----------------------------------------------------------------------------------------------------------------------- */
-  function state() { return { init: false, key: '' }; }
-  function reinit(st, ctx, hard) {
-    const p = ctx.p, n = p.layers;
-    st.hard = hard; st.init = true; st.s = new Array(n).fill(0); st.acc = 0; st.dirty = true;
-    st.hist = Array.from({ length: n }, () => new Uint8Array(p.res + 4));
-    st.band = Array.from({ length: n }, () => new Array(NB).fill(0));
-    st.e = new Array(NB).fill(0); st.eTick = 0; st.ebounds = null;
-    st.ph = new Uint8Array(ctx.w); st.nh = new Uint8Array(ctx.w); st.pc = new Uint16Array(ctx.w); st.nc = new Uint16Array(ctx.w);
-    st.stride = 1 + tdiv(n * ctx.w, 900); st.cnt = 0;
-  }
-  function n0(p) { return p.layers; }
   function tick(ctx) {
-    const p = ctx.p, st = ctx.st, fb = ctx.fb, W = ctx.w, H = ctx.h, X = ctx.x, Y = ctx.y, dt = ctx.dt || 26;
-    const cl = colours(ctx);
-    // Only the history/band array sizes force a reset (B-523). A forced repaint, a setting change or a moved/resized box just repaints on the next frame and
-    // keeps the history, so the meter never restarts when it changes view or enters fullscreen. The frame's own draw wipes the whole box, so no separate wipe.
-    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0, p.taper_curve | 0, p.direction | 0, p.taper_head | 0, p.taper_tail | 0].join(',');
-    if (!st.init || st.hard !== hard) { reinit(st, ctx, hard); st.geo = geo; }
-    else {
-        if (st.soft !== soft || ctx.force) st.dirty = true;
-        if (st.geo !== geo) {
-            st.geo = geo; st.dirty = true; st.stride = 1 + tdiv(n0(p) * W, 900);
-            st.ph = new Uint8Array(W); st.nh = new Uint8Array(W); st.pc = new Uint16Array(W); st.nc = new Uint16Array(W);
-        }
-    }
-    st.soft = soft;
-    if (ctx.paused) return;                // the firmware skips drawing while paused: the picture holds
-    const cy = Y + (H >> 1), Hh = (H >> 1) - 1;
-    st.cnt = 0;
-    curTC = Math.min(3, p.taper_curve | 0);
-    const bud = BUDGETS[p.guard | 0];
-    if (bud >= 1000000000) st.stride = 1;   // guard OFF: full resolution from the first frame
-    const rect = (x, y, w, h, c) => { fb.rect(x, y, w, h, c); st.cnt++; };
-    const L = AA_LEVELS[p.aa | 0], bm = p.bmode | 0;
-    const lay = { st, rect, X, Y, H, cy, bgc: cl.bgc, L, bm, ba: tdiv((p.balpha === undefined ? 60 : p.balpha) * 255 + 50, 100), arr: !!(L || bm) };
-    if (p.view === 1) spectrum(ctx, st, dt, cl, cy, Hh, rect, lay); else history(ctx, st, dt, cl, cy, Hh, rect, lay);
-    if (bud < 1000000000 && st.cnt) st.stride = st.cnt > bud ? Math.min(16, st.stride + 1) : (st.cnt < (bud >> 1) && st.stride > 1 ? st.stride - 1 : st.stride);
-  }
-
-  /* HISTORY view: x is time (newest left); the box is cleared and every layer drawn outermost first, merging neighbouring cells of equal height
-     and colour. `stride` widens the evaluation cell when the last frame needed more than the budget of commands. */
-  function history(ctx, st, dt, cl, cy, Hh, rect, lay) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, res = p.res, smooth = p.draw === DRAW.SMOOTH, aaL = lay.L;
-    const tg = targets(p, ctx.spec, ctx.wave, st);
-    for (let k = 0; k < n; k++) {
-      const m = p.split === SPLIT.DYNAMICS && n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256;
-      const gk = gm(p, k), tk = gk === 256 ? tg[k] : Math.min(4096, (tg[k] * gk) >> 8);
-      st.s[k] = stepTo(st.s[k], tk, coef(p.response, m, dt, 1), coef(p.response, m, dt, 0));
-    }
-    st.acc += tdiv(dt * p.speed * res * 256, 1000 * W);
-    const pushes = Math.min(st.acc >> 8, res); st.acc &= 255;
-    for (let i = 0; i < pushes; i++) for (let k = 0; k < n; k++) { const h = st.hist[k]; h.copyWithin(1, 0, h.length - 1); h[0] = toU8(st.s[k]); }
-    if (!smooth && pushes === 0 && !st.dirty) return;          // nothing changed on the column grid: no commands at all
-    st.dirty = false;
-    const phase = st.acc, tq = tdiv(p.taper + 2, 5), s = st.stride, dir = Math.min(1, p.direction | 0), thead = Math.min(50, p.taper_head | 0), ttail = (p.taper_tail >= 10 && p.taper_tail <= 100) ? p.taper_tail : 100, wpkH = tq === 0 ? 0 : wpk(T.winHist, tq);
-    rect(X, ctx.y, W, ctx.h, cl.bgc);
-    for (let k = 0; k < n; k++) {
-      const h = st.hist[k]; let run = null;
-      const flush = () => { if (run) { emitRun(lay, k, run); run = null; } };
-      for (let xs = 0; xs < W; xs += s) {
-        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1)), xm = dir ? W - 1 - xc : xc;     // xm: the position along the history, 0 = the newest end; the source, the window and the age band follow it (the whole picture is mirrored)
-        let a8;
-        if (smooth) { const t = tdiv((2 * xm + 1) * res * 128, W) - phase - 128; a8 = t <= 0 ? h[0] : cr8((j) => h[j], res + 4, t >> 8, t & 255); }
-        else a8 = h[Math.min(res - 1, tdiv(xm * res, W))];
-        const w8 = tq === 0 ? 255 : winH(T.winHist, tq, tdiv((2 * xm + 1) * 8192, W), wpkH, thead, ttail), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xm + 1) * 4, W));
-        const [hh, cv, c] = cellOut(lay, k, xs, wd, xc, h0, cv0, cl.tbl[k][q]);
-        if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
-        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
-      }
-      flush(); endLayer(lay);
-    }
-    if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(dir ? X + 8 + j * 12 - (d >> 1) : X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
-  }
-
-  /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline. With a frequency split every layer draws only the
-     part of the axis it listens to (the same ranges as the handles); with DYNAMICS every layer is the whole outline. Layers also differ by response
-     time (outer slow, inner fast) and height. Redrawn every frame. Style (experimental): BLOCKS, EQ BELLS (soft shoulders) or CURVE (one outline). */
-  function spectrum(ctx, st, dt, cl, cy, Hh, rect, lay) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), aaL = lay.L, s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));   // Resolution = columns across the width (cell width), never finer than the self-scaling stride allows
-    rect(X, ctx.y, W, ctx.h, cl.bgc);
-    if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
-    const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
-    const hstyle = p.hstyle | 0;
-    if (hstyle === 2 && bnd) return curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd, lay, s);
-    for (let k = 0; k < n; k++) {
-      let lo = 0, hi = NB;
-      if (bnd) { if (p.nest === 0) { lo = p.outer === 0 ? bnd[k] : 0; hi = p.outer === 0 ? NB : bnd[n - k]; } else { const g = p.outer === 0 ? k : n - 1 - k; lo = bnd[g]; hi = bnd[g + 1]; } }
-      const m = n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), sc = n === 1 ? 1024 : 1024 - tdiv(512 * k, n - 1), b = st.band[k], bu = new Array(NB);
-      const gk = gm(p, k);
-      for (let i = 0; i < NB; i++) {
-        const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr);
-        const wt = hstyle === 1 && bnd ? (i >= lo && i < hi ? 256 : (i === lo - 1 || i === hi) ? 128 : (i === lo - 2 || i === hi + 1) ? 40 : 0) : (i >= lo && i < hi ? 256 : 0);
-        let a = wt === 256 ? (toU8(b[i]) * sc) >> 10 : wt === 0 ? 0 : (((toU8(b[i]) * sc) >> 10) * wt) >> 8;
-        if (gk !== 256) a = Math.min(255, (a * gk) >> 8);
-        bu[i] = a;
-      }
-      let run = null;
-      const flush = () => { if (run) { emitRun(lay, k, run); run = null; } };
-      for (let xs = 0; xs < W; xs += s) {
-        const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
-        let a8;
-        if (smooth) { const t = tdiv((2 * xc + 1) * NB * 128, W) - 128; a8 = t <= 0 ? bu[0] : cr8((j) => bu[j], NB, t >> 8, t & 255); }
-        else a8 = bu[Math.min(NB - 1, tdiv(xc * NB, W))];
-        const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0;
-        const [hh, cv, c] = cellOut(lay, k, xs, wd, xc, h0, cv0, cl.base[k]);
-        if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
-        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
-      }
-      flush(); endLayer(lay);
-    }
-  }
-
-  /* CURVE style (experimental): ONE continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of
-     their frequency ranges, with a smooth gain curve through the per-layer gains (all Q8 integer). Layer 0's response time drives the bands. */
-  function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd, lay, s) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), aaL = lay.L;
-    const m = n > 1 ? T.mulQ8[n - 1 + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), b = st.band[0], bu = new Array(NB);
-    const layOf = (g) => (p.outer === 0 ? g : n - 1 - g), cen = [], gdb = [], col = [];
-    for (let g = 0; g < n; g++) { cen.push((bnd[g] + bnd[g + 1]) * 128); gdb.push(clamp(p['g' + (layOf(g) + 1)] | 0, 0, 36) - 18); col.push(cl.base[layOf(g)]); }
-    const seg = (pos) => {                          // pos in band units, Q8
-      if (pos <= cen[0]) return [0, 0, 0];
-      if (pos >= cen[n - 1]) return [n - 1, n - 1, 0];
-      let g = 0; while (pos > cen[g + 1]) g++;
-      return [g, g + 1, tdiv((pos - cen[g]) * 256, cen[g + 1] - cen[g])];
-    };
-    for (let i = 0; i < NB; i++) {
-      const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr);
-      const [g0, g1, f] = seg(i * 256 + 128), dbq = gdb[g0] * 256 + (gdb[g1] - gdb[g0]) * f, vq = dbq + 18 * 256, i0 = vq >> 8, fr = vq & 255;
-      const mult = T.gainQ8[i0] + (((T.gainQ8[Math.min(37, i0 + 1)] - T.gainQ8[i0]) * fr) >> 8);
-      bu[i] = Math.min(255, (toU8(b[i]) * mult) >> 8);
-    }
-    let run = null;
-    const flush = () => { if (run) { emitRun(lay, 0, run); run = null; } };
-    for (let xs = 0; xs < W; xs += s) {
-      const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
-      let a8;
-      if (smooth) { const t = tdiv((2 * xc + 1) * NB * 128, W) - 128; a8 = t <= 0 ? bu[0] : cr8((j) => bu[j], NB, t >> 8, t & 255); }
-      else a8 = bu[Math.min(NB - 1, tdiv(xc * NB, W))];
-      const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, h0 = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv0 = aaT ? aaT[1] : 0;
-      const [g0, g1, f] = seg(tdiv((2 * xc + 1) * NB * 128, W));
-      const [hh, cv, c] = cellOut(lay, 0, xs, wd, xc, h0, cv0, mix(col[g0], col[g1], f));
-      if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
-      flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
-    }
-    flush(); endLayer(lay);
+    const st = ctx.st;
+    if (!st.inst && !instantiate(st)) { ready(); return; }          // a browser draws nothing until the module is compiled
+    st.cur = ctx;
+    const x = st.inst.exports, mem = x.memory.buffer, dv = new DataView(mem), keys = W().params;
+    if (keys.length !== x.n_params()) throw new Error('layered_wave: the module has ' + x.n_params() + ' parameters, its key list ' + keys.length);
+    const th = ctx.theme;
+    MROLES.forEach((k, i) => dv.setUint16(x.roles_ptr() + 2 * i, k === 'accent' ? th.accent : (th.role[k] || 0), true));
+    keys.forEach((k, i) => dv.setUint16(x.params_ptr() + 2 * i, ctx.p[k] == null ? 0 : ctx.p[k] & 65535, true));
+    new Uint8Array(mem, x.spec_ptr(), 16).set(Array.from(ctx.spec, (v) => Math.max(0, Math.min(255, Math.trunc(v)))));
+    if (ctx.wave) new Int8Array(mem, x.wave_ptr(), Math.min(ctx.wave.length, x.n_wave())).set(Array.from(ctx.wave, (v) => Math.max(-128, Math.min(127, Math.trunc(v)))).slice(0, x.n_wave()));
+    const vals = { x: ctx.x, y: ctx.y, w: ctx.w, h: ctx.h, bg: ctx.bg || 0, force: ctx.force ? 1 : 0, paused: ctx.paused ? 1 : 0, degrade: ctx.degrade || 0, frame: st.frames++, dt_ms: ctx.dt_ms || ctx.dt || 26, peak_l: 0, peak_r: 0 };
+    for (const k of OFFS) put(st, k, vals[k]);
+    x.tick_raw();                                                    // the waveform as the lab's source gives it (the golden test feeds the same)
   }
 
   /* Lab helpers: what each layer listens to (Hz from the half-octave bank, band 0 = bass), and the layer colours for the split map. */
@@ -370,6 +178,6 @@
   }
   const layerColours = (theme, p) => colours({ p, theme }).base;
 
-  const api = { key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
+  const api = { key: 'layered_wave', ready, state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
   if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).layered_wave = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

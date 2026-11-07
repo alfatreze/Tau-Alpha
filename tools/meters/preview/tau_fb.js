@@ -31,6 +31,20 @@
       for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((sy + yy) * this.w + sx, (sy + yy) * this.w + sx + w));
       for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (dy + yy) * this.w + dx);
     }
+    /* the SCROLL view's engine calls (B-952): blit = a copy inside the box being drawn into; scrollLeft = the box moves left by d columns, the right d columns are left as they were (the caller paints them). One command each. */
+    blit(sx, sy, dx, dy, w, h) {
+      this._rec('blit', [sx, sy, dx, dy, w, h]);
+      this.pix += 2 * w * h; this.ops += 2 * w * h; const rows = [];
+      for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((sy + yy) * this.w + sx, (sy + yy) * this.w + sx + w));
+      for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (dy + yy) * this.w + dx);
+    }
+    scrollLeft(x, y, w, h, d) {
+      this._rec('scroll_left', [x, y, w, h, d]);
+      if (d <= 0 || d >= w) return;
+      this.pix += 2 * (w - d) * h; this.ops += 2 * (w - d) * h; const rows = [];
+      for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((y + yy) * this.w + x + d, (y + yy) * this.w + x + w));
+      for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (y + yy) * this.w + x);
+    }
     /* Lab-only: a rect drawn through the hardware blend (B5), F = c over the pixel already there B; mode 0..4 as in mp3_fb.sv (0 DSP alpha, 1 average,
        2 add, 3 subtract, 4 B+F/4). Counted as ONE command: on hardware it is an OP_BLIT with blend from a one-row strip of the colour (src_stride 0). */
     blend(x, y, w, h, c, mode, alpha) {
