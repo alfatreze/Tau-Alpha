@@ -58,7 +58,7 @@ static void report(int s, uint32_t n, uint64_t h)
 #endif
 static void custom_lw(void)
 {
-    for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = lw_preset[LW_P][i];
+    for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = fp_lw[LW_P][i];
 #ifdef LW_TAPEROVR
     params[MP_LAYERED_WAVE_TAPER] = LW_TAPEROVR;           /* sim/test_p2_lw_scroll.py: the same preset with another taper */
 #endif

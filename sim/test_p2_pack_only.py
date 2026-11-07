@@ -13,7 +13,7 @@ def check(name, ok, info=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else "  " + str(info)))
     fails += 0 if ok else 1
-LISTS = ["cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "ui/mpreset_host.h", "cores/meter_budget_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h"]
+LISTS = ["cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_budget_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h"]
 def build(td, mutant=None):
     d = Path(td); d.mkdir(parents=True, exist_ok=True)
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / "fw2" / sub).mkdir(parents=True, exist_ok=True)
@@ -24,7 +24,7 @@ def build(td, mutant=None):
     if mutant == "label": a = "    so = p.label;\n"; assert a in src; src = src.replace(a, "    so = p.label + 1u;\n")
     if mutant == "baddesc": a = "if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.slot != m)"; assert a in src; src = src.replace(a, "if (!md_header(desc_rd, d, len, &h))")
     (d / "fw2/ui/meters.c").write_text(src)
-    for f in ["ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"] + LISTS: (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ["ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/factory_presets.h", "generated/meter_registry.h"] + LISTS: (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_pack_only_harness.c").read_text())
     (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
@@ -49,14 +49,14 @@ with tempfile.TemporaryDirectory() as td:
         walk = [l for l in o if l.startswith("next")]
         check("%s: selecting the row selects it, X alternates between the two meters that are there (the absent rows are skipped), going back from the first reaches the row" % key, o[1] == "select row %d -> cur %d" % (slot, slot) and walk == ["next -> %d" % (slot if i % 2 == 0 else 0) for i in range(6)] and "prev from 0 -> %d" % slot in o, o[1:10])
         rows = md.param_rows(wf)
-        want_name = "name %s np %d npre %d cmp %d" % (wf["p2"].get("label", wf["name"]), len(rows), len(wf["presets"]), md.cmp_code_int(wf))
-        check("%s: its name, parameter count (%d), preset count (%d) and compose code are the manifest's" % (key, len(rows), len(wf["presets"])), want_name in o, [l for l in o if l.startswith("name")])
+        want_name = "name %s np %d npre %d cmp %d" % (wf["p2"].get("label", wf["name"]), len(rows), 1, md.cmp_code_int(wf))
+        check("%s: its name, parameter count (%d), preset count (1: DEFAULT) and compose code are the manifest's" % (key, len(rows)), want_name in o, [l for l in o if l.startswith("name")])
         pds = [l for l in o if l.startswith("pd ")]
         want = ["pd %s %d %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in rows]
         check("%s: its Configure descriptors (label, type, range, step, choices, when) are the manifest's" % key, pds == want, pds[:2])
         keys = [p["key"] for p in wf["params"]]
         prs = [l for l in o if l.startswith("preset ") and l.split()[1].isdigit()]
-        check("%s: its presets (names and values) are the manifest's and selecting one fills the live parameters" % key, prs == ["preset %d %s %s" % (k, p["name"], " ".join(str(p["values"][x]) for x in keys)) for k, p in enumerate(wf["presets"])], prs[:2])
+        check("%s: its one preset is DEFAULT = the descriptor's defaults, and selecting it fills the live parameters" % key, prs == ["preset 0 DEFAULT %s" % " ".join(str(next(q["default"] for q in wf["params"] if q["key"] == x)) for x in keys)], prs[:2])
         thumb = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
         check("%s: it ticks as a pack, its manifest id goes into the config export, and its preview stream is readable" % key, "ticks pack 2 builtin-text 0" in o and "payload id %d n %d" % (wf["index"], 4 + len(keys) + sum(1 for r in rows if r["type"] == 3 or (r["type"] == 0 and r["max"] > 255))) in o and "thumb len %d" % len(bytes.fromhex(thumb["rle"])) in o, o[-4:])
     # A descriptor bigger than the old Configure caches (76 choice values, 880 string bytes; B-954): Layered Wave with 4 more choices on its View (80 values, about 890 string bytes) must still be listed and drawn from

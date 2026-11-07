@@ -19,7 +19,7 @@ def instr(elf, blob):
     m = re.search(r"\[([\d,]+) instructions", r.stderr); return int(m.group(1).replace(",", ""))
 with tempfile.TemporaryDirectory() as d:
     d = Path(d); blob, _ = pm.build("waterfall_grid", SIM_ORG, d / "wf.elf", SIMREGS, scratch=SIM_SCRATCH); (d / "wf.tmpk").write_bytes(blob)
-    names = re.findall(r'"([A-Z ]+)"', re.search(r"mpp_wf_name\[[^\]]*\] = \{([^}]*)\}", (ROOT / "fw2/generated/meter_presets.h").read_text()).group(1))
+    names = re.findall(r'"([A-Z ]+)"', re.search(r"fp_wf_name\[[^\]]*\] = \{([^}]*)\}", (ROOT / "fw2/generated/factory_presets.h").read_text()).group(1))
     for s, name in enumerate(names):
         r = {}
         for fr in (10, 90):

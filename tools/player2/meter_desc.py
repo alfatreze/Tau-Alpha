@@ -4,11 +4,10 @@ parameter descriptors, the presets, the preview (palette spec + run-length strea
 (fw2/ui/meter_pack.ld), read by fw2/cores/meter_desc_core.h. This module also has the manifest -> descriptor rows that tools/player2/gen_meters_p2.py uses for the built-in tables, so both come from one place.
 
 Layout (little endian; every offset from the start of the descriptor; the whole is a multiple of 4 bytes):
-  0 u32 'MDSC'   4 u16 version (1)   6 u16 total length (trailer included)   8 u8 nparams   9 u8 npresets   10 u16 cmds   12 u32 cmp (compose code)   16 u32 max_cycles
-  20 u16 name offset   22 u16 params offset   24 u16 presets offset   26 u16 palette offset   28 u16 rle offset   30 u16 rle length
+  0 u32 'MDSC'   4 u16 version (3)   6 u16 total length (trailer included)   8 u8 nparams   9 u8 0 (was npresets)   10 u16 cmds   12 u32 cmp (compose code)   16 u32 max_cycles
+  20 u16 name offset   22 u16 params offset   24 u16 0 (was the presets offset)   26 u16 palette offset   28 u16 rle offset   30 u16 rle length
   32 u16 manifest id (the meter's id in tau-assets.bin METR and the reports)   34 u16 slot   36 u32 reserved (0)
   params:  nparams x 16 B { u16 label, u8 type, u8 hidden, u16 min, u16 max, u16 step, u8 nval, u8 when_idx, u16 when_val, u16 vals offset }   (vals: nval u16 string offsets)
-  presets: npresets x stride { u16 name offset, u16 value[nparams] } (stride = 2 + 2 nparams rounded up to 4)
   palette: 8 x 8 B { u16 fixed, u8 a, u8 b, u8 t, u8 n, u16 0 }   (the preview's colours: a fixed RGB565 (a = 255), a theme role, or a ramp between two roles, as fw2/generated/meter_thumbs.h)
   rle:     the preview's 56 x 32 run-length stream ((palette index << 5) | (run - 1))
   strings: NUL-terminated;   trailer: u32 total length, u32 'DSC1' (the loader finds the descriptor from the end of the pack's image)"""
@@ -17,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import meter_manifest as mm
 ROOT = Path(__file__).resolve().parents[2]
-MAGIC, TRAILER, VERSION = 0x4353444D, 0x31435344, 2
+MAGIC, TRAILER, VERSION = 0x4353444D, 0x31435344, 3          # 3 (B-970): no preset table (the factory presets are files; the meter's defaults are in each parameter record)
 PREC = 20                                    # bytes of one parameter record (v2: + key hash + default)
 MAX_PARAMS, MAX_PRESETS, MAX_NVAL, MAX_STR = 48, 16, 12, 23
 ROLES = ["bg_top", "bg_bottom", "surface", "surface_track", "text_primary", "text_secondary", "accent", "on_accent", "accent2", "ok", "warn", "danger", "base", "chrome", "pill", "error", "faint", "splash_bg", "splash_bar", "fs_red", "fs_track"]
@@ -57,8 +56,8 @@ def palette_entries(thumb):
             out.append((0, ROLES.index(ra), ROLES.index(rb), tt, nn))
     return out
 def build_desc(d, thumb):
-    rows = param_rows(d); np_, npre = len(rows), len(d["presets"])
-    assert np_ <= MAX_PARAMS and 0 < npre <= MAX_PRESETS and len(d["name"]) <= MAX_STR
+    rows = param_rows(d); np_ = len(rows)
+    assert np_ <= MAX_PARAMS and len(d["name"]) <= MAX_STR
     keys = [p["key"] for p in d["params"]]
     import mpreset
     pr = mpreset.params_of(d)                                   # refuses two keys with one hash
@@ -68,25 +67,21 @@ def build_desc(d, thumb):
         assert len(text) <= MAX_STR, text
         if text not in offs: offs[text] = len(pool); pool.extend(text.encode("latin1") + b"\0")
         return offs[text]
-    name_s = S(d["p2"].get("label", d["name"])); label_s = [S(r["label"]) for r in rows]; val_s = [[S(v) for v in r["vals"]] for r in rows]; pre_s = [S(p["name"]) for p in d["presets"]]
+    name_s = S(d["p2"].get("label", d["name"])); label_s = [S(r["label"]) for r in rows]; val_s = [[S(v) for v in r["vals"]] for r in rows]
     rle = bytes.fromhex(thumb["rle"]); assert (thumb["w"], thumb["h"]) == (56, 32) and sum((b & 31) + 1 for b in rle) == 56 * 32 and len(thumb["palette"]) == 8
-    stride = (2 + 2 * np_ + 3) & ~3
     off = 40; params_off = off; off += PREC * np_
     vals_off = []
     for r in rows: vals_off.append(off if r["vals"] else 0); off += 2 * len(r["vals"])
-    off = (off + 3) & ~3; presets_off = off; off += stride * npre
+    off = (off + 3) & ~3
     pal_off = off; off += 8 * 8; rle_off = off; off += len(rle); off = (off + 3) & ~3
     pool_off = off; total = ((pool_off + len(pool) + 3) & ~3) + 8
     b = bytearray(total)
-    struct.pack_into("<IHHBBHII", b, 0, MAGIC, VERSION, total, np_, npre, d["p2"].get("cmds", 0), cmp_code_int(d), d["p2"].get("max_cycles", 0))
-    struct.pack_into("<HHHHHH", b, 20, pool_off + name_s, params_off, presets_off, pal_off, rle_off, len(rle))
+    struct.pack_into("<IHHBBHII", b, 0, MAGIC, VERSION, total, np_, 0, d["p2"].get("cmds", 0), cmp_code_int(d), d["p2"].get("max_cycles", 0))
+    struct.pack_into("<HHHHHH", b, 20, pool_off + name_s, params_off, 0, pal_off, rle_off, len(rle))
     struct.pack_into("<HHI", b, 32, d["index"], d["p2"]["slot"], 0)
     for i, r in enumerate(rows):
         struct.pack_into("<HBBHHHBBHHHH", b, params_off + PREC * i, pool_off + label_s[i], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"], vals_off[i], key_hash(r["key"]), defaults[i])
         for j, so in enumerate(val_s[i]): struct.pack_into("<H", b, vals_off[i] + 2 * j, pool_off + so)
-    for k, p in enumerate(d["presets"]):
-        struct.pack_into("<H", b, presets_off + stride * k, pool_off + pre_s[k])
-        for i, key in enumerate(keys): struct.pack_into("<H", b, presets_off + stride * k + 2 + 2 * i, p["values"][key])
     for i, (fx, a, bb, t, n) in enumerate(palette_entries(thumb)): struct.pack_into("<HBBBBH", b, pal_off + 8 * i, fx, a, bb, t, n, 0)
     b[rle_off:rle_off + len(rle)] = rle; b[pool_off:pool_off + len(pool)] = pool
     struct.pack_into("<II", b, total - 8, total, TRAILER)
@@ -96,19 +91,23 @@ def parse_desc(b):
     def u16(o): return struct.unpack_from("<H", b, o)[0]
     if len(b) < 48 or len(b) % 4: raise ValueError("size")
     magic, ver, total, np_, npre, cmds, cmp_, maxc = struct.unpack_from("<IHHBBHII", b, 0)
-    if magic != MAGIC or ver != VERSION or total != len(b): raise ValueError("header")
+    if magic != MAGIC or ver not in (1, 2, 3) or total != len(b): raise ValueError("header")           # 1: 16-byte parameter records, presets; 2: 20-byte records (key hash, default), presets; 3: 20-byte records, no presets (what the firmware reads now)
+    prec = 16 if ver == 1 else PREC
     if struct.unpack_from("<II", b, total - 8) != (total, TRAILER): raise ValueError("trailer")
     name_o, params_o, presets_o, pal_o, rle_o, rle_n = struct.unpack_from("<HHHHHH", b, 20)
     def string(o):
         if o >= total - 8: raise ValueError("string offset")
         e = b.index(b"\0", o, total - 8); return b[o:e].decode("latin1")
     mid, slot_, _ = struct.unpack_from("<HHI", b, 32)
-    out = {"mid": mid, "slot": slot_, "name": string(name_o), "cmds": cmds, "cmp": cmp_, "max_cycles": maxc, "params": [], "presets": [], "palette": [], "rle": bytes(b[rle_o:rle_o + rle_n])}
+    out = {"mid": mid, "slot": slot_, "name": string(name_o), "cmds": cmds, "cmp": cmp_, "max_cycles": maxc, "params": [], "palette": [], "rle": bytes(b[rle_o:rle_o + rle_n])}
     for i in range(np_):
-        lab, ty, hid, lo, hi, st, nv, wi, wv, vo, key, dflt = struct.unpack_from("<HBBHHHBBHHHH", b, params_o + PREC * i)
-        out["params"].append({"label": string(lab), "type": ty, "hidden": hid, "min": lo, "max": hi, "step": st, "vals": [string(u16(vo + 2 * j)) for j in range(nv)], "when_idx": wi, "when_val": wv, "key": key, "def": dflt})
-    stride = (2 + 2 * np_ + 3) & ~3
-    for k in range(npre): out["presets"].append({"name": string(u16(presets_o + stride * k)), "values": [u16(presets_o + stride * k + 2 + 2 * i) for i in range(np_)]})
+        lab, ty, hid, lo, hi, st, nv, wi, wv, vo, *kd = struct.unpack_from("<HBBHHHBBHH" + ("HH" if ver > 1 else ""), b, params_o + prec * i); key, dflt = kd if kd else (None, None)
+        out["params"].append({"label": string(lab), "type": ty, "hidden": hid, "min": lo, "max": hi, "step": st, "vals": [string(u16(vo + 2 * j)) for j in range(nv)], "when_idx": wi, "when_val": wv}); out["params"][-1].update({"key": key, "def": dflt} if key is not None else {})
+    if ver == 3 and (npre or presets_o): raise ValueError("presets")
+    out["presets"] = []
+    if ver < 3:
+        stride = (2 + 2 * np_ + 3) & ~3
+        for k in range(npre): out["presets"].append({"name": string(u16(presets_o + stride * k)), "values": [u16(presets_o + stride * k + 2 + 2 * i) for i in range(np_)]})
     for i in range(8): out["palette"].append(struct.unpack_from("<HBBBB", b, pal_o + 8 * i))
     return out
 def for_meter(key):

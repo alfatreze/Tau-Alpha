@@ -20,7 +20,7 @@ def build(td, mutant):
     if mutant == "norange": a = "if (p >= meters_npre(m)) p = 0u;"; assert a in src; src = src.replace(a, "")
     if mutant == "offbyone": a = "const uint32_t at = e.off + p * e.psize"; assert a in src; src = src.replace(a, "const uint32_t at = e.off + 1u + p * e.psize")
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "ui/mpreset_host.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_mpre_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"'))
     (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
@@ -33,7 +33,8 @@ sys.path.insert(0, str(ROOT / "tools/player2")); import meter_manifest as mm
 def man(k): return mm.load(ROOT / "meters" / k / "meter.json")
 DESCS = ["winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"]
 def vals(k, p): d = man(k); return " ".join(str(d["presets"][p]["values"][x["key"]]) for x in d["params"])
-GOOD = ["rows 5 count 6", "of3 6 of2 0", "mv3 " + vals("layered_wave", 6), "chladni_after5 1 name " + man("chladni")["presets"][1]["name"], "mv2 " + vals("chladni", 1), "vu_wrap 0", "bars_next 1 last0 1"]
+def dvals(k): return " ".join(str(x["default"]) for x in man(k)["params"])
+GOOD = ["rows 5 count 6", "of3 0 of2 0", "mv3 " + dvals("layered_wave"), "chladni_after5 0 name DEFAULT", "mv2 " + dvals("chladni"), "vu_wrap 0", "bars_next 0 last0 0"]      # a meter has ONE preset of its own, DEFAULT (B-970): every selection is it and next wraps to it
 def run_plain(d): return subprocess.run([str(d / "h"), "-"] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
 KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2), ("waterfall_grid", 3))      # every meter: Winamp Bars is built in, the others are rows through their descriptors
 def metr_spec():
@@ -61,8 +62,7 @@ with tempfile.TemporaryDirectory() as td:
     spec = metr_spec(); blob = ta.pack_meters(spec)
     check("a METR file replaces the presets: counts, names, values and boot presets equal the Python writer's", run_metr(d, blob) == metr_expected(spec))
 with tempfile.TemporaryDirectory() as td: check("mutant evict_newest (the pool evicts the slot saved last) is caught", run_tune(build(td, "evict_newest")) != GOOD_TUNE)
-for m in ("skips", "norange"):
-    with tempfile.TemporaryDirectory() as td: check(f"mutant {m} is caught", run_plain(build(td, m)) != GOOD)
+# (the mutants "skips" and "norange" need a meter with several presets: since B-970 only the preset FILES give a list, covered in test_p2_mpreset_meters)
 with tempfile.TemporaryDirectory() as td:
     d = build(td, "offbyone"); check("mutant offbyone (a preset is read from the wrong byte) is caught", run_metr(d, ta.pack_meters(metr_spec())) != metr_expected(metr_spec()))
 print("PASSED" if not fails else f"FAILED ({fails})")

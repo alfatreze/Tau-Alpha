@@ -4,7 +4,7 @@
 #ifndef P2_MPRESET_HOST_H
 #define P2_MPRESET_HOST_H
 #include <stdint.h>
-#include "../cores/mpreset_core.h"
+#include "mpreset_core.h"
 uint32_t mph_enter(uint32_t mid);                       /* reads the index of meter manifest id `mid` into the cache; returns the number of presets (0: none, or the read failed: see mph_err) */
 uint32_t mph_count(void);                               /* presets in the cached index */
 void     mph_name(uint32_t pos, char *out);             /* the name at list position pos (0 = "DEFAULT", 1.. = the index entries), at most 15 characters */

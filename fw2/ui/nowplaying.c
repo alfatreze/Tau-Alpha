@@ -8,15 +8,13 @@
 #include "../cores/marquee_core.h"
 #include "meter.h"
 #include "../art/art.h"
-#if P2_DIAG
-#include "../diagnostics/preset_probe.h"
-#endif
 #include "helios.h"
 #include "theme.h"
 #include "../aout/halcyon.h"
 #include "../aout/aout.h"
 #include "regions.h"
 #include "views.h"
+__attribute__((weak)) void np_new_track_hook(void) { }       /* the app overrides it in a diagnostic build (B-963: the preset-read probe; ui may not include diagnostics) */
 #include "../cores/controls_core.h"
 #include "../cores/help_core.h"
 
@@ -187,9 +185,7 @@ void nowplaying_draw_head(void)
         art_gen = p->gen; art_state = 2u; gfx_rect(COV_X, COV_Y, COV_S, COV_S, TRK);
         if (p->cover[0] && np_art_on) { mp3play_io_quiesce(); if (art_load(p->cover) == TIMG_OK) art_draw(COV_X, COV_Y); else cover_placeholder(); }
         else cover_placeholder();
-#if P2_DIAG
-        preset_probe_run();                                          /* B-963: how long one 200-byte file takes to open and read, and does the audio notice (Report rows PP ...) */
-#endif
+        np_new_track_hook();                                         /* the app's diagnostics (B-963: the preset-read probe) run here; nothing in a build without them */
     }
     put_scroll(1, MX, TITLE_Y, p->title, FG, MW, BG);
     put_scroll(2, MX, ARTIST_Y, p->artist, ACC, MW, BG);

@@ -9,6 +9,10 @@
 #endif
 #include "../diagnostics/about_page.h"
 #if P2_DIAG
+#include "../diagnostics/preset_probe.h"
+void np_new_track_hook(void) { preset_probe_run(); }          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
+#endif
+#if P2_DIAG
 #include "../diagnostics/check_page.h"
 #if P2_DIAG
 #include "../diagnostics/sdram_soak.h"

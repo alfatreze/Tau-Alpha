@@ -122,12 +122,13 @@ static void scope_trace(uint16_t *params, void (*apply)(void), void (*run)(const
     }
 }
 #endif
+#include "../fw2/generated/factory_presets.h"       /* the factory presets as fixtures (the firmware has DEFAULT only, B-969) */
 #ifdef PACK_CHL
 /* Chladni: every preset with its own layout and paint (LINE, EMBER, OCEAN), loud and quiet stretches and a pause, the box moved mid-run. */
 static void chl_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
 {
     for (int s = 0; s < 4; s++) {
-        for (uint32_t i = 0; i < MPP_CHL_N; i++) params[i] = mpp_chl[s][i];
+        for (uint32_t i = 0; i < MPP_CHL_N; i++) params[i] = fp_chl[s][i];
         params[MPP_CHL_LAYOUT] = (uint16_t)(s % 2); params[MPP_CHL_PAINT] = (uint16_t)(s % 3);
         if (apply) apply();
         TR_BEGIN(31337u + (uint32_t)s);
@@ -154,7 +155,7 @@ static void lw_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
 {
     static const uint8_t which[4] = { 0, 3, 9, 13 };
     for (int s = 0; s < 4; s++) {
-        for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = lw_preset[which[s] < LW_PRESET_N ? which[s] : 0][i];
+        for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = fp_lw[which[s] < FP_LW_N ? which[s] : 0][i];
         if (apply) apply();
         TR_BEGIN(5150u + (uint32_t)s);
         uint32_t pl = 0, pr = 0;
@@ -182,9 +183,9 @@ static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
     #ifdef TR_WF_ONLY
     for (int s = TR_WF_ONLY; s <= TR_WF_ONLY; s++) {                      /* one preset only (tools/player2/measure_pack_cost.py --wf) */
 #else
-    for (int s = 0; s < (int)MPP_WF_PRESETS; s++) {
+    for (int s = 0; s < (int)FP_WF_N; s++) {
 #endif
-        for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = mpp_wf[s][i];
+        for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = fp_wf[s][i];
         if (apply) apply();
         TR_BEGIN(60606u + (uint32_t)s);
         for (int n = 0; n < TR_NFRAMES * 2; n++) {
