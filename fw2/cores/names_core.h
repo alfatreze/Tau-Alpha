@@ -56,7 +56,7 @@ static int names_load(names_t *n, lib_read_fn rd, void *ctx, uint8_t *win, volat
     uint32_t fsz = o_pool + n_pool;
     if (fsz > mem_cap) return NAMES_E_TOOBIG;
     for (uint32_t i = 0; i < NAMES_HDR; i++) mem[i] = win[i];
-    if (!rd(ctx, fsz - 1u, win, 1u) || rd(ctx, fsz, win, 1u)) return NAMES_E_SIZE;       /* the file is exactly as long as the header says */
+    if (!rd(ctx, fsz - 1u, win, 1u)) return NAMES_E_SIZE;                       /* the last byte the header promises must exist; NO read past the end (what a path-opened slot does there is unproven on a Pocket, and a stuck bridge read froze the player): bytes after it are ignored */
     for (uint32_t off = NAMES_HDR; off < fsz; ) {
         uint32_t c = fsz - off;
         if (c > LIB_WIN) c = LIB_WIN;

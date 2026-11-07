@@ -276,8 +276,11 @@ const cnt_t counters_table[] = {
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
     { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
     { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
+    { "NAMES STATE",  CK_U8,  CU_NONE,   &names_state },          /* 0 not tried, 1 sidecar loaded, 2 absent or refused */
+    { "NAMES ERR",    CK_U8,  CU_NONE,   &names_err },            /* 0 not on the card, 1 no path, else NAMES_E_* (20..27) */
 #if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "LIB LOAD",     CK_U32, CU_MS,     &lib_ms },
+    { "NAMES LOAD",   CK_U32, CU_MS,     &names_ms },
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
     { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
