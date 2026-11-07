@@ -27,10 +27,10 @@ Rules:
     Loose image files are not copied unless --copy-images (the player would not use them).
   * A folder of tracks with no .m3u/.m3u8 gets a playlist.m3u generated in the destination (bare filenames, natural
     track order) for the media library to import as a "list"; --no-playlist turns that off.
-  * Names are made ASCII-only on the card (Nausicaä -> Nausicaa; characters with no plain equivalent are removed), for folders and
-    files, and every playlist line is rewritten to match. The player cannot open paths with accented characters
-    (docs/issues/001; macOS also stores them in decomposed form, which makes them differ from the playlist).
-    --keep-names turns this off. A collision after conversion stops the run.
+  * Names keep every character the Pocket can open (BUG-001, docs/issues/001): it reads a path as code page 437, so Nausicaä, Café, Søren's
+    ö/é/ñ/ß/æ stay as they are (written precomposed); only a character outside code page 437 (Cyrillic, CJK, emoji, Á, Ø, Č ...) is
+    transliterated (Japanese with pykakasi if installed, the rest with anyascii; emoji dropped). Folders and files both, and every playlist line is rewritten to match. --ascii-only folds ALL
+    non-ASCII characters (the old behaviour); --keep-names leaves names alone. Two names that convert to the same name get " (2)", " (3)" in sorted order.
   * Cover sidecars are written BY DEFAULT (B-736): with no flag the run behaves as --art-variants (pal256, 128 px); --no-art-variants turns it off. The firmware reads
     them (fw/timg.inc) and uses them in preference to decoding the embedded JPEG, which is slow and may be removed. Missing Pillow/numpy only warns when the default is
     in force. --art-variants [LIST] writes pre-scaled cover files in the study formats of tools/tau_image.py (default
@@ -173,8 +173,138 @@ def ascii_part(name):
     return out
 
 
-def ascii_rel(rel: Path):
-    return Path(*[ascii_part(x) for x in rel.parts])
+def _translit(run):
+    """a run of characters the Pocket cannot open, as plain ASCII. Japanese kana and kanji go through pykakasi (Hepburn, words split by a space)
+    when it is installed, everything else through anyascii (Cyrillic, Greek, Hanzi as pinyin, ...); without them an accent is dropped to the
+    plain letter and the rest is removed. Both libraries are OPTIONAL and never bundled (pykakasi is GPL-3.0: an installed tool, nothing copied;
+    docs/PROVENANCE.md). Emoji and symbols are dropped."""
+    import unicodedata
+    out = []
+    for c in run:
+        o = ord(c)
+        if o >= 0x1F000 or 0x2190 <= o <= 0x2BFF or 0xFE00 <= o <= 0xFE0F or o == 0x200D:
+            continue                                               # emoji, arrows, dingbats, variation selectors, joiner
+        out.append(c)
+    run = "".join(out)
+    if not run:
+        return ""
+    kana = any(0x3040 <= ord(c) <= 0x30FF or 0x31F0 <= ord(c) <= 0x31FF for c in run)
+    if kana:                                                       # a run with kana is Japanese: kanji get their Japanese reading, not pinyin
+        k = _kakasi()
+        if k:
+            run = " ".join(w["hepburn"] for w in k.convert(run) if w["hepburn"])
+    if _anyascii():
+        run = _anyascii()(run)
+    else:
+        run = "".join(unicodedata.normalize("NFKD", _FOLD.get(c, c)) for c in run)
+    return "".join(x for x in run if 0x20 <= ord(x) < 0x7F)
+
+
+_KAKASI = None
+_ANY = None
+
+
+def _kakasi():
+    global _KAKASI
+    if _KAKASI is None:
+        try:
+            import pykakasi
+            _KAKASI = pykakasi.kakasi()
+        except Exception:
+            _KAKASI = False
+    return _KAKASI or None
+
+
+def _anyascii():
+    global _ANY
+    if _ANY is None:
+        try:
+            from anyascii import anyascii
+            _ANY = anyascii
+        except Exception:
+            _ANY = False
+    return _ANY or None
+
+
+def card_part(name, ascii_only=False):
+    """a file or folder name as it goes on the card. The Pocket decodes a path as code page 437 (docs/issues/001, B-1000), so every
+    character that exists there (Latin letters with accents such as e-acute, o-umlaut, n-tilde, ss, ae, plus pi, cent, ...) is KEPT, in the
+    precomposed (NFC) form the card stores; a run of other characters is transliterated (_translit). A name left empty is "track" (the caller
+    numbers duplicates). With ascii_only every non-ASCII character is folded (the old behaviour, --ascii-only)."""
+    import unicodedata
+    if ascii_only:
+        return ascii_part(name)
+    out, run = [], []
+    for c in unicodedata.normalize("NFC", name):
+        if 0x20 <= ord(c) < 0x7F or (ord(c) > 0x9F and _cp437(c)):
+            if run:
+                out.append(_translit("".join(run))); run = []
+            out.append(c)                                         # ASCII, or in code page 437: the Pocket opens it
+        else:
+            run.append(c)
+    if run:
+        out.append(_translit("".join(run)))
+    s2 = "".join(out)
+    for bad in '<>:"|?*\\':
+        s2 = s2.replace(bad, "_")
+    s2 = s2.strip()
+    stem, dot, ext = s2.rpartition(".")
+    if not s2 or (dot and not stem.strip()):
+        s2 = "track" + (("." + ext) if dot else "")
+    return s2
+
+
+class NameMap:
+    """original card-relative path -> converted path, every folder and file; two different originals that convert to the same name (compared
+    without case: the card is ExFAT) in one folder get " (2)", " (3)" ... in sorted order, so a run never stops on a collision and the result
+    is the same on every run (the same rule is in docs/features/CARD_NAME_RULES.md for Tau Omega)."""
+
+    def __init__(self, rels, ascii_only=False):
+        self.ascii_only = ascii_only
+        self.map = {(): ()}
+        self.taken = {}
+        for rel in sorted({tuple(r.parts) for r in rels}):
+            for i in range(1, len(rel) + 1):
+                self._one(rel[:i], last_is_file=(i == len(rel)))
+
+    def _one(self, orig, last_is_file):
+        if orig in self.map:
+            return
+        parent = self.map[orig[:-1]]
+        base = card_part(orig[-1], self.ascii_only)
+        stem, ext = base, ""
+        if last_is_file and "." in base and base.rpartition(".")[0]:
+            stem, _, e = base.rpartition("."); ext = "." + e
+        n, cand = 1, base
+        while True:
+            key = (parent, cand.lower())
+            if self.taken.get(key, orig) == orig:
+                break
+            n += 1
+            cand = f"{stem} ({n}){ext}"
+        self.taken[(parent, cand.lower())] = orig
+        self.map[orig] = parent + (cand,)
+
+    def rel(self, rel):
+        return Path(*self.map[tuple(Path(rel).parts)])
+
+    def line(self, base_parts, parts):
+        """a playlist line (relative to the playlist's folder), converted with the same map; pieces the map does not know use card_part"""
+        for pre in (tuple(base_parts), ()):
+            k = pre + tuple(parts)
+            if k in self.map:
+                return "/".join(self.map[k][len(self.map[pre]):])
+        return "/".join(card_part(x, self.ascii_only) for x in parts)
+
+
+_FOLD = {"Ø": "O", "ø": "o", "Đ": "D", "đ": "d", "Ł": "L", "ł": "l", "Ð": "D", "ð": "d", "Þ": "Th", "þ": "th", "Œ": "OE", "œ": "oe", "ı": "i"}
+
+
+def _cp437(c):
+    try: c.encode("cp437"); return True
+    except UnicodeEncodeError: return False
+
+
 
 
 def natural_key(name):
@@ -349,7 +479,8 @@ def main():
     ap.add_argument("--cover", help="use this image as the cover for every track (implies --embed-cover)")
     ap.add_argument("--copy-images", action="store_true", help="also copy loose image files (converted if needed)")
     ap.add_argument("--no-playlist", action="store_true", help="do not generate playlist.m3u for folders that have none")
-    ap.add_argument("--keep-names", action="store_true", help="do not convert names to ASCII (the player fails on non-ASCII names)")
+    ap.add_argument("--keep-names", action="store_true", help="do not convert names at all (a name with a character outside code page 437 cannot be opened by the player)")
+    ap.add_argument("--ascii-only", action="store_true", help="fold every non-ASCII character in names (the old behaviour); default keeps the code page 437 characters the Pocket can open")
     ap.add_argument("--cover-quality", type=int, help="re-encode embedded covers at this JPEG quality (e.g. 75); default: keep the original bytes")
     ap.add_argument("--cover-max", type=int, help="shrink embedded covers to at most this many pixels on the long side (the screen shows 92 px)")
     ap.add_argument("--dest-suffix", default="", help="append this text to every copied top-level folder name (keep two variants side by side)")
@@ -485,12 +616,10 @@ def main():
                     plan.append((pl, rp / "playlist.m3u", f"generated, {len(info['audio'])} tracks", True))
 
         if not args.keep_names:
-            renamed, seen, newplan = [], {}, []
+            renamed, newplan = [], []
+            nm = NameMap([rel for _, rel, _, _ in plan], args.ascii_only)
             for f, rel, note, conv in plan:
-                r2 = ascii_rel(rel)
-                if str(r2) in seen and seen[str(r2)] != str(rel):
-                    sys.exit(f"name collision after ASCII conversion: {rel} and {seen[str(r2)]} -> {r2}")
-                seen[str(r2)] = str(rel)
+                r2 = nm.rel(rel)
                 if r2 != rel:
                     renamed.append((rel, r2))
                 if rel.suffix.lower() in LISTS:            # playlist lines follow the file names
@@ -502,19 +631,19 @@ def main():
                             parts = ln.split("/")
                             if len(parts) > 1 and parts[0] in top_map:
                                 parts[0] = top_map[parts[0]]
-                            n = "/".join(ascii_part(x) for x in parts)
+                            n = nm.line(rel.parent.parts, parts)
                         changed |= n != ln
                         lines.append(n)
                     if changed:
                         pl2 = tmp / f"plr_{len(newplan)}.m3u"
                         pl2.write_text("\n".join(lines) + "\n", encoding="utf-8")
                         f, conv = pl2, True
-                        note = (note + "; " if note else "") + "playlist lines converted to ASCII"
+                        note = (note + "; " if note else "") + "playlist lines converted"
                 newplan.append((f, r2, note, conv))
             plan = newplan
             if renamed:
                 folders_r = sorted({(a.parent, b.parent) for a, b in renamed if a.parent != b.parent})
-                print(f"names converted to ASCII: {len(renamed)} file(s)" +
+                print(f"names converted: {len(renamed)} file(s)" +
                       "".join(f"\n  {a}  ->  {b}" for a, b in folders_r[:6]))
         record, bad = [], 0
         for core, plat in cores:
