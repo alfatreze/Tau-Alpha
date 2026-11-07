@@ -92,6 +92,7 @@ test-host:
 	$(PYTHON) sim/test_p2_diag_split.py
 	$(PYTHON) sim/test_lab_drop.py
 	$(PYTHON) sim/test_lab_host.py
+	$(PYTHON) sim/test_name_test_library.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
