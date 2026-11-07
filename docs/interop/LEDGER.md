@@ -2,6 +2,12 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| O007/R-025 | New lab drop at or after `696ff9ad` with all seven modules, `lab-data.json`, built `meter_lab.html`, module hash/clang as manifest fields (Omega 007, 008) | Tau-Alpha | **ACCEPTED, message 009; timing is the owner's, not set; generator change not done** |
+| O007/Q-026 | Seeding rule for `tau-presets/` | closed | **ANSWERED, message 009: per meter folder (index.tpi present = the owner's); `check-card` now warns on a removed file (B-1008)** |
+| O007/Q-027 | Slot to meter lookup | closed | **ANSWERED, message 009: confirmed (descriptor offset 32 id, 34 slot; fields for slots 0 to 6)** |
+| O007/Q-031 | Lab preview of a preset | Tau-Alpha | **ACCEPTED, shape proposed in message 009 (`tau-lab-set`); not built** |
+| A007/Q-034, A007/Q-035 | User preset ids; show module provenance | closed | **ANSWERED by Omega 008: no range needed, `hidden` withdrawn; provenance shown, fields requested in the drop manifest** |
+| A006/Q-026 | Does Omega build the index? | closed | **ANSWERED by Omega 008: yes, byte-exact; writes both sidecar files** |
 | F-027 | All seven meters have a WebAssembly module (D-M15) | closed | **FACT sent in message 007** |
 | F-028 | The pinned drop `pre-0.7.0-b163ebb2` predates the modules for Bars/Scope/VU/Chladni/Waterfall | closed | **FACT, message 007**; a new drop comes with the v0.7.0 release |
 | F-029 | Module `/*META{...}*/` header: wasm sha256, clang version, source hashes | closed | **FACT, message 007** |
