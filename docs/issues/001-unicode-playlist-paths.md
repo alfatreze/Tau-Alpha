@@ -119,3 +119,5 @@ The Diagnostic Build runs the name matrix **once per boot at the first Select+St
 Addendum (B-1001, same day): the sync tool no longer stops on a name collision (` (2)`, ` (3)` in sorted order, case-insensitive per folder) and transliterates what code page 437 lacks (anyascii; pykakasi for Japanese; emoji dropped; `track` only when nothing is left). Rules and vectors: `docs/features/CARD_NAME_RULES.md` (Tau Omega must follow them).
 
 Update 2026-11-07 (B-1002): the full design for keeping the originals is `docs/features/NAME_SIDECAR_SPEC.md` (card-safe name opens the file, the sidecar holds the lossless UTF-8 name and tags, the firmware shows the original when its font can draw every character). Host-tested with a 62-case corpus; firmware reader and a CJK font are not built.
+
+Update 2026-11-07 (B-1003): the firmware reader of the sidecar is built and host-tested (`fw2/cores/names_core.h`, `fw2/stream/library.c`). No writer yet, not on a Pocket; with the Latin-1 font it adds little until a font with wider coverage exists.

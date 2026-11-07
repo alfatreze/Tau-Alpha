@@ -4,20 +4,60 @@
 #include "slot.h"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "../cores/library_core.h"
+#include "../cores/names_core.h"
 
 #define PS_BASE   0xA4000000u
+/* The addresses below are the Pocket's; sim/p2_library_names_harness.c (host build of this file) defines its own before including it. */
+#ifndef LIB_IMG
 #define LIB_IMG   ((volatile uint8_t *)(uintptr_t)(PS_BASE + 0x010000u))
+#endif
 #define LIB_CAP   0x400000u
+#ifndef LIB_Q
 #define LIB_Q     ((uint16_t *)(uintptr_t)(PS_BASE + 0x510000u))
+#endif
+#ifndef LIB_TAGWIN
+#define LIB_TAGWIN ((uint8_t *)(uintptr_t)(0xC0000000u + (uint32_t)(uintptr_t)&_tag_start))      /* the tag zone through the uncached alias */
+#endif
+
+#ifndef NAMES_IMG
+#define NAMES_IMG ((volatile uint8_t *)(uintptr_t)(PS_BASE + 0x700000u))     /* tau-names.bin image, 1 MiB cap (docs/features/NAME_SIDECAR_SPEC.md); below the cold image at +0x800000 */
+#endif
+#define NAMES_SLOT 7u                                                       /* opened by path at boot, like the cover and the skip list: no data slot of its own */
 
 extern char _tag_start;
 uint8_t lib_state, lib_err; uint32_t lib_ms, lib_n_tracks;
+uint8_t names_state, names_err; uint32_t names_ms;
 static lib_t lib;
+static names_t nms;
 
 static int rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
 {
     (void)ctx; (void)dst;
     return slot_read_blocking(SLOT_LIB, off, (uint32_t)(uintptr_t)&_tag_start, len, CLK_HZ * 5u);
+}
+
+static int nrd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
+{
+    (void)ctx; (void)dst;
+    return slot_read_blocking(NAMES_SLOT, off, (uint32_t)(uintptr_t)&_tag_start, len, CLK_HZ * 5u);
+}
+
+/* The original-name sidecar <root>/tau-names.bin: optional. Absent, damaged, for another index or too big = no sidecar and the index text is shown as before. names_state 0 none tried, 1 loaded, 2 absent or refused (names_err: 0 not on the card, 1 path, else NAMES_E_*). */
+static void names_load_sidecar(void)
+{
+    names_state = 0; names_err = 0; names_ms = 0;
+    char path[LIBP_MAX_PATH]; uint32_t n = library_root(path, sizeof path - 16u);
+    if (!n) { names_state = 2; names_err = 1; return; }
+    if (path[n - 1u] != '/') path[n++] = '/';
+    const char *f = "tau-names.bin"; for (; *f; f++) path[n++] = *f;
+    path[n] = 0;
+    uint32_t t0 = cycles();
+    if (!slot_open_path(NAMES_SLOT, path)) { names_state = 2; names_err = 0; return; }       /* not on the card: the normal case */
+    uint8_t *win = LIB_TAGWIN;
+    int e = names_load(&nms, nrd, 0, win, NAMES_IMG, NAMES_MAX_FILE, lib.build_id, lib.n_tracks, lib.n_albums, lib.n_artists);
+    names_ms = (cycles() - t0) / (CLK_HZ / 1000u);
+    if (e) { names_state = 2; names_err = (uint8_t)e; return; }
+    names_state = 1;
 }
 
 static int psram_ok(void)           /* the window does not exist on an older bitstream: prove it before the first store */
@@ -35,11 +75,12 @@ void library_load(void)
     lib_state = 0; lib_err = 0;
     if (!slot_read_blocking(SLOT_LIB, 0u, (uint32_t)(uintptr_t)&_tag_start, 1u, CLK_HZ * 3u)) { lib_state = 2; lib_err = LIB_E_NOFILE; return; }
     if (!psram_ok()) { lib_state = 2; lib_err = 0x80; return; }
-    uint8_t *win = (uint8_t *)(uintptr_t)(0xC0000000u + (uint32_t)(uintptr_t)&_tag_start);      /* the tag zone through the uncached alias */
+    uint8_t *win = LIB_TAGWIN;
     int e = lib_load(&lib, rd, 0, win, LIB_IMG, LIB_CAP);
     lib_ms = (cycles() - t0) / (CLK_HZ / 1000u);
     if (e) { lib_state = 2; lib_err = (uint8_t)e; return; }
     lib_state = 1; lib_n_tracks = lib.n_tracks;
+    names_load_sidecar();
 }
 uint32_t library_path(uint32_t id, char *out, uint32_t cap) { return lib_state == 1 && id < lib.n_tracks ? lib_path(&lib, id, out, cap) : 0; }
 uint32_t library_size(uint32_t id) { lib_det_t d; return lib_state == 1 && lib_details(&lib, id, &d) ? d.size : 0; }
@@ -66,6 +107,11 @@ void library_meta(uint32_t id, char *title, uint32_t tcap, char *artist, uint32_
     lib_track(&lib, id, &t); title[lib_str(&lib, t.title, title, tcap - 1u)] = 0;
     lib_album(&lib, t.album, &a); album[lib_str(&lib, a.title, album, bcap - 1u)] = 0;
     lib_artist(&lib, a.artist, &r); artist[lib_str(&lib, r.name, artist, acap - 1u)] = 0;
+    if (names_state == 1) {                                             /* the original text where the font can draw all of it; else the index text above stays */
+        names_display(&nms, NAMES_TRACK, id, NF_TITLE, title, tcap);
+        if (!names_display(&nms, NAMES_TRACK, id, NF_ARTIST, artist, acap)) names_display(&nms, NAMES_ARTIST, a.artist, 0, artist, acap);
+        if (!names_display(&nms, NAMES_TRACK, id, NF_ALBUM, album, bcap)) names_display(&nms, NAMES_ALBUM, t.album, NF_ALBUM_TITLE, album, bcap);
+    }
 }
 int library_facts(uint32_t id, uint32_t *codec, uint32_t *ch, uint32_t *kbps, uint32_t *rate)
 {
@@ -108,10 +154,10 @@ void library_br_text(uint8_t kind, uint32_t parent, uint32_t pos, char *out, uin
     if (lib_state != 1) return;
     switch (kind) {
     case BK_HOME: { const char *s = home[pos < 5u ? pos : 4u]; uint32_t i = 0; for (; s[i] && i + 1u < cap; i++) out[i] = s[i]; out[i] = 0; break; }
-    case BK_ARTISTS: { lib_artist_t r; lib_artist(&lib, pos, &r); lib_str(&lib, r.name, out, cap); break; }
-    case BK_ALBUMS: case BK_ALBUMS_OF: { lib_album_t a; lib_album(&lib, library_br_child(kind, parent, pos), &a); lib_str(&lib, a.title, out, cap); break; }
+    case BK_ARTISTS: { lib_artist_t r; lib_artist(&lib, pos, &r); lib_str(&lib, r.name, out, cap); if (names_state == 1) names_display(&nms, NAMES_ARTIST, pos, 0, out, cap); break; }
+    case BK_ALBUMS: case BK_ALBUMS_OF: { uint32_t ai = library_br_child(kind, parent, pos); lib_album_t a; lib_album(&lib, ai, &a); lib_str(&lib, a.title, out, cap); if (names_state == 1) names_display(&nms, NAMES_ALBUM, ai, NF_ALBUM_TITLE, out, cap); break; }
     case BK_LISTS: { lib_list_t l; lib_list(&lib, pos, &l); lib_str(&lib, l.name, out, cap); break; }
-    default: { lib_track_t t; lib_track(&lib, library_br_child(kind, parent, pos), &t); lib_str(&lib, t.title, out, cap); break; }
+    default: { uint32_t ti = library_br_child(kind, parent, pos); lib_track_t t; lib_track(&lib, ti, &t); lib_str(&lib, t.title, out, cap); if (names_state == 1) names_display(&nms, NAMES_TRACK, ti, NF_TITLE, out, cap); break; }
     }
 }
 uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16_t *q, uint32_t cap, uint32_t *start, uint32_t seed)

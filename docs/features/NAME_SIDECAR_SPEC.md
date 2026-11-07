@@ -1,6 +1,6 @@
 # Name sidecar spec (original names and tags beside the card-safe ones)
 
-Status: **specified, host-tested with a reference implementation (`tools/name_sidecar.py`), not yet read by the firmware, not run on a Pocket.** Written 2026-11-07 (audit B-1002). Tau-native design; it does not derive from any other player.
+Status: **specified and host-tested (reference implementation `tools/name_sidecar.py`); the Player 2 firmware reader is built and host-tested (B-1003, `fw2/cores/names_core.h`, wired in `fw2/stream/library.c`); not run on a Pocket; no tool writes the files yet.** Written 2026-11-07 (audit B-1002). Tau-native design; it does not derive from any other player.
 
 ## 1. Why
 The Pocket opens a file only by a path it decodes as code page 437 (BUG-001, `docs/issues/001-unicode-playlist-paths.md`). So the **card carries safe names** (`docs/features/CARD_NAME_RULES.md`: kept CP437 characters, transliterated rest, numbered collisions) and the **index carries Latin-1 display text** (`docs/features/FONT_SPEC.md` 3.6). Both are lossy for Cyrillic, Greek, CJK, Hangul, Arabic, emoji and the Latin letters CP437 lacks. The sidecar keeps the **original, lossless UTF-8** next to them so that
@@ -29,7 +29,7 @@ The manifest is the source of truth (it can rebuild the binary, and the card nam
 ```json
 {
   "format": "tau-names", "version": 1,
-  "index_crc32": 305419896,
+  "index_build_id": 305419896,
   "tracks": [
     {"id": 0, "card": "Cafe/01 Cafe.mp3", "orig": "Café/01 Café.mp3",
      "title": "Café", "artist": "…", "album": "…"}
@@ -37,7 +37,7 @@ The manifest is the source of truth (it can rebuild the binary, and the card nam
 }
 ```
 - `card` is the path relative to `common/` exactly as written to the card (the bytes the index holds, as text); `orig` is the source path relative to the sync source root, NFC. `id` is the track id in the index the manifest was built against.
-- `index_crc32` = CRC32 of the whole `tau-library.tdb` it was built with. **A reader that finds a different CRC treats the sidecar as absent** (the library was rebuilt and the ids moved); tools may re-bind by `card` path instead.
+- `index_build_id` = the `build_id` of the `tau-library.tdb` it was built with (index header offset 16, the CRC32 of the index body: the firmware has it after loading the index, no extra pass). **A reader that finds a different build id treats the sidecar as absent** (the library was rebuilt and the ids moved); tools may re-bind by `card` path instead.
 - `title`, `artist`, `album` are the original tag text (UTF-8 after the host tool decoded UTF-16 / Latin-1 / Windows-1252 / **Shift-JIS and the other legacy code pages**, which the firmware never has to understand).
 - Optional per track: `"orig_file"` (the original file name alone) when it differs from the file name of `orig` (not used today; reserved).
 - Unknown keys are ignored; a reader rejects `version` above its own.
@@ -50,7 +50,7 @@ Little endian, sections 16-byte aligned, offsets only (like `docs/MEDIA_LIBRARY_
 | 0 | 4 | magic `TNMS` |
 | 4 | 2 | version = 1 |
 | 6 | 2 | flags (bit0 = pool is UTF-8 NFC; others 0, ignored) |
-| 8 | 4 | `index_crc32` of the `tau-library.tdb` it matches |
+| 8 | 4 | `index_build_id`: the `build_id` of the `tau-library.tdb` it matches |
 | 12 | 4 | n_tracks |
 | 16 | 4 | n_albums |
 | 20 | 4 | n_artists |
@@ -64,7 +64,7 @@ Little endian, sections 16-byte aligned, offsets only (like `docs/MEDIA_LIBRARY_
 | next (16-aligned) | pool | NUL-terminated UTF-8; byte 0 is a NUL (offset 0 means absent); de-duplicated |
 
 - **Ids are the index's ids** (`track`, `album`, `artist` order of `tau-library.tdb`); `file` is the original *file name* shown in the browser when a track has no usable title.
-- Reader checks: magic, `version`, header CRC, `index_crc32` equal to the loaded index's CRC32, counts equal to the index's counts, every offset inside the pool and at a NUL-terminated string. **Any failure = the sidecar is absent.** It never changes how a track is opened (paths always come from the index).
+- Reader checks: magic, `version`, header CRC, `index_build_id` equal to the loaded index's `build_id`, counts equal to the index's counts, the file exactly `pool offset + pool size` bytes long, the pool starting and ending with a NUL, every offset 0 or the start of a string (the byte before it is a NUL). UTF-8 is validated when a field is drawn (a malformed string is never drawn). **Any failure = the sidecar is absent.** It never changes how a track is opened (paths always come from the index).
 - Budget: 7,180 tracks x 16 B = 115 KB + strings (CJK titles are about 3 bytes a character; 7,180 x 60 B is under 450 KB). Hard cap 1 MiB; over it the tool drops the `file` field first, then writes none, with a warning.
 
 ## 6. Display rule (the part the firmware implements)
@@ -86,6 +86,8 @@ Sorting and letter jumps keep using the index (the tool collates once); the side
 `sim/name_corpus.py` (62 cases) holds the shared cases (plain, accented precomposed and decomposed, CP437-only symbols, Latin letters CP437 lacks, Greek, Cyrillic, Chinese, Japanese kana and kanji-only, Korean, Arabic, Hebrew, Thai, Devanagari, emoji and ZWJ sequences, flags, fullwidth, combining, forbidden characters, reserved and edge names, case-only and normalization-only collisions, long names, music punctuation). `sim/test_name_sidecar.py` runs every case through name conversion, the library index, the sidecar (JSON and binary, round trip and corruption), and the display rule at three font coverages (ASCII, Latin-1, everything).
 
 ## 9. Not decided yet / next
-- Firmware reader (slot, memory for 450 KB of strings, where the draw path takes the UTF-8 decode) and a font with CJK coverage: a separate study with a measured SDRAM budget (rules 5 and 6 of `docs/PROJECT_RULES.md`).
+- **Firmware reader: built (B-1003).** `names_load` reads `<root>/tau-names.bin` at boot, right after the index, through slot 7 opened by path (no new data slot, no data.json change; the same mechanism as the cover and the skip list), into PSRAM at `+0x700000` (1 MiB, below the cold image). `names_display` answers a field only when every character is drawable, converted to Latin-1; `library_meta` and `library_br_text` use it and keep the index text otherwise. Cost: ROM unchanged (the code is in the cold image: +2,372 B code, +16 B data), **+40 B of hot RAM (.bss)**; Diagnostic Build headroom to the 1,024 B floor is 528 B afterwards. **Hardware assumptions still to prove on a Pocket:** a read past the end of a path-opened slot fails (the size check relies on it; if not, the sidecar is refused and the index text shows), the cost of the one failed open on a card with no sidecar (not measured), and the load time of a large file.
+- **Writers:** `sync_media.py` and the index builder do not write `tau-names.json` / `tau-names.bin` yet (`tools/name_sidecar.py` has the builders and the tests); Tau Omega neither.
+- **A font with CJK coverage:** separate study with a measured SDRAM budget (rules 5 and 6 of `docs/PROJECT_RULES.md`). Until then the reader only adds text the Latin-1 font already draws (tag text longer than the index's 63 characters, characters the index folded, e.g. a typographic quote is not drawable and falls back).
 - Whether album art sidecars (`tau-art/`) move into the same manifest (not needed now).
 - Display of right-to-left scripts (Arabic, Hebrew): logical order is stored; shaping and direction are a font and UI decision.

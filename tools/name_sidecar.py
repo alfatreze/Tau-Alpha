@@ -3,7 +3,7 @@
 and the display rule the firmware will implement. Host-tested by sim/test_name_sidecar.py; the firmware does not read it yet.
 
   clean_text(s, limit)                  spec 3: NFC, no controls, no surrogates, cut at a character boundary
-  build_manifest(tracks, index_crc)     spec 4: the JSON source of truth (records that carry nothing extra are left out)
+  build_manifest(tracks, index_bid)     spec 4: the JSON source of truth (records that carry nothing extra are left out)
   manifest_bytes(m) / load_manifest(b)  deterministic UTF-8 JSON
   build_bin(...) / parse_bin(...)       spec 5: the firmware table
   display(side, index, stem, cov)       spec 6: which text is drawn
@@ -77,7 +77,7 @@ def display(side, index, stem, cov="latin1"):
 
 
 # ----------------------------------------------------------------- manifest (spec 4)
-def build_manifest(tracks, index_crc, index_text=None):
+def build_manifest(tracks, index_bid, index_text=None):
     """tracks: list of dicts {id, card, orig, title, artist, album} (tags are raw original text). index_text: {id: {title, artist, album}} as
     stored in the index (Latin-1 text); a record is kept only when the original differs from the card path or a tag says more than the index."""
     recs = []
@@ -94,7 +94,7 @@ def build_manifest(tracks, index_crc, index_text=None):
             rec[k] = v
         if extra:
             recs.append(rec)
-    return {"format": "tau-names", "version": VERSION, "index_crc32": index_crc, "tracks": recs}
+    return {"format": "tau-names", "version": VERSION, "index_build_id": index_bid, "tracks": recs}
 
 
 def manifest_bytes(m):
@@ -115,7 +115,7 @@ def _align(n):
     return (n + 15) & ~15
 
 
-def build_bin(index_crc, tracks, albums, artists):
+def build_bin(index_bid, tracks, albums, artists):
     """tracks: list (by track id) of dicts with optional file/title/artist/album text; albums: list of (title, artist); artists: list of names.
     None or '' = absent. Returns the file bytes; raises SidecarError over the 1 MiB cap."""
     pool = bytearray(b"\x00")
@@ -137,7 +137,7 @@ def build_bin(index_crc, tracks, albums, artists):
     o_alb = _align(o_trk + len(trk))
     o_art = _align(o_alb + len(alb))
     o_pool = _align(o_art + len(art))
-    hdr = MAGIC + struct.pack("<HHIIIIII", VERSION, 1, index_crc, len(tracks), len(albums), len(artists), o_pool, len(pool))
+    hdr = MAGIC + struct.pack("<HHIIIIII", VERSION, 1, index_bid, len(tracks), len(albums), len(artists), o_pool, len(pool))
     hdr = hdr[:32] + struct.pack("<I", zlib.crc32(hdr[:32]) & 0xFFFFFFFF) + bytes(12)
     out = bytearray(hdr)
     for off, blob in ((o_trk, trk), (o_alb, alb), (o_art, art), (o_pool, bytes(pool))):
@@ -148,7 +148,7 @@ def build_bin(index_crc, tracks, albums, artists):
     return bytes(out)
 
 
-def parse_bin(data, index_crc=None, counts=None):
+def parse_bin(data, index_bid=None, counts=None):
     """returns {'tracks': [{file,title,artist,album}], 'albums': [(title, artist)], 'artists': [name]} with None for absent fields.
     Raises SidecarError for anything the reader must treat as 'no sidecar' (spec 5 reader checks)."""
     if len(data) < 48 or data[:4] != MAGIC:
@@ -158,14 +158,14 @@ def parse_bin(data, index_crc=None, counts=None):
         raise SidecarError(f"version {ver}")
     if zlib.crc32(data[:32]) & 0xFFFFFFFF != hcrc:
         raise SidecarError("header crc")
-    if index_crc is not None and crc != index_crc:
+    if index_bid is not None and crc != index_bid:
         raise SidecarError("index crc differs: the library was rebuilt")
     if counts is not None and tuple(counts) != (nt, na, nr):
         raise SidecarError(f"counts {(nt, na, nr)} != index {tuple(counts)}")
     o_trk = 48
     o_alb = _align(o_trk + nt * 16)
     o_art = _align(o_alb + na * 8)
-    if o_pool != _align(o_art + nr * 4) or o_pool + n_pool > len(data) or n_pool < 1 or data[o_pool] != 0 or data[o_pool + n_pool - 1] != 0:
+    if o_pool != _align(o_art + nr * 4) or o_pool + n_pool != len(data) or n_pool < 1 or data[o_pool] != 0 or data[o_pool + n_pool - 1] != 0:
         raise SidecarError("layout")
     pool = data[o_pool:o_pool + n_pool]
 
