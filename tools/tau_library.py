@@ -370,8 +370,10 @@ def _align(b, n=16):
     b += b"\x00" * (-len(b) % n)
 
 
-def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
-    """entries -> index bytes. Raises LibError(14/15) for cap or path violations."""
+def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX, side=None):
+    """entries -> index bytes. Raises LibError(14/15) for cap or path violations. `side`, when a dict, is filled with the ORIGINAL (unfolded) text of everything the
+    index displays, by index id, for the name sidecar (docs/features/NAME_SIDECAR_SPEC.md): tracks [{rel, file, title, artist, album, idx_title, idx_artist, idx_album}],
+    albums [{title, artist, idx_title, idx_artist}], artists [{name, idx_name}]. The artist of a track is the one the index shows (the album artist)."""
     warns = warns if warns is not None else []
     albums = {}
     for i, e in enumerate(entries):
@@ -391,18 +393,28 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
     for d, ids in albums.items():
         ids.sort(key=lambda i: (entries[i]["_tno"] >> 10, entries[i]["_tno"] & 1023, nat(entries[i]["file"])))
         first = entries[ids[0]]["tags"]
-        artist = "Unknown Artist"
+        artist, artist_raw = "Unknown Artist", None
         for i in ids:
-            a = latin1_text(entries[i]["tags"].get("TPE2", "")) or latin1_text(entries[i]["tags"].get("TPE1", ""))
+            tg = entries[i]["tags"]
+            a = latin1_text(tg.get("TPE2", "")) or latin1_text(tg.get("TPE1", ""))
             if a:
                 artist = a
+                artist_raw = tg.get("TPE2") if latin1_text(tg.get("TPE2", "")) else tg.get("TPE1")
                 break
         title = latin1_text(first.get("TALB", "")) or ascii_text(d.rpartition("/")[2]) or "Unknown Album"
         year = next((y for y in (_year(entries[i]["tags"]) for i in ids) if y), 0)
-        alb.append(dict(dir=d, ids=ids, artist=artist, title=title, year=year))
+        alb.append(dict(dir=d, ids=ids, artist=artist, title=title, year=year, artist_raw=artist_raw, title_raw=first.get("TALB") or None))
     art_names = sorted({a["artist"] for a in alb}, key=lambda s: (sort_key(s), s))
     art_idx = {n: i for i, n in enumerate(art_names)}
     alb.sort(key=lambda a: (art_idx[a["artist"]], a["year"], sort_key(a["title"]), a["dir"]))
+    if side is not None:
+        side["tracks"] = [dict(rel=entries[i]["rel"], file=entries[i]["file"], title=entries[i]["tags"].get("TIT2") or None, artist=a["artist_raw"], album=a["title_raw"],
+                               idx_title=entries[i]["_title"], idx_artist=a["artist"], idx_album=a["title"]) for a in alb for i in a["ids"]]
+        side["albums"] = [dict(title=a["title_raw"], artist=a["artist_raw"], idx_title=a["title"], idx_artist=a["artist"]) for a in alb]
+        first_raw = {}
+        for a in alb:
+            first_raw.setdefault(a["artist"], a["artist_raw"])
+        side["artists"] = [dict(name=first_raw.get(n), idx_name=n) for n in art_names]
     n_tr, n_al, n_ar = len(entries), len(alb), len(art_names)
     if n_tr > CAPS["tracks"] or n_al > CAPS["albums"] or n_ar > CAPS["artists"] or len(pls) > CAPS["playlists"]:
         raise LibError(14, f"library too large: {n_tr} tracks, {n_al} albums, {n_ar} artists, {len(pls)} playlists")
@@ -728,7 +740,44 @@ def write_verified(data, out, root=None):
     os.replace(tmp, out)
 
 
-def build_dir(common, out=None, cache_path=None, playlists=False, quiet=False):
+def write_names(data, side, folder, origins=None, quiet=False):
+    """Writes tau-names.json and tau-names.bin next to the index (docs/features/NAME_SIDECAR_SPEC.md), or removes stale ones when the library has nothing the index
+    cannot show. `origins` maps a card path (relative to common) to the original path it was converted from (sync_media.py); records of an earlier run are kept for
+    files that are still there and not mapped now. Written via a temp file and verified by re-reading (header, bind to this index, counts)."""
+    import name_sidecar as NS
+    folder = Path(folder)
+    jp, bp = folder / "tau-names.json", folder / "tau-names.bin"
+    old = {}
+    if jp.is_file():
+        try:
+            old = {r["card"]: r["orig"] for r in NS.load_manifest(jp.read_bytes())["tracks"]}
+        except Exception:
+            old = {}
+    ix = parse(data)
+    man, blob = NS.build_sidecar(ix.build_id, side, {**old, **(origins or {})},
+                                 (len(ix.tracks), len(ix.albums), len(ix.artists)))
+    if not man["tracks"] and blob is None:
+        for p in (jp, bp):
+            if p.exists():
+                p.unlink()
+        return None
+    for p, b in ((bp, blob), (jp, NS.manifest_bytes(man))):
+        if b is None:
+            if p.exists(): p.unlink()
+            continue
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_bytes(b)
+        if tmp.read_bytes() != b:
+            raise LibError(18, f"verify failed: {p.name}")
+        tmp.replace(p)
+    if blob is not None:
+        NS.parse_bin(bp.read_bytes(), ix.build_id, (len(ix.tracks), len(ix.albums), len(ix.artists)))
+    if not quiet:
+        print(f"wrote {jp.name} ({len(man['tracks'])} record(s)) and {bp.name if blob is not None else 'no binary'}" + (f" ({len(blob):,} B)" if blob is not None else ""))
+    return man, blob
+
+
+def build_dir(common, out=None, cache_path=None, playlists=False, quiet=False, origins=None, names=True):
     common = Path(common)
     cache = {}
     if cache_path and Path(cache_path).exists():
@@ -741,9 +790,12 @@ def build_dir(common, out=None, cache_path=None, playlists=False, quiet=False):
     root_prefix = ROOT_PREFIX
     if common.resolve().name == "common" and common.resolve().parent.parent.name == "Assets":
         root_prefix = f"/Assets/{common.resolve().parent.name}/common/"
-    data = build_index(entries, pls, warns, root_prefix)
+    side = {}
+    data = build_index(entries, pls, warns, root_prefix, side)
     out = Path(out) if out else common / "tau-library.tdb"
     write_verified(data, out, root=common)
+    if names:
+        write_names(data, side, out.parent, origins, quiet)
     if cache_path:
         Path(cache_path).write_text(json.dumps(cache))
     if not quiet:
@@ -766,6 +818,7 @@ def main(argv=None):
     b.add_argument("--out")
     b.add_argument("--cache")
     b.add_argument("--playlists", action="store_true")
+    b.add_argument("--no-names", action="store_true", help="do not write the name sidecar (tau-names.json / tau-names.bin)")
     v = sub.add_parser("verify")
     v.add_argument("index")
     v.add_argument("--root")
@@ -787,7 +840,7 @@ def main(argv=None):
             common = Path(a.card) / "Assets" / sync_media.core_platform(Path(a.card), a.core) / "common"
         if not common:
             ap.error("give COMMON_DIR or --core")
-        build_dir(common, a.out, a.cache, a.playlists)
+        build_dir(common, a.out, a.cache, a.playlists, names=not a.no_names)
     elif a.cmd == "verify":
         bad = verify(Path(a.index).read_bytes(), a.root)
         for x in bad[:30]:

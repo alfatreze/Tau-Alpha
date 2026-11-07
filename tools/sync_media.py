@@ -9,7 +9,8 @@ verifies every file by SHA-256 and can write a manifest.
   sync_media.py "Nausicaa OST" playlist.m3u --core alfatreze.TAU_PSRAM_03 --core alfatreze.TAU_PSRAM_04
   sync_media.py MUSIC_DIR --all-tau                      # every alfatreze.TAU* core on the card
   sync_media.py MUSIC_DIR --from-core alfatreze.TAU --core alfatreze.TAU_PSRAM_05   # clone one core's media
-  add --library to build and verify the media library index (tau-library.tdb) in each destination after copying,
+  add --library to build and verify the media library index (tau-library.tdb) in each destination after copying (with it the name sidecar tau-names.json and
+  tau-names.bin, docs/features/NAME_SIDECAR_SPEC.md: the original file names and tags where they differ from what the index can show; --no-names skips it),
   add --dry-run to see the plan, --mirror to delete files in the destination folder that are not in the source,
   --manifest FILE to write what was done as JSON.
 
@@ -524,6 +525,7 @@ def main():
     ap.add_argument("--copy-images", action="store_true", help="also copy loose image files (converted if needed)")
     ap.add_argument("--no-playlist", action="store_true", help="do not generate playlist.m3u for folders that have none")
     ap.add_argument("--keep-names", action="store_true", help="do not convert names at all (a name with a character outside code page 437 cannot be opened by the player)")
+    ap.add_argument("--no-names", action="store_true", help="with --library: do not write the name sidecar (tau-names.json / tau-names.bin, the original names and tags beside the card-safe ones)")
     ap.add_argument("--ascii-only", action="store_true", help="fold every non-ASCII character in names (the old behaviour); default keeps the code page 437 characters the Pocket can open")
     ap.add_argument("--cover-quality", type=int, help="re-encode embedded covers at this JPEG quality (e.g. 75); default: keep the original bytes")
     ap.add_argument("--cover-max", type=int, help="shrink embedded covers to at most this many pixels on the long side (the screen shows 92 px)")
@@ -659,11 +661,14 @@ def main():
                     pl.write_text("\n".join(sorted(info["audio"], key=natural_key)) + "\n", encoding="utf-8")
                     plan.append((pl, rp / "playlist.m3u", f"generated, {len(info['audio'])} tracks", True))
 
+        origin_map = {}                                  # converted card path -> original path, for the name sidecar (tau-names.json / .bin)
         if not args.keep_names:
             renamed, newplan = [], []
             nm = NameMap([rel for _, rel, _, _ in plan], args.ascii_only)
             for f, rel, note, conv in plan:
                 r2 = nm.rel(rel)
+                if rel.suffix.lower() in AUDIO:
+                    origin_map[r2.as_posix()] = rel.as_posix()
                 if r2 != rel:
                     renamed.append((rel, r2))
                 if rel.suffix.lower() in LISTS:            # playlist lines follow the file names
@@ -731,7 +736,7 @@ def main():
                 import tau_library
                 print(f"  building library index for {core} ...")
                 try:
-                    tau_library.build_dir(base, playlists=True)
+                    tau_library.build_dir(base, playlists=True, origins=origin_map, names=not args.no_names)
                 except (SystemExit, tau_library.LibError) as e:
                     print(f"  LIBRARY INDEX FAILED: {e}", file=sys.stderr)
                     bad += 1

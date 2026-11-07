@@ -180,3 +180,37 @@ def parse_bin(data, index_bid=None, counts=None):
     albums = [tuple(s(x) for x in struct.unpack_from("<2I", data, o_alb + 8 * i)) for i in range(na)]
     artists = [s(struct.unpack_from("<I", data, o_art + 4 * i)[0]) for i in range(nr)]
     return {"tracks": tracks, "albums": albums, "artists": artists}
+
+
+# ----------------------------------------------------------------- writer used by the index builder (tau_library.write_names)
+def build_sidecar(index_bid, side, origins, counts):
+    """side: what tau_library.build_index collected (original text and the index text of every track, album and artist, by index id). origins: card path ->
+    original path. Returns (manifest dict, binary bytes or None). A field goes into the binary only when its original differs from what the index shows (nothing
+    to add otherwise); a plain library gives an empty manifest and None, and the caller writes no file. Over the 1 MiB cap the file names are dropped first
+    (spec 5), then the binary is not written (the manifest still is)."""
+    def keep(raw, idx, key):
+        v = clean_text(raw, LIMITS[key])
+        return v if v and v != idx else None
+    mt, bt = [], []
+    for i, t in enumerate(side["tracks"]):
+        orig = origins.get(t["rel"], t["rel"])
+        mt.append({"id": i, "card": t["rel"], "orig": orig, "title": t["title"], "artist": t["artist"], "album": t["album"]})
+        ofile = unicodedata.normalize("NFC", orig).rpartition("/")[2]
+        bt.append({"file": ofile if ofile != t["file"] else None, "title": keep(t["title"], t["idx_title"], "title"),
+                   "artist": keep(t["artist"], t["idx_artist"], "artist"), "album": keep(t["album"], t["idx_album"], "album")})
+    man = build_manifest(mt, index_bid, {i: {"title": t["idx_title"], "artist": t["idx_artist"], "album": t["idx_album"]} for i, t in enumerate(side["tracks"])})
+    albums = [(keep(a["title"], a["idx_title"], "title"), keep(a["artist"], a["idx_artist"], "artist")) for a in side["albums"]]
+    artists = [keep(a["name"], a["idx_name"], "artist") for a in side["artists"]]
+    if (len(bt), len(albums), len(artists)) != tuple(counts):
+        raise SidecarError("sidecar source does not match the index counts")
+    if not any(any(v for v in t.values()) for t in bt) and not any(a[0] or a[1] for a in albums) and not any(artists):
+        return man, None
+    try:
+        return man, build_bin(index_bid, bt, albums, artists)
+    except SidecarError:
+        for t in bt:
+            t["file"] = None
+        try:
+            return man, build_bin(index_bid, bt, albums, artists)
+        except SidecarError:
+            return man, None
