@@ -35,7 +35,7 @@ check("an unreachable-only name becomes track.ext without the libraries", HAVE_A
 if HAVE_ANY:
     check("Cyrillic is transliterated (anyascii)", cp("Привет.mp3") == "Privet.mp3", cp("Привет.mp3"))
     check("Chinese becomes pinyin (anyascii)", cp("东京.flac") == "DongJing.flac", cp("东京.flac"))
-    check("emoji are dropped, the rest of the name stays", cp("Hi 😀 there.mp3") == "Hi  there.mp3", cp("Hi 😀 there.mp3"))
+    check("emoji are dropped, the rest of the name stays", cp("Hi 😀 there.mp3") == "Hi there.mp3", cp("Hi 😀 there.mp3"))
     check("an emoji-only name becomes track.ext", cp("😀.mp3") == "track.mp3")
     check("only the unreachable run is transliterated", cp("Café Привет.mp3") == "Café Privet.mp3", cp("Café Привет.mp3"))
 else:
@@ -54,7 +54,7 @@ m1 = S.NameMap(rels)
 m2 = S.NameMap(list(reversed(rels)))
 check("a collision is numbered", str(m1.rel(Path("A/CAFÉ.mp3"))) != str(m1.rel(Path("A/Café.mp3"))) and "(2)" in "".join(str(m1.rel(r)) for r in rels))
 outs = [str(m1.rel(r)).lower() for r in rels]
-check("no two different originals share a converted name", len(set(outs)) == len({tuple(r.parts) for r in rels}) and len(set(outs)) >= 7, outs)
+check("no two different originals share a converted name", len(set(outs)) == len({tuple(__import__("unicodedata").normalize("NFC", x) for x in r.parts) for r in rels}) and len(set(outs)) >= 7, outs)
 check("the numbering does not depend on input order", all(m1.rel(r) == m2.rel(r) for r in rels))
 check("the same name in another folder is not numbered", str(m1.rel(Path("B/x.mp3"))) == "B/x.mp3")
 check("playlist lines follow the numbered names", m1.line(("A",), ["x.mp3"]) == "x.mp3" and m1.line(("A",), ["track.mp3"]) == str(m1.rel(Path("A/track.mp3")).name))

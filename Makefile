@@ -183,6 +183,7 @@ test-host:
 	$(PYTHON) sim/test_p2_name_paths.py
 	$(PYTHON) sim/test_name_matrix.py
 	$(PYTHON) sim/test_cp437_names.py
+	$(PYTHON) sim/test_name_sidecar.py
 	$(PYTHON) sim/test_p2_name_matrix_diag.py
 	$(PYTHON) sim/test_meter_wasm_coverage.py
 	$(PYTHON) sim/test_p2_sdram_soak.py
