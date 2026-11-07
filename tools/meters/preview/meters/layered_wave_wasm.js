@@ -6,7 +6,7 @@
   "fw/diag_features.h": "2bb31cbe135fe7bfae1d915a5c82196eff2aff2bb8f808835a10a02df54744a8",
   "fw2/cores/histring_core.h": "5c32b407aae95898c2accd348caabc3035a1eb9cf056ee00224fcd6b957607a4",
   "fw2/generated/layered_wave_tables.h": "0fc375b489bca6f85e24a17e393064c88fbda27b682156770bd61b6d7a4705b4",
-  "fw2/generated/lw_presets.h": "c7e3232e5a6d0f83b9f2dc8c999451ea0d90ce6939077413b02c93fed8ef0e3f",
+  "fw2/generated/lw_presets.h": "19f744608fa22c90f47b8621ad2fe06a3e712a28dadebd61ae4e2abf00714d57",
   "fw2/gfx/gfx.h": "61d9b1be0fcd193593d2e73cce2afc8435b0d0c98e3c26b4f72df9e8aae91c89",
   "fw2/platform/mmio.h": "d54ed3876d59c67825c73e859e797e56d239a0f4b4ca662b78d6d96e5165bb50",
   "fw2/ui/layered_wave.inc": "0f4eb9ecccf2197bb748a83ac760372f744717fdfe40209ef5ff63132ef0803c",

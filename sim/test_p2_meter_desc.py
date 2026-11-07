@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The descriptor a pack carries (tools/player2/meter_desc.py builds it, fw2/cores/meter_desc_core.h reads it; B-812): for every meter manifest the C reader, the independent Python reader and the manifest agree on the name, the
 Configure descriptors (label, type, range, step, choices, when), the presets, the preview palette and stream, the compose code and the limits; the descriptor is sound (md_check 0) and no read leaves it; every single-bit
-flip of every descriptor is either refused or harmless, and NEVER reads outside; a wrong length, a preset value outside its parameter's range, a preview of the wrong size and a damaged trailer are refused.
-Mutants: preset ranges not checked; the preview size not checked."""
+flip of every descriptor is either refused or harmless, and NEVER reads outside; a wrong length, a preset table, a preview of the wrong size and a damaged trailer are refused.
+Mutants: default ranges not checked; the preview size not checked."""
 import json, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,19 +29,18 @@ with tempfile.TemporaryDirectory() as td:
         d = mm.load(ROOT / "meters" / key / "meter.json"); t = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
         blob = md.build_desc(d, t); py = md.parse_desc(blob); out = run(exe, blob, tmp)
         rows = md.param_rows(d)
-        ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d mid %d slot %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), len(d["presets"]), d["index"], d["p2"]["slot"])
+        ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d mid %d slot %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), 0, d["index"], d["p2"]["slot"])
         ps = [l for l in out if l.startswith("p ")]
         import mpreset as _mp
         pk = _mp.params_of(d)                                                                       # (key, hash, min, max, default): the descriptor carries the hash and the default (v2, B-967)
         want = ["p %s %d %d %d %d %d %d %d k%d d%d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], r["when_idx"], r["when_val"], pk[i][1], pk[i][4]) + "".join(" [%s]" % v for v in r["vals"]) for i, r in enumerate(rows)]
         ok &= ps == want
-        rs = [l for l in out if l.startswith("r ")]
-        ok &= rs == ["r %s %s" % (p["name"], " ".join(str(p["values"][r["key"]]) for r in rows)) for p in d["presets"]]
+        ok &= not [l for l in out if l.startswith("r ")]                                             # no preset table (v3, B-970)
         cs = [l for l in out if l.startswith("c ")]
         ok &= cs == ["c %d %d %d %d %d" % e for e in md.palette_entries(t)]
         ok &= out[-1] == "rle " + " ".join(str(b) for b in bytes.fromhex(t["rle"]))
-        ok &= py["name"] == d["p2"].get("label", d["name"]) and len(py["params"]) == len(rows) and len(py["presets"]) == len(d["presets"]) and py["rle"] == bytes.fromhex(t["rle"]) and [(q["key"], q["def"]) for q in py["params"]] == [(x[1], x[4]) for x in pk]
-        check("%s: the C reader, the Python reader and the manifest agree (%d B, %d parameters, %d presets)" % (key, len(blob), len(rows), len(d["presets"])), ok, out[:2])
+        ok &= py["name"] == d["p2"].get("label", d["name"]) and len(py["params"]) == len(rows) and py["rle"] == bytes.fromhex(t["rle"]) and [(q["key"], q["def"]) for q in py["params"]] == [(x[1], x[4]) for x in pk]
+        check("%s: the C reader, the Python reader and the manifest agree (%d B, %d parameters, no presets)" % (key, len(blob), len(rows)), ok, out[:2])
         fz = run(exe, blob, tmp, "fuzz")[0].split()
         check("%s: every single-bit flip is refused or harmless and none reads outside the descriptor (%s refused, %s accepted)" % (key, fz[4], fz[2]), fz[6] == "0", fz)
     blob = md.for_meter("waterfall_grid")
@@ -52,12 +51,11 @@ with tempfile.TemporaryDirectory() as td:
     b = bytearray(blob); b[po + 20 + 16:po + 20 + 18] = blob[po + 16:po + 18]
     check("two parameters with one key hash are refused (code 4)", run(exe, bytes(b), tmp)[0].split()[1] == "4", run(exe, bytes(b), tmp)[0])
     b = bytearray(blob); b[-1] ^= 1; check("a damaged trailer is refused", run(exe, bytes(b), tmp)[0].split()[1] != "0")
-    py = md.parse_desc(blob); presets_off = int.from_bytes(blob[24:26], "little")
-    b = bytearray(blob); b[presets_off + 2 + 2 * 3: presets_off + 2 + 2 * 3 + 2] = (65535).to_bytes(2, "little")      # preset 0, the cell size, far above its maximum
-    check("a preset value outside its parameter's range is refused (code 5)", run(exe, bytes(b), tmp)[0].split()[1] == "5", run(exe, bytes(b), tmp)[0])
+    b = bytearray(blob); b[9] = 1
+    check("a descriptor that claims a preset table (v3 has none) is refused (code 1)", run(exe, bytes(b), tmp)[0].split()[1] == "1", run(exe, bytes(b), tmp)[0])
     rle_off = int.from_bytes(blob[28:30], "little"); b = bytearray(blob); b[rle_off] = (b[rle_off] & 0xE0) | (((b[rle_off] & 31) + 1) & 31)
     check("a preview of the wrong size is refused (code 7)", run(exe, bytes(b), tmp)[0].split()[1] == "7", run(exe, bytes(b), tmp)[0])
-    for bug, name, bad in ((1, "preset ranges are not checked", bytes(bytearray(blob[:presets_off + 8]) + (65535).to_bytes(2, "little") + blob[presets_off + 10:])), (2, "the preview size is not checked", None)):
+    for bug, name, bad in ((1, "default ranges are not checked", bytes(bytearray(blob[:po + 18]) + (65535).to_bytes(2, "little") + blob[po + 20:])), (2, "the preview size is not checked", None)):
         m = build(tmp, bug)
         if bad is None:
             b = bytearray(blob); b[rle_off] = (b[rle_off] & 0xE0) | (((b[rle_off] & 31) + 1) & 31); bad = bytes(b)

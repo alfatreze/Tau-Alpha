@@ -31,9 +31,11 @@ def _fields():
     t = [("VOLUME", 2, 0, 7, 0, 100, 94), ("REPEAT", 2, 7, 2, 0, 2, 0), ("RGMODE", 2, 9, 2, 0, 2, 0), ("HALCYON", 2, 11, 5, 0, 30, 0),
          ("COLOUR", 1, 0, 5, 0, 18, 1), ("THEME", 1, 5, 6, 0, 31, 0), ("POLARITY", 1, 11, 1, 0, 1, 0), ("METER", 5, 0, 6, 0, 62, 0), ("FONT", 1, 12, 3, 0, 7, 0),
          ("LAYOUT", 0, 27, 4, 0, 15, LAYOUT_VERSION), ("TUNE_NEW", 0, 26, 1, 0, 1, 0)]
-    for m in range(20):                  # the selected preset of meter m, 4 bits: word 5 (meters 0..5), word 6 (6..12), word 15 (13..19)
-        w, s = (5, 6 + 4 * m) if m < 6 else (6, 4 * (m - 6)) if m < 13 else (15, 4 * (m - 13))
+    for m in range(7):                   # the selected preset POSITION of meter m, 4 bits: word 5 (meters 0..5), word 6 (meter 6)
+        w, s = (5, 6 + 4 * m) if m < 6 else (6, 0)
         t.append(("MPRE%d" % m, w, s, 4, 0, 15, 0))
+    for m, (w, s) in enumerate(((6, 4), (6, 11), (6, 18), (15, 0), (15, 7), (15, 14), (15, 21))):      # the preset FILE of meter m: 0 none, else id + 1, 7 bits (B-968)
+        t.append(("MPID%d" % m, w, s, 7, 0, 127, 0))
     for k, w in enumerate((8, 9, 10, 11, 16, 17, 18, 21)):      # two tuning slots of four words (slot A ids 20-23, slot B ids 27-29 and 33)
         t.append(("TUNE%d" % k, w, 0, 31, 0, 0x7FFFFFFF, 0))
     t += [("LAST0", 19, 0, 31, 0, 0x7FFFFFFF, 0), ("LAST1", 20, 0, 31, 0, 0x7FFFFFFF, 0)]       # the last played track (ids 31, 32: the same in both layouts)

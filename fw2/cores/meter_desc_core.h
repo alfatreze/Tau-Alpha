@@ -9,7 +9,7 @@
 #endif
 #define MD_MAGIC 0x4353444Du
 #define MD_TRAILER 0x31435344u
-#define MD_VERSION 2u                 /* 2 (B-967): each parameter record also carries the hash of its manifest key and its default value (docs/features/METER_PRESETS_EXTERNAL.md) */
+#define MD_VERSION 3u                 /* 3 (B-970): no preset table (npre and the presets offset are 0); 2 (B-967): each parameter record also carries the hash of its manifest key and its default value (docs/features/METER_PRESETS_EXTERNAL.md) */
 #define MD_PREC 20u                   /* bytes of one parameter record */
 #define MD_HDR 40u
 #define MD_MAX_PARAMS 48u
@@ -35,7 +35,7 @@ static inline int md_header(md_rd_fn rd, void *ctx, uint32_t len, md_hdr_t *h)
     h->name = (uint16_t)md_u16(b + 20); h->params = (uint16_t)md_u16(b + 22); h->presets = (uint16_t)md_u16(b + 24); h->pal = (uint16_t)md_u16(b + 26); h->rle = (uint16_t)md_u16(b + 28); h->rle_len = (uint16_t)md_u16(b + 30); h->mid = (uint16_t)md_u16(b + 32); h->slot = (uint16_t)md_u16(b + 34);
     uint8_t t[8];
     if (!rd(ctx, len - 8u, t, 8u) || md_u32(t) != len || md_u32(t + 4) != MD_TRAILER) return 0;
-    return h->np <= MD_MAX_PARAMS && h->npre >= 1u && h->npre <= MD_MAX_PRESETS;
+    return h->np <= MD_MAX_PARAMS && h->npre == 0u && h->presets == 0u;
 }
 /* a NUL-terminated string at `off` (inside the descriptor, before the trailer), at most cap - 1 characters; returns its length or -1 */
 static inline int md_string(md_rd_fn rd, void *ctx, const md_hdr_t *h, uint32_t off, char *out, uint32_t cap)
@@ -63,15 +63,6 @@ static inline int md_val_off(md_rd_fn rd, void *ctx, const md_param_t *p, uint32
     if (j >= p->nval || !rd(ctx, p->vals + 2u * j, b, 2u)) return 0;
     *off = md_u16(b); return 1;
 }
-static inline int md_preset(md_rd_fn rd, void *ctx, const md_hdr_t *h, uint32_t k, uint32_t *name_off, uint16_t *vals)
-{
-    uint8_t b[2];
-    const uint32_t at = h->presets + md_stride(h->np) * k;
-    if (k >= h->npre || !rd(ctx, at, b, 2u)) return 0;
-    *name_off = md_u16(b);
-    for (uint32_t i = 0; i < h->np; i++) { if (!rd(ctx, at + 2u + 2u * i, b, 2u)) return 0; vals[i] = (uint16_t)md_u16(b); }
-    return 1;
-}
 static inline int md_col(md_rd_fn rd, void *ctx, const md_hdr_t *h, uint32_t i, md_col_t *c)
 {
     uint8_t b[8];
@@ -87,7 +78,6 @@ static inline int md_check(md_rd_fn rd, void *ctx, uint32_t len, uint32_t roles,
     if (!md_header(rd, ctx, len, &h)) return 1;
     const uint32_t end = len - 8u;
     if (h.params < MD_HDR || (h.params & 1u) || h.params + MD_PREC * h.np > end) return 2;
-    if (h.presets < MD_HDR || (h.presets & 1u) || h.presets + md_stride(h.np) * h.npre > end) return 2;
     if (h.pal < MD_HDR || (h.pal & 1u) || h.pal + 64u > end) return 2;
     if (h.rle < MD_HDR || h.rle + (uint32_t)h.rle_len > end) return 2;
     if (md_string(rd, ctx, &h, h.name, s, sizeof s) < 1) return 3;
@@ -96,23 +86,15 @@ static inline int md_check(md_rd_fn rd, void *ctx, uint32_t len, uint32_t roles,
         if (!md_param(rd, ctx, &h, i, &p)) return 4;
         if (md_string(rd, ctx, &h, p.label, s, sizeof s) < 1) return 3;
         if (p.type > 3u || p.hidden > 1u || p.min > p.max || p.step == 0u) return 4;
+#if BUG != 1
         if (p.def < p.min || p.def > p.max) return 4;                                        /* the default must be inside the range */
+#endif
         for (uint32_t j = 0; j < i; j++) { md_param_t q; if (md_param(rd, ctx, &h, j, &q) && q.key == p.key) return 4; }      /* two parameters with one key hash would make a preset ambiguous */
         if (p.when_idx != 255u && p.when_idx >= h.np) return 4;
         if (p.type == 1u && (p.nval < 2u || p.nval > MD_MAX_NVAL || p.max != p.nval - 1u || p.min != 0u)) return 4;
         if (p.type != 1u && p.nval != 0u) return 4;
         if (p.nval && (p.vals < MD_HDR || (p.vals & 1u) || p.vals + 2u * p.nval > end)) return 4;
         for (uint32_t j = 0; j < p.nval; j++) { uint32_t o; if (!md_val_off(rd, ctx, &p, j, &o) || md_string(rd, ctx, &h, o, s, sizeof s) < 1) return 3; }
-    }
-    for (uint32_t k = 0; k < h.npre; k++) {
-        uint32_t no; uint16_t v[MD_MAX_PARAMS];
-        if (!md_preset(rd, ctx, &h, k, &no, v) || md_string(rd, ctx, &h, no, s, sizeof s) < 1) return 5;
-        for (uint32_t i = 0; i < h.np; i++) {
-            md_param_t p; if (!md_param(rd, ctx, &h, i, &p)) return 5;
-#if BUG != 1
-            if (v[i] < p.min || v[i] > p.max) return 5;                                    /* a preset value outside its parameter's range */
-#endif
-        }
     }
     for (uint32_t i = 0; i < 8u; i++) {
         md_col_t c; if (!md_col(rd, ctx, &h, i, &c)) return 6;

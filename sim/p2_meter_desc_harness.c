@@ -24,7 +24,6 @@ int main(int argc, char **argv)
         for (uint32_t j = 0; j < p.nval; j++) { uint32_t o; md_val_off(rd, 0, &p, j, &o); md_string(rd, 0, &h, o, s, sizeof s); printf(" [%s]", s); }
         printf("\n");
     }
-    for (uint32_t k = 0; k < h.npre; k++) { uint32_t no; uint16_t v[MD_MAX_PARAMS]; md_preset(rd, 0, &h, k, &no, v); md_string(rd, 0, &h, no, s, sizeof s); printf("r %s", s); for (uint32_t i = 0; i < h.np; i++) printf(" %u", v[i]); printf("\n"); }
     for (uint32_t i = 0; i < 8u; i++) { md_col_t c; md_col(rd, 0, &h, i, &c); printf("c %u %u %u %u %u\n", c.fixed, c.a, c.b, c.t, c.n); }
     printf("rle"); for (uint32_t i = 0; i < h.rle_len; i++) { uint8_t v; md_rle_byte(rd, 0, &h, i, &v); printf(" %u", v); } printf("\n");
     return 0;

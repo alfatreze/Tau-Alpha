@@ -10,14 +10,10 @@ typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, ste
 typedef struct { uint16_t key, def; } mpkd_t;
 #endif
 enum { MPP_BARS_BANDS, MPP_BARS_EASE, MPP_BARS_ATTACK, MPP_BARS_RELEASE, MPP_BARS_PEAK_ON, MPP_BARS_PEAK_GRAVITY, MPP_BARS_PEAK_HOLD_MS, MPP_BARS_PEAK_FALL, MPP_BARS_N };
-#define MPP_BARS_PRESETS 5u
-static const char *const mpp_bars_name[MPP_BARS_PRESETS] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
+#define MPP_BARS_PRESETS 1u
+static const char *const mpp_bars_name[MPP_BARS_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_bars[MPP_BARS_PRESETS][MPP_BARS_N] = {
-    { 16, 2, 55, 22, 1, 1, 200, 35 },   /* FLUID */
-    { 16, 0, 100, 100, 1, 0, 0, 60 },   /* CLASSIC */
-    { 12, 3, 60, 25, 1, 1, 250, 30 },   /* BOUNCY */
-    { 8, 2, 30, 12, 1, 0, 500, 15 },   /* SLOW FADE */
-    { 16, 1, 90, 90, 1, 1, 100, 70 },   /* SNAPPY */
+    { 16, 2, 55, 22, 1, 1, 200, 35 },   /* DEFAULT */
 };
 static const char *const mpl_bars_ease[] = { "INSTANT", "LINEAR", "EXPONENTIAL", "SPRING" };
 static const char *const mpl_bars_peak_gravity[] = { "LINEAR", "GRAVITY" };
@@ -36,14 +32,10 @@ static const mpkd_t mpk_bars[8] = { { 21971, 16 }, { 43980, 2 }, { 64872, 55 }, 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_SCOPE_SCOPE_SMOOTH, MPP_SCOPE_SCOPE_TRAIL, MPP_SCOPE_N };
-#define MPP_SCOPE_PRESETS 5u
-static const char *const mpp_scope_name[MPP_SCOPE_PRESETS] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
+#define MPP_SCOPE_PRESETS 1u
+static const char *const mpp_scope_name[MPP_SCOPE_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_scope[MPP_SCOPE_PRESETS][MPP_SCOPE_N] = {
-    { 35, 30 },   /* FLUID */
-    { 0, 0 },   /* CLASSIC */
-    { 45, 20 },   /* BOUNCY */
-    { 55, 40 },   /* SLOW FADE */
-    { 15, 5 },   /* SNAPPY */
+    { 35, 30 },   /* DEFAULT */
 };
 static const mpd_t mpd_scope[2] = {
     { "SCOPE SMOOTH", 0, 0, 0, 90, 5, 0, 0, 255, 0 },
@@ -55,13 +47,10 @@ static const mpkd_t mpk_scope[2] = { { 65501, 35 }, { 17604, 30 } };
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_CHL_LAYOUT, MPP_CHL_LINE_WIDTH, MPP_CHL_MODES, MPP_CHL_RISE, MPP_CHL_FALL, MPP_CHL_MORPH, MPP_CHL_MORPH_GAIN, MPP_CHL_TRIGGER, MPP_CHL_REFRACTORY, MPP_CHL_TONAL, MPP_CHL_PAINT, MPP_CHL_N };
-#define MPP_CHL_PRESETS 4u
-static const char *const mpp_chl_name[MPP_CHL_PRESETS] = { "LATTICE", "SHIMMER", "EMBER", "OCEAN" };
+#define MPP_CHL_PRESETS 1u
+static const char *const mpp_chl_name[MPP_CHL_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_chl[MPP_CHL_PRESETS][MPP_CHL_N] = {
-    { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 0 },   /* LATTICE */
-    { 1, 1475, 4, 1455, 873, 125, 782, 26, 350, 1, 0 },   /* SHIMMER */
-    { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 1 },   /* EMBER */
-    { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 2 },   /* OCEAN */
+    { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 0 },   /* DEFAULT */
 };
 static const char *const mpl_chl_layout[] = { "LATTICE", "SHIMMER" };
 static const char *const mpl_chl_paint[] = { "LINE", "EMBER", "OCEAN" };
@@ -84,12 +73,10 @@ static const mpkd_t mpk_chl[11] = { { 46654, 0 }, { 3687, 1245 }, { 43832, 3 }, 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_VU_INFO, MPP_VU_COLOR_MODE, MPP_VU_COLOR_GREEN, MPP_VU_COLOR_YELLOW, MPP_VU_COLOR_RED, MPP_VU_N };
-#define MPP_VU_PRESETS 3u
-static const char *const mpp_vu_name[MPP_VU_PRESETS] = { "THEME", "STANDARD", "CUSTOM EXAMPLE" };
+#define MPP_VU_PRESETS 1u
+static const char *const mpp_vu_name[MPP_VU_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_vu[MPP_VU_PRESETS][MPP_VU_N] = {
-    { 1, 0, 0, 0, 0 },   /* THEME */
-    { 1, 1, 2016, 64992, 63488 },   /* STANDARD */
-    { 1, 1, 1622, 43835, 61775 },   /* CUSTOM EXAMPLE */
+    { 1, 0, 0, 0, 0 },   /* DEFAULT */
 };
 static const char *const mpl_vu_color_mode[] = { "THEME", "CUSTOM" };
 static const mpd_t mpd_vu[5] = {
@@ -105,16 +92,10 @@ static const mpkd_t mpk_vu[5] = { { 2225, 1 }, { 56651, 0 }, { 16309, 0 }, { 147
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_PALETTE, MPP_WF_FLOW, MPP_WF_N };
-#define MPP_WF_PRESETS 7u
-static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST", "SPARKLE", "STARS" };
+#define MPP_WF_PRESETS 1u
+static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_wf[MPP_WF_PRESETS][MPP_WF_N] = {
-    { 0, 90, 100, 8, 450, 1, 1 },   /* WATERFALL */
-    { 0, 180, 120, 6, 450, 2, 1 },   /* FAST FALL */
-    { 1, 90, 110, 8, 450, 1, 1 },   /* HEAT MAP */
-    { 1, 90, 100, 5, 450, 3, 1 },   /* FINE GRID */
-    { 2, 90, 110, 8, 450, 0, 1 },   /* DUST */
-    { 3, 90, 100, 8, 450, 0, 1 },   /* SPARKLE */
-    { 3, 90, 130, 5, 900, 0, 1 },   /* STARS */
+    { 0, 90, 100, 8, 450, 1, 1 },   /* DEFAULT */
 };
 static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST", "SPARKLE" };
 static const char *const mpl_wf_palette[] = { "THEME", "INFERNO", "RAINBOW", "ICE" };
@@ -134,13 +115,10 @@ static const mpkd_t mpk_wf[7] = { { 3196, 0 }, { 48128, 90 }, { 15786, 100 }, { 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_SMP_MODE, MPP_SMP_GAIN, MPP_SMP_CELL, MPP_SMP_SPAN, MPP_SMP_N };
-#define MPP_SMP_PRESETS 4u
-static const char *const mpp_smp_name[MPP_SMP_PRESETS] = { "STEREO FIELD", "CHARACTER", "LONG MEMORY", "MEMORY 5 S" };
+#define MPP_SMP_PRESETS 1u
+static const char *const mpp_smp_name[MPP_SMP_PRESETS] = { "DEFAULT" };
 static const uint16_t mpp_smp[MPP_SMP_PRESETS][MPP_SMP_N] = {
-    { 0, 100, 8, 1 },   /* STEREO FIELD */
-    { 1, 100, 8, 1 },   /* CHARACTER */
-    { 2, 120, 6, 1 },   /* LONG MEMORY */
-    { 2, 120, 8, 5 },   /* MEMORY 5 S */
+    { 0, 100, 8, 1 },   /* DEFAULT */
 };
 static const char *const mpl_smp_mode[] = { "STEREO FIELD", "CHARACTER", "LONG MEMORY" };
 static const mpd_t mpd_smp[4] = {

@@ -1,4 +1,4 @@
-/* Host check of the preset files inside the meter host (fw2/ui/meters.c with fw2/ui/mpreset_host.c, B-967): a pack-only meter's descriptor is registered from a file (as if its pack had been installed), the slot driver is a
+/* Host check of the preset files inside the meter host (fw2/ui/meters.c with fw2/art/mpreset_host.c, B-967): a pack-only meter's descriptor is registered from a file (as if its pack had been installed), the slot driver is a
  * directory on the host (the files under <dir>/tau-presets/<meter id>/), and the scenarios the firmware meets are walked through. Reuses every stub of p2_meter_budget_harness.c.
  *   h DESC_FILE PRESET_DIR [DEGRADE]      DEGRADE: the governor's level while the scenario runs (0 NORMAL)
  *   h DESC_FILE PRESET_DIR 0 choose POS [PARAM VALUE]   one boot's work: the meter comes on screen, list position POS is chosen, optionally one parameter is edited (a tuning); prints what is persisted
@@ -19,7 +19,7 @@ void mp3play_io_quiesce(void) { }
 static char opened[256];
 int slot_open_path(uint32_t slot, const char *path) { (void)slot; opens++; if (open_fail_all) return 0; snprintf(opened, sizeof opened, "%s%s", dir_root, path + 2); FILE *f = fopen(opened, "rb"); if (!f) return 0; fclose(f); return 1; }
 int slot_read_blocking(uint32_t slot, uint32_t off, uint32_t dst, uint32_t len, uint32_t to) { (void)slot; (void)dst; (void)to; FILE *f = fopen(opened, "rb"); if (!f) return 0; fseek(f, (long)off, SEEK_SET); const uint32_t n = (uint32_t)fread(tag_mem, 1, len, f); fclose(f); return n == len; }
-#include "../fw2/ui/mpreset_host.c"
+#include "../fw2/art/mpreset_host.c"
 int main(int argc, char **argv)
 {
     if (argc < 3) return 2;

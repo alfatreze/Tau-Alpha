@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Meter presets from files inside the meter host (fw2/ui/meters.c with fw2/ui/mpreset_host.c, B-967): a pack-only meter's descriptor (v2: key hash and default per parameter) is registered, the slot driver is a directory
+"""Meter presets from files inside the meter host (fw2/ui/meters.c with fw2/art/mpreset_host.c, B-967): a pack-only meter's descriptor (v2: key hash and default per parameter) is registered, the slot driver is a directory
 on the host holding <root>/tau-presets/<meter id>/ (the factory files of tools/player2/mpreset.py), and the scenarios of the firmware are walked through (Layered Wave, 38 parameters, 16 presets):
   1. with the files: the list is [DEFAULT] + the 16 presets in index order (17 places), position 0 runs on the parameters' defaults, position k on exactly the manifest's values of preset k-1; each file is read once
      (a preset read last is the tuning's base and is not read again);
-  2. without an index file the meter keeps its descriptor's own presets (16) and nothing is read;
+  2. without an index file the meter has DEFAULT only and nothing is read;
   3. a preset file that is missing or damaged leaves the meter as it was (values and selected position unchanged) and counts a failure; the others still work;
   4. a preset file written before the meter had three of its parameters still loads: those take their defaults;
-  5. while the governor is not NORMAL nothing is read: the index is not loaded (the descriptor's presets stay) and a preset is not read (the meter keeps its values), and later, at NORMAL, both work (the busy answer is not remembered as a bad file);
+  5. while the governor is not NORMAL nothing is read: the index is not loaded (DEFAULT only) and a preset is not read (the meter keeps its values), and later, at NORMAL, both work (the busy answer is not remembered as a bad file);
   6. the remembered choice by id (B-968): the same preset after a reboot with the list reversed, the defaults when its id is gone, the tuning follows the id and goes with it, a pack's own list by position;
   7. mutants: a chosen preset applied without its file being read (the previous values stay) is caught by 1.
 Host-simulated only (the card is a directory; the real read time is B-964's measurement: about 33 ms)."""
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory() as td:
     check("with the files the list is [DEFAULT] + %d presets in index order, position 0 on the defaults, position k on the manifest's preset k-1, each file read once" % nd, ok and ok2 and r["fails"] == 0 and r["reads"] == nd, (r["head"], r["npre"], r["fails"], r["reads"]))
     # 2. no index file: the descriptor's presets
     r = parse(run(exe, desc, setup(td, "noindex", drop=("%d/index.tpi" % mid,))))
-    check("without an index file the meter keeps its descriptor's %d presets and reads nothing (npre %s, reads %s)" % (nd, r["npre"], r["reads"]), r["npre"] == nd and r["reads"] == 0 and r["fails"] == 0)
+    check("without an index file the meter has its one preset, DEFAULT, and reads nothing (npre %s, reads %s)" % (r["npre"], r["reads"]), r["npre"] == 1 and r["reads"] == 0 and r["fails"] == 0)
     # 3. a missing and a damaged preset file
     r = parse(run(exe, desc, setup(td, "bad", drop=("%d/p2.tpr" % mid,), flip=("%d/p4.tpr" % mid,))))
     check("a missing preset file (position 3) and a damaged one (position 5) leave the meter as it was: the selected position and the values do not change", r["pos"][3]["sel"] == 2 and r["pos"][3]["vals"] == r["pos"][2]["vals"] and r["pos"][5]["sel"] == 4 and r["pos"][5]["vals"] == r["pos"][4]["vals"], (r["pos"][3]["sel"], r["pos"][5]["sel"]))
@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory() as td:
     # 5. the governor busy
     root = setup(td, "busy")
     r = parse(run(exe, desc, root, 2))
-    check("while the governor is not NORMAL the index is not read (the descriptor's %d presets stay, nothing read)" % nd, r["npre"] == nd and r["reads"] == 0 and r["err"] == 10, (r["npre"], r["reads"], r["err"]))
+    check("while the governor is not NORMAL the index is not read (only DEFAULT, nothing read)", r["npre"] == 1 and r["reads"] == 0 and r["err"] == 10, (r["npre"], r["reads"], r["err"]))
     # 6. the remembered choice (B-968): a preset file is remembered by its id, so a list that is reordered or loses it between two boots does the right thing
     def boot(args, tag, order=None, drop_ids=()):
         files = mp.factory_files(d); idx = [{"id": i, "name": p["name"].upper()[:15]} for i, p in enumerate(d["presets"]) if i not in drop_ids]
@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory() as td:
     # a pack's own list (no files): the position is remembered, as before
     nofile = setup(td, "own", files={})
     o = subprocess.run([str(exe), str(desc), str(nofile), "0", "choose", "5"], capture_output=True, text=True, env=dict(os.environ, ROW=str(slot))).stdout.strip().splitlines()
-    check("without preset files the pack's own preset is remembered by its position (5) and no id: %s" % o[0], o[0].split()[2] == "0" and o[0].split()[4] == "5", o[0])
+    check("without preset files a choice past DEFAULT falls back to it (position 0, no id): %s" % o[0], o[0].split()[2] == "0" and o[0].split()[4] == "0", o[0])
     # the built-in meter (Winamp Bars: no pack, its descriptors are in the firmware): the same files work through the generated key hashes and defaults
     wb = mm.load(ROOT / "meters/winamp_bars/meter.json"); wbp = mp.params_of(wb); wbk = [x[0] for x in wbp]
     rootb = setup(td, "bars", files=mp.factory_files(wb))
@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory() as td:
     okb2 = all(rb["pos"][k + 1]["vals"] == [int(wb["presets"][k]["values"][key]) for key in wbk] for k in range(nb))
     check("the built-in Winamp Bars runs on preset files too: [DEFAULT] + %d presets, the defaults and every preset's values as the manifest says" % nb, okb and okb2 and rb["fails"] == 0, (rb["npre"], rb["fails"]))
     o = subprocess.run([str(exe), str(desc), str(setup(td, "bars_none", files={})), "0"], capture_output=True, text=True, env=dict(os.environ, ROW="0")).stdout.strip().splitlines()
-    check("without files Winamp Bars keeps its own %d presets" % nb, parse(o)["npre"] == nb, parse(o)["npre"])
+    check("without files Winamp Bars has DEFAULT only", parse(o)["npre"] == 1, parse(o)["npre"])
     # 7. mutants (the firmware code compiled with a fault): a preset file read but not applied, and the governor ignored
     m1 = parse(run(build(td, 11), desc, setup(td, "m1")))
     check("mutant (a preset file read and checked but not applied) is caught", m1["pos"][3]["vals"] != [int(d["presets"][2]["values"][key]) for key in keys])

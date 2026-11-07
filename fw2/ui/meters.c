@@ -14,7 +14,7 @@
 #include "../cores/pack_strike_core.h"
 #include "../cores/helios_core.h"
 #ifdef P2_PACKS
-#include "mpreset_host.h"                                   /* the preset files of the meter on screen (B-967) */
+#include "../cores/mpreset_host.h"                                   /* the preset files of the meter on screen (B-967) */
 #endif
 
 #define R_SCAN      0x800000E8u            /* B-267 beam position: bit 9 = present, bits 8:0 = the video line counter (helios.c) */
@@ -47,7 +47,9 @@ static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter
 static void dyn_register(uint32_t m);                               /* a pack-only meter's row, from its pack's descriptor (below) */
 static volatile uint8_t *pack_slot_data(uint32_t i);
 #endif
-static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
+static uint32_t cur, win_seen = 0xFFFFFFFFu, frame, last_t;
+static uint16_t bx, by, bw, bh;                                        /* the box on screen (16-bit: hot RAM is at its floor) */
+static uint8_t force_next;
 static uint8_t lvl[MTR_BANDS];
 static as_onset_t onset_st;
 /* The hardware statistics block: latch the window since the last picture (it starts a new one), read the sums, reduce them (audio_stats_core.h). Scaled like the peaks (3/4 of headroom). */
@@ -371,30 +373,24 @@ static void dyn_register(uint32_t m)
     md_hdr_t h;
     if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.slot != m) { pack_slot[m].status = MPK_E_DESC; return; }
     if (h.np > DYN_MAX_P) { pack_slot[m].status = MPK_E_DESC_BIG; return; }      /* the numeric rows must fit the cache (the strings are read from the slot when a row is drawn) */
-    d->cmds = h.cmds; d->cyc = h.max_cycles; d->cmp = h.cmp; d->mid = h.mid; d->np = h.np; d->npre = h.npre;
+    d->cmds = h.cmds; d->cyc = h.max_cycles; d->cmp = h.cmp; d->mid = h.mid; d->np = h.np; d->npre = 1u;
     md_string(desc_rd, d, &h, h.name, d->name, sizeof d->name);
     meter_def_t *r = &dyn_def[k];
-    r->name = d->name; r->tick = dyn_stub_tick; r->npre = h.npre; r->set_pre = 0; r->pre_name = 0; r->mv = dyn_mv[k]; r->pd = dyn_pd; r->np = (uint8_t)h.np; r->apply = 0; r->cmp = h.cmp;
+    r->name = d->name; r->tick = dyn_stub_tick; r->npre = 1u; r->set_pre = 0; r->pre_name = 0; r->mv = dyn_mv[k]; r->pd = dyn_pd; r->np = (uint8_t)h.np; r->apply = 0; r->cmp = h.cmp;
     for (uint32_t i = 0; i < DYN_MAX_P; i++) dyn_mv[k][i] = 0;
     d->ok = 1; if (m + 1u > meter_count) meter_count = m + 1u;
     if (dyn_cached == k) dyn_cached = 0xFFu;
     def_set_pre(m, 0u);
 }
-static void dyn_set_pre(uint32_t k, uint32_t p)
+static void dyn_set_pre(uint32_t k, uint32_t p)                      /* a pack-only meter has one preset in itself, DEFAULT: the default of every parameter (the descriptor carries no preset table, B-970) */
 {
-    md_hdr_t h; uint32_t no; uint16_t v[MD_MAX_PARAMS];
-    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h) || !md_preset(desc_rd, &dyn[k], &h, p < h.npre ? p : 0u, &no, v)) return;
-    for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) dyn_mv[k][i] = v[i];
+    (void)p; md_hdr_t h; md_param_t q;
+    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return;
+    for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) if (md_param(desc_rd, &dyn[k], &h, i, &q)) dyn_mv[k][i] = q.def;
 }
-static const char *dyn_pre_name(uint32_t k, uint32_t p)
-{
-    static char nm[MD_MAX_STR + 1u]; md_hdr_t h; uint32_t no; uint16_t v[MD_MAX_PARAMS];
-    nm[0] = 0;
-    if (dyn[k].ok && md_header(desc_rd, &dyn[k], dyn[k].len, &h) && md_preset(desc_rd, &dyn[k], &h, p < h.npre ? p : 0u, &no, v)) md_string(desc_rd, &dyn[k], &h, no, nm, sizeof nm);
-    return nm;
-}
-/* ---- the preset files (B-967; fw2/ui/mpreset_host.c, formats in fw2/cores/mpreset_core.h) ----------------------------------------------------------------------------------------------------------------------------- */
-#ifndef MPH_REAL                                                      /* a host test that does not run the preset files (the real ones are in fw2/ui/mpreset_host.c): nothing found */
+static const char *dyn_pre_name(uint32_t k, uint32_t p) { (void)k; (void)p; return "DEFAULT"; }
+/* ---- the preset files (B-967; fw2/art/mpreset_host.c, formats in fw2/cores/mpreset_core.h) ----------------------------------------------------------------------------------------------------------------------------- */
+#ifndef MPH_REAL                                                      /* a host test that does not run the preset files (the real ones are in fw2/art/mpreset_host.c): nothing found */
 __attribute__((weak)) uint32_t mph_enter(uint32_t mid) { (void)mid; return 0u; }
 __attribute__((weak)) void mph_name(uint32_t pos, char *out) { (void)pos; out[0] = 0; }
 __attribute__((weak)) uint32_t mph_id1(uint32_t pos) { (void)pos; return 0u; }
@@ -425,7 +421,7 @@ void meters_ext_enter(uint32_t m)                                    /* meter m 
     if (m == ext_m) return;
     ext_drop();
     const uint32_t n = mph_enter(mid_of(m));
-    if (!n) return;                                                  /* no files, damaged, or the governor is busy: the descriptor's own presets stay */
+    if (!n) return;                                                  /* no files, damaged, or the governor is busy: the meter's one preset, DEFAULT, stays */
     ext_m = (uint8_t)m; ext_prev = user_n[m]; user_n[m] = (uint8_t)(n + 1u);
     if (!(ext_seen >> m & 1u)) {                                     /* the first time this meter is switched over: its remembered position now means a place in the new list; a tuned meter keeps what it is */
         ext_seen = (uint8_t)(ext_seen | (1u << m));

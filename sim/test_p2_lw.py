@@ -16,10 +16,8 @@ def build(td, mutant):
     src = src.replace('#include "layered_wave.inc"', f'#include "{ROOT}/fw2/ui/layered_wave.inc"')
     if mutant == "noproof":
         a = "    if (!lw_ps) {"; assert a in src; src = src.replace(a, "    if (!lw_ps) { lw_ps = 1u; } if (0) {")
-    if mutant == "nopreset":
-        a = "lw_mv[k] = lw_preset[want][k]"; assert a in src; src = src.replace(a, "lw_mv[k] = lw_preset[0][k]")
     (d / "ui/meter_layered_wave.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "generated/lw_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "generated/lw_presets.h", "generated/factory_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_lw_harness.c").read_text().replace('"../fw2/ui/meter_layered_wave.c"', '"../ui/meter_layered_wave.c"'))
     exe = d / "h"
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-I", str(ROOT / "fw"), "-o", str(exe), str(d / "sim/h.c")], capture_output=True, text=True)
@@ -38,8 +36,5 @@ with tempfile.TemporaryDirectory() as td:
     check("mutant noproof is caught", r["RING"] > 0 or r["TEXT"] == 0)
 with tempfile.TemporaryDirectory() as td:
     good = run(build(td, None), 1)["RECTS"]
-with tempfile.TemporaryDirectory() as td:
-    b = run(build(td, "nopreset"), 1)["RECTS"]
-    check("mutant nopreset is caught (the presets draw differently)", b != good)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)

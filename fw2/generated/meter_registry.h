@@ -6,7 +6,7 @@
 #define METER_SLOTS 7u      /* the table's rows: the built-in meters first, then the pack_only ones by slot (rows 0..METER_N-1 are static, the others come from their pack's descriptor) */
 /* X(key, NAME, manifest_id, tag_lower, TAG, presets, cmp), in table order (the saved meter is the table index: slots never move, new meters append) */
 #define METER_LIST(X) \
-    X(winamp_bars, "WINAMP BARS", 12, bars, BARS, 5, 0x00000000u)
+    X(winamp_bars, "WINAMP BARS", 12, bars, BARS, 1, 0x00000000u)
 /* the pack-only meters, for the Info rows: X(row, NAME) */
 #define METER_PACK_LIST(X) \
     X(1, "WINAMP SCOPE") \
