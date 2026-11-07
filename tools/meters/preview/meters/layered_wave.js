@@ -5,8 +5,7 @@
  * (wasm/layered_wave_wasm.c, tools/meters/preview/wasm/build_wasm.py; committed as layered_wave_wasm.js), so the lab, the golden test and Tau Omega draw what the Pocket
  * draws, command for command. The engine calls land in the lab's framebuffer (rect, blit, scrollLeft). What stays here is the lab's own help, not drawing: the colours
  * of the split map, the band split and the layer targets (checked by test.js), and the bridge to the module. The module compiles asynchronously in a browser (ready());
- * in node the compile is synchronous, so Run.run and the tests need no waiting. Differences from the Pocket, on purpose: the cost guard counts commands (a browser cannot
- * time the CPU), and the ENERGY split's learned boundaries live inside the module (the split map shows the default boundaries for it).
+ * in node the compile is synchronous, so Run.run and the tests need no waiting. The cost guard counts commands by default; ctx.timed picks the build that counts modelled CPU time like the Pocket.
  */
 (function (root) {
   const T = (typeof module !== 'undefined') ? require('../lw_tables.js') : root.LwTables;
@@ -118,20 +117,27 @@
   }
 
   /* ---- the module ---------------------------------------------------------------------------------------------------------------------------- */
-  const W = () => (typeof module !== 'undefined' ? require('./layered_wave_wasm.js') : root.TauLayeredWaveWasm);     // looked up when first used: in the lab page the data file comes after this one
+  /* Two builds of the same source: the plain one (the cost guard counts commands, what the golden test compares with the native C) and the TIMED one (-DWASM_TIMED: the guard counts CPU time as on the Pocket,
+   * B-948, with a modelled clock: the lab's cycle counter advances CMD_CYC per engine command, about 75 us at 66.7 MHz, the middle of the 60-90 us the redraw costs on the Pocket; a model, not a measurement).
+   * ctx.timed picks the build; changing it starts a fresh meter. */
+  const CMD_CYC = 5000;
+  const W = (timed) => (typeof module !== 'undefined' ? require(timed ? './layered_wave_timed_wasm.js' : './layered_wave_wasm.js') : (timed ? root.TauLayeredWaveTimedWasm : root.TauLayeredWaveWasm));     // looked up when first used: in the lab page the data files come after this one
   const MROLES = ['bg_top', 'bg_bottom', 'surface', 'surface_track', 'text_primary', 'text_secondary', 'accent', 'on_accent', 'accent2', 'ok', 'warn', 'danger', 'base', 'chrome', 'pill', 'error', 'faint', 'splash_bg', 'splash_bar', 'fs_red', 'fs_track'];     // the TR_* order of fw2/ui/theme.h
   const OFFS = ['x', 'y', 'w', 'h', 'bg', 'force', 'paused', 'degrade', 'frame', 'dt_ms', 'peak_l', 'peak_r'];
   const WIDTH = { x: 2, y: 2, w: 2, h: 2, bg: 2, force: 1, paused: 1, degrade: 1, dt_ms: 2, frame: 4, peak_l: 4, peak_r: 4 };
-  let compiled = null, compiling = null;
-  const bytes = () => (typeof module !== 'undefined' ? new Uint8Array(Buffer.from(W().b64, 'base64')) : Uint8Array.from(atob(W().b64), (c) => c.charCodeAt(0)));
-  function ready() { if (!compiling) compiling = WebAssembly.compile(bytes()).then((m) => { compiled = m; return true; }); return compiling; }
-  function state() { return { inst: null, cur: null, frames: 0 }; }
-  function instantiate(st) {
-    if (!compiled) { if (typeof module === 'undefined') return false; compiled = new WebAssembly.Module(bytes()); }       // node: a synchronous compile is fine
-    st.inst = new WebAssembly.Instance(compiled, { env: {
-      rect: (x, y, w, h, c) => st.cur.fb.rect(x, y, w, h, c),
-      scroll_left: (x, y, w, h, d) => st.cur.fb.scrollLeft(x, y, w, h, d),
-      blit: (sx, sy, dx, dy, w, h) => st.cur.fb.blit(sx, sy, dx, dy, w, h),
+  const compiled = [null, null], compiling = [null, null];
+  const bytes = (t) => (typeof module !== 'undefined' ? new Uint8Array(Buffer.from(W(t).b64, 'base64')) : Uint8Array.from(atob(W(t).b64), (c) => c.charCodeAt(0)));
+  function ready(timed) { if (timed === undefined) return Promise.all([ready(false), ready(true)]); const t = timed ? 1 : 0; if (!compiling[t]) compiling[t] = WebAssembly.compile(bytes(t)).then((m) => { compiled[t] = m; return true; }); return compiling[t]; }
+  function state() { return { inst: null, cur: null, frames: 0, timed: false, clk: 0 }; }
+  function instantiate(st, timed) {
+    const t = timed ? 1 : 0;
+    if (!compiled[t]) { if (typeof module === 'undefined') return false; compiled[t] = new WebAssembly.Module(bytes(t)); }       // node: a synchronous compile is fine
+    st.timed = !!timed; st.clk = 0; st.frames = 0;
+    st.inst = new WebAssembly.Instance(compiled[t], { env: {
+      rect: (x, y, w, h, c) => { st.clk += CMD_CYC; st.cur.fb.rect(x, y, w, h, c); },
+      scroll_left: (x, y, w, h, d) => { st.clk += CMD_CYC; st.cur.fb.scrollLeft(x, y, w, h, d); },
+      blit: (sx, sy, dx, dy, w, h) => { st.clk += CMD_CYC; st.cur.fb.blit(sx, sy, dx, dy, w, h); },
+      clock: () => st.clk >>> 0,
       text: () => 0 } });
     const x = st.inst.exports, o = new Uint16Array(x.memory.buffer, x.offs_ptr(), OFFS.length);
     st.off = Object.fromEntries(OFFS.map((k, i) => [k, o[i]]));
@@ -142,10 +148,10 @@
     if (WIDTH[field] === 1) dv.setUint8(a, v & 255); else if (WIDTH[field] === 2) dv.setUint16(a, v & 65535, true); else dv.setUint32(a, v >>> 0, true);
   }
   function tick(ctx) {
-    const st = ctx.st;
-    if (!st.inst && !instantiate(st)) { ready(); return; }          // a browser draws nothing until the module is compiled
+    const st = ctx.st, timed = !!ctx.timed;
+    if (!st.inst || st.timed !== timed) { st.inst = null; if (!instantiate(st, timed)) { ready(timed); return; } }          // a browser draws nothing until the module is compiled
     st.cur = ctx;
-    const x = st.inst.exports, mem = x.memory.buffer, dv = new DataView(mem), keys = W().params;
+    const x = st.inst.exports, mem = x.memory.buffer, dv = new DataView(mem), keys = W(timed).params;
     if (keys.length !== x.n_params()) throw new Error('layered_wave: the module has ' + x.n_params() + ' parameters, its key list ' + keys.length);
     const th = ctx.theme;
     MROLES.forEach((k, i) => dv.setUint16(x.roles_ptr() + 2 * i, k === 'accent' ? th.accent : (th.role[k] || 0), true));
@@ -155,6 +161,9 @@
     const vals = { x: ctx.x, y: ctx.y, w: ctx.w, h: ctx.h, bg: ctx.bg || 0, force: ctx.force ? 1 : 0, paused: ctx.paused ? 1 : 0, degrade: ctx.degrade || 0, frame: st.frames++, dt_ms: ctx.dt_ms || ctx.dt || 26, peak_l: 0, peak_r: 0 };
     for (const k of OFFS) put(st, k, vals[k]);
     x.tick_raw();                                                    // the waveform as the lab's source gives it (the golden test feeds the same)
+    st.stride = x.stride();                                          // the cost guard's cell width, for the lab
+    const n = ctx.p.layers | 0;                                      // the ENERGY split's learned boundaries live in the module: the split map reads them from here
+    st.ebounds = x.ebounds_ok() && n >= 1 ? Array.from(new Uint8Array(x.memory.buffer, x.ebounds_ptr(), n + 1)) : null;
   }
 
   /* Lab helpers: what each layer listens to (Hz from the half-octave bank, band 0 = bass), and the layer colours for the split map. */
