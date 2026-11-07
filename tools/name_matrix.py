@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import tau_library as tl
 DIR = "name-test"
 MANIFEST = 3072                  # the length of matrix.tnm (padded with newlines)
-FID = {17: 16, 18: 16, 20: 19, 21: 19}      # a probe that names the same file as another variant (another encoding of its path): variant -> the variant whose file it is
+FID = {17: 16, 18: 16, 20: 19, 21: 19, 22: 1, 23: 2, 24: 3, 25: 9, 27: 26, 29: 28, 31: 30}      # a probe that names the same file as another variant (another encoding of its path): variant -> the variant whose file it is
 LIMIT = 255                       # the path field of the 0192 open struct is 256 bytes, NUL-terminated (docs: open_dataslot_file_t); fw2/stream/slot.c refuses a longer one (SLOT_E_TOOLONG). The Pocket opened a 220-byte ASCII path (B-991)
 N = lambda s: unicodedata.normalize("NFC", s)
 D = lambda s: unicodedata.normalize("NFD", s)
@@ -57,6 +57,17 @@ def variants(root="/Assets/tau/common/"):
     add("probe: o-slash (U+00F8), UTF-8 path (c3 b8)", "S\u00f8ren.mp3", "p")
     add("probe: the same file, Latin-1 byte 0xF8", b"S\xf8ren.mp3", "p")
     add("probe: the same file, code page 850 byte 0x9B", b"S\x9bren.mp3", "p")
+    # round 3 (B-997): round 2 showed the Pocket decodes the path as CODE PAGE 437 (ss named with the byte 0xE1 opened). Do the letters with a decomposition (e-acute 0x82 ...) open against what macOS stored, and does 437 reach more than Latin letters?
+    add("cp437: e-acute 0x82 against the NFC-written file of variant 1", b"nfc_Caf\x82.mp3", "p")
+    add("cp437: e-acute 0x82 against the NFD-written file of variant 2", b"nfd_Caf\x82.mp3", "p")
+    add("cp437: o-umlaut 0x94, U-umlaut 0x9A, i-umlaut 0x8B, n-tilde 0xA4, ss 0xE1 against variant 3", b"Bj\x94rk \x9An\x8Bcode \xa4 \xe1.mp3", "p")
+    add("cp437: a FOLDER with e-acute 0x82 (variant 9's folder, stored NFD by macOS)", b"Caf\x82 Dir/a.mp3", "p")
+    add("file: ae (U+00E6, no decomposition), UTF-8 path", "S\u00e6m.mp3", "p")
+    add("cp437: ae named with 0x91", b"S\x91m.mp3", "p")
+    add("file: cent sign (U+00A2; code page 437 0x9B, code page 850 has o-slash there), UTF-8 path", "Cost\u00a2.mp3", "p")
+    add("cp437: the cent sign named with 0x9B (opens under 437, not under 850)", b"Cost\x9b.mp3", "p")
+    add("file: Greek small pi (U+03C0; code page 437 0xE3), UTF-8 path", "Pi \u03c0.mp3", "p")
+    add("cp437: pi named with 0xE3 (437 reaches more than Latin letters)", b"Pi \xe3.mp3", "p")
     return out
 
 

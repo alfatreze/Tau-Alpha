@@ -1,5 +1,5 @@
 /* Host check of fw2/diagnostics/name_matrix.c (BUG-001 step 3): the real file against a model of the card. stdin lines: "root <text>", "degrade <0|1>", "file <hex path> <hex content>", "failread <hex path>", "errcode <hex path> <n>",
- * "timeout <hex path>", "missing <n>" (the target code of a missing file: 3, file not found, in the 0192 docs). Prints "res0 res1 res2 cod0 cod1 cod2 bad err dry ret". The model: slot_open_path refuses a path over 255 bytes, the 0192 path field being 256 bytes NUL-terminated (SLOT_E_TOOLONG), and a path not in the table (SLOT_E_OPEN, the "missing" code, 3 = file not found, unless "errcode"). */
+ * "timeout <hex path>", "missing <n>" (the target code of a missing file: 3, file not found, in the 0192 docs). Prints "res0..res3 cod0..cod3 bad err dry ret". The model: slot_open_path refuses a path over 255 bytes, the 0192 path field being 256 bytes NUL-terminated (SLOT_E_TOOLONG), and a path not in the table (SLOT_E_OPEN, the "missing" code, 3 = file not found, unless "errcode"). */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -49,6 +49,6 @@ int main(void)
     uint32_t r = 0, autoruns = 0;
     if (getenv("NM_AUTO")) { name_matrix_auto(); autoruns += nm_runs; name_matrix_auto(); autoruns += nm_runs; printf("auto %u\n", autoruns); }
     else r = name_matrix_run();
-    printf("%08x %08x %08x %08x %08x %08x %u %u %u %u\n", nm_res[0], nm_res[1], nm_res[2], nm_cod[0], nm_cod[1], nm_cod[2], nm_bad, nm_err, nm_dry, r);
+    printf("%08x %08x %08x %08x %08x %08x %08x %08x %u %u %u %u\n", nm_res[0], nm_res[1], nm_res[2], nm_res[3], nm_cod[0], nm_cod[1], nm_cod[2], nm_cod[3], nm_bad, nm_err, nm_dry, r);
     return 0;
 }
