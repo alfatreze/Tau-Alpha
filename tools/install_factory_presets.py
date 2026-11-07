@@ -58,7 +58,9 @@ def main(argv=None):
         f = dest / rel; f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(data)
     bad = [rel for rel, data in files.items() if hashlib.sha256((dest / rel).read_bytes()).digest() != hashlib.sha256(data).digest()]
     if bad: print("VERIFY FAILED:", bad[:5]); return 1
-    print("written and verified (%d files)" % len(files)); return 0
+    stubs = [f for f in dest.rglob("._*") if f.is_file()]                  # AppleDouble stubs macOS writes beside copied files: harmless to the firmware (it opens exact names) but 58 of them were found beside the 51 real files
+    for f in stubs: f.unlink()
+    print("written and verified (%d files)%s" % (len(files), (", %d AppleDouble stub(s) removed" % len(stubs)) if stubs else "")); return 0
 
 if __name__ == "__main__":
     sys.exit(main())

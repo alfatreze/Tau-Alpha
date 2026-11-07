@@ -221,6 +221,11 @@ with tempfile.TemporaryDirectory() as t:
         of = card / opt[0]["path"]; ob = of.read_bytes(); of.unlink()
         check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a missing OPTIONAL owned file is a warning, not an error (Q-001)")
         of.write_bytes(ob)
+    pr = sorted(card.glob("Assets/*/common/tau-presets/*/*"))                       # a factory preset the owner (or Omega) removed from the card: the file is missing, which is a warning, never an error (Omega removes a factory preset by deleting its file, message 008)
+    if pr:
+        pb = pr[0].read_bytes(); pr[0].unlink()
+        check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a factory meter preset file removed from tau-presets/ is a warning, not an error (a removed preset is the owner's choice)")
+        pr[0].write_bytes(pb)
     (card / "Platforms/tau.json").write_text('{"other": 1}')
     check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a shared file from another release is only a warning")
     with zipfile.ZipFile(zips[0]) as f:

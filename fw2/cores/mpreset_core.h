@@ -1,7 +1,7 @@
 /* fw2/cores/mpreset_core.h -- meter presets as separate files (docs/features/METER_PRESETS_EXTERNAL.md, B-966). Pure and host-tested (sim/test_p2_mpreset.py against the Python writer tools/player2/mpreset.py): every byte
  * comes from a buffer the caller read (the firmware reads one small file at a time from the card, like a cover), nothing is allocated and no read goes outside the buffer.
  *
- * Two kinds of file per meter, under <media root>/tau-presets/<meter key>/ (written by Omega; the factory set by tools/player2/mpreset.py):
+ * Two kinds of file per meter, under <media root>/tau-presets/<meter id>/ (the manifest's `index`, e.g. 12; NOT the meter key; written by Omega; the factory set by tools/player2/mpreset.py):
  *   index.tpi  "TPRI" | version u8 = 1 | reserved u8 = 0 | meter id u16 | crc32 u32 (of everything after these 12 bytes) | count u16 | count x { id u8 | flags u8 (bit 0: hidden) | name[16] NUL padded }
  *              the presets of the meter in list order (up to 127, ids 0..126; the id is what is remembered, never the position);
  *   p<id>.tpr  "TPRS" | version u8 = 1 | id u8 | meter id u16 | crc32 u32 (of everything after these 12 bytes) | nkeys u8 | name_len u8 (0..15) | name | nkeys x { key u16 | value u16 }   (little endian)
