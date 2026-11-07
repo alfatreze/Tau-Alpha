@@ -1,0 +1,2550 @@
+{
+ "themes": [
+  {
+   "name": "TAU",
+   "dark": {
+    "bg_luma": 45,
+    "bg_bottom": "0x0000",
+    "surface": "0x2945",
+    "surface_track": "0x18E3",
+    "text_primary": "0xFFFF",
+    "text_secondary": "0x94B2",
+    "on_accent": "0x0000",
+    "ok": "0x0600",
+    "warn": "0xFE60",
+    "danger": "0xF9C0",
+    "base": "0x0862",
+    "chrome": "0x10E5",
+    "pill": "0x0320",
+    "error": "0xF800",
+    "faint": "0x6B4D",
+    "splash_bg": "0x0841",
+    "splash_bar": "0x27EC",
+    "fs_red": "0xF249",
+    "fs_track": "0x1905"
+   },
+   "light": {
+    "bg_luma": 205,
+    "bg_bottom": "#F2F2F2",
+    "surface": "#FFFFFF",
+    "surface_track": "#D0D4DA",
+    "text_primary": "#14181E",
+    "text_secondary": "#4F5764",
+    "on_accent": "#FFFFFF",
+    "ok": "#0E7A2E",
+    "warn": "#B36B00",
+    "danger": "#C4221B",
+    "base": "#E6E8EC",
+    "chrome": "#DDE1E8",
+    "pill": "#BFE6C8",
+    "error": "#C4221B",
+    "faint": "#5F6774",
+    "splash_bg": "#F2F2F2",
+    "splash_bar": "#0E9F6E",
+    "fs_red": "#D93636",
+    "fs_track": "#C9CED6"
+   }
+  },
+  {
+   "name": "OCEAN",
+   "dark": {
+    "bg_luma": 40,
+    "bg_bottom": "#00060F",
+    "surface": "#12283F",
+    "surface_track": "#0B1A2B",
+    "text_primary": "#EAF4FF",
+    "text_secondary": "#8FB0CC",
+    "on_accent": "#00101F",
+    "ok": "#22C55E",
+    "warn": "#F5B301",
+    "danger": "#EF4444",
+    "base": "#061423",
+    "chrome": "#0E2238",
+    "pill": "#0B4A5E",
+    "error": "#FF6B6B",
+    "faint": "#6A88A4",
+    "splash_bg": "#04101E",
+    "splash_bar": "#2DD4BF",
+    "fs_red": "#F87171",
+    "fs_track": "#16324D"
+   },
+   "light": {
+    "bg_luma": 210,
+    "bg_bottom": "#EAF2FA",
+    "surface": "#FFFFFF",
+    "surface_track": "#C9DAEA",
+    "text_primary": "#0B2540",
+    "text_secondary": "#3F607E",
+    "on_accent": "#FFFFFF",
+    "ok": "#0F7B3F",
+    "warn": "#A86200",
+    "danger": "#C0262D",
+    "base": "#DDE9F5",
+    "chrome": "#CFE0F0",
+    "pill": "#B5E3EE",
+    "error": "#C0262D",
+    "faint": "#557692",
+    "splash_bg": "#EAF2FA",
+    "splash_bar": "#0E8C9E",
+    "fs_red": "#D63D3D",
+    "fs_track": "#BBD0E4"
+   }
+  }
+ ],
+ "palette": [
+  {
+   "name": "BLACK",
+   "c565": 6339
+  },
+  {
+   "name": "WHITE",
+   "c565": 63422
+  },
+  {
+   "name": "GLOW",
+   "c565": 10883
+  },
+  {
+   "name": "TRANS_CLEAR",
+   "c565": 59195
+  },
+  {
+   "name": "TRANS_SMOKE",
+   "c565": 35921
+  },
+  {
+   "name": "TRANS_RED",
+   "c565": 53734
+  },
+  {
+   "name": "TRANS_ORANGE",
+   "c565": 58409
+  },
+  {
+   "name": "TRANS_GREEN",
+   "c565": 23821
+  },
+  {
+   "name": "TRANS_BLUE",
+   "c565": 19412
+  },
+  {
+   "name": "TRANS_PURPLE",
+   "c565": 39926
+  },
+  {
+   "name": "CLASSIC_YELLOW",
+   "c565": 65184
+  },
+  {
+   "name": "CLASSIC_ORANGE",
+   "c565": 58409
+  },
+  {
+   "name": "CLASSIC_RED",
+   "c565": 53734
+  },
+  {
+   "name": "CLASSIC_PINK",
+   "c565": 58550
+  },
+  {
+   "name": "CLASSIC_BLUE",
+   "c565": 19412
+  },
+  {
+   "name": "CLASSIC_GREEN",
+   "c565": 23821
+  },
+  {
+   "name": "CLASSIC_INDIGO",
+   "c565": 27346
+  },
+  {
+   "name": "CLASSIC_SILVER",
+   "c565": 48631
+  },
+  {
+   "name": "ALUMINUM",
+   "c565": 35953
+  }
+ ],
+ "lightAccMaxL": 110,
+ "schema": {
+  "registry_version": 1,
+  "meters": [
+   {
+    "id": 0,
+    "schema": 1,
+    "key": "bars",
+    "name": "BARS",
+    "enum": "VIZ_BARS",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 0,
+    "caps": [
+     "bar"
+    ],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 3
+   },
+   {
+    "id": 1,
+    "schema": 1,
+    "key": "waterfall",
+    "name": "WATERFALL",
+    "enum": "VIZ_WATER",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 4
+   },
+   {
+    "id": 2,
+    "schema": 1,
+    "key": "retired_levels",
+    "name": "-",
+    "enum": "VIZ_RETIRED_LEVELS",
+    "selectable": false,
+    "retired": true,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null
+   },
+   {
+    "id": 3,
+    "schema": 1,
+    "key": "scope",
+    "name": "PHASE SCOPE",
+    "enum": "VIZ_SCOPE",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 5
+   },
+   {
+    "id": 4,
+    "schema": 1,
+    "key": "wave",
+    "name": "OSCILLOSCOPE",
+    "enum": "VIZ_WAVE",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 6
+   },
+   {
+    "id": 5,
+    "schema": 1,
+    "key": "vu",
+    "name": "VU",
+    "enum": "VIZ_VU",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 7
+   },
+   {
+    "id": 6,
+    "schema": 1,
+    "key": "scroll",
+    "name": "WAVEFORM",
+    "enum": "VIZ_SCROLL",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 8
+   },
+   {
+    "id": 7,
+    "schema": 1,
+    "key": "retired_mirror",
+    "name": "-",
+    "enum": "VIZ_RETIRED_MIRROR",
+    "selectable": false,
+    "retired": true,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null
+   },
+   {
+    "id": 8,
+    "schema": 1,
+    "key": "dots",
+    "name": "PEAK DOTS",
+    "enum": "VIZ_DOTS",
+    "selectable": true,
+    "retired": false,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 9
+   },
+   {
+    "id": 9,
+    "schema": 1,
+    "key": "retired_eye",
+    "name": "-",
+    "enum": "VIZ_RETIRED_EYE",
+    "selectable": false,
+    "retired": true,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null
+   },
+   {
+    "id": 10,
+    "schema": 1,
+    "key": "led",
+    "name": "SPECTRUM",
+    "enum": "VIZ_LED",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 1,
+    "caps": [
+     "hw_spectrum"
+    ],
+    "needs_hw_spec": true,
+    "params": [],
+    "presets": [],
+    "default_preset": null,
+    "list_position": 10
+   },
+   {
+    "id": 11,
+    "schema": 1,
+    "key": "retired_tape",
+    "name": "-",
+    "enum": "VIZ_RETIRED_TAPE",
+    "selectable": false,
+    "retired": true,
+    "cost_class": null,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [],
+    "presets": [],
+    "default_preset": null
+   },
+   {
+    "id": 12,
+    "schema": 1,
+    "key": "winamp_bars",
+    "name": "WINAMP BARS",
+    "enum": "VIZ_WINAMP_BARS",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 1,
+    "caps": [
+     "bar"
+    ],
+    "needs_hw_spec": false,
+    "params": [
+     {
+      "key": "bands",
+      "label": "Bands",
+      "type": "u8",
+      "min": 4,
+      "max": 16,
+      "step": 1,
+      "default": 16
+     },
+     {
+      "key": "ease",
+      "label": "Easing",
+      "type": "enum",
+      "values": [
+       "INSTANT",
+       "LINEAR",
+       "EXPONENTIAL",
+       "SPRING"
+      ],
+      "default": 2
+     },
+     {
+      "key": "attack",
+      "label": "Attack",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 55
+     },
+     {
+      "key": "release",
+      "label": "Release",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 22
+     },
+     {
+      "key": "peak_on",
+      "label": "Peak cap",
+      "type": "bool",
+      "default": 1
+     },
+     {
+      "key": "peak_gravity",
+      "label": "Peak fall style",
+      "type": "enum",
+      "values": [
+       "LINEAR",
+       "GRAVITY"
+      ],
+      "default": 1,
+      "when": {
+       "peak_on": 1
+      }
+     },
+     {
+      "key": "peak_hold_ms",
+      "label": "Peak hold",
+      "type": "u16",
+      "min": 0,
+      "max": 800,
+      "step": 20,
+      "default": 200,
+      "unit": "ms",
+      "when": {
+       "peak_on": 1
+      }
+     },
+     {
+      "key": "peak_fall",
+      "label": "Peak fall speed",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 35,
+      "when": {
+       "peak_on": 1
+      }
+     }
+    ],
+    "presets": [
+     {
+      "name": "FLUID",
+      "values": {
+       "bands": 16,
+       "ease": 2,
+       "attack": 55,
+       "release": 22,
+       "peak_on": 1,
+       "peak_gravity": 1,
+       "peak_hold_ms": 200,
+       "peak_fall": 35
+      }
+     },
+     {
+      "name": "CLASSIC",
+      "values": {
+       "bands": 16,
+       "ease": 0,
+       "attack": 100,
+       "release": 100,
+       "peak_on": 1,
+       "peak_gravity": 0,
+       "peak_hold_ms": 0,
+       "peak_fall": 60
+      }
+     },
+     {
+      "name": "BOUNCY",
+      "values": {
+       "bands": 12,
+       "ease": 3,
+       "attack": 60,
+       "release": 25,
+       "peak_on": 1,
+       "peak_gravity": 1,
+       "peak_hold_ms": 250,
+       "peak_fall": 30
+      }
+     },
+     {
+      "name": "SLOW FADE",
+      "values": {
+       "bands": 8,
+       "ease": 2,
+       "attack": 30,
+       "release": 12,
+       "peak_on": 1,
+       "peak_gravity": 0,
+       "peak_hold_ms": 500,
+       "peak_fall": 15
+      }
+     },
+     {
+      "name": "SNAPPY",
+      "values": {
+       "bands": 16,
+       "ease": 1,
+       "attack": 90,
+       "release": 90,
+       "peak_on": 1,
+       "peak_gravity": 1,
+       "peak_hold_ms": 100,
+       "peak_fall": 70
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 1
+   },
+   {
+    "id": 13,
+    "schema": 1,
+    "key": "winamp_scope",
+    "name": "WINAMP SCOPE",
+    "enum": "VIZ_WINAMP_SCOPE",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 2,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [
+     {
+      "key": "scope_smooth",
+      "label": "Scope smooth",
+      "type": "u8",
+      "min": 0,
+      "max": 90,
+      "step": 5,
+      "default": 35,
+      "unit": "%"
+     },
+     {
+      "key": "scope_trail",
+      "label": "Scope trail",
+      "type": "u8",
+      "min": 0,
+      "max": 80,
+      "step": 5,
+      "default": 30,
+      "unit": "%",
+      "note": "percent of the old trace kept each frame (needs the alpha-blend bitstream; without it the trace is erased as before)"
+     }
+    ],
+    "presets": [
+     {
+      "name": "FLUID",
+      "values": {
+       "scope_smooth": 35,
+       "scope_trail": 30
+      }
+     },
+     {
+      "name": "CLASSIC",
+      "values": {
+       "scope_smooth": 0,
+       "scope_trail": 0
+      }
+     },
+     {
+      "name": "BOUNCY",
+      "values": {
+       "scope_smooth": 45,
+       "scope_trail": 20
+      }
+     },
+     {
+      "name": "SLOW FADE",
+      "values": {
+       "scope_smooth": 55,
+       "scope_trail": 40
+      }
+     },
+     {
+      "name": "SNAPPY",
+      "values": {
+       "scope_smooth": 15,
+       "scope_trail": 5
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 0
+   },
+   {
+    "id": 14,
+    "schema": 1,
+    "key": "chladni",
+    "name": "CHLADNI",
+    "enum": "VIZ_CHLADNI",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 2,
+    "caps": [
+     "sblit",
+     "sdram_plane",
+     "hw_spectrum",
+     "vsync_beam"
+    ],
+    "needs_hw_spec": true,
+    "params": [
+     {
+      "key": "layout",
+      "label": "Layout",
+      "type": "enum",
+      "values": [
+       "LATTICE",
+       "SHIMMER"
+      ],
+      "default": 0
+     },
+     {
+      "key": "line_width",
+      "label": "Line width",
+      "type": "u16",
+      "min": 200,
+      "max": 6000,
+      "step": 25,
+      "default": 1245
+     },
+     {
+      "key": "modes",
+      "label": "Modes",
+      "type": "u8",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 3
+     },
+     {
+      "key": "rise",
+      "label": "Rise",
+      "type": "u16",
+      "min": 50,
+      "max": 6000,
+      "step": 50,
+      "default": 668
+     },
+     {
+      "key": "fall",
+      "label": "Fall",
+      "type": "u16",
+      "min": 50,
+      "max": 6000,
+      "step": 50,
+      "default": 401
+     },
+     {
+      "key": "morph",
+      "label": "Morph speed",
+      "type": "u16",
+      "min": 0,
+      "max": 1024,
+      "step": 8,
+      "default": 63
+     },
+     {
+      "key": "morph_gain",
+      "label": "Morph gain",
+      "type": "u16",
+      "min": 0,
+      "max": 2048,
+      "step": 16,
+      "default": 391
+     },
+     {
+      "key": "trigger",
+      "label": "Trigger gain",
+      "type": "u8",
+      "min": 4,
+      "max": 100,
+      "step": 1,
+      "default": 26
+     },
+     {
+      "key": "refractory",
+      "label": "Refractory",
+      "type": "u16",
+      "min": 50,
+      "max": 2000,
+      "step": 25,
+      "default": 600,
+      "unit": "ms"
+     },
+     {
+      "key": "tonal",
+      "label": "Tonal trigger",
+      "type": "bool",
+      "default": 0
+     },
+     {
+      "key": "paint",
+      "label": "Paint",
+      "type": "enum",
+      "values": [
+       "LINE",
+       "EMBER",
+       "OCEAN"
+      ],
+      "default": 0
+     }
+    ],
+    "presets": [
+     {
+      "name": "LATTICE",
+      "values": {
+       "layout": 0,
+       "line_width": 1245,
+       "modes": 3,
+       "rise": 668,
+       "fall": 401,
+       "morph": 63,
+       "morph_gain": 391,
+       "trigger": 26,
+       "refractory": 600,
+       "tonal": 0,
+       "paint": 0
+      }
+     },
+     {
+      "name": "SHIMMER",
+      "values": {
+       "layout": 1,
+       "line_width": 1475,
+       "modes": 4,
+       "rise": 1455,
+       "fall": 873,
+       "morph": 125,
+       "morph_gain": 782,
+       "trigger": 26,
+       "refractory": 350,
+       "tonal": 1,
+       "paint": 0
+      }
+     },
+     {
+      "name": "EMBER",
+      "values": {
+       "layout": 0,
+       "line_width": 1245,
+       "modes": 3,
+       "rise": 668,
+       "fall": 401,
+       "morph": 63,
+       "morph_gain": 391,
+       "trigger": 26,
+       "refractory": 600,
+       "tonal": 0,
+       "paint": 1
+      }
+     },
+     {
+      "name": "OCEAN",
+      "values": {
+       "layout": 0,
+       "line_width": 1245,
+       "modes": 3,
+       "rise": 668,
+       "fall": 401,
+       "morph": 63,
+       "morph_gain": 391,
+       "trigger": 26,
+       "refractory": 600,
+       "tonal": 0,
+       "paint": 2
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 2
+   },
+   {
+    "id": 15,
+    "schema": 1,
+    "key": "vu_master",
+    "name": "MASTER VU",
+    "enum": "VIZ_VU_MASTER",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 0,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [
+     {
+      "key": "info",
+      "label": "Tech info",
+      "type": "bool",
+      "default": 1
+     },
+     {
+      "key": "color_mode",
+      "label": "Segment colour",
+      "type": "enum",
+      "values": [
+       "THEME",
+       "CUSTOM"
+      ],
+      "default": 0
+     },
+     {
+      "key": "color_green",
+      "label": "Green",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+       "color_mode": 1
+      }
+     },
+     {
+      "key": "color_yellow",
+      "label": "Yellow",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+       "color_mode": 1
+      }
+     },
+     {
+      "key": "color_red",
+      "label": "Red",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+       "color_mode": 1
+      }
+     }
+    ],
+    "presets": [
+     {
+      "name": "THEME",
+      "values": {
+       "info": 1,
+       "color_mode": 0,
+       "color_green": 0,
+       "color_yellow": 0,
+       "color_red": 0
+      }
+     },
+     {
+      "name": "STANDARD",
+      "values": {
+       "info": 1,
+       "color_mode": 1,
+       "color_green": 2016,
+       "color_yellow": 64992,
+       "color_red": 63488
+      }
+     },
+     {
+      "name": "CUSTOM EXAMPLE",
+      "values": {
+       "info": 1,
+       "color_mode": 1,
+       "color_green": 1622,
+       "color_yellow": 43835,
+       "color_red": 61775
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 11
+   },
+   {
+    "id": 16,
+    "schema": 1,
+    "key": "layered_wave",
+    "name": "LAYERED WAVE",
+    "enum": "VIZ_LAYERED_WAVE",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 2,
+    "caps": [
+     "rect",
+     "hw_spectrum",
+     "hw_wave"
+    ],
+    "needs_hw_spec": true,
+    "params": [
+     {
+      "key": "view",
+      "label": "View",
+      "type": "enum",
+      "values": [
+       "HISTORY",
+       "SPECTRUM",
+       "SCROLL"
+      ],
+      "default": 0,
+      "help": "Scrolling or fixed picture.",
+      "value_help": [
+       "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
+       "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored.",
+       "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed and Tail taper (with its curve) narrows the tail end by covering it with the background, about 100 more commands a picture, no ramp at the head; Resolution, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer)."
+      ],
+      "group": "general"
+     },
+     {
+      "key": "layers",
+      "label": "Layers",
+      "type": "u8",
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "default": 3,
+      "help": "How many nested waves are drawn, from 1 to 6. More layers cost one drawing command per layer per column run.",
+      "group": "general"
+     },
+     {
+      "key": "split",
+      "label": "Layer split",
+      "type": "enum",
+      "values": [
+       "OCTAVES",
+       "BASS_FINE",
+       "ENERGY",
+       "DYNAMICS",
+       "CUSTOM"
+      ],
+      "default": 0,
+      "help": "What each layer listens to.",
+      "value_help": [
+       "OCTAVES: equal groups of the 16 spectrum bands.",
+       "BASS_FINE: bass gets the finest layers, treble one wide layer.",
+       "ENERGY: boundaries adapt so every layer carries about the same energy, whatever the track.",
+       "DYNAMICS: no frequency split; every layer follows the overall peak with its own time constant (the echo look).",
+       "CUSTOM: you place the boundaries. In the lab drag the handles under the meter (double-click the strip to add a layer, double-click a handle to remove one); on the Pocket use the Split 1-5 settings."
+      ],
+      "group": "source"
+     },
+     {
+      "key": "outer",
+      "label": "Outer layer",
+      "type": "enum",
+      "values": [
+       "BASS",
+       "TREBLE"
+      ],
+      "default": 0,
+      "help": "Which end of the spectrum is the big outer wave: BASS or TREBLE.",
+      "group": "source"
+     },
+     {
+      "key": "nest",
+      "label": "Layer mode",
+      "type": "enum",
+      "values": [
+       "NESTED",
+       "OVERLAP"
+      ],
+      "default": 0,
+      "help": "NESTED: each layer also hears everything inside it, so inner waves can never poke out of outer ones. OVERLAP: each layer hears only its own frequencies and layers may cross.",
+      "group": "source"
+     },
+     {
+      "key": "xo1",
+      "label": "Split 1",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 3,
+      "when": {
+       "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 1 and layer 2, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 1. In the lab, drag the handles under the meter instead."
+     },
+     {
+      "key": "xo2",
+      "label": "Split 2",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 5,
+      "when": {
+       "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 2 and layer 3, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 2. In the lab, drag the handles under the meter instead."
+     },
+     {
+      "key": "xo3",
+      "label": "Split 3",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 8,
+      "when": {
+       "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 3 and layer 4, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 3. In the lab, drag the handles under the meter instead."
+     },
+     {
+      "key": "xo4",
+      "label": "Split 4",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 11,
+      "when": {
+       "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 4 and layer 5, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 4. In the lab, drag the handles under the meter instead."
+     },
+     {
+      "key": "xo5",
+      "label": "Split 5",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 13,
+      "when": {
+       "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 5 and layer 6, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 5. In the lab, drag the handles under the meter instead."
+     },
+     {
+      "key": "draw",
+      "label": "Draw",
+      "type": "enum",
+      "values": [
+       "BLOCKS",
+       "SMOOTH"
+      ],
+      "default": 1,
+      "help": "How the picture is built each frame.",
+      "value_help": [
+       "BLOCKS: flat chunky columns, redrawn only when a new column arrives.",
+       "SMOOTH: a curved outline evaluated across the width with sub-column motion; the best look. Both modes self-scale: if a frame needs more than about 300 drawing commands the meter widens its drawing cells (coarser, never slower)."
+      ],
+      "group": "display"
+     },
+     {
+      "key": "res",
+      "label": "Resolution",
+      "type": "u16",
+      "min": 16,
+      "max": 400,
+      "step": 8,
+      "default": 200,
+      "unit": "cols",
+      "help": "Resolution: how many columns span the width, up to 400 (one per pixel). In HISTORY view it is the number of history columns; in SPECTRUM view the spectrum has only 16 hardware bands, so it sets how finely the interpolated outline is drawn (lower = chunkier and cheaper). The meter widens its drawing cells automatically if the setting would need too many commands.",
+      "group": "display"
+     },
+     {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u8",
+      "min": 20,
+      "max": 240,
+      "step": 10,
+      "default": 100,
+      "unit": "px/s",
+      "help": "How fast the wave scrolls, in pixels per second. HISTORY view only.",
+      "when": {
+       "view": 0
+      },
+      "group": "dynamics"
+     },
+     {
+      "key": "response",
+      "label": "Response",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 45,
+      "help": "How quickly layers follow the music. Low = slow, lingering; high = snappy. Attack is always about 4 times faster than release.",
+      "group": "dynamics"
+     },
+     {
+      "key": "taper",
+      "label": "Tail taper",
+      "type": "u8",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 70,
+      "unit": "%",
+      "help": "Roll-off toward the tail: the wave narrows (its colour no longer fades) and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed. The Taper curve sets the profile of the narrowing.",
+      "group": "display"
+     },
+     {
+      "key": "color_mode",
+      "label": "Colour source",
+      "type": "enum",
+      "values": [
+       "ACCENT",
+       "THEME",
+       "CUSTOM"
+      ],
+      "default": 1,
+      "help": "Where the layer colours come from.",
+      "value_help": [
+       "ACCENT: derived from your accent colour, with the gradation chosen below. Follows the accent, theme and Dark/Light.",
+       "THEME: pick theme colours (roles) for outer layer, inner layer and background. Follows the theme and Dark/Light.",
+       "CUSTOM: your own colours, entered as hex in Omega or the lab (colour picker) and stored in the Pocket's 16-bit format."
+      ],
+      "group": "display"
+     },
+     {
+      "key": "grad",
+      "label": "Accent gradation",
+      "type": "enum",
+      "values": [
+       "TINTS",
+       "SHADES",
+       "ANALOGOUS",
+       "COMPLEMENT"
+      ],
+      "default": 0,
+      "when": {
+       "color_mode": 0
+      },
+      "help": "How the layers step away from the accent, outer to inner (ACCENT source only). The background is a dark tint of the accent.",
+      "value_help": [
+       "TINTS: outer = accent, inner layers lighten toward white.",
+       "SHADES: inner = accent, outer layers darken.",
+       "ANALOGOUS: neighbouring hues, 30 degrees either side of the accent (pink to violet from a pink accent).",
+       "COMPLEMENT: outer = accent, inner = the opposite hue."
+      ],
+      "group": "display"
+     },
+     {
+      "key": "color_outer",
+      "label": "Outer colour",
+      "type": "enum",
+      "values": [
+       "ACCENT",
+       "TEXT",
+       "TEXT2",
+       "OK",
+       "WARN",
+       "DANGER",
+       "PILL",
+       "ERROR",
+       "SURFACE",
+       "TRACK",
+       "BASE",
+       "BG"
+      ],
+      "default": 5,
+      "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light.",
+      "when": {
+       "color_mode": 1
+      },
+      "group": "display"
+     },
+     {
+      "key": "color_inner",
+      "label": "Inner colour",
+      "type": "enum",
+      "values": [
+       "ACCENT",
+       "TEXT",
+       "TEXT2",
+       "OK",
+       "WARN",
+       "DANGER",
+       "PILL",
+       "ERROR",
+       "SURFACE",
+       "TRACK",
+       "BASE",
+       "BG"
+      ],
+      "default": 0,
+      "help": "Theme role for the innermost layer; layers in between blend from outer to inner.",
+      "when": {
+       "color_mode": 1
+      },
+      "group": "display"
+     },
+     {
+      "key": "color_bg",
+      "label": "Background",
+      "type": "enum",
+      "values": [
+       "ACCENT",
+       "TEXT",
+       "TEXT2",
+       "OK",
+       "WARN",
+       "DANGER",
+       "PILL",
+       "ERROR",
+       "SURFACE",
+       "TRACK",
+       "BASE",
+       "BG"
+      ],
+      "default": 10,
+      "help": "Theme role for the solid background of the meter box (one fill command).",
+      "when": {
+       "color_mode": 1
+      },
+      "group": "display"
+     },
+     {
+      "key": "custom_outer",
+      "label": "Custom outer",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 57905,
+      "kind": "rgb565",
+      "when": {
+       "color_mode": 2
+      },
+      "help": "RGB565 colour for the outer layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+     },
+     {
+      "key": "custom_inner",
+      "label": "Custom inner",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 41662,
+      "kind": "rgb565",
+      "when": {
+       "color_mode": 2
+      },
+      "help": "RGB565 colour for the inner layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+     },
+     {
+      "key": "custom_bg",
+      "label": "Custom background",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 6277,
+      "kind": "rgb565",
+      "when": {
+       "color_mode": 2
+      },
+      "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+     },
+     {
+      "key": "taper_curve",
+      "label": "Taper curve",
+      "type": "enum",
+      "values": [
+       "NORMAL",
+       "SHORT",
+       "SHORTER",
+       "SHARP"
+      ],
+      "default": 0,
+      "help": "The profile of the tail taper: how the wave narrows towards the tail. Applies when Tail taper is above 0.",
+      "value_help": [
+       "NORMAL: the original roll-off; a thin sliver trails out to the edge.",
+       "SHORT: the faintest fifth of the tail is cut, so the wave ends a little sooner.",
+       "SHORTER: the faintest third is cut: a clearly shorter tail.",
+       "SHARP: the roll-off is squared: the wave narrows faster and its tail stays thin."
+      ],
+      "group": "display"
+     },
+     {
+      "key": "direction",
+      "label": "Direction",
+      "type": "enum",
+      "values": [
+       "RIGHT",
+       "LEFT"
+      ],
+      "default": 0,
+      "help": "Which way the picture flows (HISTORY and SCROLL). The head (the pointed start, Head length) is where the newest sound enters and the tail (Tail length, the three dots in HISTORY) is where it leaves, so the two swap sides with the direction.",
+      "value_help": [
+       "RIGHT: the newest sample enters at the left and the wave flows right: head on the left, tail on the right (the original).",
+       "LEFT: the exact mirror: the newest enters at the right and the wave flows left: head on the right, tail and its dots on the left."
+      ],
+      "group": "display"
+     },
+     {
+      "key": "taper_head",
+      "label": "Head length",
+      "type": "u8",
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "default": 0,
+      "unit": "%",
+      "help": "How much of the width the pointed head takes to rise to full height. HISTORY only: SCROLL moves what was already drawn, so the wave enters at full height. 0 = the original, very short ramp.",
+      "group": "display"
+     },
+     {
+      "key": "taper_tail",
+      "label": "Tail length",
+      "type": "u8",
+      "min": 10,
+      "max": 100,
+      "step": 5,
+      "default": 100,
+      "unit": "%",
+      "help": "How much of the remaining width the tail takes to narrow to nothing (HISTORY and SCROLL). 100 = the original, which narrows all the way across; lower values keep full height longer and taper over the last part only.",
+      "group": "display"
+     },
+     {
+      "key": "hstyle",
+      "label": "Spectrum style",
+      "type": "enum",
+      "values": [
+       "BLOCKS",
+       "EQ BELLS",
+       "CURVE"
+      ],
+      "default": 0,
+      "when": {
+       "view": 1
+      },
+      "help": "How the layers share the frequency axis in SPECTRUM view (experimental).",
+      "value_help": [
+       "BLOCKS: hard blocks, each layer draws only its own frequency range.",
+       "EQ BELLS: the same ranges with soft shoulders that taper into the neighbours, like the bell curves of a parametric EQ.",
+       "CURVE: one continuous gradient-coloured outline across the whole axis; the layer colours become colour stops and the layer gains a smooth gain curve."
+      ],
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "aa",
+      "label": "Antialiasing",
+      "type": "enum",
+      "values": [
+       "OFF",
+       "EDGE 2",
+       "EDGE 4",
+       "EDGE 8"
+      ],
+      "default": 0,
+      "help": "Soften the stair-steps along each layer edge with partly covered pixels (experimental, software). The number is how many coverage levels are used: more levels look smoother but merge less, so they need more drawing commands (see the Info cost table in the lab).",
+      "value_help": [
+       "OFF: whole pixels only.",
+       "EDGE 2: one extra pixel row per edge, half or no coverage.",
+       "EDGE 4: four coverage levels.",
+       "EDGE 8: eight levels, the smoothest and the most commands."
+      ],
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "bmode",
+      "label": "Layer blending",
+      "type": "enum",
+      "values": [
+       "OFF",
+       "ALPHA",
+       "AVERAGE",
+       "ADD",
+       "SUBTRACT",
+       "ADD QUARTER"
+      ],
+      "default": 0,
+      "help": "Composite the layers with the blend modes of the drawing engine's blend unit, computed in software on the colours the CPU already knows (experimental). Each layer is blended over the one outside it, so layers are clamped to nest. Costs no extra drawing commands.",
+      "value_help": [
+       "OFF: opaque layers.",
+       "ALPHA: ordinary translucency, 0-255 alpha.",
+       "AVERAGE: half of each, B/2 + F/2.",
+       "ADD: layer added to what is underneath, clamped (glow, light on dark).",
+       "SUBTRACT: layer subtracted from what is underneath, clamped to black.",
+       "ADD QUARTER: a quarter of the layer added, clamped (a faint glow)."
+      ],
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "balpha",
+      "label": "Blend alpha",
+      "type": "u8",
+      "min": 5,
+      "max": 100,
+      "step": 5,
+      "default": 60,
+      "unit": "%",
+      "when": {
+       "bmode": 1
+      },
+      "help": "Opacity of each layer in ALPHA blending.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "guard",
+      "label": "Cost guard",
+      "type": "enum",
+      "values": [
+       "ON",
+       "RELAXED",
+       "OFF"
+      ],
+      "default": 0,
+      "help": "The self-scaling guard keeps a picture inside a time budget by widening the drawing cells (on the Pocket it counts CPU time; the host simulation counts commands).",
+      "value_help": [
+       "ON: budget about 9 ms of CPU per picture. With several layers at high Resolution the cells are widened, so edges and the taper step at that width; they narrow again only after a calm stretch, so the width does not flicker.",
+       "RELAXED: budget about 18 ms; finer cells, about twice the drawing work (a full-screen picture may then exceed the meter's command ceiling and be drawn only every other time).",
+       "OFF: never widen; the full Resolution you asked for, at whatever it costs (measured: about 18 ms a picture full-screen, choppy, and it can starve the audio loop)."
+      ],
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g1",
+      "label": "Gain, layer 1",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 1 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g2",
+      "label": "Gain, layer 2",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 2 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g3",
+      "label": "Gain, layer 3",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 3 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g4",
+      "label": "Gain, layer 4",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 4 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g5",
+      "label": "Gain, layer 5",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 5 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     },
+     {
+      "key": "g6",
+      "label": "Gain, layer 6",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 6 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+     }
+    ],
+    "presets": [
+     {
+      "name": "AURORA",
+      "values": {
+       "view": 0,
+       "layers": 3,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 200,
+       "speed": 100,
+       "response": 45,
+       "taper": 70,
+       "color_mode": 1,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "SUNSET",
+      "values": {
+       "view": 0,
+       "layers": 5,
+       "split": 1,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 160,
+       "speed": 130,
+       "response": 50,
+       "taper": 55,
+       "color_mode": 0,
+       "grad": 1,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "DEEP OCEAN",
+      "values": {
+       "view": 0,
+       "layers": 4,
+       "split": 2,
+       "outer": 1,
+       "nest": 1,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 120,
+       "speed": 80,
+       "response": 40,
+       "taper": 40,
+       "color_mode": 0,
+       "grad": 2,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "HALO",
+      "values": {
+       "view": 0,
+       "layers": 4,
+       "split": 3,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 240,
+       "speed": 90,
+       "response": 30,
+       "taper": 85,
+       "color_mode": 1,
+       "grad": 0,
+       "color_outer": 2,
+       "color_inner": 1,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "NEON",
+      "values": {
+       "view": 0,
+       "layers": 6,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 400,
+       "speed": 240,
+       "response": 80,
+       "taper": 0,
+       "color_mode": 0,
+       "grad": 3,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "PULSE",
+      "values": {
+       "view": 0,
+       "layers": 1,
+       "split": 3,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 0,
+       "res": 64,
+       "speed": 160,
+       "response": 70,
+       "taper": 60,
+       "color_mode": 2,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 63981,
+       "custom_inner": 65067,
+       "custom_bg": 4228,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "TIDE",
+      "values": {
+       "view": 1,
+       "layers": 4,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 200,
+       "speed": 100,
+       "response": 40,
+       "taper": 60,
+       "color_mode": 1,
+       "grad": 0,
+       "color_outer": 0,
+       "color_inner": 1,
+       "color_bg": 9,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "RIDGE",
+      "values": {
+       "view": 1,
+       "layers": 4,
+       "split": 4,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 2,
+       "xo2": 5,
+       "xo3": 9,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 0,
+       "res": 48,
+       "speed": 100,
+       "response": 55,
+       "taper": 50,
+       "color_mode": 0,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      }
+     },
+     {
+      "name": "SILK [EX]",
+      "values": {
+       "view": 0,
+       "layers": 3,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 400,
+       "speed": 100,
+       "response": 45,
+       "taper": 70,
+       "color_mode": 1,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 2,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 1,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "GLOW [EX]",
+      "values": {
+       "view": 1,
+       "layers": 4,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 400,
+       "speed": 100,
+       "response": 45,
+       "taper": 50,
+       "color_mode": 0,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 1,
+       "aa": 0,
+       "bmode": 3,
+       "balpha": 60,
+       "guard": 1,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "STAINED [EX]",
+      "values": {
+       "view": 0,
+       "layers": 4,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 240,
+       "speed": 90,
+       "response": 40,
+       "taper": 60,
+       "color_mode": 0,
+       "grad": 2,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 1,
+       "balpha": 50,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "BELLS [EX]",
+      "values": {
+       "view": 1,
+       "layers": 5,
+       "split": 1,
+       "outer": 0,
+       "nest": 1,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 300,
+       "speed": 100,
+       "response": 50,
+       "taper": 45,
+       "color_mode": 0,
+       "grad": 3,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 1,
+       "aa": 0,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 22,
+       "g2": 18,
+       "g3": 15,
+       "g4": 20,
+       "g5": 23,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "RIBBON [EX]",
+      "values": {
+       "view": 1,
+       "layers": 4,
+       "split": 2,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 400,
+       "speed": 100,
+       "response": 45,
+       "taper": 40,
+       "color_mode": 0,
+       "grad": 2,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 2,
+       "aa": 1,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 12,
+       "g2": 18,
+       "g3": 22,
+       "g4": 26,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "VELVET [EX]",
+      "values": {
+       "view": 0,
+       "layers": 3,
+       "split": 1,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 300,
+       "speed": 70,
+       "response": 35,
+       "taper": 80,
+       "color_mode": 1,
+       "grad": 0,
+       "color_outer": 6,
+       "color_inner": 3,
+       "color_bg": 9,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 1,
+       "bmode": 2,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "INK [EX]",
+      "values": {
+       "view": 0,
+       "layers": 4,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 240,
+       "speed": 100,
+       "response": 45,
+       "taper": 60,
+       "color_mode": 2,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 55812,
+       "custom_inner": 8452,
+       "custom_bg": 59097,
+       "hstyle": 0,
+       "aa": 0,
+       "bmode": 4,
+       "balpha": 60,
+       "guard": 0,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     },
+     {
+      "name": "FULLRES [EX]",
+      "values": {
+       "view": 0,
+       "layers": 6,
+       "split": 0,
+       "outer": 0,
+       "nest": 0,
+       "xo1": 3,
+       "xo2": 5,
+       "xo3": 8,
+       "xo4": 11,
+       "xo5": 13,
+       "draw": 1,
+       "res": 400,
+       "speed": 150,
+       "response": 60,
+       "taper": 40,
+       "color_mode": 0,
+       "grad": 0,
+       "color_outer": 5,
+       "color_inner": 0,
+       "color_bg": 10,
+       "custom_outer": 57905,
+       "custom_inner": 41662,
+       "custom_bg": 6277,
+       "hstyle": 0,
+       "aa": 3,
+       "bmode": 0,
+       "balpha": 60,
+       "guard": 2,
+       "g1": 18,
+       "g2": 18,
+       "g3": 18,
+       "g4": 18,
+       "g5": 18,
+       "g6": 18,
+       "taper_curve": 0,
+       "direction": 0,
+       "taper_head": 0,
+       "taper_tail": 100
+      },
+      "experimental": true
+     }
+    ],
+    "default_preset": 0,
+    "groups": [
+     {
+      "key": "general",
+      "label": "General"
+     },
+     {
+      "key": "source",
+      "label": "Source"
+     },
+     {
+      "key": "display",
+      "label": "Display & Theme"
+     },
+     {
+      "key": "dynamics",
+      "label": "Dynamics"
+     },
+     {
+      "key": "experimental",
+      "label": "Experimental"
+     }
+    ],
+    "list_position": 12
+   },
+   {
+    "id": 17,
+    "schema": 1,
+    "key": "waterfall_grid",
+    "name": "WATERFALL",
+    "enum": "VIZ_WATERFALL_GRID",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 2,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [
+     {
+      "key": "mode",
+      "label": "Mode",
+      "type": "enum",
+      "values": [
+       "SPECTROGRAM",
+       "ZONES",
+       "DUST",
+       "SPARKLE"
+      ],
+      "default": 0
+     },
+     {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u16",
+      "min": 20,
+      "max": 400,
+      "step": 10,
+      "default": 90,
+      "unit": "px/s",
+      "when": {
+       "mode": 0
+      },
+      "note": "pixels per second, whatever the cell size"
+     },
+     {
+      "key": "gain",
+      "label": "Gain",
+      "type": "u8",
+      "min": 50,
+      "max": 200,
+      "step": 10,
+      "default": 100,
+      "unit": "%",
+      "note": "how bright the grid is for a given level"
+     },
+     {
+      "key": "cell",
+      "label": "Cell size",
+      "type": "u8",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 8,
+      "unit": "px",
+      "note": "the cell is this many pixels square, with one pixel between cells"
+     },
+     {
+      "key": "fade",
+      "label": "Fade time",
+      "type": "u16",
+      "min": 150,
+      "max": 2000,
+      "step": 100,
+      "default": 450,
+      "unit": "ms",
+      "when": {
+       "mode": 3
+      },
+      "note": "how long a flash takes to fade back to the dim grid"
+     },
+     {
+      "key": "palette",
+      "label": "Colours",
+      "type": "enum",
+      "values": [
+       "THEME",
+       "INFERNO",
+       "RAINBOW",
+       "ICE"
+      ],
+      "default": 1,
+      "note": "the colour map of the grid: THEME (the accent colour, three steps), INFERNO (black, purple, red, yellow, white: the classic spectrogram), RAINBOW (blue to red), ICE (blue to white); the map's 32 levels show in SPECTROGRAM, its steps colour the other modes"
+     },
+     {
+      "key": "flow",
+      "label": "Direction",
+      "type": "enum",
+      "values": [
+       "VERTICAL",
+       "HORIZONTAL"
+      ],
+      "default": 1,
+      "when": {
+       "mode": 0
+      },
+      "note": "SPECTROGRAM: HORIZONTAL (time runs across, low frequencies at the bottom, the new picture enters at the right) or VERTICAL (frequency runs across, the new picture enters at the top)"
+     }
+    ],
+    "presets": [
+     {
+      "name": "WATERFALL",
+      "values": {
+       "mode": 0,
+       "speed": 90,
+       "gain": 100,
+       "cell": 8,
+       "fade": 450,
+       "palette": 1,
+       "flow": 1
+      }
+     },
+     {
+      "name": "FAST FALL",
+      "values": {
+       "mode": 0,
+       "speed": 180,
+       "gain": 120,
+       "cell": 6,
+       "fade": 450,
+       "palette": 2,
+       "flow": 1
+      }
+     },
+     {
+      "name": "HEAT MAP",
+      "values": {
+       "mode": 1,
+       "speed": 90,
+       "gain": 110,
+       "cell": 8,
+       "fade": 450,
+       "palette": 1,
+       "flow": 1
+      }
+     },
+     {
+      "name": "FINE GRID",
+      "values": {
+       "mode": 1,
+       "speed": 90,
+       "gain": 100,
+       "cell": 5,
+       "fade": 450,
+       "palette": 3,
+       "flow": 1
+      }
+     },
+     {
+      "name": "DUST",
+      "values": {
+       "mode": 2,
+       "speed": 90,
+       "gain": 110,
+       "cell": 8,
+       "fade": 450,
+       "palette": 0,
+       "flow": 1
+      }
+     },
+     {
+      "name": "SPARKLE",
+      "values": {
+       "mode": 3,
+       "speed": 90,
+       "gain": 100,
+       "cell": 8,
+       "fade": 450,
+       "palette": 0,
+       "flow": 1
+      }
+     },
+     {
+      "name": "STARS",
+      "values": {
+       "mode": 3,
+       "speed": 90,
+       "gain": 130,
+       "cell": 5,
+       "fade": 900,
+       "palette": 0,
+       "flow": 1
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 0
+   },
+   {
+    "id": 18,
+    "schema": 1,
+    "key": "sound_map",
+    "name": "SOUND MAP",
+    "enum": "VIZ_SOUND_MAP",
+    "selectable": true,
+    "retired": false,
+    "cost_class": 2,
+    "caps": [],
+    "needs_hw_spec": false,
+    "params": [
+     {
+      "key": "mode",
+      "label": "Mode",
+      "type": "enum",
+      "values": [
+       "STEREO FIELD",
+       "CHARACTER",
+       "LONG MEMORY"
+      ],
+      "default": 0
+     },
+     {
+      "key": "gain",
+      "label": "Gain",
+      "type": "u8",
+      "min": 50,
+      "max": 200,
+      "step": 10,
+      "default": 100,
+      "unit": "%",
+      "note": "how bright / tall for a given level"
+     },
+     {
+      "key": "cell",
+      "label": "Cell size",
+      "type": "u8",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 8,
+      "unit": "px",
+      "note": "the cell is this many pixels square, with one pixel between cells"
+     },
+     {
+      "key": "span",
+      "label": "Seconds per column",
+      "type": "u8",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "default": 1,
+      "unit": "s",
+      "when": {
+       "mode": 2
+      },
+      "note": "how much time one column of the long memory covers"
+     }
+    ],
+    "presets": [
+     {
+      "name": "STEREO FIELD",
+      "values": {
+       "mode": 0,
+       "gain": 100,
+       "cell": 8,
+       "span": 1
+      }
+     },
+     {
+      "name": "CHARACTER",
+      "values": {
+       "mode": 1,
+       "gain": 100,
+       "cell": 8,
+       "span": 1
+      }
+     },
+     {
+      "name": "LONG MEMORY",
+      "values": {
+       "mode": 2,
+       "gain": 120,
+       "cell": 6,
+       "span": 1
+      }
+     },
+     {
+      "name": "MEMORY 5 S",
+      "values": {
+       "mode": 2,
+       "gain": 120,
+       "cell": 8,
+       "span": 5
+      }
+     }
+    ],
+    "default_preset": 0,
+    "list_position": 0
+   }
+  ]
+ }
+}
