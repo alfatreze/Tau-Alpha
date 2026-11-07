@@ -36,6 +36,10 @@ with tempfile.TemporaryDirectory() as td:
     check("--yes writes the folder and reads every name back under its exact bytes", rc == 0 and "0 differ" in out and "NOT FOUND" not in out and (dest / "matrix.tnm").exists(), out[-400:])
     fs = nm.files(); check("every file of the plan is on the card (%d files)" % len(fs), all(os.path.exists(os.path.join(os.fsencode(str(dest)), rel)) for rel in fs))
     rc, out = run("verify", "--card", card); check("verify agrees", rc == 0 and "0 differ" in out, out[:200])
+    (dest / "._junk.mp3").write_bytes(b"x"); (dest / "sub").mkdir(exist_ok=True); (dest / "sub/._junk2").write_bytes(b"x")
+    rc, out = run("write", "--card", card, "--yes")
+    check("a second --yes write removes the macOS AppleDouble ._* files (here 2 planted) and still verifies", rc == 0 and "removed 2 macOS AppleDouble" in out and not (dest / "._junk.mp3").exists() and not (dest / "sub/._junk2").exists(), out[:300])
+    import shutil as _sh; _sh.rmtree(dest / "sub")
     # the files
     mp3s = [rel for rel in fs if rel.endswith(b".mp3")]
     ok = True; why = ""

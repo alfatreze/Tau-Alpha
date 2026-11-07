@@ -88,6 +88,18 @@ def media_root(card):
     return None, None
 
 
+def clean_junk(dest):
+    """macOS leaves AppleDouble files (`._<name>`) beside every file it writes to an exFAT or FAT card: they are not part of the matrix and the Pocket's library scan would meet them. Removes them under dest; returns how many"""
+    import os
+    n = 0
+    for dp, dn, fn in os.walk(os.fsencode(str(dest))):
+        for f in fn:
+            if f.startswith(b"._"):
+                try: os.remove(os.path.join(dp, f)); n += 1
+                except FileNotFoundError: pass                              # macOS may have removed it itself meanwhile
+    return n
+
+
 def osname(b): return b.decode("utf-8", "surrogateescape") if isinstance(b, bytes) else b
 
 
@@ -116,6 +128,7 @@ def main(argv=None):
     if not a.card: print("--card is required"); return 2
     root, common = media_root(a.card)
     if not common: print("no library (Assets/*/common/tau-library.tdb) on the card: the firmware needs it to know the media root"); return 1
+    import os
     dest = common / DIR; fs = files(root)
     print("media root %s -> %s" % (root, dest) + ("" if a.yes or a.cmd == "verify" else "   (dry run: nothing will be written; --yes writes)"))
     if a.cmd == "remove":
@@ -129,12 +142,27 @@ def main(argv=None):
         for rel, data in fs.items():
             p = os.path.join(os.fsencode(str(dest)), rel); os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "wb") as f: f.write(data)
+        import time
+        j = 0
+        for _ in range(6):                                                  # macOS creates the ._ files lazily, after the write has been flushed: sweep until a sweep finds none
+            os.sync(); time.sleep(1.0); k = clean_junk(dest); j += k
+            if not k: break
+        if j: print("removed %d macOS AppleDouble files (._*) the OS added beside the files" % j)
     res, listed = read_back(dest, fs)
     miss = [r for r, (ex, same) in res.items() if not ex]; diff = [r for r, (ex, same) in res.items() if ex and not same]
     print("read back: %d of %d files exist under the exact bytes written, %d differ in content" % (len(res) - len(miss), len(res), len(diff)))
     for r in miss: print("  NOT FOUND under the exact bytes (the OS refused or changed the name): %s  %s" % (osname(r), r.hex()))
-    print("the OS lists these entries (raw bytes, hex):")
-    for n in listed: print("  %s  %s" % (osname(n), n.hex()))
+    junk = [n for n in listed if os.path.basename(n).startswith(b"._")]
+    print("the OS lists these entries (raw bytes, hex)%s:" % (" (%d AppleDouble ._* files left out: `write --yes` removes them)" % len(junk) if junk else ""))
+    for n in listed:
+        if n not in junk: print("  %s  %s" % (osname(n), n.hex()))
+    base = {n.split(b"/")[-1] for n in listed}; changed = []
+    for vid, expect, what, path in variants(root):
+        for comp in path[len((root + DIR + "/").encode()):].split(b"/"):
+            try: fd = unicodedata.normalize("NFD", comp.decode("utf-8")).encode()
+            except UnicodeDecodeError: continue
+            if fd != comp and comp not in base and fd in base: changed.append(vid)
+    if changed: print("NOTE: the OS lists the precomposed (NFC) names of variants %s in their DECOMPOSED (NFD) form: this volume keeps accents decomposed (macOS on exFAT/FAT), so what is stored is NFD whatever was written" % sorted(set(changed)))
     return 1 if (miss or diff) else 0
 
 
