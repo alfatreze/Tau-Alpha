@@ -46,7 +46,9 @@ int main(void)
         else { int is_e = !strncmp(line, "errcode ", 8), is_f = !strncmp(line, "failread ", 9), is_t = !strncmp(line, "timeout ", 8); char *a = strchr(line, ' ') + 1; char *sp = is_e ? strchr(a, ' ') : 0; if (sp) *sp = 0;
             uint8_t p[300]; int n = hex(a, p); for (int i = 0; i < nf; i++) if (F[i].plen == n && !memcmp(F[i].path, p, (size_t)n)) { if (is_e) F[i].errcode = atoi(sp + 1); if (is_f) F[i].failread = 1; if (is_t) F[i].timeout = 1; } }
     }
-    uint32_t r = name_matrix_run();
+    uint32_t r = 0, autoruns = 0;
+    if (getenv("NM_AUTO")) { name_matrix_auto(); autoruns += nm_runs; name_matrix_auto(); autoruns += nm_runs; printf("auto %u\n", autoruns); }
+    else r = name_matrix_run();
     printf("%08x %08x %08x %08x %08x %08x %u %u %u %u\n", nm_res[0], nm_res[1], nm_res[2], nm_cod[0], nm_cod[1], nm_cod[2], nm_bad, nm_err, nm_dry, r);
     return 0;
 }

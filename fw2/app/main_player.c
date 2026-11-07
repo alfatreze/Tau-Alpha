@@ -10,6 +10,7 @@
 #include "../diagnostics/about_page.h"
 #if P2_DIAG
 #include "../diagnostics/preset_probe.h"
+#include "../diagnostics/name_matrix.h"
 void np_new_track_hook(void) { preset_probe_run(); }          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
 #endif
 #if P2_DIAG
@@ -127,7 +128,11 @@ int main(void)
         }
         if (lr_key && (rel & lr_key)) { if (!lr_seeked && np_like) lr_dir = lr_key; lr_key = 0; }
         else if (lr_key && !(keys & lr_key)) lr_key = 0;
-        if (((edge & KEY_START) && (keys & KEY_SELECT)) || ((edge & KEY_SELECT) && (keys & KEY_START))) { if (cur == V_REPORT) views_report_refresh(); else views_switch(V_REPORT); }      /* Select+Start: one screenshot decodes every counter; again refreshes */
+        if (((edge & KEY_START) && (keys & KEY_SELECT)) || ((edge & KEY_SELECT) && (keys & KEY_START))) {
+#if P2_DIAG
+            name_matrix_auto();                                                        /* BUG-001: the name matrix runs once per boot, here, so the Report below carries its result (no Check run needed) */
+#endif
+            if (cur == V_REPORT) views_report_refresh(); else views_switch(V_REPORT); }      /* Select+Start: one screenshot decodes every counter; again refreshes */
         else if (cur == V_REPORT) { if (edge) views_input(edge); }
         else if ((rel & KEY_START) && !st_used) views_switch(cur == V_SETTINGS || cur == V_LIBRARY || cur == V_HALCYON || cur == V_CONFIGURE || cur == V_CONTROLS || cur == V_HELP || cur == V_ABOUT ? V_NOWPLAYING : V_SETTINGS);     /* Start: Settings (closes Settings or the library) */
         else if ((rel & KEY_SELECT) && !sel_used) {                                           /* Select: the library (back a level inside it) */

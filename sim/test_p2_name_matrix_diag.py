@@ -6,6 +6,7 @@
   4. other outcomes: a name that opens another file (the title is not NM<file id>), a failed read, another target code, a timeout, a negative control that opens (counted);
   5. nothing runs without the card's help: no matrix.tnm (nm_err 2), a bad header (5), the audio under pressure (4), no library root (1);
   6. the contracts with the tool: matrix.tnm is exactly 3,072 bytes, the title 'NM07' sits at byte 21, the constants agree, every nibble/word layout holds 22 variants in three words;
+  6b. Select+Start (the Report) runs the matrix once per boot by itself, so no Check run is needed first;
   7. mutant: the title not checked (a wrong file passes).
 Host-simulated: it does not say what the Pocket does (that is the run on a Pocket)."""
 import subprocess, sys, tempfile
@@ -79,6 +80,13 @@ with tempfile.TemporaryDirectory() as td:
     fs = nm.files(); src = (ROOT / "fw2/diagnostics/name_matrix.c").read_text()
     check("6. matrix.tnm is exactly 3,072 bytes and the firmware's constants agree (slot 7, 3,072, 24 variants at most)", len(fs[b"matrix.tnm"]) == 3072 == nm.MANIFEST and "#define NM_MANIFEST 3072u" in src and "#define NM_SLOT 7u" in src and "#define NM_MAX 24u" in src and len(nm.variants()) <= 24 and "slot_open_path_len" not in src)
     mp = nm.mp3(7); check("6. the title 'NM07' sits at byte 21 of the MP3 the tool writes; the manifest header is TNM2 and the lines carry the file id", mp[21:25] == b"NM07" and fs[b"matrix.tnm"].startswith(b"TNM2 22\n") and b"\n17|p|16|" in fs[b"matrix.tnm"])
+    # 6b. Select+Start: the matrix runs once by itself (name_matrix_auto), a run refused for audio pressure does not use the turn
+    def auto(lines, **env):
+        import os
+        o = subprocess.run([str(exe)], input="\n".join(lines) + "\n", capture_output=True, text=True, env=dict(os.environ, NM_AUTO="1", **env)).stdout.split()
+        return int(o[1]), int(o[-1])
+    ar, _ = auto(card()[0]); check("6b. name_matrix_auto runs the matrix once (the second call does nothing): runs counted 1 then 1 (sum %d)" % ar, ar == 2)
+    ar, _ = auto(["degrade 1"] + card()[0]); check("6b. a run refused for audio pressure does not use the turn (nm_runs stays 0)", ar == 0)
     # 7. mutants
     with tempfile.TemporaryDirectory() as t2:
         e2 = build(t2, ("h[23] == (uint8_t)('0' + fid / 10u) && h[24] == (uint8_t)('0' + fid % 10u)", "1"))

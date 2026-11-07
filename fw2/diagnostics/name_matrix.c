@@ -17,7 +17,7 @@ extern uint32_t mp3play_degrade_now(void);
 #define NM_MAX 24u
 #define NM_HDR 32u                                   /* the first bytes of the opened file that are read back */
 
-uint32_t nm_res[3], nm_cod[3], nm_bad, nm_err, nm_dry;
+uint32_t nm_res[3], nm_cod[3], nm_bad, nm_err, nm_dry, nm_runs;
 
 P2_COLD_TEXT static uint32_t check_open(uint32_t fid)      /* after an open that worked: 1 the right file, 2 another file, 3 the read failed */
 {
@@ -41,6 +41,7 @@ P2_COLD_TEXT uint32_t name_matrix_run(void)
     for (uint32_t i = 0; i < 3u; i++) nm_res[i] = nm_cod[i] = 0;
     nm_bad = 0; nm_err = 0; nm_dry = 0;
     if (mp3play_degrade_now()) { nm_err = 4u; return 1u; }
+    nm_runs++;
     uint32_t n = library_root(path, 96u);
     if (!n || n + 24u > sizeof path) { nm_err = 1u; return 1u; }
     if (path[n - 1u] != '/') path[n++] = '/';
@@ -71,3 +72,4 @@ P2_COLD_TEXT uint32_t name_matrix_run(void)
     nm_dry = aout_stats.dry + aout_stats.under_ring - dry0;
     return nm_bad;
 }
+P2_COLD_TEXT void name_matrix_auto(void) { if (!nm_runs) (void)name_matrix_run(); }
