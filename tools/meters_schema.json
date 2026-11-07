@@ -1155,7 +1155,7 @@
      "step": 1,
      "default": 0,
      "unit": "%",
-     "help": "How much of the width the pointed head takes to rise to full height (HISTORY and SCROLL). 0 = the original, very short ramp.",
+     "help": "How much of the width the pointed head takes to rise to full height. HISTORY only: SCROLL moves what was already drawn, so the wave enters at full height. 0 = the original, very short ramp.",
      "group": "display"
     },
     {
