@@ -326,7 +326,7 @@ the package expects on a card.
 | Role | Meaning for an installer | Today's entries (normal core) |
 |---|---|---|
 | `owned` | Install and replace exactly; the hash must match | `Cores/alfatreze.TAU/*`, `tau.rom` (slot 1, required), `tau-cold.bin` (6), `tau-loading.bin` (4) |
-| `shared` | Install if missing; other cores may use it, so a different hash is only a warning | `Platforms/tau.json`, `Platforms/_images/tau.bin` |
+| `shared` | Install if missing; other cores may use it, so a different hash is only a warning | `Platforms/tau.json`, `Platforms/_images/tau.bin`; the factory meter presets `Assets/tau/common/tau-presets/<meter id>/index.tpi` and `p<id>.tpr` (Player 2 releases, B-982: not required, an edited copy is only a warning, Tau Omega writes the user's) |
 | `generated` | Never in the zip; the companion builds it in `format` | `tau-library.tdb` (tau-library v1), `**/tau-art/cover_128.pal256.timg` (TIM1) |
 | `user` | Never overwrite; check its `format` | `tau-assets.bin` (TAUA v1, sections, 64 KiB), media `**/*.{flac,mp3}`, `Settings/<core>/Interact/interact_persist.json` |
 | `obsolete` | Remove on update | From `tools/omega_compat.json` `obsolete`, per core: `Assets/tau/alfatreze.TAU/TAU.json` (and the Diagnostic Build's copy) |

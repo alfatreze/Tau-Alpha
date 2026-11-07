@@ -65,7 +65,36 @@ def make_zip(src: Path, name: str):
     return z
 
 
-def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path):
+PRESET_DIR = "tau-presets"
+
+
+def add_factory_presets(src: Path, media_platform: str):
+    """Player 2 meters read their presets from files (docs/features/METER_PRESETS_EXTERNAL.md): put the factory set (tools/player2/mpreset.py, meters/<key>/presets.json) in the package under
+    Assets/<media platform>/common/tau-presets/, next to the library (the media root of /Assets/tau/common/). Unzipping a release over a card therefore restores the factory presets: Tau Omega's sync
+    is the way that keeps a user's own."""
+    import install_factory_presets as ifp
+    files = ifp.factory()
+    assert files, "no factory preset files: meters/*/presets.json missing?"
+    base = src / "Assets" / media_platform / "common" / PRESET_DIR
+    for rel, data in files.items():
+        f = base / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+    return len(files)
+
+
+def check_factory_presets(names, read, media_platform: str):
+    """the zip (its name list and a reader) holds every factory preset file, byte for byte, and no other file under tau-presets/ (B-982). Returns the number of files."""
+    import install_factory_presets as ifp
+    want = {f"Assets/{media_platform}/common/{PRESET_DIR}/{rel}": data for rel, data in ifp.factory().items()}
+    have = {n for n in names if f"/common/{PRESET_DIR}/" in n}
+    assert have == set(want), f"factory preset files differ: missing {sorted(set(want) - have)[:3]}, extra {sorted(have - set(want))[:3]}"
+    for n, data in want.items():
+        assert read(n) == data, f"{n} is not the factory file"
+    return len(want)
+
+
+def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path, player2: bool = False, media_platform: str = "tau"):
     rev = raw_rbf.translate(bytes(int(f"{x:08b}"[::-1], 2) for x in range(256)))
     with zipfile.ZipFile(z) as f:
         names = f.namelist()
@@ -78,6 +107,7 @@ def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path):
         assert f.read(f"Cores/{core_id}/bitstream.rbf_r") == rev, "bitstream is not the bit-reversed RBF"
         roms = [n for n in names if n.endswith(f"/{core_id}/tau.rom")]                # H4: core-specific
         assert len(roms) == 1 and f.read(roms[0]) == rom.read_bytes(), "tau.rom is not the freshly built ROM"
+        if player2: check_factory_presets(names, f.read, media_platform)
         plat = core["platform_ids"][0]
         assert len(plat) <= 15 and f"Platforms/{plat}.json" in names and f"Platforms/_images/{plat}.bin" in names
         return len(names)
@@ -198,9 +228,11 @@ def finish(args, jobs, rbf, raw, date, channel, ch):
         print(f"version {tau_version.stamp_file(rom, full)} -> {rom.relative_to(ROOT)}")
     version = full
     sums = []
+    media = ch["platforms"][-1]                                          # the platform whose common/ holds the media library (TAU's: a Preview core reads it in place)
     for core_id, src, rom in jobs:
+        if args.player2: print(f"  {core_id}: {add_factory_presets(src, media)} factory preset files under Assets/{media}/common/{PRESET_DIR}/")
         z = make_zip(src, tau_layout.zip_name(core_id, version, date))
-        n = verify(z, core_id, version, raw, rom)
+        n = verify(z, core_id, version, raw, rom, args.player2, media)
         sums.append(f"{sha(z)}  {z.name}")
         print(f"  {z.name}: {n} files, {z.stat().st_size:,} bytes, checks ok")
     zips = [OUT / line.split("  ", 1)[1] for line in sums]
