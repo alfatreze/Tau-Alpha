@@ -70,6 +70,18 @@ def latin1_text(s, limit=63):
     return r if r.replace("?", "").strip() else ""
 
 
+def path_bytes(s):
+    """a path (or one name) as the Pocket reads it (BUG-001, docs/issues/001): code page 437, one byte per character, from the PRECOMPOSED (NFC) form (a file written decomposed is stored precomposed on the card: B-1000).
+    Raises UnicodeEncodeError for a character outside code page 437: such a name cannot be opened by any path (Cyrillic, CJK, emoji, Latin letters like A-acute capital or O-slash), sync_media folds it."""
+    return unicodedata.normalize("NFC", s).encode("cp437")
+
+
+def reachable(s):
+    """True when the Pocket can open a file with this path: every character is in code page 437"""
+    try: path_bytes(s); return True
+    except UnicodeEncodeError: return False
+
+
 def ascii_name(s):
     """Same conversion as sync_media.ascii_part (names already converted on the card pass through unchanged)."""
     d = unicodedata.normalize("NFKD", s)
@@ -269,6 +281,9 @@ def scan(common, cache=None, playlists=False):
         if not p.is_file() or p.name.startswith("._") or p.suffix.lower() not in AUDIO:
             continue
         rel = p.relative_to(common).as_posix()
+        if not reachable(rel):                                   # a character outside code page 437: no path opens this file on the Pocket (docs/issues/001)
+            warns.append(f"{rel}: the name has a character outside code page 437, the Pocket cannot open it (sync_media.py folds such names); left out")
+            continue
         st = p.stat()
         key = f"{rel}|{st.st_size}|{st.st_mtime_ns}"
         if cache is not None and key in cache and len(cache[key]) > 3:
@@ -293,7 +308,8 @@ def scan(common, cache=None, playlists=False):
                             secs=secs, fmt=fmt, det=det))
     pls = []
     if playlists:
-        by_rel = {e["rel"]: i for i, e in enumerate(entries)}
+        nfc = lambda x: unicodedata.normalize("NFC", x)         # macOS lists decomposed names; a playlist line holds the precomposed form
+        by_rel = {nfc(e["rel"]): i for i, e in enumerate(entries)}
         used = set()
         for m in sorted(common.rglob("*.m3u")):
             if m.name.startswith("._"):
@@ -305,8 +321,8 @@ def scan(common, cache=None, playlists=False):
                 if not ln or ln.startswith("#"):
                     continue
                 rel = ln.lstrip("/") if ln.startswith("/") else (f"{base}/{ln}" if base != "." else ln)
-                if rel in by_rel:
-                    ids.append(by_rel[rel])
+                if nfc(rel) in by_rel:
+                    ids.append(by_rel[nfc(rel)])
                 else:
                     dropped += 1
             if dropped:
@@ -338,13 +354,16 @@ def scan(common, cache=None, playlists=False):
 class Pool:
     def __init__(self):
         self.buf = bytearray(b"\x00")          # offset 0 = empty string
-        self.idx = {"": 0}
+        self.idx = {}
 
-    def add(self, s):
-        if s not in self.idx:
-            self.idx[s] = len(self.buf)
-            self.buf += s.encode("latin-1") + b"\x00"
-        return self.idx[s]
+    def add(self, s, enc="latin-1"):
+        """display text is Latin-1 (one byte a character, the font's range); a PATH piece (a folder or file name) is code page 437, the encoding the Pocket decodes paths with (path_bytes)"""
+        if not s: return 0
+        k = (s, enc)
+        if k not in self.idx:
+            self.idx[k] = len(self.buf)
+            self.buf += (path_bytes(s) if enc == "cp437" else s.encode("latin-1")) + b"\x00"
+        return self.idx[k]
 
 
 def _align(b, n=16):
@@ -362,7 +381,9 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
         trk = _num(t.get("TRCK"), 1023)
         e["_title"], e["_tno"] = title, (disc << 10) | trk
         albums.setdefault(e["dir"], []).append(i)
-        if len((root_prefix + e["rel"]).encode()) > MAX_PATH:
+        if not reachable(root_prefix + e["rel"]):
+            raise LibError(14, f"name outside code page 437 (the Pocket cannot open it): {e['rel']}")
+        if len(path_bytes(root_prefix + e["rel"])) > MAX_PATH:
             raise LibError(14, f"path over {MAX_PATH} bytes: {e['rel']}")
         if not (t.get("TIT2") and (t.get("TPE1") or t.get("TPE2"))):
             warns.append(f"{e['rel']}: missing title/artist tag, using names")
@@ -392,12 +413,12 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
     first_alb = {}
     for ai, a in enumerate(alb):
         first_alb.setdefault(art_idx[a["artist"]], [ai, 0])[1] += 1
-        albums_b += struct.pack("<IIHHHHHH", pool.add(a["title"]), pool.add(a["dir"]), art_idx[a["artist"]],
+        albums_b += struct.pack("<IIHHHHHH", pool.add(a["title"]), pool.add(a["dir"], "cp437"), art_idx[a["artist"]],
                                 a["year"], len(tracks) // 16, len(a["ids"]), 0xFFFF, 0)
         for i in a["ids"]:
             e = entries[i]
             track_new[i] = len(tracks) // 16
-            tracks += struct.pack("<IIHHHBB", pool.add(e["_title"]), pool.add(e["file"]), min(e["secs"], 65535),
+            tracks += struct.pack("<IIHHHBB", pool.add(e["_title"]), pool.add(e["file"], "cp437"), min(e["secs"], 65535),
                                   e["_tno"], ai, e["fmt"], 0)
             if e.get("det"):
                 d = dict(e["det"]); d["enc"] = ascii_text(d.get("enc", ""), 40)
@@ -547,10 +568,20 @@ def _str(ix, off):
 Index.str = _str
 
 
+def _pstr(ix, off):
+    """a path piece (a folder or file name): code page 437"""
+    if off >= len(ix.strings):
+        raise LibError(17, f"string offset {off}")
+    return ix.strings[off:ix.strings.index(b"\x00", off)].decode("cp437")
+
+
+Index.pstr = _pstr
+
+
 def track_path(ix, i):
     t = ix.tracks[i]
-    d = ix.str(ix.albums[t[4]][1])
-    return ix.root + (d + "/" if d else "") + ix.str(t[1])
+    d = ix.pstr(ix.albums[t[4]][1])
+    return ix.root + (d + "/" if d else "") + ix.pstr(t[1])
 
 
 def verify(data, root=None):
@@ -592,7 +623,7 @@ def verify(data, root=None):
         prev = None
         for i in range(a[4], a[4] + a[5]):
             t = ix.tracks[i]
-            k = (t[3] >> 10, t[3] & 1023, nat(ix.str(t[1])))
+            k = (t[3] >> 10, t[3] & 1023, nat(ix.pstr(t[1])))
             if t[4] != ai:
                 bad.append(f"track {i}: album {t[4]} != {ai}")
             if prev is not None and k < prev:
@@ -627,8 +658,8 @@ def verify(data, root=None):
             bad.append(f"playlist {i}: track id out of range")
     for name in ("strings",):
         for s in ix.strings.split(b"\x00"):
-            if any(c < 0x20 or c >= 0x7F for c in s):
-                bad.append("non-ASCII string in the pool")
+            if any(c < 0x20 or c == 0x7F for c in s):            # code page 437 path bytes (0x80+) are legal (BUG-001)
+                bad.append("control byte in a pool string")
                 break
     return bad
 
