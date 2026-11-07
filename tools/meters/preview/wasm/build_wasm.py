@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build the WebAssembly twins of the meter lab: the firmware's OWN drawing source of a meter, compiled through a small wrapper (tools/meters/preview/wasm/<key>_wasm.c) and written, base64, with the SHA-256 of every
-file it was built from, to tools/meters/preview/meters/<key>_wasm.js (committed: the lab and Tau Omega need no toolchain). Modules: sound_map (fw2/ui/meter_sound_map.c) and layered_wave (fw2/ui/meter_layered_wave.c).
+file it was built from, to tools/meters/preview/meters/<key>_wasm.js (committed: the lab and Tau Omega need no toolchain). Modules: sound_map (fw2/ui/meter_sound_map.c), layered_wave (fw2/ui/meter_layered_wave.c) and waterfall_grid (fw2/ui/meter_waterfall_grid.c).
 
   python3 tools/meters/preview/wasm/build_wasm.py [KEY ...]           rebuild (needs Homebrew llvm + lld, see memory/reference-wasm-toolchain: clang --target=wasm32 and wasm-ld)
   python3 tools/meters/preview/wasm/build_wasm.py --check [KEY ...]   exit 1 when a file changed since the committed module was built (no toolchain needed); with the toolchain it also rebuilds and compares the bytes
@@ -13,6 +13,7 @@ ROOT = HERE.parents[3]
 CLANG, WASM_LD = "/opt/homebrew/opt/llvm/bin/clang", "/opt/homebrew/opt/lld/bin/wasm-ld"
 MODULES = {
     "sound_map": {"wrapper": "sound_map_wasm.c", "global": "TauSoundMapWasm", "extra": [], "about": "SOUND MAP compiled to WebAssembly from fw2/ui/meter_sound_map.c by tools/meters/preview/wasm/build_wasm.py"},
+    "waterfall_grid": {"wrapper": "waterfall_grid_wasm.c", "global": "TauWaterfallGridWasm", "extra": [], "about": "WATERFALL GRID compiled to WebAssembly from fw2/ui/meter_waterfall_grid.c (the pack's own source, P2_PACK) by tools/meters/preview/wasm/build_wasm.py"},
     "layered_wave": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveWasm", "extra": ["-I", str(ROOT / "fw")], "about": "LAYERED WAVE compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
     "layered_wave_timed": {"wrapper": "layered_wave_wasm.c", "global": "TauLayeredWaveTimedWasm", "extra": ["-I", str(ROOT / "fw"), "-DWASM_TIMED=1"], "about": "LAYERED WAVE (modelled CPU-time cost guard, -DWASM_TIMED) compiled to WebAssembly from fw2/ui/meter_layered_wave.c (fw2/ui/layered_wave.inc) by tools/meters/preview/wasm/build_wasm.py"},
 }
@@ -62,12 +63,16 @@ def check(key):
     print("%s_wasm.js is current (%d B)" % (key, len(wasm))); return 0
 
 
+ENUMS = {"layered_wave": ("lw_presets.h", "MP_LAYERED_WAVE_"), "layered_wave_timed": ("lw_presets.h", "MP_LAYERED_WAVE_"), "waterfall_grid": ("meter_presets.h", "MPP_WF_")}
+
+
 def param_keys(key):
-    """the parameter keys of a module in the order of its params buffer (the generated MP_LAYERED_WAVE_* enum), so the lab adapter needs no copy of the list"""
-    if not key.startswith("layered_wave"): return None
-    t = (ROOT / "fw2/generated/lw_presets.h").read_text()
-    e = re.search(r"enum \{([^}]*)\}", t).group(1)
-    return [m.lower() for m in re.findall(r"MP_LAYERED_WAVE_([A-Z0-9_]+)", e) if m != "N"]
+    """the parameter keys of a module in the order of its params buffer (the generated enum of the meter's parameters), so the lab adapter needs no copy of the list"""
+    if key not in ENUMS: return None
+    f, pre = ENUMS[key]
+    t = (ROOT / "fw2/generated" / f).read_text()
+    e = re.search(r"enum \{([^}]*%sN[^}]*)\}" % re.escape(pre), t).group(1)
+    return [m.lower() for m in re.findall(re.escape(pre) + r"([A-Z0-9_]+)", e) if m != "N"]
 
 
 def build(key):

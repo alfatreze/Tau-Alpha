@@ -100,5 +100,25 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
   });
 }
 
+/* waterfall_grid (firmware: fw2/ui/meter_waterfall_grid.c compiled to WebAssembly; the native-vs-module golden frames are sim/test_waterfall_golden.py) */
+{
+  const wm = schema.meters.find((m) => m.key === 'waterfall_grid'), box = { x: 16, y: 152, w: 368, h: 122 };
+  check('waterfall_grid: registered and selectable, with factory presets', () => { assert.ok(wm && wm.selectable && wm.presets.length >= 1 && wm.params.length === require('./meters/waterfall_grid_wasm.js').params.length); });
+  for (const mode of [0, 1, 2, 3]) for (const flow of [0, 1]) {
+    if (mode && flow) continue;                                     // the flow only changes the spectrogram
+    check(`waterfall_grid/mode ${mode} flow ${flow}: deterministic, inside its box, draws`, () => {
+      const opts = { data, schema, key: 'waterfall_grid', params: { mode, flow, palette: 1 }, source: Audio.demo(2), frames: 150 };
+      const a = Run.run(opts), b = Run.run(opts); assert.strictEqual(a.fb.checksum(), b.fb.checksum()); assert.ok(a.cost.mean > 0);
+      const bg = Run.run(Object.assign({}, opts, { frames: 0 })).fb; let inside = 0, outside = 0;
+      for (let y = 0; y < 360; y++) for (let x = 0; x < 400; x++) if (a.fb.px[y * 400 + x] !== bg.px[y * 400 + x]) ((x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) ? inside++ : outside++);
+      assert.ok(inside > 300, 'nothing drawn'); assert.strictEqual(outside, 0, outside + ' pixels outside the box');
+    });
+  }
+  check('waterfall_grid: the spectrogram scrolls (the picture moves between two frames) and the palette blit shows the entering row', () => {
+    const run = (f) => Run.run({ data, schema, key: 'waterfall_grid', params: { mode: 0, flow: 0, palette: 1, speed: 200 }, source: Audio.demo(2), frames: f }).fb.checksum();
+    assert.notStrictEqual(run(120), run(121));
+  });
+}
+
 console.log(fails ? fails + ' FAILURES' : 'preview stack OK');
 process.exit(fails ? 1 : 0);

@@ -166,6 +166,8 @@ test-host:
 	$(PYTHON) sim/test_p2_mpreset_meters.py
 	$(PYTHON) sim/test_install_factory_presets.py
 	$(PYTHON) sim/test_release_factory_presets.py
+	$(PYTHON) sim/test_waterfall_golden.py
+	$(PYTHON) sim/test_meter_wasm_coverage.py
 	$(PYTHON) sim/test_p2_sdram_soak.py
 	$(PYTHON) sim/test_p2_scope_trail.py
 	$(PYTHON) sim/test_p2_chladni_dbuf.py
