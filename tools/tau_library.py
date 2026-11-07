@@ -106,6 +106,8 @@ def sort_key(s):
 
 
 def nat(s):
+    # NFC first: a card listing (macOS on ExFAT) returns accented names decomposed, the index stores and the checker reads them precomposed (code page 437), so both sides sort the same text
+    s = unicodedata.normalize("NFC", s)
     return tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in re.split(r"(\d+)", s.lower()) if x)
 
 
