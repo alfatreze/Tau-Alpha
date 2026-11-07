@@ -226,32 +226,64 @@ def _anyascii():
     return _ANY or None
 
 
-def card_part(name, ascii_only=False):
-    """a file or folder name as it goes on the card. The Pocket decodes a path as code page 437 (docs/issues/001, B-1000), so every
-    character that exists there (Latin letters with accents such as e-acute, o-umlaut, n-tilde, ss, ae, plus pi, cent, ...) is KEPT, in the
-    precomposed (NFC) form the card stores; a run of other characters is transliterated (_translit). A name left empty is "track" (the caller
-    numbers duplicates). With ascii_only every non-ASCII character is folded (the old behaviour, --ascii-only)."""
+_RESERVED = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+ROOT_BUDGET = 30            # "/Assets/tau_psram_07/common/" is the longest root prefix; the index refuses a whole path over 200 bytes
+MAX_PATH = 200
+FOLDER_MAX = 64
+
+
+def _is_greek(c):
+    return 0x370 <= ord(c) <= 0x3FF or 0x1F00 <= ord(c) <= 0x1FFF
+
+
+def card_part(name, ascii_only=False, is_file=True):
+    """a file or folder name as it goes on the card (rules: docs/features/CARD_NAME_RULES.md). The Pocket decodes a path as code page 437
+    (docs/issues/001, B-1000), so every character that exists there (accented Latin letters, ss, ae, cent, ...) is KEPT in the precomposed
+    (NFC) form the card stores; a run of other characters is transliterated (_translit). A run of Greek letters is kept only when ALL of it
+    is in code page 437 (pi, mu), else the whole run is transliterated, so a Greek word never comes out half Greek, half Latin.
+    Controls become a space; dropped characters leave no double space; the stem loses leading/trailing spaces and dots; a Windows device
+    name (CON, NUL, COM1 ...) gets a trailing underscore; an empty name is "track" (the caller numbers duplicates).
+    With ascii_only every non-ASCII character is folded (the old behaviour, --ascii-only)."""
+    import re
     import unicodedata
     if ascii_only:
         return ascii_part(name)
+    chars = [" " if (ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F) else c for c in unicodedata.normalize("NFC", name)]
+    keep = [0x20 <= ord(c) < 0x7F or (ord(c) > 0x9F and _cp437(c)) for c in chars]
+    k = 0
+    while k < len(chars):                                         # Greek: all of a run or none of it
+        if _is_greek(chars[k]):
+            e = k
+            while e < len(chars) and _is_greek(chars[e]):
+                e += 1
+            if not all(keep[k:e]):
+                keep[k:e] = [False] * (e - k)
+            k = e
+        else:
+            k += 1
     out, run = [], []
-    for c in unicodedata.normalize("NFC", name):
-        if 0x20 <= ord(c) < 0x7F or (ord(c) > 0x9F and _cp437(c)):
+    for c, kp in zip(chars, keep):
+        if kp:
             if run:
-                out.append(_translit("".join(run))); run = []
+                out.append(_translit("".join(run)) or "\0"); run = []
             out.append(c)                                         # ASCII, or in code page 437: the Pocket opens it
         else:
             run.append(c)
     if run:
-        out.append(_translit("".join(run)))
-    s2 = "".join(out)
+        out.append(_translit("".join(run)) or "\0")
+    s2 = re.sub(r" ?\0 ?", lambda m: " " if " " in m.group(0) else "", "".join(out)).replace("\0", "")
     for bad in '<>:"|?*\\':
         s2 = s2.replace(bad, "_")
-    s2 = s2.strip()
     stem, dot, ext = s2.rpartition(".")
-    if not s2 or (dot and not stem.strip()):
-        s2 = "track" + (("." + ext) if dot else "")
-    return s2
+    if not (is_file and dot and 1 <= len(ext) <= 5 and " " not in ext):
+        stem, ext = s2, ""
+        dot = ""
+    stem = stem.strip(" .")
+    if not stem:
+        stem = "track"
+    if stem.lower() in _RESERVED:
+        stem += "_"
+    return stem + (("." + ext) if dot else "")
 
 
 class NameMap:
@@ -263,18 +295,30 @@ class NameMap:
         self.ascii_only = ascii_only
         self.map = {(): ()}
         self.taken = {}
-        for rel in sorted({tuple(r.parts) for r in rels}):
+        for rel in sorted({self._nfc(r.parts) for r in rels}):
             for i in range(1, len(rel) + 1):
                 self._one(rel[:i], last_is_file=(i == len(rel)))
+
+    @staticmethod
+    def _nfc(parts):
+        import unicodedata
+        return tuple(unicodedata.normalize("NFC", x) for x in parts)
 
     def _one(self, orig, last_is_file):
         if orig in self.map:
             return
         parent = self.map[orig[:-1]]
-        base = card_part(orig[-1], self.ascii_only)
+        base = card_part(orig[-1], self.ascii_only, last_is_file)
         stem, ext = base, ""
         if last_is_file and "." in base and base.rpartition(".")[0]:
             stem, _, e = base.rpartition("."); ext = "." + e
+        if last_is_file:                                              # keep the whole path under the index's limit, room kept for " (99)"
+            room = MAX_PATH - ROOT_BUDGET - len("/".join(parent)) - (1 if parent else 0) - len(ext) - 5
+        else:
+            room = FOLDER_MAX
+        if len(stem) > max(room, 8):
+            stem = stem[:max(room, 8)].rstrip(" .")
+            base = stem + ext
         n, cand = 1, base
         while True:
             key = (parent, cand.lower())
@@ -286,15 +330,15 @@ class NameMap:
         self.map[orig] = parent + (cand,)
 
     def rel(self, rel):
-        return Path(*self.map[tuple(Path(rel).parts)])
+        return Path(*self.map[self._nfc(Path(rel).parts)])
 
     def line(self, base_parts, parts):
         """a playlist line (relative to the playlist's folder), converted with the same map; pieces the map does not know use card_part"""
-        for pre in (tuple(base_parts), ()):
-            k = pre + tuple(parts)
+        for pre in (self._nfc(base_parts), ()):
+            k = pre + self._nfc(parts)
             if k in self.map:
                 return "/".join(self.map[k][len(self.map[pre]):])
-        return "/".join(card_part(x, self.ascii_only) for x in parts)
+        return "/".join(card_part(x, self.ascii_only, i == len(parts) - 1) for i, x in enumerate(parts))
 
 
 _FOLD = {"Ø": "O", "ø": "o", "Đ": "D", "đ": "d", "Ł": "L", "ł": "l", "Ð": "D", "ð": "d", "Þ": "Th", "þ": "th", "Œ": "OE", "œ": "oe", "ı": "i"}
