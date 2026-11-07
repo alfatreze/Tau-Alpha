@@ -48,7 +48,7 @@ for _k in GENERIC: METERS[_k] = "PACK_GEN"
 def gen_flags(key):
     if key not in GENERIC: return []
     tag = GENERIC[key]; lc = tag.lower()
-    return ['-DGEN_SRC="../fw2/ui/meter_%s.c"' % key, "-DGEN_TICK=%s_tick" % lc, "-DGEN_LOAD=%s_load" % lc, "-DGEN_PN=MPP_%s_N" % tag, "-DGEN_PRESETS=MPP_%s_PRESETS" % tag, "-DGEN_TABLE=mpp_%s" % lc]
+    return ['-DGEN_SRC="../fw2/ui/meter_%s.c"' % key, "-DGEN_TICK=%s_tick" % lc, "-DGEN_LOAD=%s_load" % lc, "-DGEN_PN=MPP_%s_N" % tag, "-DGEN_PRESETS=FP_%s_N" % tag, "-DGEN_TABLE=fp_%s" % lc]      # the factory presets (generated/factory_presets.h) are the trace's parameter sets; the firmware tables hold DEFAULT only since B-970
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
 def run_native(tmp, key, frames=None):
     exe = tmp / ("native_%s_%s" % (key, frames))

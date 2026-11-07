@@ -2,7 +2,7 @@
 """Instruction-cache sweep over the packs (docs/features/LAYERED_WAVE_PERF_PLAN.md, section 2: "Chladni is the next candidate to look at, cheaply, with the same tool").
 
 The CPU runs pack code from PSRAM through a 4 KiB direct-mapped instruction cache (128 lines of 32 bytes); each miss costs about 253 cycles [MODEL, docs/PHASE_G_SPEC.md]. For every pack with a trace in
-sim/p2_pack_trace.h (Winamp Bars, Winamp Scope, Master VU, Chladni, Layered Wave, Waterfall Grid; Sound Map has no shared trace) this runs the pack as shipped (linked at the simulator slot, 4 KiB aligned, so the cache
+sim/p2_pack_trace.h (Winamp Bars, Winamp Scope, Master VU, Chladni, Layered Wave, Waterfall Grid, and Sound Map on the generic trace) this runs the pack as shipped (linked at the simulator slot, 4 KiB aligned, so the cache
 indices equal the Pocket's) through a copy of tools/rv32sim.py that models the cache, and prints per picture: instructions, misses, the modelled cycles (instructions x 1.65 + misses x 253), the share of the
 cycles that are misses, and the worst CONFLICTS: pairs of functions whose lines evict each other, with how often (per picture). The marginal cost is (13 frames - 3 frames) / 10 so the load drops out.
   python3 tools/player2/icache_sweep.py [KEY ...] [--top N]
@@ -15,7 +15,8 @@ sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "
 import pack_meter as pm
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
-FLAG = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW", "waterfall_grid": "PACK_WF"}
+FLAG = {"sound_map": "PACK_GEN", "winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW", "waterfall_grid": "PACK_WF"}
+GEN = {"sound_map": ["-DGEN_PN=MPP_SMP_N", "-DGEN_PRESETS=FP_SMP_N", "-DGEN_TABLE=fp_smp"]}        # a meter on the generic trace (PACK_GEN): its factory presets are the parameter sets
 CYC_INSTR, CYC_MISS = 1.65, 253
 
 _src = (ROOT / "tools/rv32sim.py").read_text()
@@ -35,7 +36,7 @@ def sim(elf, blob):
 def harness(tmp, key, frames, tag):
     elf = tmp / ("h_%s_%s_%d.elf" % (key, tag, frames))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-w"] + SIMREGS + [
-           "-D" + FLAG[key], "-DTR_NOHASH", "-DTR_NFRAMES=%d" % frames, "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % pm.SLOT[key],
+           "-D" + FLAG[key]] + GEN.get(key, []) + ["-DTR_NOHASH", "-DTR_NFRAMES=%d" % frames, "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % pm.SLOT[key],
            "-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"), str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/p2_pack_harness.c"),
            "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"), "-I", str(ROOT / "fw"), "-I", str(ROOT / "tools/host"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
