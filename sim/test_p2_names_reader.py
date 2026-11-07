@@ -194,6 +194,20 @@ with tempfile.TemporaryDirectory() as td:
     check("400 random corruptions: no sanitizer fault, only known load codes", survived == 400, survived)
     check("the corruptions reach several different load codes", len(codes) >= 4, codes)
 
+# ---- the PSRAM image must not overlap anything else in the window (B-1006: at +0x700000 it sat on the PCM audio ring, which overwrote it on DEV 217/218)
+import re as _re
+_lib = (ROOT / "fw2/stream/library.c").read_text()
+_off = lambda name: int(_re.search(r"#define " + name + r"\s+\(\(?[^\n]*?PS_BASE \+ (0x[0-9A-Fa-f]+)u", _lib).group(1), 16)
+_ni, _li, _lq = _off("NAMES_IMG"), _off("LIB_IMG"), _off("LIB_Q")
+_lc = int(_re.search(r"#define LIB_CAP\s+(0x[0-9A-Fa-f]+)u", _lib).group(1), 16)
+_ring = int(_re.search(r"#define RING_BASE_W\s+(0x[0-9A-Fa-f]+)u", (ROOT / "fw2/aout/aout.c").read_text()).group(1), 16) * 4
+_rpairs = int(_re.search(r"#define AOUT_RING_PAIRS\s+(\d+)u", (ROOT / "fw2/aout/aout.h").read_text()).group(1))
+_nmax = 1 << int(_re.search(r"#define NAMES_MAX_FILE\s+\(1u << (\d+)\)", (ROOT / "fw2/cores/names_core.h").read_text()).group(1))
+_others = {"index image": (_li, _li + _lc), "queue": (_lq, _lq + 0x10000), "assets staging": (0x520000, 0x530000), "report scratch": (0x530000, 0x538000),
+           "PRST": (0x540000, 0x550000), "meters": (0x550000, 0x562000), "tempo staging": (0x600000, 0x640000), "PCM ring": (_ring, _ring + 4 * _rpairs), "cold image": (0x800000, 0x900000)}
+for _n, (_a, _b) in _others.items():
+    check(f"the names image [{_ni:#x}, {_ni + _nmax:#x}) does not overlap the {_n} [{_a:#x}, {_b:#x})", _ni + _nmax <= _a or _ni >= _b, (_ni, _nmax, _a, _b))
+
 if fails:
     print("FAILED:", fails)
     sys.exit(1)

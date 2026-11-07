@@ -85,11 +85,11 @@ PSRAM window `0xA4000000`, 32 MiB, uncached, 32 read / 26 write cycles [HW, KB-0
 | `+0x3000` .. `+0x84FF` | **Diagnostic Build only**, fixed addresses in `fw/suite.inc`: `CHK_QR` `+0x3000..+0x6398`, `CHK_REC` `+0x7000`, `CHK_TXT` `+0x7800`, `CKM` `+0x8400`. Note `CHK_QR` overlaps the tail of `art_acc` (`+0x3000..+0x3BFF`); time-shared today (cover decode versus the Check page), never observed to matter |
 | `+0x009000` .. `+0x00FFFF` | **persistent meter state** (`MTR_PSRAM`, linker section `.psram_state`, region `psram_state`, 28 KB; Layered Wave's history ring is 2,424 B of it). Rules: `docs/features/meters/METER_MODULE_SPEC.md` section 27 (B-509) |
 | `+0x010000` .. `+0x40FFFF` | library index image (4 MiB cap) |
-| `+0x410000` .. `+0x50FFFF` | reserved (thumbnail page cache, deferred) |
+| `+0x410000` .. `+0x50FFFF` | `tau-names.bin` image, 1 MiB cap (`docs/features/NAME_SIDECAR_SPEC.md`; was reserved for the deferred thumbnail cache) |
 | `+0x510000` .. `+0x51FFFF` | queue / shuffle order u16[16,384] (32 KiB) + play history |
 | `+0x520000` .. `+0x52FFFF` | `tau-assets.bin` staging for files over one 4 KiB window (`ASSETS_PSRAM_BASE`, 64 KiB, B-628) |
 | `+0x530000` .. | reserved (blit engine, later features); the tempo staging ring is at `+0x600000` (256 KB) |
-| `+0x700000` .. `+0x7FFFFF` | `tau-names.bin` image, 1 MiB cap (`docs/features/NAME_SIDECAR_SPEC.md`, B-1003); the cold image starts at `+0x800000` |
+| `+0x700000` .. `+0x732C7F` | PCM audio ring (`aout.c RING_BASE_W`, 52,000 pairs; `docs/features/PLAYER_V2_SPEC.md` section 12.1). **Not free**: the names image sat here on DEV 217/218 and the ring overwrote it (B-1006); the cold image starts at `+0x800000` |
 SDRAM is not used. BRAM budget for the feature (state only): under 1 KiB [EST] (browse stack, cursors, counts, a 256 B path buffer, a 64 B string scratch). Strings are read from PSRAM into that scratch for drawing.
 
 ## 5. Load and browse behaviour, latency targets

@@ -20,7 +20,7 @@
 #endif
 
 #ifndef NAMES_IMG
-#define NAMES_IMG ((volatile uint8_t *)(uintptr_t)(PS_BASE + 0x700000u))     /* tau-names.bin image, 1 MiB cap (docs/features/NAME_SIDECAR_SPEC.md); below the cold image at +0x800000 */
+#define NAMES_IMG ((volatile uint8_t *)(uintptr_t)(PS_BASE + 0x410000u))     /* tau-names.bin image, 1 MiB cap (docs/features/NAME_SIDECAR_SPEC.md): the reserved range +0x410000..+0x50FFFF between the index image and the queue. NOT +0x700000: that is the PCM audio ring (aout.c RING_BASE_W), which overwrote the image on DEV 217/218 (B-1006) */
 #endif
 #define NAMES_SLOT 7u                                                       /* opened by path at boot, like the cover and the skip list: no data slot of its own */
 
