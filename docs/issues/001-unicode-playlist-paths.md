@@ -121,3 +121,5 @@ Addendum (B-1001, same day): the sync tool no longer stops on a name collision (
 Update 2026-11-07 (B-1002): the full design for keeping the originals is `docs/features/NAME_SIDECAR_SPEC.md` (card-safe name opens the file, the sidecar holds the lossless UTF-8 name and tags, the firmware shows the original when its font can draw every character). Host-tested with a 62-case corpus; firmware reader and a CJK font are not built.
 
 Update 2026-11-07 (B-1003): the firmware reader of the sidecar is built and host-tested (`fw2/cores/names_core.h`, `fw2/stream/library.c`). No writer yet, not on a Pocket; with the Latin-1 font it adds little until a font with wider coverage exists.
+
+Update 2026-11-07 (B-1004): `sync_media.py --library` and `tau_library.py build` now write `tau-names.json` and `tau-names.bin` (host-tested end to end, including the firmware reader). Not on a Pocket; Omega does not write them yet; Shift-JIS tags are not auto-detected.

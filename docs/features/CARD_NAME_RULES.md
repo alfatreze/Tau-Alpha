@@ -16,4 +16,6 @@ Rules, applied to every folder name and file name (each path piece on its own), 
 
 Vectors (with anyascii and pykakasi installed; `sim/test_cp437_names.py` checks them): `Café.mp3` -> `Café.mp3`; `Cafe\u0301.mp3` -> `Café.mp3`; `Søren.mp3` -> `Soren.mp3`; `Привет.mp3` -> `Privet.mp3`; `东京.flac` -> `DongJing.flac`; `東京タワー.mp3` -> `toukyou tawaa.mp3`; `😀.mp3` -> `track.mp3`; `Café Привет.mp3` -> `Café Privet.mp3`.
 
+The original names and tags are kept in the sidecar (`docs/features/NAME_SIDECAR_SPEC.md`), written by `sync_media.py --library` / `tau_library.py build`.
+
 Tau Omega must produce the same names (it writes cards too): port the rules and the vectors, or call `sync_media.py`. Transliteration output depends on the library versions; the shared guarantee is rules 1, 2, 4-7 and the cp437 bytes.

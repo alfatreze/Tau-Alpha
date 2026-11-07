@@ -186,6 +186,7 @@ test-host:
 	$(PYTHON) sim/test_name_sidecar.py
 	$(PYTHON) sim/test_p2_names_reader.py
 	$(PYTHON) sim/test_p2_library_names.py
+	$(PYTHON) sim/test_names_writer.py
 	$(PYTHON) sim/test_p2_name_matrix_diag.py
 	$(PYTHON) sim/test_meter_wasm_coverage.py
 	$(PYTHON) sim/test_p2_sdram_soak.py
