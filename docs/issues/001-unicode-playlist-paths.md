@@ -1,6 +1,6 @@
 # BUG-001: Playlist paths with Unicode names can fail to open
 
-**Status:** Confirmed; deferred for Tau compatibility work
+**Status (2026-11-08): the name chain is built and hardware-validated and ships in v0.7.0 (D-N01, B-986..B-1014):** paths are opened as code page 437, card names follow `docs/features/CARD_NAME_RULES.md`, the name sidecar carries the originals, Tau Omega writes the same files. Not done: CJK on screen (font), Shift-JIS tags. Originally: confirmed; deferred for Tau compatibility work.
 
 ## Observed behaviour
 

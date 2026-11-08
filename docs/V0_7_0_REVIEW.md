@@ -26,7 +26,7 @@ Add (small, low risk):
 3. Docs: changelog written for owners, README current version, the persist migration described (settings of an older Tau are carried over).
 
 Decide (owner):
-4. **BUG-001 Latin-1 / Unicode library names** (`docs/issues/001`): visible to users with accented names; touches the library reader and what Omega writes (index version can stay 1). Recommend **v0.7.1 or later**, unless accented names are a v0.7.0 promise.
+4. **BUG-001 Latin-1 / Unicode library names** (`docs/issues/001`): visible to users with accented names; touches the library reader and what Omega writes (index version can stay 1). **DECIDED 2026-11-08 (D-N01): it ships in v0.7.0** (built and hardware-validated: B-986..B-1014); the old recommendation was v0.7.1 or later, unless accented names are a v0.7.0 promise.
 5. Do **not** add: the writable font memory (FONT_SPEC, needs an RTL fit), Halcyon CUSTOM persistence, a pack-safety hardware watchdog, more than seven meters, anything needing a new bitstream.
 
 Release gates (not features):
@@ -49,7 +49,7 @@ Release gates (not features):
 | Asynchronous present; Helios input layer | open structural items |
 | Heavy HEAT MAP / FINE GRID / DUST at fullscreen | open |
 | Check/Info report items: I2S JITTER average wraps after about 64 s (cosmetic RTL) | for the next RTL fit |
-| BUG-001 accented names | see cut, item 4 |
+| BUG-001 accented names | in v0.7.0 (D-N01); the changelog must describe it, the release Pocket run must include an accented-name library; CJK on screen, sidecar names on Now Playing and Shift-JIS tags are not promised |
 
 ## 4. Pending, waiting on someone
 | Item | Waiting on |
