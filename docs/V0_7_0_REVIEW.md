@@ -31,7 +31,7 @@ Decide (owner):
 
 Release gates (not features):
 * version bump (core.json, README, CHANGELOG, `APP_VER`) then `make_release.py --player2 --release v0.7.0 --previous release/alfatreze.TAU_0.6.1_2026-10-21.zip --previous-release v0.6.1`; the bitstream is the pack-watchdog fit `wdog-w3` seed 1 (owner, 2026-11-08, D-T16; the October rehearsal used `stats-b821`);
-* **a Pocket run of the release package itself** (clean card install, `PACK SRC 2`, all seven packs, the migration from a v0.6.1 settings file) before publishing;
+* **WAIVED by the owner 2026-11-08 (D-T17): a Pocket run of the release package itself** (clean card install, `PACK SRC 2`, all seven packs, the migration from a v0.6.1 settings file) before publishing;
 * **Tau Omega 0.6.0 must exist** (it will not publish until its three items are done), else `min_omega` goes back to 0.3.0 for this release;
 * owner's approval to publish, assets compared with `release/SHA256SUMS.txt`, `--repo alfatreze/Tau-Alpha` (rule 8).
 
