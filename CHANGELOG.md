@@ -2,7 +2,7 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
-## v0.7.0 — draft (the date is set when it is published)
+## v0.7.0 — 8 November 2026
 
 The meters release: new meters, presets you can edit, and music with accents and other alphabets. Needs the matching new bitstream and **Tau Omega 0.6.0 or newer**. Two zips again: **TAU** and **TAU Diagnostics**.
 
