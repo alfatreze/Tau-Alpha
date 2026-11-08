@@ -2,6 +2,37 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
+## v0.7.0 — draft (the date is set when it is published)
+
+The meters release: new meters, presets you can edit, and music with accents and other alphabets. Needs the matching new bitstream and **Tau Omega 0.6.0 or newer**. Two zips again: **TAU** and **TAU Diagnostics**.
+
+### New
+- **Accents and other alphabets.** Songs, albums and folders with accents (Café, Straße, Björk) now work and show properly. Names the Pocket's font can't draw (Cyrillic, Greek, Japanese...) show in Latin letters instead of "?", and the original name is kept next to them. Tau Omega and the repository tools follow the same rules.
+- **Meter presets live on the card.** Every meter has factory presets; pick one with Select+X. Tau Omega can edit, add and remove them, and TAU remembers your choice.
+- **Sound Map**, a new meter: it draws the stereo field and the character of the sound (loudness, balance, brightness).
+- **Waterfall Grid**, a new meter: a grid of small cells showing the spectrum scrolling by.
+- **About page.** A short page with the version, your card and library, and what is playing, instead of the long technical table. The full table, Check and test menus are in **TAU Diagnostics**. Select+Start still saves a support report picture.
+
+### Improved
+- **Layered Wave:** tapered edges with a choice of curves, Direction, Head and Tail length, a SCROLL view, and a guard that keeps it from overloading the player.
+- **Waterfall:** a sideways spectrogram, colour maps and a sparkle effect; it fills its box.
+- **Meters are smoother** (faster graphics memory), and a meter that hangs is switched off instead of freezing the player.
+- **Now Playing:** long titles scroll instead of being cut off; the first tag shows the Halcyon preset.
+- **Settings are remembered better:** your meter, preset per meter, last played track and colour come back after a restart, and settings from older versions are carried over.
+
+### Bug fixes
+- Accented folder names no longer end in "No playable tracks".
+- Fixed a crash in the library tool on a ReplayGain peak of 2.0 or more.
+- Fixed purple icons after a Check, and a false "Track changes" Check failure.
+
+### Technical
+- New SDRAM controller and graphics engine (hardware fence, burst copy); the old path is removed.
+- Meters are loadable packs (`tau-packs.bin`) with cycle limits, three strikes and a 300 ms hardware watchdog.
+- Settings are stored by area and migrated automatically; wall clock and extra counters for support.
+- Every meter also builds as WebAssembly for Tau Omega's Meter Lab.
+- **Known:** Japanese and Chinese names show as Latin letters (no CJK font yet); Shift-JIS tags are not detected; tempo above 1.75x still clicks.
+- Omega: needs 0.6.0 (`min_omega`); persist layout v2 (`persist_layout`, fixtures in `docs/research/persist_layout/`); meter presets are files in `Assets/tau/common/tau-presets/<meter id>/` (the user's once an index exists); `tau-names.json` and `tau-names.bin` are new optional generated files; card names follow `docs/features/CARD_NAME_RULES.md`; leave `tau-packs.bin` alone; `TAU Diagnostics` is back.
+
 ## v0.6.1 — 21 October 2026
 
 A small release that makes the card setup clearer and meets the openFPGA Library's requirements.
