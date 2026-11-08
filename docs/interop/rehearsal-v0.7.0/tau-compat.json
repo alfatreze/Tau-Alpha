@@ -1,14 +1,14 @@
 {
   "schema": 2,
   "release": "v0.7.0",
-  "date_release": "2026-10-26",
+  "date_release": "2026-11-08",
   "prerelease": false,
   "packages": [
     {
-      "zip": "alfatreze.TAU_0.7.0_2026-10-26.zip",
-      "zip_sha256": "10937d018ed371135607477a964a99b752134fc7511e61cfa551880a9e7d3c78",
+      "zip": "alfatreze.TAU_0.7.0_2026-11-08.zip",
+      "zip_sha256": "5d88bca64e2f4d184b25f7ed3eb7e1f52ae7de7d568484f6fe0324f8791801d0",
       "core_id": "alfatreze.TAU",
-      "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+      "bitstream_sha256": "4ce03b2cc7db2512493b30ac5312ffc1a1d79458e06e73aaf0a3b3a46b822245",
       "bitstream_core_version": "4D50331B",
       "bitstream_features": [
         "FONT",
@@ -17,15 +17,15 @@
         "POLY",
         "SDRAM_BUSY"
       ],
-      "rom_sha256": "79e9de5872c8813d39324c424fbac7ca18b3ccae09d626a4f7a5aa0afdaa9ac6",
-      "cold_sha256": "ea3f45d32a9a0e954ff109e686fe3f5f983a0344641185b6c8767107cb6e9a94",
+      "rom_sha256": "c5b76b4bd92bc6d72b1bf724511e1e688f5105d2644cd3891322ff92127de1fb",
+      "cold_sha256": "a9cf47fbae81943fc481418cf0cb0f9a25dae948cabd85f370f09a45a92295fd",
       "rom_accepts": [
         "4D50331B"
       ],
       "rom_needs": [
         "FONT"
       ],
-      "rom_version": "0.7.0+7805ed42",
+      "rom_version": "0.7.0+4a9a1c54",
       "replaces": [
         "alfatreze.TAU_DIAGNOSTIC",
         "alfatreze.TAU Preview",
@@ -41,7 +41,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau-cold.bin",
           "role": "owned",
-          "sha256": "ea3f45d32a9a0e954ff109e686fe3f5f983a0344641185b6c8767107cb6e9a94",
+          "sha256": "a9cf47fbae81943fc481418cf0cb0f9a25dae948cabd85f370f09a45a92295fd",
           "slot": 6,
           "required": false
         },
@@ -55,14 +55,14 @@
         {
           "path": "Assets/tau/alfatreze.TAU/tau-packs.bin",
           "role": "owned",
-          "sha256": "f945b9ed079155963df15fb910e4a0f5040235c61c1b3d9db608463ef88de23c",
+          "sha256": "5e4d112cff110b45c837341d43a42b28826660f4c80020cab50732a0ff7ec69d",
           "slot": 9,
           "required": false
         },
         {
           "path": "Assets/tau/alfatreze.TAU/tau.rom",
           "role": "owned",
-          "sha256": "79e9de5872c8813d39324c424fbac7ca18b3ccae09d626a4f7a5aa0afdaa9ac6",
+          "sha256": "c5b76b4bd92bc6d72b1bf724511e1e688f5105d2644cd3891322ff92127de1fb",
           "slot": 1,
           "required": true
         },
@@ -125,6 +125,383 @@
           "required": false
         },
         {
+          "path": "Assets/tau/common/tau-names.bin",
+          "role": "generated",
+          "slot": null,
+          "required": false,
+          "format": {
+            "name": "tau-names",
+            "version": 1
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-names.json",
+          "role": "generated",
+          "slot": null,
+          "required": false,
+          "format": {
+            "name": "tau-names-manifest",
+            "version": 1
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/index.tpi",
+          "role": "shared",
+          "sha256": "06f62b67c21a97ac1b9ab1e8dcc7023a4057fcde9a943ee3637d93212c9437ed",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p0.tpr",
+          "role": "shared",
+          "sha256": "c0a41da8401c4f5665c02fc24cfa06d0dd367616bfb9a67bdcb98e7018f944a5",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p1.tpr",
+          "role": "shared",
+          "sha256": "c7d044f542253eec30329521d0fc520b70bbf7dea5e359de7d4f88fa60083104",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p2.tpr",
+          "role": "shared",
+          "sha256": "4dadf7262c095ad9d39f53187daea16db704876e996f9429c73b9b925b5f3846",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p3.tpr",
+          "role": "shared",
+          "sha256": "b1994bc1cadc2727fbadfae198a031d1ac866a1c6fdfed9846960ecbe8b279c1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p4.tpr",
+          "role": "shared",
+          "sha256": "786699b7c4597b154397eda26d2f10da2f0b72b1b6da242e9cddbf31cb65e562",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/index.tpi",
+          "role": "shared",
+          "sha256": "618d7ecc5f6f0a265ef29681f8ff17174ebc897bc847df0ffe43dfe184b8d391",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p0.tpr",
+          "role": "shared",
+          "sha256": "08c17af3c9552cc637aee98b13737b845fcc8c00d46824b93e3a7bf4a7e51469",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p1.tpr",
+          "role": "shared",
+          "sha256": "27d95dca31bc87ad2ab2ae9d5a7d2ee64e10022f56121444d6ff5ba75f3cea30",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p2.tpr",
+          "role": "shared",
+          "sha256": "bf697fd074716879c1f4d0434c374547e1ae867df7dadc8448782bf23acf8d8b",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p3.tpr",
+          "role": "shared",
+          "sha256": "3d4a2dc2b0b96867eb953d7cdb91b39e6f450e79b64cb403d16aa44b67315778",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p4.tpr",
+          "role": "shared",
+          "sha256": "cfdc0f9cf67b570d13af255698d9feeac8a75dc0c404dce2cedd8b54d52ef6e3",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/index.tpi",
+          "role": "shared",
+          "sha256": "b6436ff2a62c93b580caece1329c2f21ba09cf14513e24087663b4c385cc993e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p0.tpr",
+          "role": "shared",
+          "sha256": "3487b7bd2369e2cc0d0ca30104ef6a3d83b2909994b3cc27787f6a3c63c94b4a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p1.tpr",
+          "role": "shared",
+          "sha256": "513313e18a458e086f310f37480387b407ea5bb41b34f85fb3f3689e47e13f15",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p2.tpr",
+          "role": "shared",
+          "sha256": "0b3af17cbff517c1e084d18997ccedec6dabec025b7f5e9e07318ec709af042e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p3.tpr",
+          "role": "shared",
+          "sha256": "b9966ebeaef928ade5144fcb98b97da268b1154d52273333994ab9ac2777c8db",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/index.tpi",
+          "role": "shared",
+          "sha256": "eacca8be285fb775a974a4594fa3b33a6c9a7540900044c06392cc3abc51d56a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p0.tpr",
+          "role": "shared",
+          "sha256": "30337c4a3246460b283e37b0ee922fa567ada2cf738bcceebdf0a45311f812b4",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p1.tpr",
+          "role": "shared",
+          "sha256": "65afd5ec4bc9455bda6fb6405eb7b966a434be2f2d5344adc7e2d15a8b72211e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p2.tpr",
+          "role": "shared",
+          "sha256": "36868a53b485631d4714af806a578eb1b5c8b4ec7fb56cb01b1e048b823cf7e9",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/index.tpi",
+          "role": "shared",
+          "sha256": "3bf35359e3074e58595968e2b14fafecee01e955cf16047f37771d5231cd5f5f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p0.tpr",
+          "role": "shared",
+          "sha256": "b68ff406d9cda5565aaf491de5ff7ec0d79b377d158dd5f7dc4efe3b92bf0bc8",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p1.tpr",
+          "role": "shared",
+          "sha256": "f44ba951b26ab15e0293d8aed957d47bab010021e9254c2b0de3a6c0f97d0f8f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p10.tpr",
+          "role": "shared",
+          "sha256": "9b0510c7f2a350399f303295b7b3ec2ead938b407a45ba3b50738d75bdcd4799",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p11.tpr",
+          "role": "shared",
+          "sha256": "e1214bd5adb5142966a77783914f1fca14d5fc4b04e8323fc847ccf99f28acdf",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p12.tpr",
+          "role": "shared",
+          "sha256": "90f27e1f8be637f4a75059c4977815ec7539027ba0dfe1fea5851b5d54f630d6",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p13.tpr",
+          "role": "shared",
+          "sha256": "fa22c1524630097b6defc815cedf18e10b22e276348bb15fe98cb41aa85a4155",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p14.tpr",
+          "role": "shared",
+          "sha256": "169ec081b2d952bd9065aa078f8e294488e26fe9fd78f0f345751fa7fa8d6e44",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p15.tpr",
+          "role": "shared",
+          "sha256": "6933488db6d620ff70269571b2faf4b94c9b22461a93948c642056dc95af522e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p2.tpr",
+          "role": "shared",
+          "sha256": "d18a874cf1ab7636e42021e8f7a796e92b382ce8355e1d3a098067ddf93f4838",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p3.tpr",
+          "role": "shared",
+          "sha256": "7a96f571ff87ef1d73fe848b20240b60f0f128c0812c70e9ca84c65006a9831d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p4.tpr",
+          "role": "shared",
+          "sha256": "e25c992757a68b639044f445dbfec570889b980aecf91260c81f471d911a5778",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p5.tpr",
+          "role": "shared",
+          "sha256": "4dbe4e46f5ef46f4c251ae87de92b8d4ba0e77c19652920f9814d37daace6a6f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p6.tpr",
+          "role": "shared",
+          "sha256": "1642223be8c1bbcda3937b6a4f68d493dcb79d8723e5170aad6c5ea8b843f17d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p7.tpr",
+          "role": "shared",
+          "sha256": "0042c2de4b07e685a3a27b480a0b9ae739c56d3758cb58c812be80aa94d3a446",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p8.tpr",
+          "role": "shared",
+          "sha256": "cdf712de460f1f04a1c044017abafcfe4d36ae7c81a0235784c27ac8859692c9",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p9.tpr",
+          "role": "shared",
+          "sha256": "353409f2b5ba1d470030ae4da5588eef69ed9d04570790ff5493a73d38219338",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/index.tpi",
+          "role": "shared",
+          "sha256": "f5a069c249222bb21173904ac91cd9cebb9ebda1dba2176f833d39ab3826e41d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p0.tpr",
+          "role": "shared",
+          "sha256": "8a862dc0ab85f13570a18d9812e33e0aa51c2e9be2ae315fee0531cef6eea5e1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p1.tpr",
+          "role": "shared",
+          "sha256": "d4cfcddc11ca02c7038feb853fac6debaa1e085a1414163a2f6e2eb23f100ca0",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p2.tpr",
+          "role": "shared",
+          "sha256": "a9af90f30fba50698037683b11e90f17c2b691790e45605b201f9d893e6af7a1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p3.tpr",
+          "role": "shared",
+          "sha256": "0fad334e69b6b2c3ac4ad80ef87c102ee07548075dc0858b3eb96ebb90022280",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p4.tpr",
+          "role": "shared",
+          "sha256": "5984ea57280c534fd50971ef0dfd2e9fce51cd2fc470ed1ed05aba5eb0040877",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p5.tpr",
+          "role": "shared",
+          "sha256": "8799c7e87395a440ea41b319a5b857f5502b076f167ddc098ffe4c361a5d09e8",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p6.tpr",
+          "role": "shared",
+          "sha256": "1a7984affc818cc9d0833d6f6dcc0332eb45ae11cf88786b4c95b3323f14ef1a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/index.tpi",
+          "role": "shared",
+          "sha256": "8cf2afd091a4857d2e2164010588b6a42e218c6a04e3c260437d8d77d3ad15ea",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p0.tpr",
+          "role": "shared",
+          "sha256": "e9666f3f6888c57221851394486818d791bc0a8d27bbc152876b2f6ac9acb787",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p1.tpr",
+          "role": "shared",
+          "sha256": "0fb961cb2fb41b067ffa1eba833e71205040526cac71b0bb30813580cd5923b7",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p2.tpr",
+          "role": "shared",
+          "sha256": "6004f52e14b34d25e0e2fcf2f7878cfcddb4f69a24ad398ef4c82e5d7e0d8fd0",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p3.tpr",
+          "role": "shared",
+          "sha256": "3232da0f2f4d38b89049d76eb2efb04802071e7e9919badfc4c821bbd936ce5e",
+          "slot": null,
+          "required": false
+        },
+        {
           "path": "Assets/tau/common/tau.rom",
           "role": "obsolete",
           "slot": null,
@@ -140,14 +517,14 @@
         {
           "path": "Cores/alfatreze.TAU/bitstream.rbf_r",
           "role": "owned",
-          "sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+          "sha256": "4ce03b2cc7db2512493b30ac5312ffc1a1d79458e06e73aaf0a3b3a46b822245",
           "slot": null,
           "required": true
         },
         {
           "path": "Cores/alfatreze.TAU/core.json",
           "role": "owned",
-          "sha256": "e38c50310ad5c7ee688a3dee541d6f60b4d802d9f611449267ee621175a21826",
+          "sha256": "b414b2f4eb0c87d3741b7e8c0191f7bf61abc612913df7be42f2bdb46f817a24",
           "slot": null,
           "required": true
         },
@@ -227,10 +604,10 @@
       ]
     },
     {
-      "zip": "alfatreze.TAU_Diagnostics_0.7.0_2026-10-26.zip",
-      "zip_sha256": "6866547a2bb80f55ab72cab3442a1e6c4d2c12e0995f46070033ba44149b3335",
+      "zip": "alfatreze.TAU_Diagnostics_0.7.0_2026-11-08.zip",
+      "zip_sha256": "6494b6b1d27af7eae0aa621c6048a58dfa6b2f4097924caaee5258090b50771d",
       "core_id": "alfatreze.TAU Diagnostics",
-      "bitstream_sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+      "bitstream_sha256": "4ce03b2cc7db2512493b30ac5312ffc1a1d79458e06e73aaf0a3b3a46b822245",
       "bitstream_core_version": "4D50331B",
       "bitstream_features": [
         "FONT",
@@ -239,15 +616,15 @@
         "POLY",
         "SDRAM_BUSY"
       ],
-      "rom_sha256": "52157008cbe9218b5292730dbe96d7f798c9eb8946bb526c66d1eff585892724",
-      "cold_sha256": "d4c1c2ea1b9c21922999b963ca4ff0fd8124cfe2186720eed8ab1f0b482ffc52",
+      "rom_sha256": "7a11d5d82c0e75b7bcae69759482018e764ab6dd4bb8efa6328b98d8763faeb4",
+      "cold_sha256": "80a0fc259263a1f1a3389689fdbb3ee6e0a7204e3b3a0c57f9a1101940dd7103",
       "rom_accepts": [
         "4D50331B"
       ],
       "rom_needs": [
         "FONT"
       ],
-      "rom_version": "0.7.0+7805ed42",
+      "rom_version": "0.7.0+4a9a1c54",
       "replaces": [
         "alfatreze.TAU_DIAGNOSTIC"
       ],
@@ -255,7 +632,7 @@
         {
           "path": "Assets/tau/alfatreze.TAU Diagnostics/tau-cold.bin",
           "role": "owned",
-          "sha256": "d4c1c2ea1b9c21922999b963ca4ff0fd8124cfe2186720eed8ab1f0b482ffc52",
+          "sha256": "80a0fc259263a1f1a3389689fdbb3ee6e0a7204e3b3a0c57f9a1101940dd7103",
           "slot": 6,
           "required": false
         },
@@ -269,14 +646,14 @@
         {
           "path": "Assets/tau/alfatreze.TAU Diagnostics/tau-packs.bin",
           "role": "owned",
-          "sha256": "f945b9ed079155963df15fb910e4a0f5040235c61c1b3d9db608463ef88de23c",
+          "sha256": "5e4d112cff110b45c837341d43a42b28826660f4c80020cab50732a0ff7ec69d",
           "slot": 9,
           "required": false
         },
         {
           "path": "Assets/tau/alfatreze.TAU Diagnostics/tau.rom",
           "role": "owned",
-          "sha256": "52157008cbe9218b5292730dbe96d7f798c9eb8946bb526c66d1eff585892724",
+          "sha256": "7a11d5d82c0e75b7bcae69759482018e764ab6dd4bb8efa6328b98d8763faeb4",
           "slot": 1,
           "required": true
         },
@@ -327,6 +704,383 @@
           }
         },
         {
+          "path": "Assets/tau/common/tau-names.bin",
+          "role": "generated",
+          "slot": null,
+          "required": false,
+          "format": {
+            "name": "tau-names",
+            "version": 1
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-names.json",
+          "role": "generated",
+          "slot": null,
+          "required": false,
+          "format": {
+            "name": "tau-names-manifest",
+            "version": 1
+          }
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/index.tpi",
+          "role": "shared",
+          "sha256": "06f62b67c21a97ac1b9ab1e8dcc7023a4057fcde9a943ee3637d93212c9437ed",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p0.tpr",
+          "role": "shared",
+          "sha256": "c0a41da8401c4f5665c02fc24cfa06d0dd367616bfb9a67bdcb98e7018f944a5",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p1.tpr",
+          "role": "shared",
+          "sha256": "c7d044f542253eec30329521d0fc520b70bbf7dea5e359de7d4f88fa60083104",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p2.tpr",
+          "role": "shared",
+          "sha256": "4dadf7262c095ad9d39f53187daea16db704876e996f9429c73b9b925b5f3846",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p3.tpr",
+          "role": "shared",
+          "sha256": "b1994bc1cadc2727fbadfae198a031d1ac866a1c6fdfed9846960ecbe8b279c1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/12/p4.tpr",
+          "role": "shared",
+          "sha256": "786699b7c4597b154397eda26d2f10da2f0b72b1b6da242e9cddbf31cb65e562",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/index.tpi",
+          "role": "shared",
+          "sha256": "618d7ecc5f6f0a265ef29681f8ff17174ebc897bc847df0ffe43dfe184b8d391",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p0.tpr",
+          "role": "shared",
+          "sha256": "08c17af3c9552cc637aee98b13737b845fcc8c00d46824b93e3a7bf4a7e51469",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p1.tpr",
+          "role": "shared",
+          "sha256": "27d95dca31bc87ad2ab2ae9d5a7d2ee64e10022f56121444d6ff5ba75f3cea30",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p2.tpr",
+          "role": "shared",
+          "sha256": "bf697fd074716879c1f4d0434c374547e1ae867df7dadc8448782bf23acf8d8b",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p3.tpr",
+          "role": "shared",
+          "sha256": "3d4a2dc2b0b96867eb953d7cdb91b39e6f450e79b64cb403d16aa44b67315778",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/13/p4.tpr",
+          "role": "shared",
+          "sha256": "cfdc0f9cf67b570d13af255698d9feeac8a75dc0c404dce2cedd8b54d52ef6e3",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/index.tpi",
+          "role": "shared",
+          "sha256": "b6436ff2a62c93b580caece1329c2f21ba09cf14513e24087663b4c385cc993e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p0.tpr",
+          "role": "shared",
+          "sha256": "3487b7bd2369e2cc0d0ca30104ef6a3d83b2909994b3cc27787f6a3c63c94b4a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p1.tpr",
+          "role": "shared",
+          "sha256": "513313e18a458e086f310f37480387b407ea5bb41b34f85fb3f3689e47e13f15",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p2.tpr",
+          "role": "shared",
+          "sha256": "0b3af17cbff517c1e084d18997ccedec6dabec025b7f5e9e07318ec709af042e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/14/p3.tpr",
+          "role": "shared",
+          "sha256": "b9966ebeaef928ade5144fcb98b97da268b1154d52273333994ab9ac2777c8db",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/index.tpi",
+          "role": "shared",
+          "sha256": "eacca8be285fb775a974a4594fa3b33a6c9a7540900044c06392cc3abc51d56a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p0.tpr",
+          "role": "shared",
+          "sha256": "30337c4a3246460b283e37b0ee922fa567ada2cf738bcceebdf0a45311f812b4",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p1.tpr",
+          "role": "shared",
+          "sha256": "65afd5ec4bc9455bda6fb6405eb7b966a434be2f2d5344adc7e2d15a8b72211e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/15/p2.tpr",
+          "role": "shared",
+          "sha256": "36868a53b485631d4714af806a578eb1b5c8b4ec7fb56cb01b1e048b823cf7e9",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/index.tpi",
+          "role": "shared",
+          "sha256": "3bf35359e3074e58595968e2b14fafecee01e955cf16047f37771d5231cd5f5f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p0.tpr",
+          "role": "shared",
+          "sha256": "b68ff406d9cda5565aaf491de5ff7ec0d79b377d158dd5f7dc4efe3b92bf0bc8",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p1.tpr",
+          "role": "shared",
+          "sha256": "f44ba951b26ab15e0293d8aed957d47bab010021e9254c2b0de3a6c0f97d0f8f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p10.tpr",
+          "role": "shared",
+          "sha256": "9b0510c7f2a350399f303295b7b3ec2ead938b407a45ba3b50738d75bdcd4799",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p11.tpr",
+          "role": "shared",
+          "sha256": "e1214bd5adb5142966a77783914f1fca14d5fc4b04e8323fc847ccf99f28acdf",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p12.tpr",
+          "role": "shared",
+          "sha256": "90f27e1f8be637f4a75059c4977815ec7539027ba0dfe1fea5851b5d54f630d6",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p13.tpr",
+          "role": "shared",
+          "sha256": "fa22c1524630097b6defc815cedf18e10b22e276348bb15fe98cb41aa85a4155",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p14.tpr",
+          "role": "shared",
+          "sha256": "169ec081b2d952bd9065aa078f8e294488e26fe9fd78f0f345751fa7fa8d6e44",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p15.tpr",
+          "role": "shared",
+          "sha256": "6933488db6d620ff70269571b2faf4b94c9b22461a93948c642056dc95af522e",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p2.tpr",
+          "role": "shared",
+          "sha256": "d18a874cf1ab7636e42021e8f7a796e92b382ce8355e1d3a098067ddf93f4838",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p3.tpr",
+          "role": "shared",
+          "sha256": "7a96f571ff87ef1d73fe848b20240b60f0f128c0812c70e9ca84c65006a9831d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p4.tpr",
+          "role": "shared",
+          "sha256": "e25c992757a68b639044f445dbfec570889b980aecf91260c81f471d911a5778",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p5.tpr",
+          "role": "shared",
+          "sha256": "4dbe4e46f5ef46f4c251ae87de92b8d4ba0e77c19652920f9814d37daace6a6f",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p6.tpr",
+          "role": "shared",
+          "sha256": "1642223be8c1bbcda3937b6a4f68d493dcb79d8723e5170aad6c5ea8b843f17d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p7.tpr",
+          "role": "shared",
+          "sha256": "0042c2de4b07e685a3a27b480a0b9ae739c56d3758cb58c812be80aa94d3a446",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p8.tpr",
+          "role": "shared",
+          "sha256": "cdf712de460f1f04a1c044017abafcfe4d36ae7c81a0235784c27ac8859692c9",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/16/p9.tpr",
+          "role": "shared",
+          "sha256": "353409f2b5ba1d470030ae4da5588eef69ed9d04570790ff5493a73d38219338",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/index.tpi",
+          "role": "shared",
+          "sha256": "f5a069c249222bb21173904ac91cd9cebb9ebda1dba2176f833d39ab3826e41d",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p0.tpr",
+          "role": "shared",
+          "sha256": "8a862dc0ab85f13570a18d9812e33e0aa51c2e9be2ae315fee0531cef6eea5e1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p1.tpr",
+          "role": "shared",
+          "sha256": "d4cfcddc11ca02c7038feb853fac6debaa1e085a1414163a2f6e2eb23f100ca0",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p2.tpr",
+          "role": "shared",
+          "sha256": "a9af90f30fba50698037683b11e90f17c2b691790e45605b201f9d893e6af7a1",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p3.tpr",
+          "role": "shared",
+          "sha256": "0fad334e69b6b2c3ac4ad80ef87c102ee07548075dc0858b3eb96ebb90022280",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p4.tpr",
+          "role": "shared",
+          "sha256": "5984ea57280c534fd50971ef0dfd2e9fce51cd2fc470ed1ed05aba5eb0040877",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p5.tpr",
+          "role": "shared",
+          "sha256": "8799c7e87395a440ea41b319a5b857f5502b076f167ddc098ffe4c361a5d09e8",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/17/p6.tpr",
+          "role": "shared",
+          "sha256": "1a7984affc818cc9d0833d6f6dcc0332eb45ae11cf88786b4c95b3323f14ef1a",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/index.tpi",
+          "role": "shared",
+          "sha256": "8cf2afd091a4857d2e2164010588b6a42e218c6a04e3c260437d8d77d3ad15ea",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p0.tpr",
+          "role": "shared",
+          "sha256": "e9666f3f6888c57221851394486818d791bc0a8d27bbc152876b2f6ac9acb787",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p1.tpr",
+          "role": "shared",
+          "sha256": "0fb961cb2fb41b067ffa1eba833e71205040526cac71b0bb30813580cd5923b7",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p2.tpr",
+          "role": "shared",
+          "sha256": "6004f52e14b34d25e0e2fcf2f7878cfcddb4f69a24ad398ef4c82e5d7e0d8fd0",
+          "slot": null,
+          "required": false
+        },
+        {
+          "path": "Assets/tau/common/tau-presets/18/p3.tpr",
+          "role": "shared",
+          "sha256": "3232da0f2f4d38b89049d76eb2efb04802071e7e9919badfc4c821bbd936ce5e",
+          "slot": null,
+          "required": false
+        },
+        {
           "path": "Cores/alfatreze.TAU Diagnostics/audio.json",
           "role": "owned",
           "sha256": "64993a5e54ccec690f8ef50234a4a2e575f09ea69fd996fbd3852af3776b30da",
@@ -336,14 +1090,14 @@
         {
           "path": "Cores/alfatreze.TAU Diagnostics/bitstream.rbf_r",
           "role": "owned",
-          "sha256": "48b59a3bc0ec9faa95b7bc497fe7082a3a94137f5c05758f8630974d5724619a",
+          "sha256": "4ce03b2cc7db2512493b30ac5312ffc1a1d79458e06e73aaf0a3b3a46b822245",
           "slot": null,
           "required": true
         },
         {
           "path": "Cores/alfatreze.TAU Diagnostics/core.json",
           "role": "owned",
-          "sha256": "e27c6d21026c1d989ef2e3f68fb601e3c81fbffbae04de31d341874484175b6a",
+          "sha256": "a8a57cb94473c7735e24612df68ac6b5ea5c7f59d1d312c12571cfa2d0fdc1ba",
           "slot": null,
           "required": true
         },
@@ -457,9 +1211,9 @@
     ],
     "min_omega": "0.6.0"
   },
-  "notes": "",
+  "notes": "needs 0.6.0 (`min_omega`); persist layout v2 (`persist_layout`, fixtures in `docs/research/persist_layout/`); meter presets are files in `Assets/tau/common/tau-presets/<meter id>/` (the user's once an index exists); `tau-names.json` and `tau-names.bin` are new optional generated files; card names follow `docs/features/CARD_NAME_RULES.md`; leave `tau-packs.bin` alone; `TAU Diagnostics` is back.",
   "source": {
-    "commit": "7805ed42",
+    "commit": "4a9a1c54",
     "dirty": false
   },
   "previous_release": "v0.6.1",

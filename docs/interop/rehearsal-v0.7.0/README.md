@@ -1,8 +1,8 @@
 # v0.7.0 REHEARSAL: not a release
 
-Built 2026-10-26 by `tools/make_release.py --player2 --release v0.7.0` in a throwaway worktree (`rehearsal-v0.7.0`, version bump and changelog heading only there). For Tau Omega to rehearse install, check-card and removal on CARDWRITE. **Do not publish, do not put on a Pocket as a release.** The real v0.7.0 will differ: features still to be chosen, its own bitstream and its own date.
+Built 2026-11-08 by `tools/make_release.py --player2 --release v0.7.0 --previous <v0.6.1 zip> --previous-release v0.6.1` in a throwaway worktree off `main` `4a9a1c54` (nothing was published; the version bump and the changelog date are committed on `main`). For Tau Omega to rehearse install, check-card and removal. **Do not publish, do not put on a Pocket as a release.** The real release may differ: its bitstream is still the owner's choice, and its date is set when it is published.
 
-* **Two cores since 2026-10-26 (D-U02):** `alfatreze.TAU` (the normal build: About, the support Report, no Check) and `alfatreze.TAU Diagnostics` (everything: the Check, the full counter table), each its own zip; the Diagnostics core is optional to install; both carry `tau-packs.bin` (optional, slot 9).
-* Bitstream: `stats-b821` (the one DEV 185 runs), firmware built with `PACKS=1`. Ships `tau-packs.bin` as data slot 9 (owned, `required: false`).
-* `tau-compat.json`: `min_omega` 0.6.0, `report_tags_max` 28, persist ids changed 10..33 (against v0.6.1).
-* SHA-256 of both files in `SHA256SUMS.txt`. Not run on a Pocket as a package (host rehearsal of the release scripts; the files in it are those of DEV 185, which did run).
+* **Two cores (D-U02):** `alfatreze.TAU` (the normal build: About, the support Report, no Check) and `alfatreze.TAU Diagnostics` (the Check, the full counter table), each its own zip; both carry `tau-packs.bin` (7 packs, owned, optional, data slot 9) and the 51 factory preset files under `Assets/tau/common/tau-presets/`. No `tau-names.*` file and no `._` stub in either zip.
+* Bitstream: the `wdog-w3` seed 1 fit (the one TAU DEV 219 runs; pack watchdog on), `CORE_VERSION 4D50331B`; firmware built with `PACKS=1`, normal build `DIAG=0`. Version text stamped `0.7.0+4a9a1c54`.
+* `tau-compat.json`: `min_omega` 0.6.0, `persist_layout` 1, `packs_abi` 1, `report_tags_max` 28, persist ids changed 10..33 (against v0.6.1); the changelog's `Omega:` line is in its notes; the name sidecar files are listed as generated and optional.
+* SHA-256 of all three files in `SHA256SUMS.txt` (the two zips are untracked; `tau-compat.json` is tracked). Not run on a Pocket as a package. `old-2026-10-26/` holds the first rehearsal's zips (untracked).
