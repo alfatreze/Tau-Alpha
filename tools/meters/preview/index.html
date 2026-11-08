@@ -122,12 +122,12 @@ body.embed .wrap{display:block}body.embed .stage{position:static;padding:0;width
   costs.push(fb.cmds-c0);works.push(st.work||0);pixs.push(fb.pix-p0);if(costs.length>120){costs.shift();works.shift();pixs.shift();}frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
   splitMap();
-  if(listening&&frame%2===0){const mm=S.meters.find(x=>x.key===key);send(Object.assign({type:'tau-lab-cost',meter:mm.id},TauHost.costWindows(costs,mm.cost_class,TauCost.BUDGET)));}
+  if(listening&&frame%2===0){const mm=S.meters.find(x=>x.key===key);send(Object.assign({type:'tau-lab-cost',meter:mm.id},TauHost.costWindows(costs,TauHost.costClass(mm),TauCost.BUDGET)));}
   const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
   $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;
   const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works)),cellW=params.view===1&&params.res?Math.max(st.stride||1,Math.ceil(box.w/params.res)):(st.stride||1);
   $('cost').innerHTML+='<br>drawing cell width: <b>'+cellW+' px</b>'+(cellW>1&&params.layers!==undefined?' (widened by the cost guard and the Resolution setting: edges and the taper step at this width; set Cost guard to RELAXED or OFF in the experimental section to see more)':' (full resolution)');
-  lastInfo={mean:c.mean,max:c.max,budget:c.budget,class:m.cost_class,over:c.over,verdict:c.over?'OVER BUDGET':'within budget',basis:c.basis,vs_bars:c.vsBars,cell_width:cellW,cpu_low:cp.low,cpu_high:cp.high,engine_kpx:Math.round(avg(pixs)/1000)};
+  lastInfo={mean:c.mean,max:c.max,budget:c.budget,class:TauHost.costClass(m),over:c.over,verdict:c.over?'OVER BUDGET':'within budget',basis:c.basis,vs_bars:c.vsBars,cell_width:cellW,cpu_low:cp.low,cpu_high:cp.high,engine_kpx:Math.round(avg(pixs)/1000)};
   $('cost').innerHTML+='<br>CPU estimate: <b>'+cp.low+'–'+cp.high+'%</b> of one core (model: command issue 60–400 cycles, column evaluation 30–80, 38 Hz, 66.7 MHz; unmeasured) · engine writes '+Math.round(avg(pixs)/1000)+'k px/frame';}
  const strip=$('strip'),hbar=$('hbar');let handles=[],drag=-1;
  const bandsNow=()=>mod.boundsFor(params.split,params.layers,st||{},mod.xoOf(params));

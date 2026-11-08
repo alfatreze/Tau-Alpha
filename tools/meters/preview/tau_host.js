@@ -52,6 +52,7 @@
     const n = a.length; if (!n) return { n: 0, mean: 0, max: 0 };
     return { n, mean: Math.round(a.reduce((x, y) => x + y, 0) / n * 10) / 10, max: Math.max(...a) };
   }
+  function costClass(m) { return m && m.cost_class != null ? m.cost_class : 2; }   // a meter with no class counts as the largest, in every message (the lab's BUDGET lookup does the same)
   function costWindows(costs, costClass, budgets) {           // costs: commands per frame, oldest first
     const w = costs.slice(-WINDOW), budget = budgets[costClass == null ? 2 : costClass];
     const win = stat(w);
@@ -97,6 +98,6 @@
     const r = { type: 'tau-lab-ready', meters }; if (contract !== undefined) r.contract = contract;
     return r;
   }
-  const api = { plan, readyPayload, find, costWindows, optionDefs, wireOptions, checkOption, WINDOW, RECENT };
+  const api = { plan, readyPayload, find, costClass, costWindows, optionDefs, wireOptions, checkOption, WINDOW, RECENT };
   if (typeof module !== 'undefined') module.exports = api; else root.TauHost = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -23,6 +23,8 @@ Give the page to a sandboxed frame as `srcdoc` with `allow-scripts` only. Every 
 | `tau-lab-cost` | every other frame, once the embedder has sent any `tau-lab-*` message | `meter, frame` (commands this frame), `window:{n,mean,max}` (last 120 frames), `recent:{n,mean,max}` (last 30), `budget, class, over` |
 | `tau-lab-info` | after setup and each change (about 0.5 s later), and on `tau-lab-info-get` | `meter, cost:{mean,max,budget,class,over,verdict,basis,vs_bars,cell_width,cpu_low,cpu_high,engine_kpx}, table:[{key,label,options:[{value,selected,cpu_low,cpu_high,delta,kops}]}]` |
 
+`class` is always 0, 1 or 2 in `tau-lab-cost` and `tau-lab-info`: a meter with no cost class counts as 2 (`TauHost.costClass`).
+
 ## Options (`tau-lab-option` ids)
 `theme` (enum, the registry's themes), `mode` (Dark, Light), `accent` (enum, the palette), `src` (Demo, Sweep, Silence), `fullfig` (bool: full-screen view; meters with a full view), `barready` (bool, Winamp Bars), `timedg` (bool, Layered Wave), `statsok` (bool, Sound Map), `corr` (range -256..256, Sound Map). `applies_to` lists the manifest ids an option belongs to (`null` = every meter). Enum values are indexes in `choices`; bools are `true`/`false`/`0`/`1`; out-of-range values are clamped and reported.
 

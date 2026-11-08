@@ -88,6 +88,7 @@ out.chk = { ok: H.checkOption(defs, sm, "corr", 100), hi: H.checkOption(defs, sm
 const B = [40, 100, 400];
 const c = []; for (let i = 0; i < 150; i++) c.push(i < 100 ? 10 : (i === 149 ? 450 : 20));
 out.w = H.costWindows(c, 2, B); out.w1 = H.costWindows(c, 1, B); out.wnull = H.costWindows([], null, B); out.wshort = H.costWindows([5, 7], 0, B);
+out.cc = [H.costClass(null), H.costClass({}), H.costClass({cost_class: null}), H.costClass({cost_class: 0}), H.costClass({cost_class: 1}), H.costClass({cost_class: 2})];
 out.old = H.costWindows(Array(130).fill(500).concat(Array(120).fill(10)), 2, B);   // a spike older than the window no longer counts
 console.log(JSON.stringify(out));
 '''
@@ -117,6 +118,9 @@ check("the verdict is the worst of the last 120 frames against the class budget"
 check("the means are of their own window", w["window"]["mean"] == round(sum(([10] * 100 + [20] * 49 + [450])[-120:]) / 120, 1) and w["recent"]["mean"] == round((20 * 29 + 450) / 30, 1), w)
 check("a spike older than the window no longer counts", o["old"]["over"] is False and o["old"]["window"]["max"] == 10, o["old"])
 check("an empty or short history is safe; no class means the largest budget", o["wnull"]["window"]["n"] == 0 and o["wnull"]["budget"] == 400 and o["wnull"]["class"] == 2 and o["wshort"]["window"]["n"] == 2 and o["wshort"]["over"] is False, o)
+check("a meter with no cost class counts as class 2 (the same number in tau-lab-cost and tau-lab-info; Omega 015 F-1)", o["cc"] == [2, 2, 2, 0, 1, 2], o["cc"])
+html0 = (ROOT / "tools/meters/preview/index.html").read_text()
+check("tau-lab-info and tau-lab-cost both take the class from TauHost.costClass", "class:TauHost.costClass(m)" in html0 and "TauHost.costWindows(costs,TauHost.costClass(mm)" in html0 and "class:m.cost_class" not in html0)
 # the page wires every message of the contract (checked in the browser by hand; here the source is checked for each type and for the ids the contract documents as stable)
 html = (ROOT / "tools/meters/preview/index.html").read_text()
 for t in ("tau-lab-set", "tau-lab-embed", "tau-lab-option", "tau-lab-info-get", "tau-lab-options", "tau-lab-size", "tau-lab-cost", "tau-lab-info", "tau-lab-option-applied"):
