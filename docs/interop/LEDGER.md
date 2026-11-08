@@ -2,6 +2,7 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| O015/F-1 | `class` is `null` in `tau-lab-info` but 2 in `tau-lab-cost` | closed | **FIXED 2026-11-08, message 013: one `TauHost.costClass` (no class = 2), drop `pre-0.7.0-2db91494`, still contract 1** |
 | O014/R-1..R-5 | Lab embed mode, options, info, views, cost message (+ contract number) | closed | **BUILT 2026-11-07, message 012: contract 1 (`docs/features/LAB_EMBED_CONTRACT.md`), drop `pre-0.7.0-d8633caa`** |
 | O014/Q-1 | Winamp Bars slot 0 of how many | closed | **ANSWERED, message 012: slot 0; the player lists 7 rows (not 8); a raise is parked (D-M21)** |
 | O014/Q-2 | P1 manifest key for a user-chosen `tau-packs.bin`, pack library asset | owner | **OPEN: a timing decision, no date** |
