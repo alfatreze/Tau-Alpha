@@ -2,6 +2,10 @@
 
 Status 2026-11-11: **plan only, nothing built.** Owner decisions of this date are in section 1 and recorded as **D-M22** (it supersedes the cap part of D-M21). Written after a read of the pack framework (`METER_PACKS_PLAYER2.md`, `TAU_PACKS_FORMAT.md`, `fw2/ui/meters.c`, `fw2/generated/meter_registry.h`, `tools/player2/*`) and a review against the Analogue Pocket framework references (`json-files.md`, `host-target-commands.md`, KB-001, KB-074, KB-079, KB-238, KB-240). Evidence labels: **code** (read in this tree), **docs** (Analogue docs), **lead** (community-reported, to be tested), **to measure**.
 
+**Branch (2026-11-11, owner: "do this in a worktree so I can decide whether to keep this approach"):** this work lives on branch `external-meters`, worktree `../tau-alpha-external-meters` (cut from `main` `e3293098`, which already holds the first version of this plan and D-M22). `main` does not carry any of the branch's changes. Keep = merge the branch (the audit entries of the branch are listed below because `docs/AUDIT_TRAIL.md` is not touched here, to keep the merge clean); drop = `git worktree remove ../tau-alpha-external-meters` and delete the branch (D-M22 would then be marked withdrawn on `main`).
+
+Branch log: (1) 2026-11-11 worktree and branch created; the instruction-cache finding and the P0 probe design added to this plan (no firmware, tool or test changes yet).
+
 ## 1. What the owner asked for (2026-11-11)
 1. Load an external meter from a **zip file**, **ingest from GitHub**, and **publish the current meters separately**.
 2. A **well documented framework** other developers can use to write meters.
