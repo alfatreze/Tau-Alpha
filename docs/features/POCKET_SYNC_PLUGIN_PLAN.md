@@ -13,6 +13,8 @@ Status: plan only (2026-11-11), nothing built. Owner's ask: the simplest possibl
 
 **Secondary: "Add music from the plugin's folder".** Because of the sandbox, a whole desktop folder can only be synced if the user puts it in the plugin's `host/` folder (we show the exact path). The plugin then copies additively (skips what is already on the card with the same size and hash, never overwrites different files without asking), applies the card-safe name rules, and rebuilds the library. Honest limit: it means copying twice on the desktop; for most users "copy with Finder, then Rebuild" is faster. Decision for the owner: ship it in 0.1 or leave it for 0.2.
 
+**Sidecars the rebuild writes:** the **text** sidecar (`tau-names.json` and `tau-names.bin`, originals of names and tags, bound to the index build id) and, per item 6 of section 3, the **image** sidecars (`<album>/tau-art/cover_128.pal256.timg`). Existing ones are kept; only missing or stale ones are written.
+
 **Menu:** Rebuild library, Check library (read only), Add music from the plugin folder, Get Tau Omega (opens the page), Exit.
 
 ## 3. Small extras worth having (each is read-only or asks first)
@@ -21,7 +23,7 @@ Status: plan only (2026-11-11), nothing built. Owner's ask: the simplest possibl
 3. **Library check:** index against files (missing files, files not in the index, a stale name sidecar, tracks over the 200-byte path budget, names the Pocket cannot open).
 4. **Card-safe names, only when needed:** rename only names the Pocket cannot open (the rules of `CARD_NAME_RULES.md`), keep the original in the sidecar, ask first.
 5. **Junk sweep:** `._*` and `.DS_Store` stubs, empty folders, duplicate files (same size and tag), listed, removed only on a yes.
-6. **Cover check:** list albums with no cover file (generating the cover sidecars is a later step; the decoders are pure Rust).
+6. **Cover sidecars (proposed for 0.1, was "later"):** for every album folder without `tau-art/cover_128.pal256.timg`, make it from the album's folder image or the first track's embedded cover (the TIM1 palette-256, 128 px long side, no crop; the file Player 2 reads by that fixed name, so covers stop decoding a JPEG for seconds on every track change). Omega's `tau-core` already has the extractor and the encoder in pure Rust (its quantiser is its own, not byte-identical to `tools/tau_image.py`, which does not matter to the player); the plugin lists albums with no cover at all.
 7. **Card sanity:** refuse politely if `Assets/tau` is missing; show which TAU version is installed (from the card's `core.json`).
 
 Left out on purpose: re-encoding or conversion (needs LAME or ffmpeg, which do not run in the plugin); tag editing; core install; settings. Those are Tau Omega.
