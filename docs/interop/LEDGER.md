@@ -48,3 +48,4 @@
 | F-005 | `min_omega` 0.6.0 | closed | **GATE CLEARED 2026-11-08: Omega 0.6.0 published** (set in `tools/omega_compat.json`; the v0.7.0 release no longer waits for it) |
 | F-006 | Persist migration hardware-confirmed for one real file (DEV 181 -> DEV 185); fixtures are Omega's | closed | |
 | D-007 | Waterfall/SOUND MAP wasm twin and the versioned lab drop | closed | **APPROVED 2026-10-26 by the owner (both: a pinned copy as an exception, a committed wasm binary)**; `tools/make_lab_drop.py`, first drop `docs/interop/lab-drop/pre-0.7.0-b163ebb2/`, final drop at the release (message 003) |
+| A015/R-1 | `tau-core` compiles for `wasm32-wasip1` (fs4 disk-space calls desktop-only; `name_sidecar.rs:320` needs the `serde` feature) for the Pocket Sync plugin | Omega | **ASKED 2026-11-11** (message 015); fallback: trimmed copy in the plugin |
