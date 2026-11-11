@@ -1,5 +1,7 @@
 # Loadable meters on Player 2 (packs)
 
+> **Direction (2026-11-11, D-M22):** packages, one bin composed by Tau Omega, lazy loading and no slots are planned in `EXTERNAL_METERS_PLAN.md`; this note describes what is built today (five-slot era numbers below are history).
+
 Status 2026-10-21: built and host-proven for all five meters (ABI 3); **not run on a Pocket**. The design and the hardware proof of the mechanism come from the old player's `meter-builder` branch (`docs/features/meters/METER_PACKS.md` there: a pack loads, runs from the PSRAM code window and draws; owner-confirmed on `TAU_DEV_METER_18`). This is the Player 2 form; the ABI restarted at 1.
 
 ## What a pack is
