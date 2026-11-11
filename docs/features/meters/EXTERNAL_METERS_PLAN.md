@@ -4,7 +4,7 @@ Status 2026-11-11: **plan only, nothing built.** Owner decisions of this date ar
 
 **Branch (2026-11-11, owner: "do this in a worktree so I can decide whether to keep this approach"):** this work lives on branch `external-meters`, worktree `../tau-alpha-external-meters` (cut from `main` `e3293098`, which already holds the first version of this plan and D-M22). `main` does not carry any of the branch's changes. Keep = merge the branch (the audit entries of the branch are listed below because `docs/AUDIT_TRAIL.md` is not touched here, to keep the merge clean); drop = `git worktree remove ../tau-alpha-external-meters` and delete the branch (D-M22 would then be marked withdrawn on `main`).
 
-Branch log: (1) 2026-11-11 worktree and branch created; the instruction-cache finding and the P0 probe design added to this plan (no firmware, tool or test changes yet).
+Branch log: (2) 2026-11-11 owner decisions recorded in section 6 (user bin in `common` as `tau-meters.bin`, 64 meters, SHA-256 pins plus confirmation with signing reserved, repository `tau-alpha-meters`, Winamp Bars stays built in). (1) 2026-11-11 worktree and branch created; the instruction-cache finding and the P0 probe design added to this plan (no firmware, tool or test changes yet).
 
 ## 1. What the owner asked for (2026-11-11)
 1. Load an external meter from a **zip file**, **ingest from GitHub**, and **publish the current meters separately**.
@@ -112,13 +112,15 @@ The pack test (`sim/test_p2_meter_pack.py`) becomes a reusable runner: golden co
 ## 5. Risks (to measure, not assume)
 Load latency and SD contention at selection; I-cache coherence after a swap (KB-240, lead); the window and pstate size for the largest pack; the settings write happens only on Quit, as now (pulling the card loses it, the same as the persist words); migration of old settings; Omega's golden vectors for the persist change; the ABI major policy (a break strands third-party meters); trust (D-M20); list scrolling on a 7-row design; Pocket Sync or pupdate overwriting the bin.
 
-## 6. Decisions for the owner
-1. **Where the composed bin lives** so a TAU update by Pocket Sync or pupdate does not overwrite it: (a) keep `tau-packs.bin` in the core folder and make the release zip not ship it when one exists; (b) the firmware prefers a user bin in `Assets/tau/common/` and the core's bin is the default (recommended: nothing to overwrite).
-2. The **first number** to design for (32 or 64 meters in the TOC).
-3. Signing: v1 hashes and confirmation only, signing later (recommended).
-4. The collection repository name and licence (`tau-meters`, MIT, D-M11).
-5. Whether **Winamp Bars stays built in** as the always-present fallback (recommended).
-6. The exact order mismatch you see (Now Playing against Settings): the code agrees, so I need the order on each screen or a screenshot; the plan removes the leftover `sel_index` and the double ordering in any case.
+## 6. Decisions
+**Decided by the owner, 2026-11-11:**
+1. **Where the composed bin lives: `common`.** The user's bin is `Assets/tau/common/tau-meters.bin` (a new optional `deferload` data slot, id 10, no core-specific bit, so it sits beside `tau-library.tdb` and a TAU update by Omega, Pocket Sync or pupdate never overwrites it). The core's own `tau-packs.bin` stays as the shipped default. Boot order: the user's bin when present and valid (it supersedes the default entirely: Omega composes it with the shipped meters inside), else the core's. The name differs from `tau-packs.bin` on purpose (two files with one name in two folders would be a support problem). Omega marks it as a user file (the generated-file list of `tau-compat.json`).
+2. **Design number: 64 meters.** The TOC is fixed-size entries (about 256 bytes each, 16 KB for 64) kept **in PSRAM, not in hot RAM** (hot RAM is 16 bytes from its floor in the Diagnostic Build); the Settings list reads only the rows it shows (names and previews are read from the PSRAM copy a window at a time); the settings file is about 6 KB at 64 meters.
+3. **Trust (my decision, as asked for "a reasonable approach"):** v1 = **SHA-256 pins plus explicit confirmation**, all verified in Omega (the firmware keeps integrity checks only): the package's `files` map pins every file; a GitHub catalogue (`index.json` in `tau-alpha-meters`) pins each release's package hash; Omega shows author, source, licence and the permissions line "a meter runs with full access to the player" before every install **and every update** (no silent updates); an optional "trusted authors" list in Omega's settings only skips the wording, never the hash check. **Signing is designed for and not built:** `meter.json` reserves an optional `signature` (ed25519 over the canonical `meter.json`) so v1 packages stay valid when signing arrives; the catalogue can then mark signed releases.
+4. **Collection repository: `tau-alpha-meters`** (MIT, D-M11): the seven shipped meters as packages, the catalogue `index.json`, and the shared conformance suite. The template and SDK get their own repositories (`tau-alpha-meter-template`, `tau-alpha-meter-sdk`) so a developer can start without the collection.
+5. **Winamp Bars stays built in** as the always-present fallback (it can never be hidden or removed; a bin with no valid pack leaves the player exactly as it is today).
+
+**Still open:** the exact **Now Playing against Settings order** mismatch (the code agrees: both walk the rows in slot order; I need the order you see on each screen or a screenshot). The plan removes the double ordering and the leftover `sel_index` either way.
 
 ## 7. Not in this plan
 More than one meter drawing at once; a pack writing to the card; signing in the firmware; the Pocket plugin installing meters (parked); changing the draw engine or the ABI content.
