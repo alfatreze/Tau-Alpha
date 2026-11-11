@@ -51,3 +51,4 @@
 | A015/R-1 | `tau-core` compiles for `wasm32-wasip1` (fs4 disk-space calls desktop-only; `name_sidecar.rs:320` needs the `serde` feature) for the Pocket Sync plugin | Omega | **ASKED 2026-11-11** (message 015); fallback: trimmed copy in the plugin |
 | A015/R-1 (answered) | `tau-core` for WebAssembly | Omega | **DONE 2026-11-11:** Omega 016/017, D-023, tag `tau-core-wasm-1` (published); plugin uses it |
 | A016/R-1 | `tau-core` scan without threads on WASI (`par_map` and the reader loop in `scan_dir_options`; patch in message 016) | Omega | **DONE 2026-11-11:** Omega 018/019, tag `tau-core-wasm-2` published; the plugin uses it |
+| A017/Q-1 | Does Omega's install/update handle the new `updaters.json` in each core folder (expected: owned, written with the core)? | Omega | **ASKED 2026-11-11** (message 017, with the v0.7.1 release) |
