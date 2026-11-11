@@ -52,6 +52,7 @@ def main():
                     help="with --variant player2 --semver: the Diagnostic Build of a Player 2 release ('TAU Diagnostics' or 'TAU Preview Diagnostics' by the version's channel), built with DIAG=1; "
                          "without it the core is the normal build (DIAG=0 in the flags): docs/DECISIONS.md D-U02, make_release.py --player2 builds both")
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
+    ap.add_argument("--pack-swap-probe", action="store_true", help="the external-meters P0 spike (docs/features/meters/EXTERNAL_METERS_PLAN.md): tau-packs.bin also carries a copy of every pack linked for the free slot 7 (ids 0x100 + id), which the Diagnostic Build's pack-swap probe loads one at a time (needs --variant player2 and PACKS=1)")
     ap.add_argument("--hang-pack", metavar="KEY[:MODE]", help="a TEST package for the pack watchdog (W4): that meter's pack is replaced by its hang variant (needs --variant player2 and PACKS=1; the core's description says so)")
     ap.add_argument("--preset-probe", action="store_true", help="a TEST package for the preset-read measurement (docs/features/METER_PRESETS_EXTERNAL.md step 0b, B-963): writes preset-probe.bin (200 bytes: \"TPRB\" then byte i = (i*37+11) & 255) into the core's Assets folder, which the Diagnostic Build of this firmware opens and reads on every new track (Report rows PP ...)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
@@ -223,7 +224,7 @@ def main():
     if args.preset_probe:
         (cd / "preset-probe.bin").write_bytes(b"TPRB" + bytes((i * 37 + 11) & 255 for i in range(4, 200)))
     if with_packs:
-        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")] + (["--hang", args.hang_pack] if args.hang_pack else []), cwd=root, check=True)     # every pack, from this tree, in slot order
+        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")] + (["--hang", args.hang_pack] if args.hang_pack else []) + (["--window-probe"] if args.pack_swap_probe else []), cwd=root, check=True)     # every pack, from this tree, in slot order
     if full_ver:
         import tau_version
         try:

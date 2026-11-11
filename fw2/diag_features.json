@@ -8,7 +8,8 @@
     "fw2/diagnostics/sdram_soak.c",
     "fw2/diagnostics/soak_hot.c",
     "fw2/diagnostics/preset_probe.c",
-    "fw2/diagnostics/name_matrix.c"
+    "fw2/diagnostics/name_matrix.c",
+    "fw2/diagnostics/pack_swap_probe.c"
   ],
   "settings_rows_left_out_when_off": [
     "DIAGNOSTICS",
@@ -61,7 +62,22 @@
     "NM RUNS",
     "NM BAD",
     "NM ERR",
-    "NM DRY"
+    "NM DRY",
+    "PS RUNS",
+    "PS OK",
+    "PS BAD",
+    "PS HANG",
+    "PS ERR",
+    "PS INST ERR",
+    "PS FOUND",
+    "PS LAST",
+    "PS INSTALL",
+    "PS INST MAX",
+    "PS FLUSH",
+    "PS RUN",
+    "PS RUN MAX",
+    "PS FILL MIN",
+    "PS DRY"
   ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
@@ -79,7 +95,9 @@
     "soak_cycle",
     "preset_probe_run",
     "name_matrix_run",
-    "name_matrix_auto"
+    "name_matrix_auto",
+    "pack_swap_probe_run",
+    "pack_swap_probe_init"
   ],
   "symbols_present_when_off": [
     "about_page_draw",

@@ -309,7 +309,10 @@ void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err
     for (uint32_t m = 0; m < MTR_PACK_SLOTS; m++) { if (pack_slot[m].status == MPK_OK) r |= 1u << m; else if (pack_slot[m].status != 0xFFu && !e) e = pack_slot[m].status; }
     *running = r; *first_err = e; *file_err = pack_err; *seen = pack_seen;
 }
+void meters_pack_probe_done(void) { pack_act = 0xFFu; force_next = 1; }          /* the pack-swap probe used the scratch and the loader's window: the live pack's state is gone, activate it again (zeroed state, one full repaint) */
 static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status == MPK_OK; }
+const void *meters_pack_probe_info(uint32_t m) { return pack_ok(m) ? &pack_slot[m].info : 0; }         /* the pack-swap probe's oracle: the pack of row m in its own slot, which a swap never replaces */
+volatile uint8_t *meters_pack_probe_slot(uint32_t m) { return pack_slot_data(m); }
 static void pack_tick(const void *vin)                                                   /* the shape wd_run wants (platform.h) */
 {
     const mtr_in_t *in = (const mtr_in_t *)vin;

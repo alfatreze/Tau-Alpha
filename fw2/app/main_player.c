@@ -11,7 +11,8 @@
 #if P2_DIAG
 #include "../diagnostics/preset_probe.h"
 #include "../diagnostics/name_matrix.h"
-void np_new_track_hook(void) { preset_probe_run(); }          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
+#include "../diagnostics/pack_swap_probe.h"
+void np_new_track_hook(void) { preset_probe_run(); pack_swap_probe_run(); }          /* P0 of the external-meters plan: the pack-swap probe runs after the preset probe, on every new track (nothing happens without window packs in the bundle) */          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
 #endif
 #if P2_DIAG
 #include "../diagnostics/check_page.h"
@@ -91,6 +92,9 @@ int main(void)
     halcyon_init();
     halcyon_set_dip(mp3play_dip_begin, mp3play_dip_end);
     meters_init();                                                                          /* before the assets and the saved settings: both set meter presets */
+#if P2_DIAG
+    pack_swap_probe_init();                                                                 /* once per boot: the probe's counters live in PSRAM, which the loader does not clear */
+#endif
     theme_init();                                                                           /* BEFORE the saved settings are applied: it resets theme, mode and colour to the defaults, so after them it threw the restored colour away and the next settings service published the default over the saved one */
     if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); meters_ext_enter(sv[SF_METER]); appearance_set(sv); mp3play_last_restore(&sv[SF_LAST0]); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     views_set_diag(&diag_pages);

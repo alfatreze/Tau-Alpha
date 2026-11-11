@@ -92,6 +92,9 @@ void        meters_packs_load(const uint8_t *p, uint32_t n);    /* the MPKB sect
 int         meters_packs_load_file(int (*rd)(void *ctx, uint32_t off, uint8_t *dst, uint32_t len), void *ctx);   /* the core's own tau-packs.bin (data slot 9, shipped with the release): 1 = installed from it, 0 = no such file */
 uint32_t    meters_pack_source(void);                           /* where the packs came from: 0 none, 1 tau-assets.bin (MPKB), 2 tau-packs.bin */
 void        meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen);   /* Info: packs running (bit per meter), first refusal code, the bundle's result (0xFF: no bundle), packs in the file */
+const void *meters_pack_probe_info(uint32_t row);                /* an mpk_info_t (cores/meter_pack_core.h):          the pack-swap probe's oracle (diagnostics, a PACKS build): row's pack in its own slot, 0 when it does not run */
+volatile uint8_t *meters_pack_probe_slot(uint32_t row);          /* ... and where that slot's data alias is */
+void        meters_pack_probe_done(void);                          /* the pack-swap probe (diagnostics) used the scratch: the live pack is activated again on its next tick, with a forced repaint (a PACKS build) */
 uint32_t    meters_pack_state(uint32_t m);                       /* 0 = meter m runs as a pack, 0xFF = no pack, else the refusal code */
 #endif
 uint32_t    meters_metr_load(const uint8_t *src, uint32_t n);   /* the METR section of tau-assets.bin: replaces the presets of the meters it carries (returns how many); applies each boot preset */                  /* Select+X: the next preset of the current meter */

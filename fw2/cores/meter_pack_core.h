@@ -40,6 +40,7 @@
 #define MTR_PACK_SLOT_SIZE    0x10000u
 #define MTR_PACK_SLOTS        8u
 #define MTR_PACK_STATS        4u
+#define MTR_PACK_PROBE_ID_BASE 0x100u   /* header ids from here are window-linked probe copies (docs/features/meters/EXTERNAL_METERS_PLAN.md P0); the normal installer has no slot for them and skips them */
 
 #define MPK_MAGIC 0x4B504D54u
 #define MPK_HDR   48u

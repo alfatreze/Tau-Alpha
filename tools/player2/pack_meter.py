@@ -38,7 +38,7 @@ def symbols(elf):
 
 
 
-def build(meter, org, elf_out=None, extra=(), scratch=None, source=None):
+def build(meter, org, elf_out=None, extra=(), scratch=None, source=None, header_id=None):
     src = ROOT / "fw2/ui" / ("meter_pack_%s.c" % (source or meter))      # `source` names a test variant of the meter's pack (e.g. winamp_bars_hang); the header still carries `meter`'s id and slot
     if not src.exists():
         raise SystemExit("no pack source %s" % src)
@@ -72,7 +72,7 @@ def build(meter, org, elf_out=None, extra=(), scratch=None, source=None):
         raise SystemExit(".bss does not follow .data in the scratch area")
     needs = re.search(r"#define MTR_PACK_NEEDS_MINOR (\d+)u?", src.read_text()); abi = (ABI_MAJOR << 8) | (int(needs.group(1)) if needs else 0)      # the minor the pack NEEDS, not the firmware's: it keeps running on older firmware
     if (abi & 0xFF) > ABI_MINOR_FW: raise SystemExit("the pack needs ABI minor %d, the firmware header has %d" % (abi & 0xFF, ABI_MINOR_FW))
-    hdr = struct.pack("<IHHIIIIIIIIII", 0x4B504D54, abi, METER_IDS[meter], len(body), org, entry, zlib.crc32(body) & 0xFFFFFFFF, data_lma, data_end - data_start,
+    hdr = struct.pack("<IHHIIIIIIIIII", 0x4B504D54, abi, METER_IDS[meter] if header_id is None else header_id, len(body), org, entry, zlib.crc32(body) & 0xFFFFFFFF, data_lma, data_end - data_start,
                       data_start, bss_end - bss_start, pst_off, pst_end - pst_off)
     return hdr + body, {"load": len(body), "data": data_end - data_start, "bss": bss_end - bss_start, "pstate": pst_end - pst_off, "entry": entry, "org": org, "scratch": scratch}
 

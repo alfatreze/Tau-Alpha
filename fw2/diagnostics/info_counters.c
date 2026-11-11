@@ -11,6 +11,7 @@
 #include "check_page.h"
 #if P2_DIAG
 #include "preset_probe.h"
+#include "pack_swap_probe.h"
 #include "name_matrix.h"
 #endif
 #ifdef P2_PACKS
@@ -169,6 +170,21 @@ const cnt_t counters_table[] = {
     { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
     { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
     { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
+    { "PS RUNS",      CK_U32, CU_NONE,   &psp_runs },               /* pack-swap probe (external-meters P0): one per new track; the counters live in PSRAM */
+    { "PS OK",        CK_U32, CU_NONE,   &psp_ok },                 /* a swapped-in pack made the same host calls and returned the same value as the first time */
+    { "PS BAD",       CK_U32, CU_NONE,   &psp_bad },                /* it did not (wrong code after a swap, e.g. a stale instruction cache) or hung: must stay 0 */
+    { "PS HANG",      CK_U32, CU_NONE,   &psp_hang },               /* the watchdog cut a probe tick */
+    { "PS ERR",       CK_U32, CU_NONE,   &psp_err },                /* the last failure: 1 no window packs, 2 install refused, 3 no meter row */
+    { "PS INST ERR",  CK_U32, CU_NONE,   &psp_inst_err },           /* the loader's refusal code when ERR is 2 */
+    { "PS FOUND",     CK_U32, CU_NONE,   &psp_found },              /* window packs found in the bundle (7 expected) */
+    { "PS LAST",      CK_U32, CU_NONE,   &psp_last_k },             /* the meter the last probe loaded */
+    { "PS INSTALL",   CK_U32, CU_CYC,    &psp_inst_cyc },           /* read the pack from the bundle, copy it into the window, CRC it: the load latency of a selection */
+    { "PS INST MAX",  CK_U32, CU_CYC,    &psp_inst_max },
+    { "PS FLUSH",     CK_U32, CU_CYC,    &psp_flush_cyc },          /* the instruction-cache flush (fence.i) */
+    { "PS RUN",       CK_U32, CU_CYC,    &psp_run_cyc },            /* one tick of the swapped-in pack against the stubs */
+    { "PS RUN MAX",   CK_U32, CU_CYC,    &psp_run_max },
+    { "PS FILL MIN",  CK_U32, CU_PAIRS,  &psp_fill_min },           /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
+    { "PS DRY",       CK_U32, CU_NONE,   &psp_dry },                /* times the audio fell behind during a probe: must stay 0 */
     { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
     { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },
     { "NM RES C",     CK_HEX32, CU_NONE, &nm_res[2] },              /* variants 16..23: the encoding probes */
