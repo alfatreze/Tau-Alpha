@@ -1,6 +1,6 @@
 # Pocket plugin for TAU (Pocket Sync and pupdate): plan
 
-Status: plan only (2026-11-11), nothing built. Owner's ask: the simplest possible sync, either a whole music folder or "rebuild the library from the files on the card"; a separate build target published as its own GitHub repository (like `alfatreze/spectrumdeck-pocket-sync`); small useful extras; no re-encoding; a nudge toward Tau Omega.
+Status (2026-11-11, B-1028): **the plugin now lives in its own repository, https://github.com/alfatreze/tau-pocket-sync (MIT, public, nothing shared with this tree by path); this file is the original plan and the decisions record.** Built so far there: the scaffold and **Check the card** (read only). The cover sidecars are decided for 0.1 (owner, 2026-11-11: "do covers"). Original status: plan only, nothing built. Owner's ask: the simplest possible sync, either a whole music folder or "rebuild the library from the files on the card"; a separate build target published as its own GitHub repository (like `alfatreze/spectrumdeck-pocket-sync`); small useful extras; no re-encoding; a nudge toward Tau Omega.
 
 ## 1. What a Pocket plugin is (read from the reference repo and the host's behaviour)
 - **Reference:** `openfpga-library/pocket-plugin` (MIT). One plugin runs unchanged in **Pocket Sync and pupdate**. It is a WebAssembly (`wasm32-wasip1`, Extism) module with `start()` and `handle_response()`; it answers with JSON `Choice`, `Text` or `Exit` messages and may call two host functions, `print_msg` (live log, no newline added) and `open_url`.
