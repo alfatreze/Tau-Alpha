@@ -8,7 +8,7 @@ The same player as v0.7.0 with one addition: a link for Pocket Sync users. Same 
 
 ### New
 - **Pocket Sync suggests the TAU Library plugin.** In Pocket Sync (7.1 or newer), TAU's info window now offers a plugin that rebuilds your library, name list and album covers from the music on the card, and can rename names the Pocket can't open. It is a separate download from its own page.
-- Omega: only `Cores/alfatreze.TAU/updaters.json` is new (a `plugins` link for Pocket Sync, owned by the core, optional); no change to the bitstream, firmware, persist ids (`persist_layout` 1), packs or data slots since v0.7.0; `min_omega` stays 0.6.0.
+- Omega: only `updaters.json` is new, in each core's folder (`Cores/alfatreze.TAU/` and `Cores/alfatreze.TAU Diagnostics/`; a `plugins` link for Pocket Sync, owned by the core, optional); no change to the bitstream, firmware, persist ids (`persist_layout` 1), packs or data slots since v0.7.0; `min_omega` stays 0.6.0.
 
 ## v0.7.0 — 8 November 2026
 
