@@ -52,3 +52,4 @@
 | A015/R-1 (answered) | `tau-core` for WebAssembly | Omega | **DONE 2026-11-11:** Omega 016/017, D-023, tag `tau-core-wasm-1` (published); plugin uses it |
 | A016/R-1 | `tau-core` scan without threads on WASI (`par_map` and the reader loop in `scan_dir_options`; patch in message 016) | Omega | **DONE 2026-11-11:** Omega 018/019, tag `tau-core-wasm-2` published; the plugin uses it |
 | A017/Q-1 | Does Omega's install/update handle the new `updaters.json` in each core folder (expected: owned, written with the core)? | Omega | **ASKED 2026-11-11** (message 017, with the v0.7.1 release) |
+| A018/R-1 | Review the external-meters contract (`.tmeter` package, bin v2 with TOC, `tau-meters.bin`, `persist_layout` 2, TAU-update guard); questions Q-1 to Q-3 | Omega | **ASKED 2026-11-12** (message 018; spec on branch `external-meters`, owner may drop it) |
