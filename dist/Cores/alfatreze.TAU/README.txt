@@ -36,26 +36,26 @@ OPTIONAL: nice to have
   ReplayGain       read from the tags in your files; Tau Omega can write them
 
 
-TWO TOOLS
----------
-TAU OMEGA (free, Mac / Windows / Linux): the full toolbox
+WHO DOES WHAT
+-------------
+TAU OMEGA: free app for Mac / Windows / Linux
   https://github.com/alfatreze/Tau-Omega/releases/latest
-  - Copy music: puts your music on the card
-  - Library: builds the library index and the name sidecar
-  - Covers: makes the fast cover files
-  - Convert: turns other formats into MP3 or FLAC
-  - ReplayGain: evens out loudness between tracks
-  - Playlists: builds .m3u playlists
-  - Themes and meter presets: makes tau-assets.bin
-  - Card check: finds what is missing or out of date
-
 POCKET SYNC / PUPDATE PLUGIN "TAU Library": small, inside the updater
   https://github.com/alfatreze/tau-alpha-pocket-sync
-  - Check the card: read-only report of what is missing or stale
-  - Rebuild the library: library index, name sidecar and covers for the
-    music already on the card, with the plan shown first
-  - Rename: offers to rename names the Pocket cannot open (backup kept)
-  Not in the plugin: copying music, converting, themes. Use Tau Omega.
+
+  - Copy music: puts your music on the card ............ Omega
+  - Convert: other formats into MP3 or FLAC ............ Omega
+  - Library index: browse and queue your music ......... Omega, plugin
+  - Name sidecar: keeps your original names and tags ... Omega, plugin
+  - Covers: fast cover files for every album ........... Omega, plugin
+  - Rename: fixes names the Pocket cannot open ......... Omega, plugin
+  - Card check: what is missing or out of date ......... Omega, plugin
+  - ReplayGain: even loudness between tracks ........... Omega
+  - Playlists: builds .m3u playlists ................... Omega
+  - Themes and meter presets: makes tau-assets.bin ..... Omega
+
+The plugin changes nothing until it has shown you the plan, and keeps a
+backup of every file it renames.
 
 By hand: python3 tools/sync_media.py MUSIC_DIR --all-tau --library
 (tools in https://github.com/alfatreze/Tau-Alpha)
