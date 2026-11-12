@@ -49,6 +49,12 @@ Persistence now stores the selected meter **by its id hash** (layout 2).
 ## 4. Damaged bin (optional, if the second package is prepared)
 A second package `TAU DEV 220` with a deliberately damaged table of contents (one byte of `tau-packs.bin` between byte 40 and the end of the previews flipped) is **not** built by default; ask the session to prepare it (`python3 tools/player2/build_packs.py` then flip a byte, same packager). **Good:** `MTOC STATE 2`, `MTOC ERR 4`, only Winamp Bars in the METER list, the player otherwise normal. A damaged pack (a byte flipped inside a pack's image, after the table of contents) is a different case: the player boots normally, and selecting that meter shows Winamp Bars with `MWIN ERR 26` and `MWIN REFUSED 1`.
 
+## Known limits of DEV 220 (so nothing here surprises you)
+- **METR user presets (`tau-assets.bin`) apply to Winamp Bars only.** A card whose `tau-assets.bin` carries a METR section (user presets per meter, written by `tools/tau_assets.py` or Omega) still shows those presets for Winamp Bars; the six pack meters show only their own DEFAULT preset, as if the METR section had no entry for them. Preset **files** (`tau-presets/<n>/`) still work for the shipped seven meters. P2.4 decides how METR comes back for pack meters (a pack is not loaded at boot, so its parameters are not known when METR is read).
+- **At most 7 meters are selectable** (the first 7 rows of the bin), however many the bin holds; the list is not scrolling yet (P2.5).
+- **A tuning of a third meter is dropped** (two tunings are kept), and a `layout 1` card loses its saved tunings on the one-time migration (the meter and its preset survive).
+- **No commit rule or safe boot yet:** a meter that hangs is cut by the watchdog and struck out for that session, but the saved selection is not protected (P2.4).
+
 ## 5. What to send back
 Photographs of the Info page (the `MTOC` and `MWIN` rows and `DRY`, `UNDER RING`, `HW UNDER EV`) before and after section 2, and one sentence for section 3 (kept or not). The session records them in `docs/AUDIT_TRAIL.md` with evidence label POCKET.
 

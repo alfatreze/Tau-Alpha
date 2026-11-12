@@ -26,7 +26,7 @@ static void win_flush(void);
 #include "../fw2/ui/meters.c"
 static uint32_t now, win, spend, flushes, calls;
 static uint32_t fnv(const uint8_t *p, uint32_t n) { uint32_t h = 2166136261u; for (uint32_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; } return h; }
-static void win_flush(void) { flushes++; printf("F\n"); }
+static void win_flush(void) { flushes++; printf("W %08x\n", fnv(win_mem, win_info.size)); printf("F\n"); }       /* the whole image as the window holds it at the flush */
 static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)in; (void)api; calls++; now += spend; printf("C %08x entry %x\n", fnv(win_mem, 256u), e); return 0; }
 static uint32_t builtin;
 uint32_t host_rd(uint32_t a) { if (a == R_CYCLES) return now; if (a == R_SPEC_ST) return win << 16; return 0; }

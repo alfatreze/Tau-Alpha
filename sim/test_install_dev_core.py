@@ -143,6 +143,27 @@ with tempfile.TemporaryDirectory() as td:
     check("dev channel: installs beside TAU, reads TAU's library in place, never touches TAU's own tau-assets.bin",
           rc == 0 and "read in place from Assets/tau/common" in out and (card / "Assets/tau_dev/alfatreze.TAU DEV 1/tau.rom").exists()
           and not (card / "Assets/tau_dev/common").exists() and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == tau_assets_before)
+    # Data slot 10 (tau-meters.bin, the user's meter bin, D-M22): shared by every Tau core, so a dev core reads it from Assets/tau/common (platform index 1), a release core likewise
+    import tau_data_slots
+    def metpkg(n):
+        tp = devpkg(n); cdir = tp / "Cores" / f"alfatreze.TAU DEV {n}"
+        tau_data_slots.add_meters_slot(cdir)
+        (cdir / "data.json").write_text(json.dumps(tau_layout.read_shared_media(json.loads((cdir / "data.json").read_text()))))
+        return tp, cdir
+    mp, mcdir = metpkg(3)
+    s10 = next(x for x in json.loads((mcdir / "data.json").read_text())["data"]["data_slots"] if x["id"] == 10)
+    check("a dev package's slot 10 resolves to Assets/tau/common (platform index 1), like slots 5 and 8",
+          tau_layout.slot_dir(card, s10, ["tau_dev", "tau"], "alfatreze.TAU DEV 3") == card / "Assets/tau/common" and tau_layout.slot_platform_index(s10["parameters"]) == 1)
+    rel10 = dict(s10, parameters="0x0")
+    check("a release package's slot 10 resolves to Assets/tau/common too", tau_layout.slot_dir(card, rel10, ["tau"], "alfatreze.TAU") == card / "Assets/tau/common")
+    mine = card / "Assets/tau/common/tau-meters.bin"; mine.write_bytes(b"user meter bin, not ours")
+    rc, out = run(mp, "--card", card, "--backup-dir", td / "bk-d3", "--no-eject", "--yes")
+    check("a dev install never removes, replaces or backs up the user's tau-meters.bin in Assets/tau/common, and writes none into the dev platform",
+          rc == 0 and mine.read_bytes() == b"user meter bin, not ours" and not any("tau-meters.bin" in str(x) for x in (td / "bk-d3").rglob("*")) and not (card / "Assets/tau_dev/common").exists()
+          and not list((card / "Assets/tau_dev").rglob("tau-meters.bin")))
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU DEV 3", "--backup-dir", td / "bk-rd3", "--no-eject", "--yes")
+    check("removing that dev build leaves the user's tau-meters.bin", rc == 0 and mine.read_bytes() == b"user meter bin, not ours")
+    mine.unlink()
     rc, out = run(devpkg(2), "--card", card, "--backup-dir", td / "bk-d2", "--no-eject", "--yes")
     rc, out = run("--card", card, "--remove", "alfatreze.TAU DEV 1", "--backup-dir", td / "bk-rd1", "--no-eject", "--yes")
     check("dev channel: removing one dev build keeps the TAU Dev platform for the others and TAU's media",

@@ -138,6 +138,7 @@ test-host:
 	$(PYTHON) sim/test_p2_boot_order.py
 	$(PYTHON) sim/test_p2_wdog.py
 	$(PYTHON) sim/test_p2_meter_window.py
+	$(PYTHON) sim/test_p2_tau_mm.py
 	$(PYTHON) sim/test_p2_hang_pack.py
 	$(PYTHON) sim/test_p2_meter_desc.py
 	$(PYTHON) sim/test_p2_meter_helpers.py

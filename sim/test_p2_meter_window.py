@@ -2,7 +2,7 @@
 """The window loader and the boot path of fw2/ui/meters.c (plan P2.2): a v2 bin is opened at boot with the TOC reader only (no pack is read), a pack is read from the bin into the ONE window when its meter is selected, in the order the
 P0 probe proved on a Pocket (write the bytes, THEN fence.i, THEN run), and every refusal falls back to the built-in Winamp Bars. Real packs (window-linked, tools/player2/build_packs.py build_window) composed with
 tools/meter_bin.py. Mutants: the flush is skipped; the flush comes after the first run; a pack whose CRC is wrong still runs; the bin is not required to carry a fallback row; the user bin is not preferred."""
-import json, subprocess, sys, tempfile
+import json, re, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools")); sys.path.insert(0, str(ROOT / "tools/player2"))
@@ -150,6 +150,30 @@ with tempfile.TemporaryDirectory() as td:
     check("128 clean ticks forgive two strikes: two strikes, 128 clean ticks, two more: the pack still runs", s["struck"] == 0 and s["cur"] == 1, str(s))
     o = run(exe, "user %s\nboot\nselect 1\ntick 0\n%s%s%s%s%stick 0\nstate\n" % (full, over, over, clean, over, over)); s = state(o)
     check("two strikes, 64 clean ticks (only one forgiven), two more: three strikes, the pack is out", s["struck"] == 1 and s["cur"] == 0, str(s))
+    def shows(o): return [l for l in o if l.startswith("show")]
+    # ---- coverage carried over from the retired slot-era tests (dispatch, pack-only, strike, probe): see the table in B-1053
+    def fnv_all(b):
+        h = 2166136261
+        for c in b: h = ((h ^ c) * 16777619) & 0xFFFFFFFF
+        return "%08x" % h
+    o = run(exe, "user %s\nboot\nselect 3\ntick 0\nstate\n" % full)
+    check("the window holds the pack's whole image, byte for byte, when fence.i is issued (the old probe's install check)", ["W " + fnv_all(packs["chladni"][mb.PACK_HDR:])] == [l for l in o if l.startswith("W ")], str([l for l in o if l[0] in "WF"]))
+    s = state(o)
+    check("the Info summary: the pack in the window is a bit per row, no error, the bin's own result 0, four rows seen (old: the Info summary)", re.search(r"info run 8 err 0 file 0 seen 4", " ".join(l for l in o if l.startswith("state"))) is not None, str(o[-1]))
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\nselect 2\ntick 0\nstate\n" % compose_raw(KEYS, "badcrc3.bin", lambda b: b.__setitem__(row_pack_off(b, 1) + 48 + 100, b[row_pack_off(b, 1) + 48 + 100] ^ 0x10))); s = state(o)
+    check("one pack corrupt: that meter falls back to Winamp Bars and the NEXT meter still loads and runs its pack (old: one pack corrupt, the other two still run)", s["cur"] == 2 and any(l.startswith("C " + sig["vu_master"]) for l in o) and s["pstate"][1] == 26, str(s))
+    cut = full.read_bytes()[:-10]; (tmp / "cut.bin").write_bytes(cut); (tmp / "junk.bin").write_bytes(b"NOPE" + b"\0" * 100)
+    o = run(exe, "user %s\nnocore\nboot\nstate\n" % (tmp / "cut.bin")); s = state(o)
+    check("a bin cut short is refused whole, no partial use (old: a file cut short)", s["src"] == 0 and s["count"] == 1 and s["mtoc_err"] != 0, str(s))
+    o = run(exe, "user %s\nnocore\nboot\nstate\n" % (tmp / "junk.bin")); s = state(o)
+    check("a file that is not a bin is refused by its magic (old: not a bundle)", s["src"] == 0 and s["mtoc_err"] == mb.E_MAGIC, str(s))
+    cm = manifest("chladni")
+    o = run(exe, "user %s\nboot\nselect 3\ndef\nshow\n" % full); d0 = [l for l in o if l.startswith("def ")][0]
+    check("the loaded row's command ceiling, cycle limit and compose code are its descriptor's, and the live parameters are the descriptor's defaults (old: pack-only name/limits/DEFAULT preset)",
+          d0.endswith(" cmd %d cyc %d" % (cm["p2"]["cmds"], cm["p2"]["max_cycles"])) and shows(o)[0].split("mv ")[1].split() == [str(p["default"]) for p in cm["params"][:3]], d0 + str(shows(o)))
+    o = run(exe, "user %s\nboot\nselect 1\nnext\nnext\nnext\nnext\nstate\n" % bin_of(KEYS, "tau2.bin", tau_up)); s = state(o)
+    curs = [l for l in o if l.startswith("cur ")]
+    check("X (next) skips a row this firmware cannot run: from row 1 it goes to 3, never 2 (old: absent rows are skipped)", curs[1] == "cur 3" and "cur 2" not in curs, str(curs))
     # ---- what the pack's own descriptor says (the loaded row's Configure descriptors, compose code and limits), and the TOC preview
     o = run(exe, "user %s\nboot\nselect 3\ndef\nthumb 3\nthumb 0\n" % full)
     dl = [l for l in o if l.startswith("def ") or l.startswith("p ")]; cm = manifest("chladni")
@@ -160,7 +184,6 @@ with tempfile.TemporaryDirectory() as td:
     check("the preview of a pack meter comes from the TOC's preview block: its stream length, first run bytes and first palette entry are the block's", int(t0[4]) == pv["preview_len"] - 64 and [int(x) for x in t0[6:12]] == list(blk[64:70]) and t0[13:18] == [str(blk[0] | blk[1] << 8)] + [str(x) for x in blk[2:6]], th[0])
     check("Winamp Bars (built in) answers no TOC preview", th[1].split()[4] == "0", th[1])
     # ---- persistence (layout 2 of the persisted settings, wired by fw2/ui/appearance.c): Quit and start again keeps the meter, its tuning and the other tuned meter
-    def shows(o): return [l for l in o if l.startswith("show")]
     o = run(exe, "user %s\nboot\nselect 2\nshow\nedit 1\nshow\nsave\nrestart\nshow\nselect 1\nshow\n" % full)
     sh = shows(o)
     check("a restart keeps the selected meter (by its id hash) and the tuning made on it", "restarted cur 2" in o and sh[1] != sh[0] and sh[2] == sh[1] and sh[2].split()[4] == "1", str(sh))
@@ -176,42 +199,6 @@ with tempfile.TemporaryDirectory() as td:
     check("a meter whose parameter set changed (params_rev bumped) starts from its defaults: the old tuning is not applied", sh[0].startswith("show cur 2 custom 0"), str(sh))
     o = run(exe, "user %s\nnocore\nboot\nselect 2\nsave\nnouser\nrestart\nshow\nsave\n" % full); sv = [l for l in o if l.startswith("saved")]; sh = shows(o)
     check("with no bin at all the player starts on Winamp Bars and the saved selection is kept for when the bin is back", sh[0].startswith("show cur 0") and sv[0] == sv[1] and "hash 00000000" not in sv[1], str(sv) + str(sh))
-    # ---- the strike rule on the loaded pack (ported from the old per-slot test): forced pictures are not judged, the limit itself is not an overrun, clean ticks forgive
-    o = run(exe, "user %s\nboot\nselect 1\ntick %d\ntick %d\ntick 0\nstate\n" % (full, 3 * lim, 3 * lim)); s = state(o)
-    check("a forced first picture is never judged, however slow: one overrun after it, the pack runs", s["cur"] == 1 and s["overruns"] == 1 and s["struck"] == 0, str(s))
-    o = run(exe, "user %s\nboot\nselect 1\ntick 0\ntick %d\ntick 0\nstate\n" % (full, lim)); s = state(o)
-    check("a tick of exactly the limit is not an overrun", s["overruns"] == 0 and s["cur"] == 1, str(s))
-    over = "tick %d\n" % (3 * lim); clean = "tick 0\n" * 64
-    o = run(exe, "user %s\nboot\nselect 1\ntick 0\n%s%s%s%s%stick 0\nstate\n" % (full, over, over, clean * 2, over, over)); s = state(o)
-    check("128 clean ticks forgive two strikes: two strikes, 128 clean ticks, two more: the pack still runs", s["struck"] == 0 and s["cur"] == 1, str(s))
-    o = run(exe, "user %s\nboot\nselect 1\ntick 0\n%s%s%s%s%stick 0\nstate\n" % (full, over, over, clean, over, over)); s = state(o)
-    check("two strikes, 64 clean ticks (only one forgiven), two more: three strikes, the pack is out", s["struck"] == 1 and s["cur"] == 0, str(s))
-    # ---- what the pack's own descriptor says (the loaded row's Configure descriptors, compose code and limits), and the TOC preview
-    o = run(exe, "user %s\nboot\nselect 3\ndef\nthumb 3\nthumb 0\n" % full)
-    dl = [l for l in o if l.startswith("def ") or l.startswith("p ")]; cm = manifest("chladni")
-    check("the loaded pack meter's name, parameter count, one preset and Configure labels are its descriptor's (read from the window)", dl[0].startswith("def row 3 name") and (" np %d npre 1 " % len(cm["params"])) in dl[0] and [l.split("|")[0].split(" ", 2)[2].upper() for l in dl[1:]] == [p["label"].upper() for p in cm["params"]], str(dl[:3]))
-    pv = mb.open_toc(full.read_bytes())["rows"][3]; raw = full.read_bytes(); blk = raw[pv["preview_off"]:pv["preview_off"] + pv["preview_len"]]
-    th = [l for l in o if l.startswith("thumb")]
-    t0 = th[0].split()
-    check("the preview of a pack meter comes from the TOC's preview block: its stream length, first run bytes and first palette entry are the block's", int(t0[4]) == pv["preview_len"] - 64 and [int(x) for x in t0[6:12]] == list(blk[64:70]) and t0[13:18] == [str(blk[0] | blk[1] << 8)] + [str(x) for x in blk[2:6]], th[0])
-    check("Winamp Bars (built in) answers no TOC preview", th[1].split()[4] == "0", th[1])
-    # ---- persistence (layout 2 of the persisted settings, wired by fw2/ui/appearance.c): Quit and start again keeps the meter, its tuning and the other tuned meter
-    def shows(o): return [l for l in o if l.startswith("show")]
-    o = run(exe, "user %s\nboot\nselect 2\nshow\nedit 1\nshow\nsave\nrestart\nshow\nselect 1\nshow\n" % full)
-    sh = shows(o)
-    check("a restart keeps the selected meter (by its id hash) and the tuning made on it", "restarted cur 2" in o and sh[1] != sh[0] and sh[2] == sh[1] and sh[2].split()[4] == "1", str(sh))
-    o = run(exe, "user %s\nboot\nselect 1\nedit 1\nshow\nselect 2\nedit 1\nshow\nsave\nrestart\nshow\nselect 1\nshow\n" % full); sh = shows(o)
-    check("the other tuned meter (the second tuning slot) is restored when it is loaded after the restart", sh[3] == sh[0], str(sh))
-    check("... and the meter on screen after the restart is the one that was shown at Quit", sh[2].startswith("show cur 2"), str(sh))
-    o = run(exe, "user %s\nboot\nselect 3\nsave\nuser %s\nrestart\nshow\nsave\nuser %s\nrestart\nshow\n" % (full, small, full)); sh = shows(o)
-    sv = [l for l in o if l.startswith("saved")]
-    check("a saved meter that is gone (a bin without it): Winamp Bars runs, and the saved hash is written back unchanged until the user picks another; it returns when the meter does", sh[0].startswith("show cur 0") and sv[0] == sv[1] and sh[1].startswith("show cur 3"), str(sv) + str(sh))
-    def rev_up(es):
-        es = list(es); es[2] = mb.Entry(**{**es[2].__dict__, "params_rev": 5}); return es
-    o = run(exe, "user %s\nboot\nselect 2\nedit 1\nsave\nuser %s\nrestart\nshow\n" % (full, bin_of(KEYS, "rev.bin", rev_up))); sh = shows(o)
-    check("a meter whose parameter set changed (params_rev bumped) starts from its defaults: the old tuning is not applied", sh[0].startswith("show cur 2 custom 0"), str(sh))
-    o = run(exe, "user %s\nnocore\nboot\nselect 2\nedit 1\nsave\nrestart\nshow\n" % full); sh = shows(o)
-    check("with no bin at all the player starts on Winamp Bars (the saved selection is kept for when the bin is back)", True)
     # ---- mutants
     with tempfile.TemporaryDirectory() as t2:
         m = build(Path(t2), "noflush")["h"]
