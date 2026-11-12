@@ -7,6 +7,7 @@
 #include "../cores/settings_core.h"
 typedef struct { uint32_t loads, stores, menu_changes, wide, dirty, migrated, layout; } settings_stats_t;      /* migrated: 1 when this boot converted a legacy (layout version 0) card; layout: the layout version the register file holds now (0 legacy, 1 by area) */
 extern settings_stats_t settings_stats;
+void settings_init_t(uint32_t *vals, sf_max_of_t tune_max_of);   /* the same, and a layout-1 card keeps its tunings: tune_max_of(layout-1 table index) gives the largest value of each parameter of that shipped meter */
 void settings_init(uint32_t *vals);                       /* probe the wide file, adopt what APF holds (a legacy layout is migrated and written first), defaults if nothing valid */
 void settings_seed(uint32_t *vals);                       /* the values as last published: the caller overwrites the fields it owns, so a field nobody sets (layout version, presets of meters that are not there) keeps its saved value */
 /* Once per loop. `vals` is the live state (in/out): a change made with the buttons is published when `streaming` is 0; a change made in Core Settings is adopted into `vals`.

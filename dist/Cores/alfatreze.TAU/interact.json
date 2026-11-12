@@ -9,7 +9,7 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000000",
-                "defaultval": 134217728,
+                "defaultval": 268435456,
                 "graphical": {
                     "signed": false,
                     "min": 0,
@@ -57,7 +57,7 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000014",
-                "defaultval": 1073741824,
+                "defaultval": 0,
                 "graphical": {
                     "signed": false,
                     "min": 0,
@@ -73,7 +73,7 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000018",
-                "defaultval": 1073741824,
+                "defaultval": 536870912,
                 "graphical": {
                     "signed": false,
                     "min": 0,
@@ -201,7 +201,7 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x2000003C",
-                "defaultval": 1073741824,
+                "defaultval": 0,
                 "graphical": {
                     "signed": false,
                     "min": 0,

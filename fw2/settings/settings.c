@@ -29,6 +29,7 @@ static void read_words(uint32_t *w)
 {
     for (uint32_t i = 0; i < SF_WORDS; i++) w[i] = 0;
     for (uint32_t i = 0; i < SF_COUNT; i++) { uint32_t k = sf_table[i].word; if (k < 16u || settings_stats.wide) w[k] = rd(k); }
+    for (uint32_t n = 0; n < sizeof sf_write_order; n++) { const uint32_t k = sf_write_order[n]; if (k < 16u || settings_stats.wide) w[k] = rd(k); }   /* word 15 has no field in layout 2 but holds a layout-0/1 source: a migration needs it, and publish writes it back as it is */
 }
 
 /* Word 0 holds the layout version and goes last: a power loss in between leaves the legacy marker, and the next boot resumes the migration from the words that carry the new-layout mark and the legacy words that are still there. */
@@ -42,12 +43,12 @@ static void write_words(const uint32_t *w)
     if (rd(0u) != w[0]) wr(0u, w[0]);
 }
 
-void settings_init(uint32_t *vals)
+void settings_init_t(uint32_t *vals, sf_max_of_t tune_max_of)      /* tune_max_of: the parameter maxima of a shipped meter by its layout-1 table index (P2.4 passes the meter registry's): it lets the migration keep the tunings; 0 drops them */
 {
     settings_stats.wide = (uint32_t)wide_probe();
     read_words(pub);
-    if (sf_is_legacy(pub)) {                                 /* a card saved by TAU DEV 181 or older: convert it once */
-        uint32_t nw[SF_WORDS]; sf_migrate_resume(pub, nw);
+    if (sf_needs_migration(pub)) {                           /* a card saved by TAU DEV 181 or older (layout 0) or by TAU DEV 182 .. 219 / v0.7.x (layout 1): convert it once to layout 2 */
+        uint32_t nw[SF_WORDS]; sf_migrate_resume_t(pub, nw, tune_max_of);
         write_words(nw);
         for (uint32_t k = 0; k < SF_WORDS; k++) pub[k] = nw[k];
         settings_stats.migrated = 1;
@@ -57,6 +58,8 @@ void settings_init(uint32_t *vals)
     for (uint32_t i = 0; i < SF_COUNT; i++) pub_vals[i] = vals[i];
     settings_stats.loads++;
 }
+
+void settings_init(uint32_t *vals) { settings_init_t(vals, 0); }       /* the entry point that existed before layout 2: a layout-1 card loses its tunings (P2.4 calls settings_init_t) */
 
 void settings_seed(uint32_t *vals) { for (uint32_t i = 0; i < SF_COUNT; i++) vals[i] = pub_vals[i]; }
 
