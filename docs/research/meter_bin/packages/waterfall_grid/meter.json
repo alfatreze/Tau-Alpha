@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "17e607764b83b9372452eda124ae763f",
+ "name": "WATERFALL",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.2",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "8c96e985986bc53393c4cfa323c530e9e5d02f47d7468a4435403c8e720892a5"
+ },
+ "signature": null
+}

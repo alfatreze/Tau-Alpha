@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "5812803445b81ffae735527099ef6793",
+ "name": "LAYERED WAVE",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.2",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "5e623a6341644b9789dff983af5622c4de2b186e01bec12058c943cdcbe93f61"
+ },
+ "signature": null
+}

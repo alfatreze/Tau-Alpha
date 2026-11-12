@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "7dddfe63121e904843088c075cc28ce9",
+ "name": "WINAMP BARS",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.0",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "452903da1da6079fa9b12521d88b3a3aa5fc3ef20bf4e03e3e32a24bbe52590c"
+ },
+ "signature": null
+}

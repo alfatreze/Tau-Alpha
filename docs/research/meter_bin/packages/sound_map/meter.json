@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "0c82d9f07f73f25d90ca54c8d39173ce",
+ "name": "SOUND MAP",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.1",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "fe8b03dd11176e4bcd9c944c2af4a164b6b67e843b98c936850ff53ac78c3124"
+ },
+ "signature": null
+}

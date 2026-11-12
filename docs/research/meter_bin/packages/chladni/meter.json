@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "7471cc214987407c0b03917f27923179",
+ "name": "CHLADNI",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.0",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "4a3a78bf3f75f8b8cfc47d18213bced26a2967aee465c9d122cfa0e10c647896"
+ },
+ "signature": null
+}

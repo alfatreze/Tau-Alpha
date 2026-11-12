@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "id": "143acb80cbcd1b08b84c2661eeab3414",
+ "name": "WINAMP SCOPE",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.0",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "1f2db1b0e4098553ca66f70f0c829c39f5d3392f6c3e23993a5e348ce0fb7d1f"
+ },
+ "signature": null
+}
