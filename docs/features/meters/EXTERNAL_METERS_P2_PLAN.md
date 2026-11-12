@@ -37,6 +37,8 @@ Each step has a host test that fails first, then passes; each ends in a commit. 
 3. **Hot RAM on paper:** `pack_slot` 288 B, `pack_strike` 16, `budget` 14, `pre`/`want_id`/`custom`/`user_n` 28, `tune_*` 34: **about 380 B freed**, less the active-meter struct (the `sh` shape table, 320 B, stays). Measure for real at P2.4.
 4. **The seven shipped ids** are proposed in the owner's message of 2026-11-12 and are written into `meters/<key>/meter.json` only after the owner accepts them.
 
+**Review 2026-11-12 (after P2.1 and P2.3):** the reader opens a bin with the header, the TOC and the previews only (`toc_crc`), never the whole file, and reads v2 only; the whole-file CRC is for tools; a tuning key shared by two TOC rows disables tuning for those rows (spec section 3). See `EXTERNAL_METERS_SPEC.md`.
+
 **P2.1 Bin v2 and the reference tools (host only).**
 - `tools/meter_bin.py` (new): compose a v2 bin from packages, parse v1 and v2, the 64-meter and 4,456,448-byte limits, the TOC layout of SPEC section 2; the independent reference, like `tau_packs_info.py`.
 - `fw2/cores/meterbin_core.h` (new, pure, host-tested against the Python reference with random bins, damaged bins, truncations): header and end CRC, TOC reading, `id_hash` uniqueness, ABI and `tau_min` checks, refusal codes (`MTOC ERR ...`), v1 mapped to a TOC.
@@ -45,7 +47,7 @@ Each step has a host test that fails first, then passes; each ends in a commit. 
 
 **P2.2 Window loader and lazy loading.**
 - `meters_activate(toc_index)`: read the pack from the bin in 1 KB pieces (the path P0 used), CRC and ABI check, write through the uncached alias, `fence.i`, zero the pstate, run under `wd_run`; refusal or a strike falls back to Winamp Bars and marks the entry.
-- Remove the 8-slot install; one window (0x24900000, 64 KiB incl. pstate) and the 4 KB scratch.
+- Remove the 8-slot install; one window (0x24970000, slot 7, 64 KiB incl. pstate) and the 4 KB scratch.
 - Load at selection (X, the Settings list, boot restore); never inside a tick; the audio stream unchanged (P0 measured no dropout; the swap runs between pictures).
 - Packs relinked for the window (`build_packs.py` already has `build_window`; the shipped packs become window-linked, ids from P2.0).
 **Exit (Pocket, DEV 220):** the shipped seven meters selected from a v2 bin, no dropout across 100 swaps, the `MWIN` rows (load cycles, last error) match P0's.
