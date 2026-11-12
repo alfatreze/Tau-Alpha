@@ -1,6 +1,6 @@
 # Project rules (shared by Claude Code and Codex)
 
-The eight rules every session follows. `CLAUDE.md` imports this file; `AGENTS.md` points here. Longer reasoning lives in the linked documents.
+The nine rules every session follows. `CLAUDE.md` imports this file; `AGENTS.md` points here. Longer reasoning lives in the linked documents.
 
 1. **Concurrent sessions: use worktrees, and check the branch before committing.** A plain `git checkout <branch>` moves `HEAD` for the whole directory and every other session with it (2026-10-01: a commit landed on the wrong branch). For a second task use `git worktree add ../tau-alpha-<name> <branch>` (or the Agent tool's `isolation: "worktree"`). Run `git branch --show-current` immediately before every commit in a shared tree. Commit only your own files; never stage another session's uncommitted work. Commit verified work promptly.
 2. **Never `git reset` or `git stash` on the shared tree** (not even for a "clean baseline" measurement): it destroyed other sessions' work twice (2026-09-27/28). Build to a separate output directory and diff, or use a worktree. Never modify this repository's upstream tracking references.
@@ -12,3 +12,5 @@ The eight rules every session follows. `CLAUDE.md` imports this file; `AGENTS.md
 8. **After publishing a release, compare the release's assets with `release/SHA256SUMS.txt`.** A stray workflow zip once slipped into a published release (B-687). Pass `--repo alfatreze/Tau-Alpha` to `gh release create` (the default target is the upstream fork parent).
 
 Record every finished change as an entry in `docs/AUDIT_TRAIL.md` (B-NNN, with the evidence label and what was and was not run on a Pocket).
+9. **Commit as the owner, never as Claude.** Author and committer are the configured git user. Never add `Co-Authored-By: Claude ...`, `noreply@anthropic.com`, "Generated with Claude Code" or any AI attribution to a commit message or a PR body, and never set an AI as author, in any repo (owner decision, 2026-11-12). Tell any session or agent you start the same, and check `git log -1 --format=%B` before pushing.
+
