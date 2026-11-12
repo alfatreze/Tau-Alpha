@@ -56,6 +56,12 @@ void gfx_scroll_left(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 void gfx_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void gfx_blit_abs(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void gfx_sblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f, uint32_t g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
+/* persistence: fw2/ui/appearance.c (layout 2 of the persisted settings) on the real settings words */
+uint8_t th_theme, th_pol, th_pal; uint32_t font_cur;
+void theme_set(uint32_t t, uint32_t p, uint32_t c) { th_theme = (uint8_t)t; th_pol = (uint8_t)p; th_pal = (uint8_t)c; }
+int font_select(uint32_t i) { font_cur = i; return 0; }
+#include "../fw2/ui/appearance.c"
+static uint32_t saved_words[SF_WORDS];
 /* the two data slots: a file each, read in pieces, a read past its end fails */
 static uint8_t *fb[2]; static uint32_t fl[2];
 static int rd_slot(int s, uint32_t off, uint8_t *dst, uint32_t len) { if (!fb[s] || (uint64_t)off + len > fl[s]) return 0; memcpy(dst, fb[s] + off, len); return 1; }
@@ -98,6 +104,13 @@ int main(void)
             printf("thumb row %u len %u rle", m, meters_thumb_len(m)); for (uint32_t i = 0; i < 6u && meters_thumb_rle(m, i, &v); i++) printf(" %u", v);
             printf(" col0"); if (meters_thumb_col(m, 0u, &f, &x, &y, &t, &n)) printf(" %u %u %u %u %u", f, x, y, t, n); printf("\n");
         }
+        else if (!strcmp(a, "save")) { uint32_t sv[SF_COUNT]; for (uint32_t i = 0; i < SF_COUNT; i++) sv[i] = sf_table[i].def; appearance_get(sv); sf_pack(saved_words, sv); printf("saved hash %08x pos %u id %u\n", sv[SF_METER_HASH], sv[SF_METER_PRE_POS], sv[SF_METER_PRE_ID]); }
+        else if (!strcmp(a, "restart")) {                                  /* Quit and start again: the player boots (the bins), then the saved register file is applied as main_player.c does */
+            meters_init(); meters_enter(0, 0, 100, 50); if (!meters_packs_load_file(rd_user, (void *)1)) meters_packs_load_file(rd_core, (void *)2);
+            uint32_t sv[SF_COUNT]; sf_unpack(saved_words, sv); appearance_set(sv); printf("restarted cur %u\n", meters_cur());
+        }
+        else if (!strcmp(a, "edit")) { const uint32_t i = (uint32_t)atoi(b); const meter_def_t *d = meters_def(meters_cur()); d->mv[i] = (uint16_t)(d->mv[i] + 1u); meters_params_changed(meters_cur()); }
+        else if (!strcmp(a, "show")) { const meter_def_t *d = meters_def(meters_cur()); printf("show cur %u custom %u mv", meters_cur(), meters_custom(meters_cur())); for (uint32_t i = 0; i < 3u && i < d->np; i++) printf(" %u", d->mv[i]); printf("\n"); }
         else if (!strcmp(a, "state")) state();
     }
     return 0;
