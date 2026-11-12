@@ -39,7 +39,7 @@ packs          each pack as `TMPK` v2 (section 3), 4-byte aligned
 ```
 TOC entry (256 B):
 ```
- 0 u32 id_hash       the first 4 bytes of the id (its first 8 hex digits read as a number): the key of the settings file and the preset folder name
+ 0 u32 id_hash       the first 4 bytes of the id (its first 8 hex digits read as a number): the key of the selected meter and the tunings (its low bits) and the preset folder name
  4 char id[40]       the 32 hex digits, NUL padded (always terminated)    44 char name[24]  NUL padded
 68 u16 ver_major  70 u16 ver_minor  72 u16 ver_patch  74 u16 abi (major<<8|minor)  76 u16 tau_min (major<<8|minor, 0 = any)
 78 u16 flags  (bit0 visible, bit1 built-in fallback (Winamp Bars), bit2 binary-only)   80 u16 params_rev   82 u16 nparams  84 u16 cmds
@@ -71,14 +71,14 @@ The loader path is exactly what P0 proved on a Pocket: read the pack, check CRC 
 ## 4. Order and visibility: one source
 The TOC is **the** order. Now Playing X, the Settings meter list and Configure all walk TOC rows with `visible` set, in TOC order; nothing else sorts, and the `sel_index` leftover of the manifests is deleted. Omega writes the order the user chose (drag in its Library). Winamp Bars (flag bit1) cannot be hidden or removed and is the fallback when a pack is refused or a bin is missing. The meter chosen at boot is stored by id hash (section 5), so reordering or installing a meter never changes which meter is selected.
 
-## 5. Per-meter settings: `tau-meter-settings.bin`
-A nonvolatile data slot, the core creates the first file itself (KB-074: written only if loaded; KB-001: the size comes from the size table). **Data slot id and the exact flags: to fix in P2 against `json-files.md`** (core-specific or common, and whether it needs `instance.json`); the 16-entry cap of `interact.json` (KB-079) is why per-meter values leave the persist words.
-```
-header (16 B)  'TMST'  u16 version = 1  u16 count  u32 selected_hash (the meter showing)  u32 crc32 of the records
-record (104 B) u32 id_hash  u16 params_rev  u8 preset  u8 nparams (<= 48)  u16 values[48]
-```
-64 records plus the header is 6,672 B. Rules: a record is used only if its `params_rev` equals the TOC's; a different revision resets that meter to its defaults (never a value in the wrong parameter), and Omega says so before an update. Unknown hashes (meters since removed) are kept untouched, so reinstalling a meter finds its settings. A bad file CRC means defaults, never a refusal to boot. The write happens at quit like the persist words today (pulling the card loses it).
-`persist_layout` goes to **2**: the per-meter words (seven `MPRE`, seven `MPID`, the meter index) leave the persist words; a **one-time migration** reads them into the new file (host-proven first; hardware needs a staged legacy file, as B-845 did). Omega's mirror (`tools/persist_layout.py` twin, fixtures, golden vectors) changes: that is the interop message.
+## 5. Per-meter settings: the persist words, no settings file (owner, 2026-11-12)
+**No settings file and no new data slot.** The owner's rule: if a meter changes, at worst its settings are lost. What Tau remembers is what the proven path (interact persist on Quit, hardware-validated: B-845, KB-035) can carry, and it is already limited today to what the user last set:
+- **The selected meter**, by `id_hash` (31 bits of the 32; the full 32 bits stay the unique key in the TOC), not by index, so installing, removing or reordering meters never changes which meter is selected. Its **preset** (position 4 bits, preset-file id 7 bits) is stored with it.
+- **Two tunings** (the existing tuning pool, `fw2/cores/tune_core.h`: slot A and slot B, 124 bits each): the record's 5-bit meter index becomes the low 16 bits of `id_hash` plus the low 4 bits of `params_rev`, so a tuning that no longer matches its meter (changed parameter set, removed meter) is refused and the meter starts from its defaults. The parameters that do not fit are dropped as today (taken in index order; P2 decides the exact widths).
+- **Everything else is not remembered per meter:** switching away from a meter resets its preset position and tuning, unless it is one of the two tuned ones. The preset a user liked is a preset **file** (Omega writes those), not a Pocket-side save.
+**Words (P2 fixes the layout):** the seven `MPRE` fields and seven `MPID` fields (words 5, 6, 15, 18) are freed; one word carries the selected hash (31 bits), another the selected preset (11 bits) with room left. The 16-persist-variable limit (KB-079, hardware-validated) is why nothing more can be added, and why it does not need to be: **no per-meter record grows with the number of meters.**
+`persist_layout` goes to **2** (the meaning of words 5, 6, 15 and 18 changes, the tuning record's meter field changes): a **one-time migration** maps the old selected meter index to the id hash of the seven shipped meters, keeps the tunings whose meter and preset still exist, and drops the per-meter preset positions of the other meters. Omega's mirror, fixtures and golden vectors change (smaller than the settings-file design); host-proven first, hardware needs a staged legacy file as B-845 did.
+**The Pocket's native save slot** (a `nonvolatile` data slot written to `Saves/` on Quit) was researched and is **not used**: it is documented (data.json, KB-001, KB-004) but untested on Tau (our September failure used a deferload slot with core-issued `0184`/`0188`, not the native route) and needs a bridge-readable BRAM, a size-table entry and an FPGA fit. It stays a candidate for a future real save feature, not for meter settings.
 
 ## 6. Versioning policy
 - **ABI** (`major.minor`, now 1.2): a firmware supports exactly one major. Minor additions (a new host-table entry, a new `mtr_in_t` field) append, and old packs keep running. A pack declares the ABI it needs; the TOC carries it, so the list can show "needs newer TAU" greyed without loading it.
@@ -101,4 +101,4 @@ record (104 B) u32 id_hash  u16 params_rev  u8 preset  u8 nparams (<= 48)  u16 v
 Today the preset folder is the decimal manifest index (`tau-presets/12/`) and the files carry that number. With the random id: the folder is the **first 8 hex digits of the id (the `id_hash`)**; the `meter id` u16 inside `index.tpi` and `.tpr` is the hash's low 16 bits, informational (P2 decides whether the firmware checks it, and whether it keeps reading the old decimal folder for the seven shipped meters when the hash folder is absent; Omega moves them when it composes the user bin). The preset format itself does not change.
 
 ## 8. What P2 must decide (not guessed here)
-The settings data slot id and flags; whether the TOC copy lives in the existing PSRAM state region or a new one; the Info/Report rows (`MTOC`, `MWIN`, `MSET`: registered as diagnostic features, `fw2/diag_features.json`); the list scrolling for up to 64 rows; the cost of reading previews through the PSRAM copy.
+The persist-word layout of `persist_layout` 2 (section 5); whether the TOC copy lives in the existing PSRAM state region or a new one; the Info/Report rows (`MTOC`, `MWIN`, `MSET`: registered as diagnostic features, `fw2/diag_features.json`); the list scrolling for up to 64 rows; the cost of reading previews through the PSRAM copy.
