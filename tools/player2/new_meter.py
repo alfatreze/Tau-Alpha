@@ -17,6 +17,14 @@ and `python3 tools/player2/pack_meter.py <key> --out work/packs-p2/<key>.tmpk`. 
 import argparse, json, re, subprocess, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
+def new_id(ms):
+    """A meter's identity (owner, D-M23): 128 random bits as 32 lower-case hex digits, made once and never changed; its first 8 digits (the id_hash) must differ from every other meter's."""
+    import secrets
+    taken = {m["id"][:8] for m in ms if "id" in m}
+    while True:
+        i = secrets.token_hex(16)
+        if i[:8] not in taken: return i
+
 def manifests(): return [json.loads(p.read_text()) for p in sorted((ROOT / "meters").glob("*/meter.json"))]
 def rle_preview():
     """a 56 x 32 preview: bars of different heights on the dark background (palette index 0 background, 1 bar, 2 highlight)"""
@@ -175,7 +183,8 @@ def main():
     if any(m.get("p2", {}).get("tag") == tag for m in ms): sys.exit("the tag %s is taken (--tag)" % tag)
     slot = max(m["p2"]["slot"] for m in ms if "p2" in m) + 1; index = max(m["index"] for m in ms) + 1
     if slot >= 7: sys.exit("seven meters is the limit for now (the METER list shows seven rows without scrolling; the saved presets already persist 20, cores/settings_core.h SF_MPRE*): add list scrolling for slot %d first" % slot)
-    d = {"key": key, "enum": "VIZ_" + key.upper(), "index": index, "name": label, "selectable": True, "sel_index": 0, "caps": [], "cost_class": 2, "p2_only": True,
+    mid = new_id(ms)
+    d = {"key": key, "id": mid, "enum": "VIZ_" + key.upper(), "index": index, "name": label, "selectable": True, "sel_index": 0, "caps": [], "cost_class": 2, "p2_only": True,
          "considered": "Scaffolded by tools/player2/new_meter.py: LEVELS lights a cell grid from the band levels, HISTORY scrolls the loudness. Replace this with what the meter shows and why.",
          "params": [{"key": "mode", "label": "Mode", "type": "enum", "values": ["LEVELS", "HISTORY"], "default": 0},
                     {"key": "gain", "label": "Gain", "type": "u8", "min": 50, "max": 200, "step": 10, "default": 100, "unit": "%", "note": "how bright / tall for a given level"},
