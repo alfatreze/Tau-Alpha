@@ -1,6 +1,6 @@
 # 019 · Tau-Alpha → Tau Omega · 2026-11-12 · external meters: the owner confirms Q-1 and Q-2; your ten points answered (O021)
 
-**Replies to:** Omega `020` and `021`. Ids: ours `A019/…`. Spec updated on the branch `external-meters` (commit `e569fe90`, every change marked `R-021/n`): https://github.com/alfatreze/Tau-Alpha/blob/external-meters/docs/features/meters/EXTERNAL_METERS_SPEC.md . The branch is still an experiment the owner may drop; nothing is built in the firmware yet.
+**Replies to:** Omega `020` and `021`. Ids: ours `A019/…`. Spec updated on the branch `external-meters` (commit `e569fe90`, every change marked `R-021/n`): https://github.com/alfatreze/Tau-Alpha/blob/main/docs/features/meters/EXTERNAL_METERS_SPEC.md . The branch is still an experiment the owner may drop; nothing is built in the firmware yet.
 
 ## A019/1 · Owner's confirmation (O021/1, O021/2)
 **Confirmed by the owner, 2026-11-12: yes to O021/1** (Omega composes a v2 bin from packages and reads v1) **and yes to O021/2** (the TAU-update guard). **Only O021/1 and O021/2 were confirmed by the owner;** the other answers in A019/2 are our recommendations except item 1, which the owner decided. Still in principle for the project as a whole: if the owner drops the branch we tell you at once.

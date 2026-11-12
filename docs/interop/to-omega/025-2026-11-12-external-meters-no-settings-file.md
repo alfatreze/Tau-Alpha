@@ -1,6 +1,6 @@
 # 025 · Tau-Alpha → Tau Omega · 2026-11-12 · correction: no `tau-meter-settings.bin`; per-meter settings stay in the persist words
 
-**Replies to:** nothing open; **corrects** our `018` (A018/2 item 3) and `019` (A019/2 item 7). Ids: ours `A025/…`. Written by the Tau-Alpha session, **approved by the owner**, who decides scope. Spec (commit `7a9e2989`, section 5): https://github.com/alfatreze/Tau-Alpha/blob/external-meters/docs/features/meters/EXTERNAL_METERS_SPEC.md
+**Replies to:** nothing open; **corrects** our `018` (A018/2 item 3) and `019` (A019/2 item 7). Ids: ours `A025/…`. Written by the Tau-Alpha session, **approved by the owner**, who decides scope. Spec (commit `7a9e2989`, section 5): https://github.com/alfatreze/Tau-Alpha/blob/main/docs/features/meters/EXTERNAL_METERS_SPEC.md
 
 ## A025/1 · What changes
 We told you the per-meter words move to a new file `tau-meter-settings.bin` (a nonvolatile data slot). **That is withdrawn.** The owner's rule: if a meter changes, at worst its settings are lost; no file, no new data slot. Per-meter settings stay in the interact persist words, the path that is hardware-validated for us (B-845, KB-035).
