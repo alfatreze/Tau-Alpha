@@ -177,6 +177,7 @@ test-host:
 	$(PYTHON) sim/test_layered_wave_flow.py
 	$(PYTHON) sim/test_p2_mpreset.py
 	$(PYTHON) sim/test_p2_mpreset_meters.py
+	$(PYTHON) sim/test_p2_meterbin.py
 	$(PYTHON) sim/test_install_factory_presets.py
 	$(PYTHON) sim/test_release_factory_presets.py
 	$(PYTHON) sim/test_waterfall_golden.py

@@ -1,0 +1,15 @@
+{
+ "schema": 1,
+ "id": "3d2b056ab8f9a6d7400e5e4d5e7e71c0",
+ "name": "Sound Map",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.1",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "ef820fbbb399f3439411ea9ae26bbe661f0d55338850eed17a185bbf4e3f5270"
+ },
+ "signature": null,
+ "synthetic_id": "SYNTHETIC test id (docs/research/meter_bin/README.md): the shipped meters' real ids are decided in plan P2.0"
+}

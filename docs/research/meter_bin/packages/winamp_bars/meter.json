@@ -1,0 +1,15 @@
+{
+ "schema": 1,
+ "id": "102d4d21726303d2f1c571f55e7e71c0",
+ "name": "Winamp Bars",
+ "version": "0.7.0",
+ "author": "Tau Alpha",
+ "licence": "MIT",
+ "abi": "1.0",
+ "params_rev": 1,
+ "files": {
+  "meter.bin": "06b8d85cfcf5b9a1699e2290c7e382c63665babea9a00c2c8a205a8706de9acc"
+ },
+ "signature": null,
+ "synthetic_id": "SYNTHETIC test id (docs/research/meter_bin/README.md): the shipped meters' real ids are decided in plan P2.0"
+}

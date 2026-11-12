@@ -1,0 +1,299 @@
+{
+ "about": "expected result of reading each file with a firmware at ABI 1.2 (0x0102) and TAU 0.8 (0x0008); codes are the table in fw2/cores/meterbin_core.h and tools/meter_bin.py",
+ "fw_abi": "1.2",
+ "fw_tau": "0.8",
+ "v2_main": "v2_seven.bin",
+ "package_order": [
+  "winamp_bars",
+  "winamp_scope",
+  "chladni",
+  "layered_wave",
+  "vu_master",
+  "waterfall_grid",
+  "sound_map"
+ ],
+ "fallback_id": "102d4d21726303d2f1c571f55e7e71c0",
+ "synthetic_ids": true,
+ "vectors": [
+  {
+   "file": "v2_seven.bin",
+   "bytes": 63596,
+   "sha256": "40b909ef84dfae5a252ce2c7fefcbfd31263e3b1dbf7f750a8923e39d22a3948",
+   "code": 0,
+   "code_name": "OK",
+   "count": 7,
+   "bad_row": null,
+   "what": "the seven shipped meters in display order, Winamp Bars flagged as the fallback"
+  },
+  {
+   "file": "v2_reordered_hidden.bin",
+   "bytes": 63596,
+   "sha256": "1bf5b859a3bb82a73857ec7ae29d4fdccd8febfe997dd9ad696087ec8dbb4dbb",
+   "code": 0,
+   "code_name": "OK",
+   "count": 7,
+   "bad_row": null,
+   "what": "the same seven in reverse order, VU Master hidden (visible flag clear): the TOC is the order"
+  },
+  {
+   "file": "v2_unavailable_rows.bin",
+   "bytes": 14220,
+   "sha256": "d8111b26895122d668d39e4abb40bf3f692651cce41bad9c17104ad92a1dc868",
+   "code": 0,
+   "code_name": "OK",
+   "count": 3,
+   "bad_row": null,
+   "what": "three meters: Winamp Bars, one needing ABI 1.3, one needing TAU 0.9 (a firmware at ABI 1.2, TAU 0.8 lists the last two as unavailable)"
+  },
+  {
+   "file": "v2_empty.bin",
+   "bytes": 36,
+   "sha256": "b11b7fe0a6231c2056d7d5eb375037578b32a8c1d4e86ba491266d5fb929e97e",
+   "code": 0,
+   "code_name": "OK",
+   "count": 0,
+   "bad_row": null,
+   "what": "a sound bin with no meters (the player keeps Winamp Bars)"
+  },
+  {
+   "file": "v1_seven.bin",
+   "bytes": 58468,
+   "sha256": "5e4d112cff110b45c837341d43a42b28826660f4c80020cab50732a0ff7ec69d",
+   "code": 0,
+   "code_name": "OK",
+   "count": 7,
+   "bad_row": null,
+   "what": "the v1 bundle (tau-packs.bin as the firmware ships it today, packs linked for their slots) of the same seven meters"
+  },
+  {
+   "file": "bad_magic.bin",
+   "bytes": 63596,
+   "sha256": "f45c74373c30a4f588950a707204dcbd8b5699ef4160cdf66d6a119fad9d75ff",
+   "code": 2,
+   "code_name": "MAGIC",
+   "count": null,
+   "bad_row": -1,
+   "what": "the magic is not TPKB"
+  },
+  {
+   "file": "bad_version.bin",
+   "bytes": 63596,
+   "sha256": "f5c74c68514c6b888d30a660c0a6efec6c6b95bb70d029c539f9f797cbd87047",
+   "code": 3,
+   "code_name": "VERSION",
+   "count": null,
+   "bad_row": -1,
+   "what": "version 3 (this reader knows 1 and 2)"
+  },
+  {
+   "file": "truncated.bin",
+   "bytes": 63595,
+   "sha256": "2ab0c20941b56323e0066ad0f31260b3ca17f6d46ad50c8eba9aaebdad786ac5",
+   "code": 1,
+   "code_name": "SIZE",
+   "count": null,
+   "bad_row": -1,
+   "what": "one byte cut from the end"
+  },
+  {
+   "file": "trailing_byte.bin",
+   "bytes": 63597,
+   "sha256": "6b320e0b6bd9a4d6d3fc42be025a7b4493cc20834c2118337034068a82ecd011",
+   "code": 1,
+   "code_name": "SIZE",
+   "count": null,
+   "bad_row": -1,
+   "what": "one byte after the end (total size says otherwise)"
+  },
+  {
+   "file": "bad_crc.bin",
+   "bytes": 63596,
+   "sha256": "48a19d801f4f6dde4ba640b9ca73f1243990c13cbc22daf7b190dad5a8cfd96d",
+   "code": 4,
+   "code_name": "CRC",
+   "count": null,
+   "bad_row": -1,
+   "what": "the end CRC-32 is wrong"
+  },
+  {
+   "file": "flipped_pack_byte.bin",
+   "bytes": 63596,
+   "sha256": "32b9ba1040bb7372b43b20849a5e5436f1370cb0c45234fea735cef528d6b71e",
+   "code": 4,
+   "code_name": "CRC",
+   "count": null,
+   "bad_row": -1,
+   "what": "one byte of a pack's image flipped, the end CRC no longer matches"
+  },
+  {
+   "file": "count_65.bin",
+   "bytes": 63596,
+   "sha256": "a6e76ef7ec3ff0d45bc5d834214259b830cc7ae0307bab3e83436556d1710101",
+   "code": 5,
+   "code_name": "COUNT",
+   "count": null,
+   "bad_row": -1,
+   "what": "the header says 65 meters (the limit is 64)"
+  },
+  {
+   "file": "layout_toc_moved.bin",
+   "bytes": 63596,
+   "sha256": "b98082111b454bf75ab4326e1cc2bf3a28993c74dee2a1abdb826d5041acedab",
+   "code": 6,
+   "code_name": "LAYOUT",
+   "count": null,
+   "bad_row": -1,
+   "what": "toc_off is not 32 (CRC and total fixed up)"
+  },
+  {
+   "file": "duplicate_hash.bin",
+   "bytes": 63596,
+   "sha256": "7724118c6593bcd5dcceeacac40673e93e8d9705f1e90a19c333bf02d95dc025",
+   "code": 9,
+   "code_name": "DUP",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1 has the id_hash and first 8 digits of row 0"
+  },
+  {
+   "file": "bad_id_uppercase.bin",
+   "bytes": 63596,
+   "sha256": "fcfe57efddd042ddb4227dde027ac06f40df9e4489ca5d5aaa101b6cba33720f",
+   "code": 7,
+   "code_name": "ID",
+   "count": null,
+   "bad_row": 2,
+   "what": "an upper-case hex digit in row 2's id"
+  },
+  {
+   "file": "bad_hash.bin",
+   "bytes": 63596,
+   "sha256": "2e310d778fc24bfc3a999361bf6c553d5172214a456b4f0ef5e98fe354a4d74e",
+   "code": 8,
+   "code_name": "HASH",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1's id_hash is not its id's first 8 digits"
+  },
+  {
+   "file": "bad_name_empty.bin",
+   "bytes": 63596,
+   "sha256": "53f9f742fe424570b43c5637ec2f446462ec5c9c5b129c0f506bee4b45deddf4",
+   "code": 10,
+   "code_name": "NAME",
+   "count": null,
+   "bad_row": 0,
+   "what": "row 0's name is empty"
+  },
+  {
+   "file": "bad_name_24.bin",
+   "bytes": 63596,
+   "sha256": "c215e2b5799a86562373330c305e7ee19cdd7f91a478296cabd63ea8bcee41ea",
+   "code": 10,
+   "code_name": "NAME",
+   "count": null,
+   "bad_row": 0,
+   "what": "row 0's name has 24 characters and no NUL"
+  },
+  {
+   "file": "reserved_byte.bin",
+   "bytes": 63596,
+   "sha256": "1017e27f89e66814ff44b6ce79e1d639c0a387dd5feaa17bd36e90002ecd1765",
+   "code": 14,
+   "code_name": "RESERVED",
+   "count": null,
+   "bad_row": 1,
+   "what": "a reserved byte of row 1 is not zero"
+  },
+  {
+   "file": "params_49.bin",
+   "bytes": 63596,
+   "sha256": "61f693172ebc688932ba1fae9ccfe2ed54625eda916966ec9b50e44090173eb6",
+   "code": 16,
+   "code_name": "PARAMS",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1 claims 49 parameters (the limit is 48)"
+  },
+  {
+   "file": "pack_out_of_range.bin",
+   "bytes": 63596,
+   "sha256": "f9bc4fd0b70456470be98e6ed257498f927a85dfe58a6d36fd7410b742c4636b",
+   "code": 11,
+   "code_name": "PACK",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1's pack_size runs past the end of the file"
+  },
+  {
+   "file": "pack_crc_mismatch.bin",
+   "bytes": 63596,
+   "sha256": "42b0878c63418fda9a6adfda228a1d3efb28861d049e3d3b362dbcefa129fd88",
+   "code": 11,
+   "code_name": "PACK",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1's pack_crc is not the pack header's"
+  },
+  {
+   "file": "pack_window.bin",
+   "bytes": 63596,
+   "sha256": "096a5f984fd9108118b93af96d400451ca00d9489015a76136660c34b6652c23",
+   "code": 12,
+   "code_name": "WINDOW",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1's pstate (70,000 bytes, TOC and pack header agree) does not fit the 64 KiB window"
+  },
+  {
+   "file": "pack_origin_slot.bin",
+   "bytes": 2276,
+   "sha256": "2912f60561608adfd5f3c82646336cb0bd0e7187f67ff3ff061b4fcb20b47fc9",
+   "code": 15,
+   "code_name": "ORIGIN",
+   "count": null,
+   "bad_row": 0,
+   "what": "a pack linked for a slot, not for the window"
+  },
+  {
+   "file": "preview_not_56x32.bin",
+   "bytes": 63596,
+   "sha256": "ea14cf28238dd3e3b39637b41ee8c547641a8685d8c1c600cd42a7fc8e8ef7c7",
+   "code": 13,
+   "code_name": "PREVIEW",
+   "count": null,
+   "bad_row": 1,
+   "what": "row 1's run-length stream no longer covers 56 x 32 pixels"
+  },
+  {
+   "file": "v1_zeroed_descriptor.bin",
+   "bytes": 58468,
+   "sha256": "2d91c17bbb77f2c88eca3dfb7b9a7d83907fbf6b89a67df20b0541984f4732f0",
+   "code": 18,
+   "code_name": "DESC",
+   "count": null,
+   "bad_row": 1,
+   "what": "a v1 bundle whose second pack's image (descriptor too) is zero"
+  },
+  {
+   "file": "v1_duplicate_meter.bin",
+   "bytes": 4448,
+   "sha256": "f48a117924c9c8d29a252b0d4e1cac52a8dade0900aa1e454a4241c87df79b36",
+   "code": 9,
+   "code_name": "DUP",
+   "count": null,
+   "bad_row": 1,
+   "what": "a v1 bundle with the first pack twice (one meter id twice)"
+  },
+  {
+   "file": "v1_truncated.bin",
+   "bytes": 58465,
+   "sha256": "7e25235eeba18753b07d66483db8cd51e589d85a4dd504dccfe367541ee9722c",
+   "code": 1,
+   "code_name": "SIZE",
+   "count": null,
+   "bad_row": 6,
+   "what": "a v1 bundle cut short"
+  }
+ ]
+}
