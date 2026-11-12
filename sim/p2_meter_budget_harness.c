@@ -9,14 +9,19 @@ static uint32_t psram_mem[2048];
 #include "../fw2/cores/meter_pack_core.h"
 #include "../fw2/ui/meter.h"
 #define P2_PACKS 1                                                     /* a second meter: Master VU as a row through its descriptor (argv[1]) run by a stub */
-static uint8_t slot_mem[8][0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
-#define PACK_SLOT_DATA(i) (slot_mem[i])
+static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
+static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
+#define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)
+#define MTR_PV_BASE ((volatile uint32_t *)pv_mem)
+#define PACK_WINDOW_DATA (win_mem)
+#define MTR_TEST_WINDOW_LOAD 1
+static uint32_t win_tag(void);
 #define PACK_SCRATCH (scratch_mem)
 #define PACK_CALL(e, in, api) pack_call((e), (in), (api))
 #include "../fw2/cores/gfx_touch_core.h"
 static uint32_t now, win, spend[METER_SLOTS], drawn[METER_SLOTS], scan, touch_y, touch_h, last_degrade_seen;
 static gt_t gfx_touch; uint32_t gfx_cmds;
-static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; const uint32_t r = (e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE; drawn[r]++; last_degrade_seen = ((const mtr_in_t *)in)->degrade; gfx_cmds += spend[r]; gt_note(&gfx_touch, touch_y, touch_h); return 0; }
+static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; const uint32_t r = win_tag(); drawn[r]++; last_degrade_seen = ((const mtr_in_t *)in)->degrade; gfx_cmds += spend[r]; gt_note(&gfx_touch, touch_y, touch_h); return 0; }
 #include "../fw2/ui/meters.c"
 #include "p2_dyn_register.h"
 void gfx_touch_reset(void) { gt_reset(&gfx_touch); } uint32_t gfx_touch_rows(void) { return gt_visible(&gfx_touch) ? ((uint32_t)gfx_touch.y0 << 16) | gfx_touch.y1 : 0u; } uint32_t gfx_cur_buf(void) { return 0; } uint32_t gfx_front_buf(void) { return 0; }

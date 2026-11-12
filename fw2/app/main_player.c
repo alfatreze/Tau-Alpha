@@ -11,8 +11,7 @@
 #if P2_DIAG
 #include "../diagnostics/preset_probe.h"
 #include "../diagnostics/name_matrix.h"
-#include "../diagnostics/pack_swap_probe.h"
-void np_new_track_hook(void) { preset_probe_run(); pack_swap_probe_run(); }          /* P0 of the external-meters plan: the pack-swap probe runs after the preset probe, on every new track (nothing happens without window packs in the bundle) */          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
+void np_new_track_hook(void) { preset_probe_run(); }          /* P0 of the external-meters plan: the pack-swap probe runs after the preset probe, on every new track (nothing happens without window packs in the bundle) */          /* B-963: the preset-read probe runs on every new track, after the cover (nowplaying.c has an empty weak one) */
 #endif
 #if P2_DIAG
 #include "../diagnostics/check_page.h"
@@ -44,10 +43,9 @@ static void hand_out_assets(void)
     uint32_t total; const uint8_t *base = assets_file(&total); const uint8_t *p; uint32_t n;
     uint32_t t0 = cycles();
 #ifdef P2_PACKS
-    /* The meter packs first (they do not depend on tau-assets.bin): the core's own tau-packs.bin (data slot 9, shipped with the release) wins, else the MPKB section of tau-assets.bin (a card prepared by hand);
-     * the pack slots live in the PSRAM window: proven first. */
-    int packs_done = 0;
-    if (assets_psram_ok()) packs_done = meters_packs_load_file(packfile_rd, 0);
+    /* The meter bin (a v2 TOC, docs/features/meters/EXTERNAL_METERS_SPEC.md section 2) first: the TOC, the previews and nothing else are read here, a pack only when its meter is selected. The user's tau-meters.bin (data slot 10, not
+     * core-specific) wins when it is sound, else the core's own tau-packs.bin (data slot 9, shipped with the release); neither = Winamp Bars alone. The TOC copy lives in the PSRAM window: proven first. */
+    if (assets_psram_ok() && !meters_packs_load_file(packfile_rd, (void *)1)) (void)meters_packs_load_file(packfile_rd, (void *)2);
     assets_boot.packs = cycles() - t0; t0 = cycles();
     if (!base) return;
 #else
@@ -57,10 +55,6 @@ static void hand_out_assets(void)
     assets_boot.themes = cycles() - t0; t0 = cycles();
     if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
     assets_boot.prst = cycles() - t0; t0 = cycles();
-#ifdef P2_PACKS
-    if (!packs_done && assets_section("MPKB", &p, &n) && (!assets_in_psram() || assets_psram_ok()) && assets_psram_ok()) { meters_packs_load(p, n); assets_boot.packs = cycles() - t0; }
-    t0 = cycles();
-#endif
     if (assets_section("METR", &p, &n) && (!assets_in_psram() || assets_psram_ok())) meters_metr_load(p, n);       /* a file over 4 KiB sits in the PSRAM staging area: proven first, as for PRST */                              /* user presets replace the built-in ones of the meters the file carries */
     assets_boot.presets = cycles() - t0;
 }
@@ -92,11 +86,8 @@ int main(void)
     halcyon_init();
     halcyon_set_dip(mp3play_dip_begin, mp3play_dip_end);
     meters_init();                                                                          /* before the assets and the saved settings: both set meter presets */
-#if P2_DIAG
-    pack_swap_probe_init();                                                                 /* once per boot: the probe's counters live in PSRAM, which the loader does not clear */
-#endif
     theme_init();                                                                           /* BEFORE the saved settings are applied: it resets theme, mode and colour to the defaults, so after them it threw the restored colour away and the next settings service published the default over the saved one */
-    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); meters_ext_enter(sv[SF_METER]); appearance_set(sv); mp3play_last_restore(&sv[SF_LAST0]); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
+    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); mp3play_last_restore(&sv[SF_LAST0]); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     views_set_diag(&diag_pages);
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };

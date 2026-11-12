@@ -38,7 +38,7 @@ def find(base, name, platform=None, core_id=None):
 # music in place: the Pocket only opens files on the platforms a core declares (B-673). Consequence, accepted: every dev build is also
 # listed in TAU's Select Core list (shortname + version). Build-bound files stay core-specific under Assets/tau_dev/<core>/.
 DEV_PLATFORM, DEV_PLATFORM_NAME, MEDIA_PLATFORM = "tau_dev", "TAU Dev", "tau"
-SHARED_SLOT_FILES = ("tau-library.tdb", "tau-assets.bin")    # user/generated data read from the media platform
+SHARED_SLOT_FILES = ("tau-library.tdb", "tau-assets.bin", "tau-meters.bin")   # user/generated data read from the media platform
 PLATFORM_INDEX_SHIFT = 24                                     # data.json parameter bits [25:24]: index into platform_ids
 
 
@@ -47,7 +47,7 @@ def slot_platform_index(parameters):
 
 
 def read_shared_media(data_json, index=1):
-    """Point the shared-data slots (library index, tau-assets.bin) at platform_ids[index] (TAU's common folder)."""
+    """Point the shared-data slots (library index, tau-assets.bin, tau-meters.bin) at platform_ids[index] (TAU's common folder)."""
     for sl in data_json["data"]["data_slots"]:
         if sl.get("filename") in SHARED_SLOT_FILES:
             p = int(str(sl.get("parameters", "0")), 16) & ~(3 << PLATFORM_INDEX_SHIFT)

@@ -13,6 +13,14 @@
 #include "../cores/meter_budget_core.h"
 #include "../cores/pack_strike_core.h"
 #include "../cores/helios_core.h"
+#include "../cores/shipped_meter_ids.h"
+#ifndef MTR_STATE
+#ifdef P2_HOST
+#define MTR_STATE                                                     /* a host build has no such section */
+#else
+#define MTR_STATE __attribute__((section(".psram_state")))      /* PSRAM state (word accesses, cleared by meters_init: the loader does not zero it): the loader's counters and the kept selection */
+#endif
+#endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"                                   /* the preset files of the meter on screen (B-967) */
 #endif
@@ -27,11 +35,16 @@ _Static_assert(MTR_BANDS == SPEC_BANDS, "the meter inputs carry one value per ha
 METER_LIST(DECL)
 #define ROW(key, nm, id, lc, UC, np, cmp) { nm, meter_##key##_tick, np, meter_##key##_preset, meter_##key##_preset_name, meter_##key##_mv, mpd_##lc, MPD_##UC##_N, meter_##key##_apply, cmp },
 const meter_def_t meter_table[] = { METER_LIST(ROW) };
-uint32_t meter_count = METER_N;                                     /* the rows in use: the built-in ones, and the highest pack-only one that came up (rows in between may be absent: meters_present) */
+uint32_t meter_count = METER_N;                                     /* the rows in use: the TOC rows (at most METER_SLOTS until P2.4), or the built-in one with no bin (rows may be absent: meters_present) */
 /* Rows METER_N.. belong to pack_only meters (manifest p2.pack_only): they exist only when their pack is installed AND its descriptor (tools/player2/meter_desc.py, the last section of the pack image) checks out. The
  * descriptor stays in the PSRAM slot; only the ONE meter being edited has its Configure descriptors copied to hot RAM (dyn_pd). The dynamic code is compiled only into a PACKS build. */
-#define DYN_N (METER_SLOTS - METER_N)
-#define DYN_ROWS (DYN_N ? DYN_N : 1u)
+#define DYN_ROWS METER_SLOTS                                         /* per-row facts of the TOC rows (a row is its TOC position; rows beyond METER_SLOTS are read and checked but cannot be selected before P2.4's registry) */
+_Static_assert(METER_N == 1u, "the built-in fallback meter is Winamp Bars alone: the window loader treats row fb_row as built-in and every other row as a pack");
+#ifdef P2_PACKS
+static void packs_reset(void);
+#else
+static void packs_reset(void) { }
+#endif
 static const meter_def_t *mdef(uint32_t m);                         /* the row of meter m (a pack-only row builds its Configure descriptors on first use) */
 static uint32_t mid_of(uint32_t m);                                  /* the meter's manifest id (tau-assets.bin METR, the reports) */
 static uint32_t cmd_limit_of(uint32_t m), cyc_limit_of(uint32_t m);
@@ -42,10 +55,31 @@ static void def_apply(uint32_t m);
 
 #ifdef P2_PACKS
 #include "meter_pack.h"
-static ps_t pack_strike[MTR_PACK_SLOTS];                            /* each pack's overruns of its cycle limit (cores/pack_strike_core.h) */
-static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter slot: the pack's state (see the packs block below) */
-static void dyn_register(uint32_t m);                               /* a pack-only meter's row, from its pack's descriptor (below) */
-static volatile uint8_t *pack_slot_data(uint32_t i);
+#include "../cores/meterbin_core.h"
+static ps_t win_strike;                                             /* the loaded pack's overruns of its cycle limit (cores/pack_strike_core.h); a swap is a new start */
+static uint32_t win_row = 0xFFu;                                    /* the row whose pack is in the window and running (0xFF none) */
+static mpk_info_t win_info;                                         /* where it runs: entry, .data, .bss, pstate */
+static uint8_t fb_row;                                              /* the built-in fallback row: the TOC row flagged as built-in (row 0 with no bin) */
+static int dyn_register(uint32_t m);                                /* the loaded row's Configure descriptors, from the descriptor its pack ends with (below) */
+static volatile uint8_t *pack_window_data(void);
+#include "../cores/meter_desc_core.h"
+/* Diagnostics (Info and Report rows MTOC and MWIN: registered features): all in PSRAM, word accesses, cleared by meters_init (the loader does not zero .psram_state). */
+MTR_STATE uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc;
+MTR_STATE uint32_t mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, mwin_refused;
+MTR_STATE static uint32_t toc_pv_off, toc_packs_off, toc_total, toc_coll[2];
+static uint32_t pack_act = 0xFFu;                                         /* the row whose .data and .bss are in the scratch */
+#define DYN_MAX_P 40u                                          /* parameters a pack meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is loaded; the label and choice strings are read from the window when a row is drawn: meters_param_label / meters_param_choice) */
+#define MTR_NO_MID 0xFFFFu                                     /* a meter that is not one of the shipped seven has no manifest id: no METR section and no preset folder of its own until P2.4 */
+typedef struct { uint32_t cmds, cyc, cmp, hash, off, len, pv_off; uint16_t mid, np, npre, rev, pv_len; uint8_t ok, code; char name[MD_MAX_STR + 1u]; } dyn_t;
+static dyn_t dyn[DYN_ROWS];                                    /* per row, from its TOC row; off, len and cmp are valid only for the row in the window */
+static meter_def_t act_def, idle_def;                          /* the loaded row's definition; and what any other row answers (its name and parameter count: the rest is not loaded) */
+static uint16_t act_mv[DYN_MAX_P];                             /* the loaded meter's live parameters (the pack reads them at every tick) */
+static mpd_t dyn_pd[DYN_MAX_P];
+static int window_load(uint32_t m);
+#endif
+#ifndef P2_PACKS
+#define fb_row 0u                                                     /* no loadable meters in this build: row 0 is the built-in one */
+#define win_row 0xFFu
 #endif
 static uint32_t cur, win_seen = 0xFFFFFFFFu, frame, last_t;
 static uint16_t bx, by, bw, bh;                                        /* the box on screen (16-bit: hot RAM is at its floor) */
@@ -85,9 +119,12 @@ static uint8_t is_wide(const mpd_t *p) { return p->type == 3u || (p->type == 0u 
 static const metr_p_t *shapes(uint32_t m) { const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np && i < 40u; i++) { sh[i].min = d->pd[i].min; sh[i].max = d->pd[i].max; sh[i].kind = d->pd[i].type; sh[i].enum_n = d->pd[i].nval; sh[i].wide = is_wide(&d->pd[i]); } return sh; }
 #define TUNE_SLOTS 2u                                   /* the tuning pool: two slots of TUNE_WORDS words, one tuned meter each; the one saved least recently is evicted */
 static uint32_t tune_cache[TUNE_SLOTS][TUNE_WORDS];
-static uint8_t tune_meter[TUNE_SLOTS] = { 0xFFu, 0xFFu }, tune_newer;
-static void tune_clear_slot(uint32_t s) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = 0; tune_meter[s] = 0xFFu; }
-static void tune_drop(uint32_t m) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_meter[s] == m) tune_clear_slot(s); }       /* any tuning of meter m */
+static uint32_t tune_k[TUNE_SLOTS] = { TUNE_KEY_NONE, TUNE_KEY_NONE };           /* the key of the tuning in each slot (tune_key: the low 16 bits of the meter's id hash and the low 4 bits of its params_rev): a tuning follows its meter, not a table position */
+static uint8_t tune_newer;
+MTR_STATE static uint32_t kept_hash;                                              /* the saved selection that could not be honoured at boot (bin missing, meter removed, pack refused): written back unchanged until the user picks a meter */
+static void tune_clear_slot(uint32_t s) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = 0; tune_k[s] = TUNE_KEY_NONE; }
+static uint32_t row_key(uint32_t m);
+static void tune_drop(uint32_t m) { const uint32_t key = row_key(m); for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_k[s] == key) tune_clear_slot(s); }       /* any tuning of meter m */
 uint32_t meters_npre(uint32_t m) { return m >= meter_count || !meters_present(m) ? 1u : user_n[m] ? user_n[m] : def_npre(m); }
 #ifndef P2_PACKS
 #define ext_on(m) 0
@@ -115,9 +152,8 @@ static int user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)      
     return 1;
 }
 void meters_init(void) {
-#ifdef P2_PACKS
-    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) { pack_slot[i].status = 0xFFu; ps_reset(&pack_strike[i]); }          /* no pack until a bundle has installed one (status 0 would mean a running pack) */
-#endif
+    packs_reset();
+    kept_hash = 0u; tune_clear_slot(0u); tune_clear_slot(1u); tune_newer = 0u;
     cur = 0; meter_count = METER_N;
     for (uint32_t i = 0; i < METER_SLOTS; i++) { mb_reset(&budget[i]); pre[i] = 0; custom[i] = 0; user_n[i] = 0; want_id[i] = 0; if (i < METER_N) meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
@@ -126,7 +162,7 @@ uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the n
     uint32_t done = 0;
     for (uint32_t m = 0; m < meter_count; m++) {
         metr_e_t e;
-        if (!meters_present(m) || !metr_find(src, n, mid_of(m), shapes(m), mdef(m)->np, &e)) continue;
+        if (!meters_present(m) || m != fb_row || !metr_find(src, n, mid_of(m), shapes(m), mdef(m)->np, &e)) continue;      /* the built-in meter only: a pack meter is not loaded at boot (its METR presets wait for P2.4) */
         ue[m] = e; user_n[m] = e.npre; done++;
     }
     if (!done) return 0;
@@ -154,34 +190,46 @@ const char *meters_preset_name(void)
     if (user_n[cur]) { user_preset(cur, pre[cur], 0, nm); return nm; }
     return def_pre_name(cur, pre[cur]);
 }
-/* ---- saving a tuning (cores/tune_core.h): the parameters of ONE meter that differ from its preset, in four persisted words ---- */
+/* ---- saving a tuning (cores/tune_core.h): the parameters of ONE meter that differ from its preset, in four persisted words; two slots, keyed by the meter's id hash (low 16 bits) and params_rev (low 4 bits) ---- */
 static uint16_t tm_max[40];
-static const uint16_t *tune_max_of(uint32_t m, uint32_t *np)
+#ifdef P2_PACKS
+static uint32_t row_hash(uint32_t m) { return mtoc_state == 1u ? dyn[m].hash : shipped_meter_hash[0]; }
+static uint32_t row_key(uint32_t m) { return mtoc_state == 1u ? tune_key(dyn[m].hash, dyn[m].rev) : tune_key(shipped_meter_hash[0], shipped_meter_rev[0]); }
+static int row_tunable(uint32_t m) { return mtoc_state != 1u || !(toc_coll[m >> 5] >> (m & 31u) & 1u); }       /* two rows sharing the low 16 bits of their hash would share a tuning key: such a meter runs from its defaults and saves no tuning (spec section 3) */
+#else
+static uint32_t row_hash(uint32_t m) { (void)m; return shipped_meter_hash[0]; }
+static uint32_t row_key(uint32_t m) { (void)m; return tune_key(shipped_meter_hash[0], shipped_meter_rev[0]); }
+static int row_tunable(uint32_t m) { (void)m; return 1; }
+#endif
+static const uint16_t *tune_max_of(uint32_t key, uint32_t *np)         /* the largest value of each parameter of the loaded meter that `key` names (the built-in fallback or the pack in the window); 0 for any other key: its tuning cannot be read now */
 {
-    if (m >= meter_count || !meters_present(m)) return 0;
+    uint32_t m = 0xFFu;
+    if (row_key(fb_row) == key) m = fb_row; else if (win_row < meter_count && row_key(win_row) == key) m = win_row;
+    if (m == 0xFFu || !row_tunable(m)) return 0;
     const meter_def_t *d = mdef(m); *np = d->np;
     for (uint32_t i = 0; i < d->np && i < 40u; i++) tm_max[i] = d->pd[i].type == 3u ? 65535u : d->pd[i].type == 2u ? 1u : d->pd[i].type == 1u ? (uint16_t)(d->pd[i].nval ? d->pd[i].nval - 1u : 0u) : d->pd[i].max;
     return tm_max;
 }
+static int row_loaded(uint32_t m) { return m < meter_count && (m == fb_row || m == win_row); }
 void meters_tune_save(uint32_t m)            /* the parameters of meter m were edited (or reset): store what differs from its preset, replacing any tuning of another meter */
 {
-    if (m >= meter_count || !meters_present(m)) return;
+    if (!row_loaded(m) || !meters_present(m)) return;
     const meter_def_t *d = mdef(m);
-    if (!custom[m]) { tune_drop(m); return; }
+    if (!custom[m] || !row_tunable(m)) { tune_drop(m); return; }
     uint16_t keep[40], base[40];
     for (uint32_t i = 0; i < d->np && i < 40u; i++) keep[i] = d->mv[i];
     if (user_n[m]) { if (!user_preset(m, pre[m], base, 0)) { tune_drop(m); return; } } else { def_set_pre(m, pre[m]); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
     for (uint32_t i = 0; i < d->np && i < 40u; i++) d->mv[i] = keep[i];
     def_apply(m);
-    uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np);
+    const uint32_t key = row_key(m); uint32_t np = 0; const uint16_t *mx = tune_max_of(key, &np);
     uint32_t w[TUNE_WORDS];
-    if (tune_pack(m, (uint32_t)anchor_of(m), keep, base, mx, np, w)) {
+    if (mx && tune_pack(key, (uint32_t)anchor_of(m), keep, base, mx, np, w)) {
         uint32_t s = TUNE_SLOTS;                                        /* the slot of this meter, else an empty one, else the one saved least recently */
-        for (uint32_t i = 0; i < TUNE_SLOTS; i++) if (tune_meter[i] == m) s = i;
-        for (uint32_t i = 0; i < TUNE_SLOTS && s == TUNE_SLOTS; i++) if (tune_meter[i] == 0xFFu) s = i;
+        for (uint32_t i = 0; i < TUNE_SLOTS; i++) if (tune_k[i] == key) s = i;
+        for (uint32_t i = 0; i < TUNE_SLOTS && s == TUNE_SLOTS; i++) if (tune_k[i] == TUNE_KEY_NONE) s = i;
         if (s == TUNE_SLOTS) s = tune_newer ? 0u : 1u;
         for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
-        tune_meter[s] = (uint8_t)m; tune_newer = (uint8_t)s;
+        tune_k[s] = key; tune_newer = (uint8_t)s;
     } else tune_drop(m);
 }
 uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_METERCFG entry: manifest meter id, schema 1, preset (0xFF = tuned), nparams, then the values (two bytes for a wide one) */
@@ -194,22 +242,38 @@ uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_M
 }
 void meters_tune_words(uint32_t *w) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) for (uint32_t k = 0; k < TUNE_WORDS; k++) w[s * TUNE_WORDS + k] = tune_cache[s][k]; }
 uint32_t meters_tune_newer(void) { return tune_newer; }
-void meters_tune_apply(const uint32_t *wp, uint32_t newer)    /* the persisted words changed (boot): apply each slot's tuning when it belongs to the preset now selected */
+static uint32_t tune_words_key(const uint32_t *w)                    /* the key a persisted record names (check 8 bits, then the 20-bit key), TUNE_KEY_NONE for an empty slot */
+{
+    uint8_t b[16]; uint32_t pos = 8u, any = 0u;
+    for (uint32_t k = 0; k < TUNE_WORDS; k++) any |= w[k];
+    if (!any) return TUNE_KEY_NONE;
+    tune_from_words(w, b); return tune_get(b, &pos, 20u);
+}
+static void tune_reapply(uint32_t m)                                  /* meter m was just loaded (or the saved words changed): apply the tuning stored for it, when it was made from the preset now selected */
+{
+    if (!row_loaded(m) || !row_tunable(m)) return;
+    const uint32_t key = row_key(m);
+    for (uint32_t s = 0; s < TUNE_SLOTS; s++) {
+        if (tune_k[s] != key) continue;
+        uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
+        const uint32_t n = tune_unpack(tune_cache[s], tune_max_of, &mt, &pr, ix, vl);
+        if (!n || mt != key || pr != anchor_of(m)) continue;
+        const meter_def_t *d = mdef(m);
+        for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
+        custom[m] = 1u; def_apply(m); if (m == cur) force_next = 1;
+    }
+}
+void meters_tune_apply(const uint32_t *wp, uint32_t newer)    /* the persisted words changed (boot): keep them in the pool; the tuning of the meter on screen is applied when it belongs to the preset now selected, the other slot's meter gets its tuning when it is loaded */
 {
     tune_newer = (uint8_t)(newer & 1u);
     for (uint32_t s = 0; s < TUNE_SLOTS; s++) {
         const uint32_t *w = &wp[s * TUNE_WORDS];
         int same = 1; for (uint32_t k = 0; k < TUNE_WORDS; k++) if (w[k] != tune_cache[s][k]) same = 0;
         if (same) continue;
-        uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
-        const uint32_t n = tune_unpack(w, tune_max_of, &mt, &pr, ix, vl);
-        if (!n || mt >= meter_count || !meters_present(mt) || pr != anchor_of(mt)) continue;
-        const meter_def_t *d = mdef(mt);
-        for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
-        custom[mt] = 1u; def_apply(mt); if (mt == cur) force_next = 1;
         for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
-        tune_meter[s] = (uint8_t)mt;
+        tune_k[s] = tune_words_key(w);
     }
+    tune_reapply(cur);
 }
 /* ---- what is remembered of a preset (B-968): a preset FILE by its id (7 bits, SF_MPID*; the list can be reordered or replaced and the choice follows the id), a preset of the pack's own list by its position (SF_MPRE*) ---- */
 static uint32_t anchor_of(uint32_t m) { return ext_on(m) ? (uint32_t)want_id[m] : (uint32_t)pre[m]; }      /* what a saved tuning is anchored to: the file's id + 1 (0 = the defaults) while the meter runs on files, else the position */
@@ -245,12 +309,51 @@ void meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
     gfx_rect(x, y, w, h, th_role[TR_BG_BOTTOM]);
     last_t = cycles();
 }
-void meters_select(uint32_t idx) { cur = idx < meter_count && meters_present(idx) ? idx : 0u; force_next = 1; meters_ext_enter(cur); }
+#ifdef P2_PACKS
+/* Selection is the ONLY place a pack is loaded (X, the Settings list, the boot restore): never inside a tick, between pictures, with one forced repaint; the audio stream is untouched. A refusal falls back to the built-in meter. */
+static void activate_params(uint32_t m)                              /* a pack was just loaded: its parameters are the defaults, so put its remembered preset and tuning back */
+{
+    uint32_t p = pre[m]; if (p >= meters_npre(m)) p = 0u;
+    if (user_n[m]) { uint16_t v[40]; if (user_preset(m, p, v, 0)) { const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np && i < 40u; i++) d->mv[i] = v[i]; } }
+    else def_set_pre(m, p);
+    custom[m] = 0u; pre[m] = (uint8_t)p;
+    tune_reapply(m);
+}
+static void select_row(uint32_t r)
+{
+    uint32_t fresh = 0u;
+    if (r >= meter_count || !meters_present(r)) r = fb_row;
+    cur = r; force_next = 1;
+    if (r != fb_row && r != win_row) {
+        int e = window_load(r);
+        if (!e) { e = dyn_register(r); if (e) { win_row = 0xFFu; pack_act = 0xFFu; } }
+        if (e) { dyn[r].code = (uint8_t)e; mwin_err = (uint32_t)e; mwin_refused++; cur = fb_row; }          /* refused: the built-in Winamp Bars, the row marked with the reason */
+        else { dyn[r].code = 0xFFu; fresh = 1u; }
+    }
+    meters_ext_enter(cur);
+    if (fresh) activate_params(cur);
+}
+#else
+static void select_row(uint32_t r) { cur = r < meter_count && meters_present(r) ? r : 0u; force_next = 1; meters_ext_enter(cur); }
+#endif
+void meters_select(uint32_t idx) { kept_hash = 0u; select_row(idx); }
 void meters_next(int dir)
 {
-    for (uint32_t k = 0; k < METER_SLOTS; k++) { cur = dir > 0 ? (cur + 1u) % meter_count : (cur + meter_count - 1u) % meter_count; if (meters_present(cur)) break; }      /* skipping a row whose pack is not there */
-    force_next = 1;                                  /* the new meter repaints everything, the old picture is erased by its forced clear */
-    meters_ext_enter(cur);
+    uint32_t t = cur;
+    kept_hash = 0u;
+    for (uint32_t k = 0; k < METER_SLOTS; k++) { t = dir > 0 ? (t + 1u) % meter_count : (t + meter_count - 1u) % meter_count; if (meters_present(t)) break; }      /* skipping a row that is not listed */
+    select_row(t);
+}
+/* The saved selection is the meter's id hash (31 bits, cores/settings_core.h SF_METER_HASH; 0 = Winamp Bars), not a row: installing, removing or reordering meters never changes which meter a card remembers. */
+uint32_t meters_saved_hash(void) { return kept_hash ? kept_hash : row_hash(cur) & 0x7FFFFFFFu; }
+uint32_t meters_hash_is_shown(void) { return kept_hash == 0u; }
+int meters_select_hash(uint32_t h31)                                  /* the boot restore: 1 when the meter is there and runs, else Winamp Bars runs and the saved hash is kept to be written back */
+{
+    kept_hash = 0u;
+    if (h31) for (uint32_t m = 0; m < meter_count; m++) if (meters_present(m) && (row_hash(m) & 0x7FFFFFFFu) == h31) { select_row(m); if (cur == m) return 1; kept_hash = h31; return 0; }
+    select_row(fb_row);
+    if (h31 && (row_hash(fb_row) & 0x7FFFFFFFu) != h31) kept_hash = h31;
+    return h31 == 0u || kept_hash == 0u;
 }
 
 static int fetch(uint32_t *m)                        /* a new window, read coherently (the counter must not move while the 16 means are read) */
@@ -264,14 +367,30 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
 }
 
 #ifdef P2_PACKS
-/* Loadable meters (docs/features/meters/METER_PACKS.md): a pack in the MPKB section of tau-assets.bin is verified and copied into its PSRAM slot once at boot; while it is the selected meter its entry point draws instead of the
- * built-in one (which stays as the per-meter fallback: a refused or missing pack just leaves the built-in meter in use). Only the active pack's working state is resident, in the 4 KB scratch under the tag zone. */
-static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
+/* The meter bin and the window (docs/features/meters/EXTERNAL_METERS_SPEC.md sections 2 and 3, plan P2.2). At boot the v2 bin (the user's tau-meters.bin, data slot 10, else the core's tau-packs.bin, slot 9) is read ONCE:
+ * the header, the TOC and the previews go to PSRAM (cores/meterbin_core.h checks toc_crc and every row from that copy); no pack is read. A pack is read from the bin only when its meter is selected, into the ONE window
+ * (slot 7, 64 KiB incl. pstate: the path P0 proved on a Pocket): header against its TOC row, image through the uncached alias with the CRC summed, fence.i, pstate zeroed, run under the watchdog. A refusal or a strike
+ * falls back to the built-in Winamp Bars. The row of a meter is its TOC position (P2.4 rewrites the registry; rows past METER_SLOTS are read and checked but cannot be selected before that). */
+#ifndef MTR_TAU_MM                                                     /* this firmware as major << 8 | minor, what a row's tau_min is compared with: generated by fw2/build.sh from dist/Cores/alfatreze.TAU/core.json (tools/tau_mm.py), never edited by hand */
+#ifdef P2_HOST
+#define MTR_TAU_MM 0x0008u
+#else
+#error "MTR_TAU_MM is passed by fw2/build.sh (tools/tau_mm.py)"
+#endif
+#endif
+#define MTOC_E_NOFALLBACK 20u                                            /* a firmware rule on top of the reader's codes: a sound bin must carry the built-in fallback row */
+#ifndef MTR_TOC_BASE
+#define MTR_TOC_BASE ((volatile uint32_t *)(uintptr_t)0xA4900000u)        /* the header and the TOC (file offsets 0..pv_off) at 0x24900000 through the data alias ... */
+#define MTR_PV_BASE  ((volatile uint32_t *)(uintptr_t)0xA4910000u)        /* ... the previews (pv_off..packs_off) at 0x24910000: up to 16 KiB + 64 KiB before the window at 0x24970000 */
+#endif
+#ifndef MTR_FLUSH
+#define MTR_FLUSH() __asm__ volatile (".word 0x0000100f" ::: "memory")     /* fence.i, as the P0 probe: VexRiscv decodes it as the instruction cache's flush */
+#endif
 static uint32_t pack_stats[MTR_PACK_STATS];
 static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down, gfx_clut_load, gfx_cblit, gfx_scroll_left };
-/* The three places that touch the Pocket's address space can be replaced by a host test (sim/test_p2_meter_pack_dispatch.py): the slot (written through the data alias, executed at the instruction alias), the scratch and the call. */
-#ifndef PACK_SLOT_DATA
-#define PACK_SLOT_DATA(i) ((volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + (i) * MTR_PACK_SLOT_SIZE) | 0x80000000u))
+/* The places that touch the Pocket's address space can be replaced by a host test (sim/p2_meter_window_harness.c): the window (written through the data alias, executed at the instruction alias), the scratch and the call. */
+#ifndef PACK_WINDOW_DATA
+#define PACK_WINDOW_DATA ((volatile uint8_t *)(uintptr_t)(MB_WINDOW | 0x80000000u))
 #endif
 #ifndef PACK_SCRATCH
 #define PACK_SCRATCH ((uint8_t *)(uintptr_t)MTR_PACK_SCRATCH_ORG)
@@ -279,119 +398,211 @@ static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stat
 #ifndef PACK_CALL
 #define PACK_CALL(e, in, api) ((mtr_pack_entry_fn)(uintptr_t)(e))(in, api)
 #endif
-static volatile uint8_t *pack_slot_data(uint32_t i) { return PACK_SLOT_DATA(i); }
-static int pack_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len) { const volatile uint8_t *s = (const volatile uint8_t *)ctx; for (uint32_t i = 0; i < len; i++) dst[i] = s[off + i]; return 1; }
-static uint32_t pack_src;                                                /* where the bundle came from: 0 none, 1 the MPKB section of tau-assets.bin, 2 the core's own tau-packs.bin */
-static void packs_install(lib_read_fn rd, void *ctx, uint32_t n)
+static volatile uint8_t *pack_window_data(void) { return PACK_WINDOW_DATA; }
+/* The PSRAM copy of header + TOC + previews as the reader sees it (a file offset below pv_off is in the first region, from there on in the second): word reads only. */
+static int toc_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)
 {
-    uint16_t ids[MTR_PACK_SLOTS];                                        /* slot i belongs to meter i: the manifests' p2.slot, which is the registry order */
-    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) ids[i] = (uint16_t)i;
-    pack_act = 0xFFu;
-    pack_err = (uint32_t)mpkb_install_all(rd, ctx, PACK_SCRATCH, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
-    for (uint32_t m = METER_N; m < METER_SLOTS; m++) if (pack_slot[m].status == MPK_OK) dyn_register(m);        /* the pack-only meters: listed only when their descriptor is sound */
-}
-void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */
-{
-    pack_src = 1u; packs_install(pack_rd, (void *)p, n);
-}
-int meters_packs_load_file(lib_read_fn rd, void *ctx)                   /* the core's own tau-packs.bin (data slot 9): 1 when a bundle was there (the packs are installed), 0 when there is none (the caller falls back to tau-assets.bin) */
-{
-    const uint32_t n = mpkb_length(rd, ctx, PACK_SCRATCH);
-    if (!n) return 0;
-    pack_src = 2u; packs_install(rd, ctx, n);
+    (void)ctx;
+    if ((uint64_t)off + n > toc_packs_off) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t a = off + i, w = a & ~3u;
+        const volatile uint32_t *p = a < toc_pv_off ? MTR_TOC_BASE + (w >> 2) : MTR_PV_BASE + ((w - toc_pv_off) >> 2);
+        dst[i] = (uint8_t)(*p >> (8u * (a & 3u)));
+    }
     return 1;
 }
-uint32_t meters_pack_source(void) { return pack_src; }
-uint32_t meters_pack_state(uint32_t m) { return m < MTR_PACK_SLOTS ? pack_slot[m].status : 0xFFu; }     /* 0 = the pack runs, 0xFF = none, else the refusal code */
-void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen)     /* for Info: bit m of `running` = meter m runs as a pack; the first refusal code (0 none); the bundle's own result (0xFF no bundle); packs in the file */
+/* A data-slot bin's length: the header names it (`total`); its last byte must exist. 0 when there is no bin or it is cut short. */
+static uint32_t bin_len(lib_read_fn rd, void *ctx, uint8_t *win)       /* win already holds the header */
 {
-    uint32_t r = 0, e = 0;
-    for (uint32_t m = 0; m < MTR_PACK_SLOTS; m++) { if (pack_slot[m].status == MPK_OK) r |= 1u << m; else if (pack_slot[m].status != 0xFFu && !e) e = pack_slot[m].status; }
-    *running = r; *first_err = e; *file_err = pack_err; *seen = pack_seen;
+    if (lib_ld32(win) != MB_MAGIC) return 0u;
+    const uint32_t total = lib_ld32(win + 28);
+    return total > MB_HDR && total <= MB_MAX_BIN && rd(ctx, total - 1u, win + 64u, 1u) ? total : 0u;
 }
-void meters_pack_probe_done(void) { pack_act = 0xFFu; force_next = 1; }          /* the pack-swap probe used the scratch and the loader's window: the live pack's state is gone, activate it again (zeroed state, one full repaint) */
-static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status == MPK_OK; }
-const void *meters_pack_probe_info(uint32_t m) { return pack_ok(m) ? &pack_slot[m].info : 0; }         /* the pack-swap probe's oracle: the pack of row m in its own slot, which a swap never replaces */
-volatile uint8_t *meters_pack_probe_slot(uint32_t m) { return pack_slot_data(m); }
+static void toc_put(uint32_t off, const uint8_t *src, uint32_t n)        /* n a multiple of 4, off 4-aligned: the bytes become words of the PSRAM copy */
+{
+    for (uint32_t i = 0; i < n; i += 4u) {
+        const uint32_t a = off + i, v = lib_ld32(src + i);
+        if (a < toc_pv_off) MTR_TOC_BASE[a >> 2] = v; else MTR_PV_BASE[(a - toc_pv_off) >> 2] = v;
+    }
+}
+static void dyn_row_from_toc(uint32_t k, const mb_row_t *r);
+static uint32_t dyn_code(uint32_t m);
+static mb_info_t toc_info;                                                 /* the accepted TOC (hot: 24 bytes) */
+static uint32_t fb_find(const mb_info_t *in)                              /* the row flagged as the built-in fallback, or 0xFF */
+{
+    mb_row_t r;
+    for (uint32_t i = 0; i < in->count; i++) if (mb_row(toc_rd, 0, in, i, &r) == MB_OK && (r.flags & MB_F_FALLBACK)) return i;
+    return 0xFFu;
+}
+/* The boot path for one bin: copy header, TOC and previews into PSRAM, check them there. 0 = accepted and installed as the registry's rows, else the code (reader codes, or MTOC_E_NOFALLBACK). Nothing is installed on a refusal. */
+static int toc_open(lib_read_fn rd, void *ctx, mb_info_t *in)          /* < 0: there is no file */
+{
+    uint8_t *win = (uint8_t *)PACK_SCRATCH;
+    if (!rd(ctx, 0u, win, MB_HDR)) return -1;                              /* no file (or under 40 bytes): not an error, MTOC stays "none" */
+    const uint32_t len = bin_len(rd, ctx, win);
+    if (!len) return lib_ld32(win) == MB_MAGIC ? MB_E_SIZE : MB_E_MAGIC;
+    if (!rd(ctx, 0u, win, MB_HDR)) return MB_E_READ;
+    const uint32_t pv_off = lib_ld32(win + 16), pv_len = lib_ld32(win + 20), packs_off = lib_ld32(win + 24);
+    if (lib_ld32(win) != MB_MAGIC) return MB_E_MAGIC;
+    if (lib_ld16(win + 4) != 2u) return MB_E_VERSION;
+    if (pv_off < MB_HDR || pv_off > MB_HDR + MB_TOC * MB_MAX_METERS || (pv_off & 3u) || pv_len > MTR_PACK_SLOT_SIZE || (uint64_t)pv_off + pv_len != packs_off || (packs_off & 3u) || packs_off > len) return MB_E_LAYOUT;
+    toc_pv_off = pv_off; toc_packs_off = packs_off; toc_total = len;
+    for (uint32_t off = 0; off < packs_off; ) {                           /* one pass, a kilobyte at a time (the slot driver's landing zone): the pieces never straddle pv_off in a word */
+        uint32_t n = packs_off - off; if (n > 1024u) n = 1024u;
+        if (off < pv_off && off + n > pv_off) n = pv_off - off;
+        if (!rd(ctx, off, win, n)) return MB_E_READ;
+        const uint32_t m = (n + 3u) & ~3u; for (uint32_t i = n; i < m; i++) win[i] = 0u;
+        toc_put(off, win, m); off += n;
+    }
+    int e = mb_open_toc(toc_rd, 0, len, in);
+    if (e) return e;
+    if (fb_find(in) == 0xFFu) { in->bad_row = -1; return MTOC_E_NOFALLBACK; }
+    return MB_OK;
+}
+static lib_read_fn bin_rd; static void *bin_ctx;                           /* the bin the rows came from: a pack is read from it at selection */
+static void toc_install(const mb_info_t *in, lib_read_fn rd, void *ctx)
+{
+    bin_rd = rd; bin_ctx = ctx;
+    uint32_t h[MB_MAX_METERS]; uint8_t fl[MB_MAX_METERS];
+    toc_info = *in; mtoc_count = in->count; mtoc_state = 1u; mtoc_err = 0u;
+    fb_row = (uint8_t)fb_find(in);
+    mb_hashes(toc_rd, 0, in, h); mb_tune_collisions(h, in->count, fl);
+    toc_coll[0] = toc_coll[1] = 0u; for (uint32_t i = 0; i < in->count; i++) if (fl[i]) toc_coll[i >> 5] |= 1u << (i & 31u);
+    meter_count = in->count < METER_SLOTS ? in->count : METER_SLOTS;
+    for (uint32_t i = 0; i < meter_count; i++) { mb_row_t r; if (mb_row(toc_rd, 0, in, i, &r) == MB_OK) dyn_row_from_toc(i, &r); }
+}
+int meters_packs_load_file(lib_read_fn rd, void *ctx)                   /* a data-slot bin (the caller tries the user's first, ctx 1, then the core's, ctx 2 or 0): 1 when it was sound and is now the registry, 0 when not (the error is in MTOC) */
+{
+    mb_info_t in; const uint32_t t0 = cycles();
+    in.bad_row = -1;
+    const int e = toc_open(rd, ctx, &in);
+    if (e < 0) return 0;
+    mtoc_cyc = cycles() - t0;
+    if (e) { mtoc_err = (uint32_t)e; mtoc_bad_row = (uint32_t)(int32_t)in.bad_row; mtoc_state = 2u; return 0; }
+    mtoc_src = ctx ? (uint32_t)(uintptr_t)ctx : 2u;
+    toc_install(&in, rd, ctx);
+    return 1;
+}
+uint32_t meters_pack_source(void) { return mtoc_state == 1u ? mtoc_src : 0u; }
+uint32_t meters_pack_state(uint32_t m) { return m < meter_count && !(m == fb_row) ? (win_row == m ? 0u : dyn_code(m)) : 0xFFu; }     /* 0 = meter m is the pack in the window, 0xFF = none (or built-in), else its last refusal code */
+void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen)     /* for Info: bit m of `running` = meter m is the pack in the window; the last load error (0 none); the bin's own result (0xFF: no bin); rows in the TOC */
+{
+    *running = win_row < 32u ? 1u << win_row : 0u; *first_err = mwin_err; *file_err = mtoc_state == 1u ? 0u : mtoc_state == 2u ? mtoc_err : 0xFFu; *seen = mtoc_count;
+}
+/* Loads the pack of row m into the window. 0 = it runs; else the refusal code (and the window holds nothing that may run). The audio stream is untouched; this is called at selection only, never inside a tick. */
+#ifndef MTR_TEST_WINDOW_LOAD                                              /* a host test that has no bin of packs provides its own (sim/p2_dyn_register.h) */
+static int window_load(uint32_t m)
+{
+    mb_row_t r; int e = MB_E_COUNT;
+    win_row = 0xFFu; pack_act = 0xFFu;
+    if (m >= toc_info.count || (e = mb_row(toc_rd, 0, &toc_info, m, &r)) != MB_OK) return e;
+    if (mb_avail(&r, MTR_PACK_ABI, MTR_TAU_MM) != MB_U_OK) return MPK_E_ABI;
+    const uint32_t t0 = cycles();
+    mpkb_rd_t src = { bin_rd, bin_ctx, r.pack_off };
+    e = mb_check_pack(bin_rd, bin_ctx, &r);
+    if (e) return e;
+    e = mpk_install(mpkb_rd, &src, PACK_SCRATCH, pack_window_data(), MB_WINDOW, MTR_PACK_SLOT_SIZE, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, r.id_hash & 0xFFFFu, &win_info);
+    if (e) return e;
+    MTR_FLUSH();                                                           /* BEFORE anything runs: the instruction cache may hold the previous meter's code at these addresses */
+    mpk_activate(&win_info, pack_window_data(), (volatile uint8_t *)PACK_SCRATCH);
+    win_row = m; pack_act = m; ps_reset(&win_strike);
+    mwin_loads++; mwin_last_hash = r.id_hash; mwin_last_cyc = cycles() - t0; if (mwin_last_cyc > mwin_max_cyc) mwin_max_cyc = mwin_last_cyc;
+    return MPK_OK;
+}
+#endif
+void meters_pack_probe_done(void) { pack_act = 0xFFu; force_next = 1; }          /* the P0 probe (if linked) used the scratch: the live pack's state is gone, activate it again */
+static void packs_reset(void)
+{
+    mtoc_state = mtoc_count = mtoc_err = mtoc_bad_row = mtoc_src = mtoc_cyc = 0u; mwin_loads = mwin_last_cyc = mwin_max_cyc = mwin_last_hash = mwin_err = mwin_strikes = mwin_refused = 0u;
+    toc_pv_off = toc_packs_off = toc_total = toc_coll[0] = toc_coll[1] = 0u;
+    win_row = 0xFFu; pack_act = 0xFFu; fb_row = 0u; ps_reset(&win_strike); toc_info.count = 0u;
+    for (uint32_t i = 0; i < DYN_ROWS; i++) { dyn[i].ok = 0u; dyn[i].code = 0xFFu; }
+}
+static int pack_ok(uint32_t m) { return m == win_row; }
+static void pack_struck(uint32_t m)                                      /* the pack in the window hung or kept overrunning: it is out, the built-in meter takes over (its preset files come back at the next selection: no file reads inside a tick) */
+{
+    dyn[m].code = MPK_E_STRIKE; mwin_strikes++; mwin_err = MPK_E_STRIKE; win_row = 0xFFu; pack_act = 0xFFu; cur = fb_row; force_next = 1; meter_stats.struck++;
+}
 static void pack_tick(const void *vin)                                                   /* the shape wd_run wants (platform.h) */
 {
     const mtr_in_t *in = (const mtr_in_t *)vin;
-    if (pack_act != cur) { mpk_activate(&pack_slot[cur].info, pack_slot_data(cur), (volatile uint8_t *)PACK_SCRATCH); pack_act = cur; }
+    if (pack_act != cur) { mpk_activate(&win_info, pack_window_data(), (volatile uint8_t *)PACK_SCRATCH); pack_act = cur; }
     pack_api.params = mdef(cur)->mv;
-    PACK_CALL(pack_slot[cur].info.entry, in, &pack_api);
+    PACK_CALL(win_info.entry, in, &pack_api);
 }
 #endif
 
-/* ---- the pack-only rows (descriptors from the packs; B-812) and the accessors every other part of the host uses ---------------------------------------------------------------------------------------- */
+/* ---- the TOC rows and the loaded meter's descriptors (descriptors from the pack in the window; B-812) -------------------------------------------------------------------------------------------------------------- */
 #ifdef P2_PACKS
 #include "../cores/meter_desc_core.h"
-#define DYN_MAX_P 40u                                          /* parameters a pack-only meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is edited; the label and choice strings are read from its slot when a row is drawn: meters_param_label / meters_param_choice) */
-typedef struct { uint32_t off, len, cmds, cyc, cmp; uint16_t mid, np, npre; uint8_t ok, code; char name[MD_MAX_STR + 1u]; } dyn_t;
-static dyn_t dyn[DYN_ROWS];
-static meter_def_t dyn_def[DYN_ROWS];
-static uint16_t dyn_mv[DYN_ROWS][DYN_MAX_P];
-static mpd_t dyn_pd[DYN_MAX_P]; static uint32_t dyn_cached = 0xFFu;
-static void dyn_stub_tick(const mtr_in_t *in) { if (in->force) gfx_text(in->x + 8u, in->y + in->h / 2u - 8u, "PACK NOT RUNNING", UI_RED, in->bg); }     /* the pack was struck out or refused after it was listed */
-static int desc_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)       /* the descriptor, straight out of the PSRAM slot, a word at a time */
+static void dyn_stub_tick(const mtr_in_t *in) { if (in->force) gfx_text(in->x + 8u, in->y + in->h / 2u - 8u, "PACK NOT RUNNING", UI_RED, in->bg); }
+static uint32_t dyn_code(uint32_t m) { return dyn[m].code; }
+static int desc_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)       /* the loaded pack's descriptor, straight out of the window, a word at a time */
 {
-    const dyn_t *d = (const dyn_t *)ctx; const uint32_t k = (uint32_t)(d - dyn);
+    const dyn_t *d = (const dyn_t *)ctx;
     if (off > d->len || n > d->len - off) return 0;
-    volatile uint8_t *base = pack_slot_data(METER_N + k);
+    volatile uint8_t *base = pack_window_data();
     for (uint32_t i = 0; i < n; i++) { const uint32_t a = d->off + off + i; dst[i] = (uint8_t)(*(volatile uint32_t *)(base + (a & ~3u)) >> (8u * (a & 3u))); }
     return 1;
 }
-static void dyn_cache_build(uint32_t k)                           /* copy the numeric Configure descriptors of dynamic meter k (the strings stay in its slot: dyn_str) */
+static void dyn_cache_build(uint32_t m)                           /* copy the numeric Configure descriptors of the loaded meter (the strings stay in the window: dyn_str) */
 {
     md_hdr_t h;
-    if (!md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return;
+    if (!md_header(desc_rd, &dyn[m], dyn[m].len, &h)) return;
     for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) {
-        md_param_t p; md_param(desc_rd, &dyn[k], &h, i, &p);
+        md_param_t p; md_param(desc_rd, &dyn[m], &h, i, &p);
         mpd_t *o = &dyn_pd[i];
         o->label = 0; o->type = p.type; o->hidden = p.hidden; o->min = p.min; o->max = p.max; o->step = p.step; o->nval = p.nval; o->when_idx = p.when_idx; o->when_val = p.when_val; o->vals = 0;
     }
-    dyn_cached = k;
 }
-/* One Configure string of dynamic meter k, read from the descriptor in its PSRAM slot into `buf` (n bytes, always terminated): the label of parameter `id` (choice < 0) or the name of its choice number `choice`. An unknown
- * meter, parameter or choice gives "". A page is a few thousand cycles of PSRAM reads, once, when a key is pressed. */
-static const char *dyn_str(uint32_t k, uint32_t id, int32_t choice, char *buf, uint32_t n)
+/* One Configure string of the loaded meter m, read from the descriptor in the window into `buf` (n bytes, always terminated): the label of parameter `id` (choice < 0) or the name of its choice number `choice`. Another row, a
+ * parameter or a choice that does not exist gives "". A page is a few thousand cycles of PSRAM reads, once, when a key is pressed. */
+static const char *dyn_str(uint32_t m, uint32_t id, int32_t choice, char *buf, uint32_t n)
 {
     buf[0] = 0;
     md_hdr_t h; md_param_t p; uint32_t so;
-    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h) || id >= h.np) return buf;
-    md_param(desc_rd, &dyn[k], &h, id, &p);
+    if (m != win_row || !md_header(desc_rd, &dyn[m], dyn[m].len, &h) || id >= h.np) return buf;
+    md_param(desc_rd, &dyn[m], &h, id, &p);
     so = p.label;
-    if (choice >= 0 && !md_val_off(desc_rd, &dyn[k], &p, (uint32_t)choice, &so)) return buf;
-    if (md_string(desc_rd, &dyn[k], &h, so, buf, n) < 0) buf[0] = 0;
+    if (choice >= 0 && !md_val_off(desc_rd, &dyn[m], &p, (uint32_t)choice, &so)) return buf;
+    if (md_string(desc_rd, &dyn[m], &h, so, buf, n) < 0) buf[0] = 0;
     return buf;
 }
-/* A pack that is installed (status OK) becomes a row when its descriptor is sound and its numeric rows fit the cache; otherwise its status says why (41 descriptor missing or damaged, 42 more parameters than the host's cache holds). */
-static void dyn_register(uint32_t m)
+static void dyn_row_from_toc(uint32_t k, const mb_row_t *r)       /* row k of the TOC becomes a registry row: its name, limits, parameter count and preview from the TOC alone (no pack is read) */
 {
-    const uint32_t k = m - METER_N; dyn_t *d = &dyn[k]; const uint32_t size = pack_slot[m].info.size;
-    d->ok = 0;
-    if (size < 16u || (size & 3u)) { pack_slot[m].status = MPK_E_DESC; return; }
-    volatile uint32_t *t = (volatile uint32_t *)(pack_slot_data(m) + size - 8u); const uint32_t len = t[0], mg = t[1];
-    if (mg != MD_TRAILER || len < MD_HDR + 8u || len > size || len > MD_MAX_LEN || (len & 3u)) { pack_slot[m].status = MPK_E_DESC; return; }
+    dyn_t *d = &dyn[k];
+    d->cmds = r->cmds; d->cyc = r->max_cycles; d->cmp = 0u; d->hash = r->id_hash; d->off = d->len = 0u; d->pv_off = r->preview_off; d->pv_len = (uint16_t)r->preview_len; d->rev = r->params_rev;
+    d->np = r->nparams; d->npre = 1u; d->code = 0xFFu; d->mid = MTR_NO_MID;
+    for (uint32_t i = 0; i < SHIPPED_METERS_N; i++) if (shipped_meter_hash[i] == r->id_hash) d->mid = (uint16_t)i;
+    for (uint32_t i = 0; i < sizeof d->name; i++) d->name[i] = i < sizeof r->name ? r->name[i] : 0;
+    d->name[MD_MAX_STR] = 0;
+    d->ok = mb_avail(r, MTR_PACK_ABI, MTR_TAU_MM) == MB_U_OK;                       /* a row this firmware cannot run (another ABI, a newer TAU) is not listed (P2.5 greys it) */
+}
+/* The pack in the window is the meter of row m: its descriptor must be sound and say what the TOC row says. Fills the loaded row's definition. 0 = ok, else MPK_E_DESC / MPK_E_DESC_BIG. */
+static int dyn_register(uint32_t m)
+{
+    dyn_t *d = &dyn[m]; const uint32_t size = win_info.size;
+    if (size < 16u || (size & 3u)) return MPK_E_DESC;
+    volatile uint32_t *t = (volatile uint32_t *)(pack_window_data() + size - 8u); const uint32_t len = t[0], mg = t[1];
+    if (mg != MD_TRAILER || len < MD_HDR + 8u || len > size || len > MD_MAX_LEN || (len & 3u)) return MPK_E_DESC;
     d->off = size - len; d->len = len;
     md_hdr_t h;
-    if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.slot != m) { pack_slot[m].status = MPK_E_DESC; return; }
-    if (h.np > DYN_MAX_P) { pack_slot[m].status = MPK_E_DESC_BIG; return; }      /* the numeric rows must fit the cache (the strings are read from the slot when a row is drawn) */
-    d->cmds = h.cmds; d->cyc = h.max_cycles; d->cmp = h.cmp; d->mid = h.mid; d->np = h.np; d->npre = 1u;
-    md_string(desc_rd, d, &h, h.name, d->name, sizeof d->name);
-    meter_def_t *r = &dyn_def[k];
-    r->name = d->name; r->tick = dyn_stub_tick; r->npre = 1u; r->set_pre = 0; r->pre_name = 0; r->mv = dyn_mv[k]; r->pd = dyn_pd; r->np = (uint8_t)h.np; r->apply = 0; r->cmp = h.cmp;
-    for (uint32_t i = 0; i < DYN_MAX_P; i++) dyn_mv[k][i] = 0;
-    d->ok = 1; if (m + 1u > meter_count) meter_count = m + 1u;
-    if (dyn_cached == k) dyn_cached = 0xFFu;
-    def_set_pre(m, 0u);
+    if (md_check(desc_rd, d, len, TR_COUNT, &h) || h.np != d->np) return MPK_E_DESC;
+    if (h.np > DYN_MAX_P) return MPK_E_DESC_BIG;
+    d->cmp = h.cmp;
+    meter_def_t *r = &act_def;
+    r->name = d->name; r->tick = dyn_stub_tick; r->npre = 1u; r->set_pre = 0; r->pre_name = 0; r->mv = act_mv; r->pd = dyn_pd; r->np = (uint8_t)h.np; r->apply = 0; r->cmp = h.cmp;
+    for (uint32_t i = 0; i < DYN_MAX_P; i++) act_mv[i] = 0;
+    dyn_cache_build(m);
+    return 0;
 }
-static void dyn_set_pre(uint32_t k, uint32_t p)                      /* a pack-only meter has one preset in itself, DEFAULT: the default of every parameter (the descriptor carries no preset table, B-970) */
+static void dyn_set_pre(uint32_t m, uint32_t p)                      /* a pack meter has one preset in itself, DEFAULT: the default of every parameter (the descriptor carries no preset table, B-970) */
 {
     (void)p; md_hdr_t h; md_param_t q;
-    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return;
-    for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) if (md_param(desc_rd, &dyn[k], &h, i, &q)) dyn_mv[k][i] = q.def;
+    if (m != win_row || !md_header(desc_rd, &dyn[m], dyn[m].len, &h)) return;
+    for (uint32_t i = 0; i < h.np && i < DYN_MAX_P; i++) if (md_param(desc_rd, &dyn[m], &h, i, &q)) act_mv[i] = q.def;
 }
-static const char *dyn_pre_name(uint32_t k, uint32_t p) { (void)k; (void)p; return "DEFAULT"; }
+static const char *dyn_pre_name(uint32_t m, uint32_t p) { (void)m; (void)p; return "DEFAULT"; }
 /* ---- the preset files (B-967; fw2/art/mpreset_host.c, formats in fw2/cores/mpreset_core.h) ----------------------------------------------------------------------------------------------------------------------------- */
 #ifndef MPH_REAL                                                      /* a host test that does not run the preset files (the real ones are in fw2/art/mpreset_host.c): nothing found */
 __attribute__((weak)) uint32_t mph_enter(uint32_t mid) { (void)mid; return 0u; }
@@ -402,12 +613,12 @@ __attribute__((weak)) int mph_values(uint32_t mid, uint32_t pos, const mp_param_
 #endif
 #define KD_X(key, nm, id, lc, UC, np, cmp) mpk_##lc,
 static const mpkd_t *const meter_keydef[METER_N] = { METER_LIST(KD_X) };      /* the key hashes and defaults of the built-in meters, generated with their descriptors */
-static uint32_t ext_params(uint32_t m, mp_param_t *ps)               /* the meter's parameters as the preset reader needs them (key hash, range, default): from the descriptor of a pack, from the generated tables for a built-in meter */
+static uint32_t ext_params(uint32_t m, mp_param_t *ps)               /* the meter's parameters as the preset reader needs them (key hash, range, default): from the descriptor of the pack in the window, from the generated tables for the built-in meter */
 {
-    if (m < METER_N) { const meter_def_t *d = mdef(m); uint32_t n = 0; for (; n < d->np && n < 40u; n++) { ps[n].key = meter_keydef[m][n].key; ps[n].min = d->pd[n].min; ps[n].max = d->pd[n].max; ps[n].def = meter_keydef[m][n].def; } return n; }
-    const uint32_t k = m - METER_N; md_hdr_t h; uint32_t n = 0;
-    if (!dyn[k].ok || !md_header(desc_rd, &dyn[k], dyn[k].len, &h)) return 0u;
-    for (uint32_t i = 0; i < h.np && i < 40u; i++) { md_param_t p; if (!md_param(desc_rd, &dyn[k], &h, i, &p)) break; ps[n].key = p.key; ps[n].min = p.min; ps[n].max = p.max; ps[n].def = p.def; n++; }
+    if (m == fb_row) { const meter_def_t *d = mdef(m); uint32_t n = 0; for (; n < d->np && n < 40u; n++) { ps[n].key = meter_keydef[0][n].key; ps[n].min = d->pd[n].min; ps[n].max = d->pd[n].max; ps[n].def = meter_keydef[0][n].def; } return n; }
+    md_hdr_t h; uint32_t n = 0;
+    if (m != win_row || !md_header(desc_rd, &dyn[m], dyn[m].len, &h)) return 0u;
+    for (uint32_t i = 0; i < h.np && i < 40u; i++) { md_param_t p; if (!md_param(desc_rd, &dyn[m], &h, i, &p)) break; ps[n].key = p.key; ps[n].min = p.min; ps[n].max = p.max; ps[n].def = p.def; n++; }
     return n;
 }
 static int ext_get(uint32_t m, uint32_t p, uint16_t *vals, char *name)
@@ -423,6 +634,7 @@ void meters_ext_enter(uint32_t m)                                    /* meter m 
     if (m >= METER_SLOTS || !meters_present(m)) { ext_drop(); return; }
     if (m == ext_m) return;
     ext_drop();
+    if (mid_of(m) == MTR_NO_MID) return;                              /* not one of the shipped seven: no preset folder before P2.4 (folders by id hash) */
     const uint32_t n = mph_enter(mid_of(m));
     if (!n) return;                                                  /* no files, damaged, or the governor is busy: the meter's one preset, DEFAULT, stays */
     ext_m = (uint8_t)m; ext_prev = user_n[m]; user_n[m] = (uint8_t)(n + 1u);
@@ -431,32 +643,27 @@ void meters_ext_enter(uint32_t m)                                    /* meter m 
         if (!custom[m]) apply_id(m);                               /* its remembered file, or the defaults */
     }
 }
-int meters_present(uint32_t m) { return m < METER_N || (m < METER_SLOTS && dyn[m - METER_N].ok && pack_slot[m].status != 0xFFu); }
+int meters_present(uint32_t m) { return m < meter_count && (m == fb_row || dyn[m].ok); }
 static const meter_def_t *mdef(uint32_t m)
 {
-    if (m < METER_N) return &meter_table[m];
-    if (m >= METER_SLOTS) return &meter_table[0];
-    const uint32_t k = m - METER_N;
-    if (dyn_cached != k && dyn[k].ok) dyn_cache_build(k);
-    return &dyn_def[k];
+    if (m == fb_row || m >= meter_count) return &meter_table[0];
+    if (m == win_row) return &act_def;
+    idle_def.name = dyn[m].name; idle_def.tick = dyn_stub_tick; idle_def.npre = 1u; idle_def.set_pre = 0; idle_def.pre_name = 0; idle_def.mv = act_mv; idle_def.pd = dyn_pd; idle_def.np = (uint8_t)dyn[m].np; idle_def.apply = 0; idle_def.cmp = 0u;
+    return &idle_def;                                                /* a row that is not in the window: its name and parameter count (from the TOC); nothing else is loaded */
 }
-static uint32_t mid_of(uint32_t m) { return m < METER_N ? meter_manifest_id[m] : dyn[m - METER_N].mid; }
-static uint32_t cmd_limit_of(uint32_t m) { return m < METER_N ? meter_cmd_budget[m] : dyn[m - METER_N].cmds; }
-static uint32_t cyc_limit_of(uint32_t m) { return m < METER_N ? meter_cyc_limit[m] : dyn[m - METER_N].cyc; }
-static uint32_t def_npre(uint32_t m) { return m < METER_N ? meter_table[m].npre : dyn[m - METER_N].npre; }
-static void def_set_pre(uint32_t m, uint32_t p) { if (m < METER_N) meter_table[m].set_pre(p); else dyn_set_pre(m - METER_N, p); }
-static const char *def_pre_name(uint32_t m, uint32_t p) { return m < METER_N ? meter_table[m].pre_name(p) : dyn_pre_name(m - METER_N, p); }
-static void def_apply(uint32_t m) { if (m < METER_N) meter_table[m].apply(); }              /* a pack reads its parameters from the host's table at every tick */
-uint32_t meters_thumb_len(uint32_t m) { md_hdr_t h; return m >= METER_N && m < METER_SLOTS && dyn[m - METER_N].ok && md_header(desc_rd, &dyn[m - METER_N], dyn[m - METER_N].len, &h) ? h.rle_len : 0u; }
-int meters_thumb_rle(uint32_t m, uint32_t i, uint8_t *v)                                       /* the preview of a pack-only meter: byte i of its run-length stream */
-{
-    md_hdr_t h; if (m < METER_N || m >= METER_SLOTS || !dyn[m - METER_N].ok || !md_header(desc_rd, &dyn[m - METER_N], dyn[m - METER_N].len, &h)) return 0;
-    return md_rle_byte(desc_rd, &dyn[m - METER_N], &h, i, v);
-}
+static uint32_t mid_of(uint32_t m) { return m == fb_row ? meter_manifest_id[0] : dyn[m].mid; }
+static uint32_t cmd_limit_of(uint32_t m) { return m == fb_row ? meter_cmd_budget[0] : dyn[m].cmds; }
+static uint32_t cyc_limit_of(uint32_t m) { return m == fb_row ? meter_cyc_limit[0] : dyn[m].cyc; }
+static uint32_t def_npre(uint32_t m) { return m == fb_row ? meter_table[0].npre : 1u; }
+static void def_set_pre(uint32_t m, uint32_t p) { if (m == fb_row) meter_table[0].set_pre(p); else dyn_set_pre(m, p); }
+static const char *def_pre_name(uint32_t m, uint32_t p) { return m == fb_row ? meter_table[0].pre_name(p) : dyn_pre_name(m, p); }
+static void def_apply(uint32_t m) { if (m == fb_row) meter_table[0].apply(); }              /* a pack reads its parameters from the host's table at every tick */
+uint32_t meters_thumb_len(uint32_t m) { return m < meter_count && m != fb_row && dyn[m].ok && dyn[m].pv_len > MB_PAL ? dyn[m].pv_len - MB_PAL : 0u; }       /* a pack meter's preview, from the TOC's preview block (palette 64 B, then the run-length stream) */
+int meters_thumb_rle(uint32_t m, uint32_t i, uint8_t *v) { return i < meters_thumb_len(m) && toc_rd(0, dyn[m].pv_off + MB_PAL + i, v, 1u); }
 int meters_thumb_col(uint32_t m, uint32_t c, uint16_t *fixed, uint8_t *a, uint8_t *b, uint8_t *t, uint8_t *n)       /* ... and palette entry c (the layout of generated/meter_thumbs.h mth_col_t) */
 {
-    md_hdr_t h; md_col_t e; if (m < METER_N || m >= METER_SLOTS || !dyn[m - METER_N].ok || !md_header(desc_rd, &dyn[m - METER_N], dyn[m - METER_N].len, &h) || !md_col(desc_rd, &dyn[m - METER_N], &h, c, &e)) return 0;
-    *fixed = e.fixed; *a = e.a; *b = e.b; *t = e.t; *n = e.n; return 1;
+    uint8_t e[8]; if (!meters_thumb_len(m) || c >= 8u || !toc_rd(0, dyn[m].pv_off + 8u * c, e, 8u)) return 0;
+    *fixed = (uint16_t)((uint32_t)e[0] | ((uint32_t)e[1] << 8)); *a = e[2]; *b = e[3]; *t = e[4]; *n = e[5]; return 1;
 }
 #else
 uint32_t meters_thumb_len(uint32_t m) { (void)m; return 0u; }
@@ -477,14 +684,14 @@ const meter_def_t *meters_def(uint32_t m) { return mdef(m); }
 const char *meters_param_label(uint32_t m, uint32_t id, char *buf, uint32_t n)
 {
 #ifdef P2_PACKS
-    if (m >= METER_N && m < METER_SLOTS) return dyn_str(m - METER_N, id, -1, buf, n);
+    if (m != fb_row && m < METER_SLOTS) return dyn_str(m, id, -1, buf, n);
 #endif
     (void)buf; (void)n; const meter_def_t *d = mdef(m); return id < d->np ? d->pd[id].label : "";
 }
 const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf, uint32_t n)
 {
 #ifdef P2_PACKS
-    if (m >= METER_N && m < METER_SLOTS) return dyn_str(m - METER_N, id, (int32_t)val, buf, n);
+    if (m != fb_row && m < METER_SLOTS) return dyn_str(m, id, (int32_t)val, buf, n);
 #endif
     (void)buf; (void)n; const meter_def_t *d = mdef(m); return id < d->np && d->pd[id].vals && val < d->pd[id].nval ? d->pd[id].vals[val] : "";
 }
@@ -538,10 +745,10 @@ void meters_tick(int allowed)
         const uint32_t tp = cycles();
         const int cut = wd_run(wd_limit(cyc_limit_of(cur)), pack_tick, &in);         /* the hardware watchdog cuts an endless or far too long tick off (a bitstream without it just runs the tick) */
         const uint32_t took = cycles() - tp;
-        if (cut) { pack_slot[cur].status = MPK_E_STRIKE; force_next = 1; meter_stats.struck++; }      /* struck out at once: the built-in code (or nothing) from the next picture, after a full repaint */
-        else if (!in.force) {                                                              /* a forced repaint is the costliest picture by design: not judged */
+        if (cut) pack_struck(cur);                                                    /* struck out at once: Winamp Bars from the next picture, after a full repaint */
+        else if (!in.force) {                                                         /* a forced repaint is the costliest picture by design: not judged */
             if (took > cyc_limit_of(cur)) meter_stats.overruns++;
-            if (ps_judge(&pack_strike[cur], took, cyc_limit_of(cur))) { pack_slot[cur].status = MPK_E_STRIKE; force_next = 1; meter_stats.struck++; }      /* struck out: the built-in code (or nothing) from the next picture */
+            if (ps_judge(&win_strike, took, cyc_limit_of(cur))) pack_struck(cur);       /* three strikes: out */
         }
     } else
 #endif

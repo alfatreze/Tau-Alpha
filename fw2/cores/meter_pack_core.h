@@ -56,7 +56,7 @@ typedef struct {                  /* what an installed pack needs to be activate
     uint32_t meter, size, entry, data_off, data_size, bss, ps_off, ps_size;
 } mpk_info_t;
 
-static int mpk_install(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *slot, uint32_t slot_origin, uint32_t slot_cap,
+static inline int mpk_install(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *slot, uint32_t slot_origin, uint32_t slot_cap,
                        uint32_t scratch_origin, uint32_t scratch_cap, uint32_t want_meter, mpk_info_t *info)
 {
     if (!rd(ctx, 0u, win, MPK_HDR)) return rd(ctx, 0u, win, 1u) ? MPK_E_HDR : MPK_E_NOFILE;
@@ -91,7 +91,7 @@ static int mpk_install(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t
 }
 
 /* Prepares the scratch and the slot's state for this pack: .data copied from the slot, .bss and the slot state zeroed. Cannot fail: mpk_install checked every size. */
-static void mpk_activate(const mpk_info_t *info, volatile uint8_t *slot, volatile uint8_t *scratch)
+static inline void mpk_activate(const mpk_info_t *info, volatile uint8_t *slot, volatile uint8_t *scratch)
 {
     const uint32_t bss_off = (info->data_size + 3u) & ~3u;
     for (uint32_t i = 0; i < info->data_size; i++) scratch[i] = slot[info->data_off + i];
@@ -100,7 +100,7 @@ static void mpk_activate(const mpk_info_t *info, volatile uint8_t *slot, volatil
 }
 
 /* One pack, installed and activated in one call (the test harnesses, and a firmware that has a single pack). */
-static int mpk_load(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *slot, uint32_t slot_origin, uint32_t slot_cap,
+static inline int mpk_load(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *slot, uint32_t slot_origin, uint32_t slot_cap,
                     volatile uint8_t *scratch, uint32_t scratch_origin, uint32_t scratch_cap, uint32_t want_meter, uint32_t *entry_addr)
 {
     mpk_info_t info;
@@ -114,14 +114,14 @@ static int mpk_load(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *s
 
 /* ---- the bundle ------------------------------------------------------------------------------------------------------------------------------- */
 typedef struct { lib_read_fn rd; void *ctx; uint32_t base; } mpkb_rd_t;
-static int mpkb_rd(void *c, uint32_t off, uint8_t *dst, uint32_t len) { const mpkb_rd_t *r = (const mpkb_rd_t *)c; return r->rd(r->ctx, r->base + off, dst, len); }
+static inline int mpkb_rd(void *c, uint32_t off, uint8_t *dst, uint32_t len) { const mpkb_rd_t *r = (const mpkb_rd_t *)c; return r->rd(r->ctx, r->base + off, dst, len); }
 
 /* Per meter slot: the state of the pack for it. status MPK_OK + info valid = installed; anything else = refused (the code says why) or 0xFF = no pack in the bundle for it. */
 typedef struct { uint8_t status; mpk_info_t info; } mpkb_slot_t;
 
 /* The length of a bundle read through `rd` (a data-slot file: its size is not known to the firmware): walk the pack headers and require the last byte of the last pack to exist. 0 when there is no bundle, it is not
  * one, or it is cut short (a truncated file is refused whole: the release ships it with its packs, so a missing tail is damage, not a partial install). `win` needs MPK_HDR bytes. */
-static uint32_t mpkb_length(lib_read_fn rd, void *ctx, uint8_t *win)
+static inline uint32_t mpkb_length(lib_read_fn rd, void *ctx, uint8_t *win)
 {
     if (!rd(ctx, 0u, win, MPKB_HDR) || lib_ld32(win) != MPKB_MAGIC || lib_ld16(win + 4) != 1u) return 0u;
     const uint32_t count = lib_ld16(win + 6);
@@ -136,7 +136,7 @@ static uint32_t mpkb_length(lib_read_fn rd, void *ctx, uint8_t *win)
 }
 /* Reads the bundle of `file_len` bytes and installs every pack it finds. `slot_data` is the first slot's data-alias address (slot i is at slot_data + i * MTR_PACK_SLOT_SIZE); `slot_ids[i]` is the meter id slot i belongs to.
  * Returns MPK_OK (even if some packs were refused: see slots[i].status), MPK_E_NOFILE (no file) or MPKB_E_HDR (not a bundle). `seen` receives the number of packs in the file. */
-static int mpkb_install_all(lib_read_fn rd, void *ctx, uint8_t *win, uint32_t file_len, volatile uint8_t *slot_data, const uint16_t slot_ids[MTR_PACK_SLOTS],
+static inline int mpkb_install_all(lib_read_fn rd, void *ctx, uint8_t *win, uint32_t file_len, volatile uint8_t *slot_data, const uint16_t slot_ids[MTR_PACK_SLOTS],
                             uint32_t scratch_origin, uint32_t scratch_cap, mpkb_slot_t slots[MTR_PACK_SLOTS], uint32_t *seen)
 {
     for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) slots[i].status = 0xFFu;

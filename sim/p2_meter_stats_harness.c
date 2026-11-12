@@ -6,15 +6,20 @@ static uint32_t psram_mem[2048];
 #define METR_PSRAM psram_mem
 #include "../fw2/generated/meter_registry.h"
 #define P2_PACKS 1                                                     /* the Waterfall is pack-only: it is a row only through its pack's descriptor (argv[1]), run by a stub */
-static uint8_t slot_mem[8][0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
-#define PACK_SLOT_DATA(i) (slot_mem[i])
+static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
+static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
+#define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)
+#define MTR_PV_BASE ((volatile uint32_t *)pv_mem)
+#define PACK_WINDOW_DATA (win_mem)
+#define MTR_TEST_WINDOW_LOAD 1
+static uint32_t win_tag(void);
 #define PACK_SCRATCH (scratch_mem)
 #define PACK_CALL(e, in, api) pack_call((e), (in), (api))
 static uint32_t now, win, spend[METER_SLOTS + 1], comp_cost, sum_dt[METER_SLOTS + 1], comp_calls;
 static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 #include "../fw2/ui/meters.c"
 #include "p2_dyn_register.h"
-static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; sum_dt[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE] += ((const mtr_in_t *)in)->dt_ms; now += spend[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE]; return 0; }
+static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; sum_dt[win_tag()] += ((const mtr_in_t *)in)->dt_ms; now += spend[win_tag()]; return 0; }
 uint32_t host_rd(uint32_t a)
 {
     if (a == R_CYCLES) return now;
@@ -85,10 +90,10 @@ int main(int argc, char **argv)
     degrade_level = 0; t0 = meter_stats.ticks; for (int i = 0; i < 3; i++) { win++; meters_tick(1); }
     printf("deg0 drawn %u\n", meter_stats.ticks - t0);
     /* The compose gate of the Waterfall (meter 5): composed in mode SPECTROGRAM (0), not in ZONES (1). */
-    meters_select(5); dyn_mv[4][0] = 0u; win++; meters_tick(1);
+    meters_select(5); act_mv[0] = 0u; win++; meters_tick(1);
     comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("spectrogram composed %u\n", comp_calls);
-    dyn_mv[4][0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
+    act_mv[0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("zones composed %u\n", comp_calls);
     return 0;
 }

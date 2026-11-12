@@ -21,6 +21,7 @@ SHA256SUMS.txt; the zips themselves are unchanged. Every field is derived, never
                             (a file of the legacy layout has none, see tools/persist_layout.py); Omega must read it to decode or edit settings
   packs_abi                 MTR_PACK_ABI_MAJOR in fw2/cores/meter_pack_core.h: the ABI of the meter pack bundle (tau-packs.bin); a tool that
                             only leaves the file alone does not need it
+  packs_abi_minor           MTR_PACK_ABI_MINOR in fw2/cores/meter_pack_core.h: the minor of the host table (a meter that needs a higher minor is refused by this firmware, EXTERNAL_METERS_SPEC.md section 6)
   persist_ids_changed       persisted interact.json ids whose name/type/default/range changed or that were removed, against
                             the previous release's zip of the same core (--previous)
   min_omega                 tools/omega_compat.json (a reviewed judgement, not typed at release time)
@@ -219,11 +220,12 @@ def tree_facts(root=ROOT):
         last = max(last, tag)
     sv = re.search(r"#define\s+SF_LAYOUT_VERSION\s+(\d+)u", (root / "fw2/cores/settings_core.h").read_text())
     pa = re.search(r"#define\s+MTR_PACK_ABI_MAJOR\s+(\d+)u", (root / "fw2/cores/meter_pack_core.h").read_text())
-    if not sv or not pa:
-        raise CompatError("cannot read SF_LAYOUT_VERSION (fw2/cores/settings_core.h) or MTR_PACK_ABI_MAJOR (fw2/cores/meter_pack_core.h)")
+    pm = re.search(r"#define\s+MTR_PACK_ABI_MINOR\s+(\d+)u", (root / "fw2/cores/meter_pack_core.h").read_text())
+    if not sv or not pa or not pm:
+        raise CompatError("cannot read SF_LAYOUT_VERSION (fw2/cores/settings_core.h) or MTR_PACK_ABI_MAJOR / MTR_PACK_ABI_MINOR (fw2/cores/meter_pack_core.h)")
     return {"library_index_version": int(lib.group(1)), "assets_sections": sorted(sections),
             "assets_read_limit_bytes": int(mx.group(1), 0), "report_tags_max": last,
-            "persist_layout": int(sv.group(1)), "packs_abi": int(pa.group(1))}
+            "persist_layout": int(sv.group(1)), "packs_abi": int(pa.group(1)), "packs_abi_minor": int(pm.group(1))}
 
 
 # ---------------------------------------------------------------- facts from the zips
@@ -311,12 +313,13 @@ def firmware_formats(root=ROOT):
             "tau-library.tdb": {"name": "tau-library", "version": t["library_index_version"]},
             "tau-assets.bin": {"name": "TAUA", "version": int(taua.group(1)), "sections": t["assets_sections"],
                                "max_bytes": t["assets_read_limit_bytes"], "preserve_unknown_sections": True},
+            "tau-meters.bin": {"name": "TPKB", "version": 2, "max_bytes": 4456448, "preserve_unknown_sections": False},      # the user's meter bin (data slot 10): a v2 bin, never shipped, written by Tau Omega (the firmware reads v2 only)
             "cover": {"name": "TIM1", "version": 1, "tail": tail.group(1)}}
 
 
 # Files a data slot names that are NOT shipped in the zip, and what they are. A slot filename missing from both the zip and
 # this table stops the release: someone added a slot and must say who makes the file.
-NOT_SHIPPED = {"tau-library.tdb": "generated", "tau-assets.bin": "user"}
+NOT_SHIPPED = {"tau-library.tdb": "generated", "tau-assets.bin": "user", "tau-meters.bin": "user"}
 # Generated files in the media root that have NO data slot (the firmware opens tau-names.bin by path, like the cover and the skip list): the name sidecar of docs/features/NAME_SIDECAR_SPEC.md.
 GENERATED_NO_SLOT = ("tau-names.bin", "tau-names.json")
 # Slots opened by name at run time (no filename), by extension set.
@@ -463,6 +466,14 @@ def _format_ok(path, fmt):
             return f"TAUA version {int.from_bytes(b[4:6], 'little')}, this release reads {fmt['version']}"
         if len(b) > fmt["max_bytes"]:
             return f"{len(b)} bytes, this release reads at most {fmt['max_bytes']}"
+    elif n == "TPKB":                                  # the user's meter bin (data slot 10): the firmware reads v2 only, and a bin it refuses means Winamp Bars alone (or the core's own bin)
+        import meter_bin
+        if len(b) > fmt["max_bytes"]:
+            return f"{len(b)} bytes, this release reads at most {fmt['max_bytes']}"
+        try:
+            meter_bin.open_toc(b)
+        except meter_bin.BinError as e:
+            return f"not a v2 meter bin this firmware would use ({e})"
     elif n == "tau-names":
         import struct, zlib
         if len(b) < 48 or b[:4] != b"TNMS":
@@ -764,7 +775,7 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
                       "replaces": [c for c in REPLACES.get(p["core_id"], []) if c not in {q["core_id"] for q in pkgs}],
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
-                                               "report_tags_max", "persist_layout", "packs_abi", "persist_ids_changed", "min_omega")},
+                                               "report_tags_max", "persist_layout", "packs_abi", "packs_abi_minor", "persist_ids_changed", "min_omega")},
         "notes": "\n".join(notes),
         "source": source_state(root),
         "previous_release": previous_release if previous is not None else None,
