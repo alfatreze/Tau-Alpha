@@ -42,8 +42,7 @@ TAU OMEGA (free, Mac / Windows / Linux), the full toolbox
   https://github.com/alfatreze/Tau-Omega/releases/latest
   - copies music to the card and builds the library, name sidecar and covers
   - converts any format to MP3 or FLAC for TAU
-  - edits tags and covers, writes ReplayGain, builds playlists
-  - installs and updates TAU and your meter and EQ presets
+  - writes ReplayGain, builds playlists, manages your meter and EQ presets
   - checks the whole card
 
 POCKET SYNC / PUPDATE PLUGIN "TAU Library" (small, inside the updater)
@@ -52,7 +51,7 @@ POCKET SYNC / PUPDATE PLUGIN "TAU Library" (small, inside the updater)
   - Rebuild the library: index, name sidecar and covers for the music that
     is already on the card; shows the plan first, and offers to rename names
     the Pocket cannot open (it keeps a backup)
-  - does NOT copy music, convert, edit tags, or install cores: use Tau Omega
+  - does NOT copy music or convert formats: use Tau Omega for that
 
 By hand: python3 tools/sync_media.py MUSIC_DIR --all-tau --library
 (tools in https://github.com/alfatreze/Tau-Alpha)
