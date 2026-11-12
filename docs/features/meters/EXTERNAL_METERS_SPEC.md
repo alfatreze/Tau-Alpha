@@ -88,7 +88,7 @@ record (104 B) u32 id_hash  u16 params_rev  u8 preset  u8 nparams (<= 48)  u16 v
 - A pack never needs a newer firmware silently: unmet `abi` or `tau_min` marks the row unavailable.
 
 ## 7. Ids, names, limits (fixed numbers)
-64 meters; id 3..40 chars; name 1..23 chars; 48 parameters; one pack at most the window (64 KiB incl. pstate, to confirm in P2 against the largest, Layered Wave at 15.7 KB + 2.4 KB); previews 56 x 32.
+64 meters; id exactly 32 hex digits (128 random bits); name 1..23 chars; 48 parameters; one pack at most the window (64 KiB incl. pstate, to confirm in P2 against the largest, Layered Wave at 15.7 KB + 2.4 KB); previews 56 x 32.
 
 ## 7a. Presets and the id (R-021/6)
 Today the preset folder is the decimal manifest index (`tau-presets/12/`) and the files carry that number. With the random id: the folder is the **first 8 hex digits of the id (the `id_hash`)**; the `meter id` u16 inside `index.tpi` and `.tpr` is the hash's low 16 bits, informational (P2 decides whether the firmware checks it, and whether it keeps reading the old decimal folder for the seven shipped meters when the hash folder is absent; Omega moves them when it composes the user bin). The preset format itself does not change.
