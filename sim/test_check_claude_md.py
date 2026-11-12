@@ -22,6 +22,6 @@ def broken(edit, name, want):
 broken(lambda d: (d / "CLAUDE.md").write_text((d / "CLAUDE.md").read_text() + "\n".join("filler" for _ in range(200))), "an over-long CLAUDE.md", "limit")
 broken(lambda d: (d / "CLAUDE.md").write_text((d / "CLAUDE.md").read_text() + "\n- 2026-10-14 (Claude): a log line\n"), "a dated log line in CLAUDE.md", "dated log")
 broken(lambda d: (d / "CLAUDE.md").write_text((d / "CLAUDE.md").read_text().replace("@docs/PROJECT_RULES.md", "")), "the rules import removed", "does not import")
-broken(lambda d: (d / "docs/PROJECT_RULES.md").write_text("1. **only one**\n"), "a rules file with one rule", "expected 8")
+broken(lambda d: (d / "docs/PROJECT_RULES.md").write_text("1. **only one**\n"), "a rules file with one rule", "expected 9")
 broken(lambda d: (d / "AGENTS.md").write_text((d / "AGENTS.md").read_text().replace("docs/PROJECT_RULES.md", "x")), "AGENTS.md without the pointer", "AGENTS.md does not point")
 print("PASSED" if not fails else f"{fails} FAILED"); sys.exit(1 if fails else 0)

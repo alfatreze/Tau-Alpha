@@ -2,7 +2,7 @@
 """CLAUDE.md must stay small (B-742/B-744): it is loaded in full into every Claude Code session, and it had grown to 442 KB of dated log lines.
 Checks (exit 1 on any failure):
   - CLAUDE.md is at most MAX_LINES lines and has no dated log lines ("- 2026-10-14 ..."): a record of a change belongs in docs/AUDIT_TRAIL.md;
-  - CLAUDE.md imports docs/PROJECT_RULES.md (`@docs/PROJECT_RULES.md`), that file exists and carries the eight numbered rules;
+  - CLAUDE.md imports docs/PROJECT_RULES.md (`@docs/PROJECT_RULES.md`), that file exists and carries the nine numbered rules;
   - AGENTS.md (read by Codex) points at docs/PROJECT_RULES.md and has no dated log lines either.
   python3 tools/check_claude_md.py [--root DIR]"""
 import re, sys
@@ -21,7 +21,7 @@ def check(root: Path):
     if not rules.exists(): errs.append("docs/PROJECT_RULES.md is missing")
     else:
         n = len(re.findall(r"^\d+\. \*\*", rules.read_text(), re.M))
-        if n != 8: errs.append(f"docs/PROJECT_RULES.md has {n} numbered rules, expected 8")
+        if n != 9: errs.append(f"docs/PROJECT_RULES.md has {n} numbered rules, expected 9")
     if ag.exists():
         t = ag.read_text()
         if "docs/PROJECT_RULES.md" not in t: errs.append("AGENTS.md does not point at docs/PROJECT_RULES.md")

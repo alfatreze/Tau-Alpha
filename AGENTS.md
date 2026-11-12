@@ -1,6 +1,6 @@
 # Tau project working agreements
 
-Read `docs/PROJECT_RULES.md` first: the eight rules every session follows (worktrees and branch checks, no reset/stash on the shared tree, fit time estimates, card installs, diagnostic features and heap floors, the shipped 192 KB link, no copyleft code, release asset checks).
+Read `docs/PROJECT_RULES.md` first: the nine rules every session follows (worktrees and branch checks, no reset/stash on the shared tree, fit time estimates, card installs, diagnostic features and heap floors, the shipped 192 KB link, no copyleft code, release asset checks, commit as the owner).
 
 ## Analogue Pocket / openFPGA / Cyclone V reference (skill)
 
