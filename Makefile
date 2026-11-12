@@ -90,6 +90,8 @@ test-host:
 	$(PYTHON) sim/test_p2_marquee.py
 	$(PYTHON) sim/test_p2_about.py
 	$(PYTHON) sim/test_p2_diag_split.py
+	$(PYTHON) sim/test_p2_pack_swap_probe.py
+	$(PYTHON) sim/test_meter_ids.py
 	$(PYTHON) sim/test_lab_drop.py
 	$(PYTHON) sim/test_lab_host.py
 	$(PYTHON) sim/test_name_test_library.py

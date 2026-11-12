@@ -31,6 +31,14 @@ Each step has a host test that fails first, then passes; each ends in a commit. 
 3. Fix the ids of our seven meters (128 random bits each, made once, recorded in `meters/<key>/meter.json` and the collection repository).
 4. Decide where the TOC copy lives in PSRAM (the existing `.psram_state` region, free of hot RAM cost) and how it is read (word reads through the data alias, as `desc_rd` does for descriptors).
 
+**P2.0 results (2026-11-12).**
+1. **Data slot 10 needs no bitstream change (code).** The RTL knows no slot ids: the data-slot table is APF's `{id, size}` BRAM that the core only reads (`core_game.vh`, words 0..63, everything of ours above word 63), and the firmware picks a slot by id (`slot_read_blocking(id, ...)`, `fw2/stream/packfile.c`). Slot 9 (`tau-packs.bin`) was added the same way (`tools/tau_data_slots.py add_packs_slot`, JSON only, bitstream `wdog-w3` unchanged); slot 10 is a copy of slot 5's pattern (common folder, parameters `0x0`, `deferload`, `required: false`). So **no fit**. Still to do in P2.6: the slot's entry in `tau_data_slots.py`, the `tau-meters.bin` user-file role in `tau_compat.py` (`NOT_SHIPPED`), the installer and their tests.
+2. **The TOC lives in the former pack slots, not in `.psram_state`.** `.psram_state` is only 8 KiB (`link.ld`: `0xA4560000`, 0x2000), too small for a 16 KB TOC plus up to 64 KB of previews. The eight 64 KiB pack slots at `0x24900000`..`0x24980000` (512 KiB) are used one by one today; after P2 only the window is needed, so the window stays **slot 7 (`0x24970000`, the one P0 proved)** and the TOC (16 KB) and the previews (64 KB) go to `0x24900000` and `0x24910000`, read through the data alias a word at a time like `desc_rd`. Until P2.4 removes the slot installs this area is still in use, so the TOC code is written but not linked.
+3. **Hot RAM on paper:** `pack_slot` 288 B, `pack_strike` 16, `budget` 14, `pre`/`want_id`/`custom`/`user_n` 28, `tune_*` 34: **about 380 B freed**, less the active-meter struct (the `sh` shape table, 320 B, stays). Measure for real at P2.4.
+4. **The seven shipped ids** are proposed in the owner's message of 2026-11-12 and are written into `meters/<key>/meter.json` only after the owner accepts them.
+
+**Review 2026-11-12 (after P2.1 and P2.3):** the reader opens a bin with the header, the TOC and the previews only (`toc_crc`), never the whole file, and reads v2 only; the whole-file CRC is for tools; a tuning key shared by two TOC rows disables tuning for those rows (spec section 3). See `EXTERNAL_METERS_SPEC.md`.
+
 **P2.1 Bin v2 and the reference tools (host only).**
 - `tools/meter_bin.py` (new): compose a v2 bin from packages, parse v1 and v2, the 64-meter and 4,456,448-byte limits, the TOC layout of SPEC section 2; the independent reference, like `tau_packs_info.py`.
 - `fw2/cores/meterbin_core.h` (new, pure, host-tested against the Python reference with random bins, damaged bins, truncations): header and end CRC, TOC reading, `id_hash` uniqueness, ABI and `tau_min` checks, refusal codes (`MTOC ERR ...`), v1 mapped to a TOC.
@@ -39,7 +47,7 @@ Each step has a host test that fails first, then passes; each ends in a commit. 
 
 **P2.2 Window loader and lazy loading.**
 - `meters_activate(toc_index)`: read the pack from the bin in 1 KB pieces (the path P0 used), CRC and ABI check, write through the uncached alias, `fence.i`, zero the pstate, run under `wd_run`; refusal or a strike falls back to Winamp Bars and marks the entry.
-- Remove the 8-slot install; one window (0x24900000, 64 KiB incl. pstate) and the 4 KB scratch.
+- Remove the 8-slot install; one window (0x24970000, slot 7, 64 KiB incl. pstate) and the 4 KB scratch.
 - Load at selection (X, the Settings list, boot restore); never inside a tick; the audio stream unchanged (P0 measured no dropout; the swap runs between pictures).
 - Packs relinked for the window (`build_packs.py` already has `build_window`; the shipped packs become window-linked, ids from P2.0).
 **Exit (Pocket, DEV 220):** the shipped seven meters selected from a v2 bin, no dropout across 100 swaps, the `MWIN` rows (load cycles, last error) match P0's.
