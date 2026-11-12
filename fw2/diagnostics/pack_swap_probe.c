@@ -2,6 +2,10 @@
 #include "pack_swap_probe.h"
 #ifdef P2_PACKS
 #include "../ui/meter.h"
+/* The probe's three hooks into fw2/ui/meters.c, declared here and not in meter.h (the WebAssembly twins of the meters hash meter.h, so a diagnostic-only declaration there would make every twin stale). */
+extern const void *meters_pack_probe_info(uint32_t row);              /* an mpk_info_t: the row's pack running from its own slot (the oracle), 0 when it does not run */
+extern volatile uint8_t *meters_pack_probe_slot(uint32_t row);         /* and where that slot's data alias is */
+extern void meters_pack_probe_done(void);                              /* the probe used the scratch: the live pack is activated again on its next tick, with a forced repaint */
 #include "../ui/meter_pack.h"
 #include "../ui/theme.h"
 #include "../stream/packfile.h"
