@@ -13,6 +13,7 @@ static uint32_t psram_mem[2048];
 #define METR_PSRAM psram_mem
 #define P2_PACKS 1
 #define MTR_STATE
+#define MTR_OWN_QUIESCE 1
 static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
 static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000] __attribute__((aligned(4)));
 #define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)

@@ -68,6 +68,9 @@ MTR_STATE uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mto
 MTR_STATE uint32_t mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, mwin_refused;
 MTR_STATE uint32_t mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row;       /* card reads that failed (the load stops at the first), the cycles that failed read cost, the quiesce wait (last, worst), the last row refused */
 extern void mp3play_io_quiesce(void);                                       /* fw2/transport/mp3play.c: lets the music stream's read in flight finish; EVERY blocking card read while music plays starts with it (cover, preset files): the slot driver and the 4 KB tag zone are shared */
+#if defined(P2_HOST) && !defined(MTR_OWN_QUIESCE)
+__attribute__((weak)) void mp3play_io_quiesce(void) { }                    /* a host test with no music stream (the window harness has its own) */
+#endif
 static void quiesce(void)
 {
     const uint32_t t0 = cycles(); mp3play_io_quiesce(); const uint32_t d = cycles() - t0;

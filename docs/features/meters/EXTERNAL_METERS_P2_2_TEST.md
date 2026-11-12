@@ -36,13 +36,13 @@ What it answers (plan P2.2 exit): do the shipped seven meters run when selected 
 | `MWIN LOAD MAX` | **at most about 6.5 M** (P0: 6.49 M, 97 ms); Layered Wave is the biggest pack and the slowest | far above: the card read competes with something |
 | `MWIN HASH` | the id hash of the last pack loaded (Layered Wave is `58128034`, Waterfall `17E60776`, Chladni `7471CC21`, Scope `143ACB80`, VU Master `0D8C03D3`, Sound Map `0C82D9F0`) | |
 | `MWIN ERR` | **0** | 11 pack header against its table row, 22 ABI/tau_min, 24 not linked for the window, 25 sizes, 26 CRC, 40 struck out, 41 descriptor |
-| `MWIN READ FAIL` | **0** | a card read failed during a load (the load stopped there, `MWIN ERR 43`, Winamp Bars shown); `MWIN READ FAIL CYC` is what that read cost (a quarter second at most = 16.7 M cycles) |
-| `MWIN QUIESCE`, `MWIN QUIESCE MAX` | small (the wait for the music stream's read in flight; at most a few ms is normal) | seconds: the stream does not go idle |
+| `MWIN READ FAIL` | **0** | a card read failed during a load (the load stopped there, `MWIN ERR 43`, Winamp Bars shown); `MWIN RFAIL CYC` is what that read cost (a quarter second at most = 16.7 M cycles) |
+| `MWIN Q WAIT`, `MWIN Q MAX` | small (the wait for the music stream's read in flight; at most a few ms is normal) | seconds: the stream does not go idle |
 | `MWIN LAST ROW` | with `MWIN ERR`: the table row of the last refused load | |
 | `MWIN REFUSED` | **0** | a pack was refused and Winamp Bars was shown instead |
 | `MWIN STRIKES` | **0** | a pack hung (cut by the watchdog) or overran its limit three times |
 
-5. **Decision rule (DEV 221):** `MWIN ERR`, `MWIN READ FAIL`, `MWIN REFUSED` and `MWIN STRIKES` stay 0, and `DRY`, `UNDER RING`, `HW UNDER EV` and `HW UNDER TK` are **flat across 100 swaps**. If any grows, write down the press number and these rows (`MWIN LOAD MAX`, `MWIN QUIESCE MAX`, `MWIN READ FAIL CYC`, `MWIN LAST ROW`).
+5. **Decision rule (DEV 221):** `MWIN ERR`, `MWIN READ FAIL`, `MWIN REFUSED` and `MWIN STRIKES` stay 0, and `DRY`, `UNDER RING`, `HW UNDER EV` and `HW UNDER TK` are **flat across 100 swaps**. If any grows, write down the press number and these rows (`MWIN LOAD MAX`, `MWIN Q MAX`, `MWIN RFAIL CYC`, `MWIN LAST ROW`).
 
 **Decision rule (older text, kept):** `MWIN ERR`, `MWIN REFUSED`, `MWIN STRIKES` stay 0, **`DRY` / `UNDER RING` / `HW UNDER EV` / `HW UNDER TK` do not grow across the 100 swaps** (P0 had 22 dry events in 22 swaps from the probe's own timing; the point of P2.2 is that selection-time loading adds none), and no meter ever draws the wrong picture (a stale instruction cache would show as garbage or a crash on the first tick after a swap). Any growth in the dropout counters: note which presses, the length of `MWIN LOAD MAX`, and tell the session; the fix is to schedule the load around the music reads (plan 3.3).
 
