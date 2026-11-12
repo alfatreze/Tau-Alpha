@@ -1,6 +1,6 @@
 # External meters: the specification (phase P1)
 
-Status 2026-11-12: **written, not reviewed by Omega, nothing built from it yet.** It turns section 3 of `EXTERNAL_METERS_PLAN.md` into exact formats. Gate P0 passed on a Pocket (see the plan's branch log), so the load-into-one-window design stands. Evidence labels: **code** (read in this tree), **Pocket** (measured by the owner on DEV 920), **to fix in P2** (a number or flag the firmware work decides against the real code, never guessed here).
+Status 2026-11-12 (later): **reviewed by Omega (message 021); the answers are folded in below (marked R-021/n); nothing built from it yet.** It turns section 3 of `EXTERNAL_METERS_PLAN.md` into exact formats. Gate P0 passed on a Pocket (see the plan's branch log), so the load-into-one-window design stands. Evidence labels: **code** (read in this tree), **Pocket** (measured by the owner on DEV 920), **to fix in P2** (a number or flag the firmware work decides against the real code, never guessed here).
 
 All integers are little endian. "Window" is the 64 KiB PSRAM code window at `0x24900000` (today's pack slot 7, which P0 proved can be rewritten at run time).
 
@@ -9,15 +9,16 @@ All integers are little endian. "Window" is the 64 KiB PSRAM code window at `0x2
 |---|---|---|
 | `meter.json` | yes | the manifest below |
 | `meter.bin` | yes | the pack: a `TMPK` v2 image linked for the window (section 3) |
-| `presets/*.json` | no | factory presets, the format Tau Alpha already uses for `tau-presets/` |
+| `presets/index.tpi`, `presets/p<id>.tpr` | no | factory presets in the binary format the firmware already reads (`fw2/cores/mpreset_core.h`, written by `tools/player2/mpreset.py`); Omega copies them to `tau-presets/<id hash, 8 lower-case hex>/` (R-021/6) |
+| `preview.png` | yes | exactly 56 x 32, at most 8 distinct colours; Omega turns it into the preview block of the bin (palette plus run-length stream), refusing a file that does not fit (R-021/5) |
 | `README.md`, `LICENSE` | yes (licence) | shown by Omega before install |
 | `source/` or a `source` link | recommended | the meter's source; a meter without it is marked "binary only" |
 
 `meter.json`:
 ```
 { "schema": 1,
-  "id": "alfatreze.winamp-scope",            lower-case, [a-z0-9.-], 3..40 chars, "<author>.<name>"; the identity, never a number
-  "name": "Winamp Scope",                    1..23 chars (what the Pocket shows)
+  "id": "alfatreze.winamp-scope",            lower-case, [a-z0-9.-], 3..39 chars (R-021/4), "<author>.<name>"; the identity, never a number
+  "name": "Winamp Scope",                    1..23 chars of printable ASCII 0x20..0x7E (R-021/3; widened later only after the font is checked)
   "version": "1.2.0",                        semantic version of the meter itself
   "author": "...", "licence": "MIT", "homepage": "https://...",
   "abi": "1.2",                              the host-table version the pack NEEDS (not the one it was built with)
@@ -26,7 +27,7 @@ All integers are little endian. "Window" is the 64 KiB PSRAM code window at `0x2
   "files": { "meter.bin": "<sha256>", "presets/x.json": "<sha256>" },     pins every file
   "signature": null }                        reserved: ed25519 over the canonical manifest; v1 never checks it
 ```
-Omega verifies the pins, shows author, source, licence and "a meter runs with full access to the player" before every install and every update (D-M22 trust). The firmware keeps its own integrity checks only (CRC, ABI, origin, watchdog; D-M20).
+**Limits Omega enforces on a package (R-021/9):** a zip size cap (4 MiB), no path outside the package (no `..`, no absolute path), no file beyond this table, `meter.bin` at most the window, every file pinned in `files`; a failure is refused with the reason in plain words. Omega verifies the pins, shows author, source, licence and "a meter runs with full access to the player" before every install and every update (D-M22 trust). The firmware keeps its own integrity checks only (CRC, ABI, origin, watchdog; D-M20).
 
 ## 2. The bin v2: `Assets/tau/common/tau-meters.bin` (user bin, data slot 10) and the shipped `tau-packs.bin`
 ```
@@ -45,10 +46,13 @@ TOC entry (256 B):
 86 u16 reserved   88 u32 max_cycles   92 u32 pack_off   96 u32 pack_size   100 u32 pack_crc   104 u32 pstate_bytes   108 u32 bss_bytes
 112 u32 preview_off  116 u32 preview_len  120..255 reserved (zero)
 ```
-- **The firmware reads the header and the TOC at boot into PSRAM** (up to 16 KB for 64 meters; hot RAM is untouched, it is 16 bytes from its floor in the Diagnostic Build). The Settings list reads the rows it shows and their previews from that PSRAM copy.
+- **The firmware reads the header and the TOC at boot into PSRAM** (up to 16 KB for 64 meters, 136 of each 256 bytes reserved: kept at 256 for growth, R-021/8; hot RAM is untouched, it is 16 bytes from its floor in the Diagnostic Build). The Settings list reads the rows it shows and their previews from that PSRAM copy.
 - A bin is refused whole when the magic, version, `total size` or the end CRC is wrong, with the Info row naming which. Order of preference at boot: `tau-meters.bin` (valid) then `tau-packs.bin`; neither valid means Winamp Bars only, the player as it is without packs today.
 - `prev_off/len`: the previous good TOC is kept inside the file by Omega's atomic write; the firmware uses it only to fall back when a pack in the new TOC fails its CRC (it then lists that meter as damaged, never crashes).
 - **Version 1 bins stay readable:** a v1 bundle is mapped to a TOC built from each pack's descriptor and header, so the first v2 firmware runs old cards. An old firmware refuses a v2 bin (it checks `version`), which is why Omega's TAU-update guard (section 6) exists.
+
+**Trust until signing exists (R-021/1):** there is **no public catalogue and no "update available" for third-party meters** until the `signature` field is checked; a meter is installed from a file the user chose, and Omega shows author, source, licence, binary-only and the hashes before every install and update.
+**Identity (R-021/2):** `id_hash` must be unique among the TOC rows. Omega **refuses** to install a meter whose hash equals another installed id's hash, and the firmware may assume no two rows share one. `id` is at most 39 characters so it always has a NUL (R-021/4). The **user bin is shared** by every Tau core on the platform (TAU, TAU Diagnostics, and TAU Preview, which reads TAU's media in place) (R-021/10).
 
 ## 3. The pack v2: `TMPK`
 Same 48-byte header as v1 (`TAU_PACKS_FORMAT.md`) with three changes:
@@ -73,10 +77,14 @@ record (104 B) u32 id_hash  u16 params_rev  u8 preset  u8 nparams (<= 48)  u16 v
 - **ABI** (`major.minor`, now 1.2): a firmware supports exactly one major. Minor additions (a new host-table entry, a new `mtr_in_t` field) append, and old packs keep running. A pack declares the ABI it needs; the TOC carries it, so the list can show "needs newer TAU" greyed without loading it.
 - **A major break strands third-party meters**, so it is a TAU decision with notice: Omega's **TAU-update guard** reads each installed meter's `abi` and `tau_min` from the bin, and before installing a TAU that would strand any, names them and offers to keep the old TAU, update the meters first, or hide them. This is the Omega work of P4.
 - **Meter version** is semver, shown in Info and the list; Omega compares it with the catalogue. `params_rev` is separate (settings compatibility, section 5).
+- **`tau-compat.json` carries the firmware's ABI** as `packs_abi` (the major, as today) **and a new `packs_abi_minor`** (R-021/2), next to `persist_layout`, which becomes 2 when this ships (R-021/7): Omega treats a card with layout 2 as read only until its mirror ships.
 - A pack never needs a newer firmware silently: unmet `abi` or `tau_min` marks the row unavailable.
 
 ## 7. Ids, names, limits (fixed numbers)
 64 meters; id 3..40 chars; name 1..23 chars; 48 parameters; one pack at most the window (64 KiB incl. pstate, to confirm in P2 against the largest, Layered Wave at 15.7 KB + 2.4 KB); previews 56 x 32.
+
+## 7a. Presets and the id (R-021/6)
+Today the preset folder is the decimal manifest index (`tau-presets/12/`) and the files carry that number. With string ids: the folder is the **32-bit id hash in 8 lower-case hex digits**; the `meter id` u16 inside `index.tpi` and `.tpr` is the hash's low 16 bits, informational (P2 decides whether the firmware checks it, and whether it keeps reading the old decimal folder for the seven shipped meters when the hash folder is absent; Omega moves them when it composes the user bin). The preset format itself does not change.
 
 ## 8. What P2 must decide (not guessed here)
 The settings data slot id and flags; whether the TOC copy lives in the existing PSRAM state region or a new one; the Info/Report rows (`MTOC`, `MWIN`, `MSET`: registered as diagnostic features, `fw2/diag_features.json`); the list scrolling for up to 64 rows; the cost of reading previews through the PSRAM copy.
