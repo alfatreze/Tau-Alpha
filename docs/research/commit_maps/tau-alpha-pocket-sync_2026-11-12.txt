@@ -1,0 +1,21 @@
+# alfatreze/tau-alpha-pocket-sync: old commit -> new commit (history rewrite of 2026-11-12)
+# Why: the Claude co-author trailer was removed from every commit (owner decision, docs/PROJECT_RULES.md rule 9). Trees, authors, dates and subjects are unchanged; only the message trailer, and therefore every hash, changed.
+# Old hashes quoted in our docs (for example 02aad32 = v0.3.0) map to the new ones below. The old commits stay reachable by direct SHA on GitHub until it garbage-collects them.
+# columns: old_hash new_hash tree subject
+1d2ca6f4127b567aa24672ac1dfbc31729504567 69b9535ae8255d366dfee1fcef86cb5cf4765c62 318a606fa8951ec4809767401b675460cb600123 TAU Library plugin: scaffold, Check the card, host tests, CI, MIT
+3722e3638d6a89fec8be7cee88c061f080d2c102 db084fc675efe28ab35ecd744a13aae2547976e9 6f57afb6246a83f58d289089775376cf2d0a0f5d Repository renamed to tau-alpha-pocket-sync
+895e748302214821252f9ff4152f9bf0f725f9e3 76dfe193ebdcda70971528d36719f6ba5b260ce1 bbfd09810b095cb451dc708704b0ed3e7aedcc5d Rebuild the library: plan first, confirmed write, safe swap, name sidecar (tau-core tag tau-core-wasm-1)
+ee6e4d6ac24c7b2beaa407d97bbfa44c47fba700 dcb27fa64a28065a7e80e7458a00a8573bf7c0de 84ff2d1566d1186b85a58eaa5f5862dbeec89381 Move to tau-core-wasm-2 (scan without threads on WASI); host tests pass
+f2bc780079f93391815e82ab72b7db945bcc26c4 a38d9aec8bfa77f3f8c0ce807551a3a226cccabf aac66e95a51b01cfb83db9e8c4a7db7d1c17f460 Make album covers: plan first, confirmed write, safe temp-verify-rename, library rebuilt after
+b6f50f12d85b867113b322753b4f26bf645bb198 44b13d3a6801b7005b5ab5fd17964a315caac506 02cfccd2ddaca0268583e33abf3904d0b11d1f01 Prepare release 0.1.0: changelog, plugin.json text, release notes from the changelog, exactly two assets
+97a10235ba8178ad49e47ff16502e20e024ea769 8ba625899abc035f178c4c02a690ddeeba6255f7 aef7487ab4a2167fd6c3ee4e935bf97c43bf8d54 Plugin icon (logo_url pinned to the release tag) and a test that the logo exists at this version
+96e7de4837f950b0f6df9208e2150dc4f6a69576 3dd89c884fbeb1361b7caa0cb8ad95028e6fb5c0 aa1ea7272e74df8a5012ad730cb95c6ef76364f5 Plugin icon: a square crop of the TAU platform artwork (no new art)
+780d0d1766e3054b5e4e8a65723f9805ef716d70 9693f292333d90025ab469a41f59d1978edd7640 3d6cc0a2a9f959d431af39094359b73101001d5c cargo fmt (the CI format check on the icon test)
+f122e71b86a9a04d48b9ae7ae93876bc86fd5fbe 905b0142bd62e2cc23c9da46fffd77f84664d5b9 8a17eca8cd681230c67dcb211d7e3cf65367fed0 Rebuild the library also makes the album covers (one plan, one confirmation); no Exit item
+d07f0db55f3dc15a8566c96caedae96a0d3af11e fd25b6038518996a3b44353f17340ac8680bd9e0 56e746d932268e5226e81f4028d2464a75f4c930 0.2.0: readable Check text, plans and results; Get Tau Omega with an arrow; version, logo URL and changelog
+40ad2257ee58520b4789782e89ac8ba84f6ea6de 06ca545e3882f1b0bc3db06f1dd0358a908ab1b3 277da1a6f0d23017f0d270720b33561a582420ac One Rebuild for library, names and covers (only what is needed); offer to rename names the Pocket cannot open; shorter text; no Make album covers only
+02aad326a8540f4cdd2961e304832729366854e2 9a3b3a6ae6c35dc6cdd41bf3fadb84a668879cc2 8a3c2a5220e71fe5496768cdb384cd763a1154ec Release 0.3.0: version, logo URL and changelog
+# tags: name old_hash new_hash
+v0.1.0 96e7de4837f950b0f6df9208e2150dc4f6a69576 3dd89c884fbeb1361b7caa0cb8ad95028e6fb5c0
+v0.2.0 d07f0db55f3dc15a8566c96caedae96a0d3af11e fd25b6038518996a3b44353f17340ac8680bd9e0
+v0.3.0 02aad326a8540f4cdd2961e304832729366854e2 9a3b3a6ae6c35dc6cdd41bf3fadb84a668879cc2
