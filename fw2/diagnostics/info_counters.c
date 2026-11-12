@@ -11,11 +11,11 @@
 #include "check_page.h"
 #if P2_DIAG
 #include "preset_probe.h"
-#include "pack_swap_probe.h"
 #include "name_matrix.h"
 #endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"
+extern uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_refused, mwin_strikes;     /* fw2/ui/meters.c: PSRAM state (not declared in meter.h: the WebAssembly twins hash it) */
 #endif
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
@@ -170,21 +170,21 @@ const cnt_t counters_table[] = {
     { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
     { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
     { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
-    { "PS RUNS",      CK_U32, CU_NONE,   &psp_runs },               /* pack-swap probe (external-meters P0): one per new track; the counters live in PSRAM */
-    { "PS OK",        CK_U32, CU_NONE,   &psp_ok },                 /* a swapped-in pack made the same host calls and returned the same value as the first time */
-    { "PS BAD",       CK_U32, CU_NONE,   &psp_bad },                /* it did not (wrong code after a swap, e.g. a stale instruction cache) or hung: must stay 0 */
-    { "PS HANG",      CK_U32, CU_NONE,   &psp_hang },               /* the watchdog cut a probe tick */
-    { "PS ERR",       CK_U32, CU_NONE,   &psp_err },                /* the last failure: 1 no window packs, 2 install refused, 3 no meter row */
-    { "PS INST ERR",  CK_U32, CU_NONE,   &psp_inst_err },           /* the loader's refusal code when ERR is 2 */
-    { "PS FOUND",     CK_U32, CU_NONE,   &psp_found },              /* window packs found in the bundle (7 expected) */
-    { "PS LAST",      CK_U32, CU_NONE,   &psp_last_k },             /* the meter the last probe loaded */
-    { "PS INSTALL",   CK_U32, CU_CYC,    &psp_inst_cyc },           /* read the pack from the bundle, copy it into the window, CRC it: the load latency of a selection */
-    { "PS INST MAX",  CK_U32, CU_CYC,    &psp_inst_max },
-    { "PS FLUSH",     CK_U32, CU_CYC,    &psp_flush_cyc },          /* the instruction-cache flush (fence.i) */
-    { "PS RUN",       CK_U32, CU_CYC,    &psp_run_cyc },            /* one tick of the swapped-in pack against the stubs */
-    { "PS RUN MAX",   CK_U32, CU_CYC,    &psp_run_max },
-    { "PS FILL MIN",  CK_U32, CU_PAIRS,  &psp_fill_min },           /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
-    { "PS DRY",       CK_U32, CU_NONE,   &psp_dry },                /* times the audio fell behind during a probe: must stay 0 */
+#ifdef P2_PACKS
+    { "MTOC STATE",   CK_U32, CU_NONE,   &mtoc_state },            /* the meter bin read at boot (external meters P2.2): 0 no bin, 1 sound and in use, 2 every bin tried was refused */
+    { "MTOC COUNT",   CK_U32, CU_NONE,   &mtoc_count },            /* rows in its TOC (7 for the shipped bin) */
+    { "MTOC ERR",     CK_U32, CU_NONE,   &mtoc_err },              /* why the last bin was refused (meterbin_core.h: 2 magic, 3 version, 4 toc_crc, 6 layout, 9 duplicate id, 12 window, 20 no built-in fallback row); 0 when it is in use */
+    { "MTOC ROW",     CK_U32, CU_NONE,   &mtoc_bad_row },          /* the TOC row the refusal was about (0xFFFFFFFF: the header) */
+    { "MTOC SRC",     CK_U32, CU_NONE,   &mtoc_src },              /* 1 the user's tau-meters.bin (slot 10), 2 the core's own tau-packs.bin (slot 9) */
+    { "MTOC READ",    CK_U32, CU_CYC,    &mtoc_cyc },              /* header, TOC and previews read from the card into PSRAM and checked: the boot cost */
+    { "MWIN LOADS",   CK_U32, CU_NONE,   &mwin_loads },            /* packs loaded into the window: one per selection of a pack meter (a meter already in the window is not loaded again) */
+    { "MWIN LOAD",    CK_U32, CU_CYC,    &mwin_last_cyc },         /* the last load: read from the card, check, copy through the uncached alias, fence.i, pstate zeroed (P0: 1.48 M cycles typical) */
+    { "MWIN LOAD MAX", CK_U32, CU_CYC,   &mwin_max_cyc },          /* the worst one (P0: 6.49 M) */
+    { "MWIN HASH",    CK_HEX32, CU_NONE, &mwin_last_hash },        /* the id hash of the last pack loaded */
+    { "MWIN ERR",     CK_U32, CU_NONE,   &mwin_err },              /* the last refusal or strike (22 ABI, 24 origin, 25 size, 26 CRC, 11 header against its TOC row, 40 struck out, 41 descriptor); 0 none */
+    { "MWIN REFUSED", CK_U32, CU_NONE,   &mwin_refused },          /* selections that fell back to Winamp Bars because the pack was refused */
+    { "MWIN STRIKES", CK_U32, CU_NONE,   &mwin_strikes },          /* packs struck out (a hang cut by the watchdog, or three overruns of the cycle limit) */
+#endif
     { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
     { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },
     { "NM RES C",     CK_HEX32, CU_NONE, &nm_res[2] },              /* variants 16..23: the encoding probes */
@@ -471,10 +471,10 @@ const cnt_t counters_table[] = {
     METER_LIST(MCOST_X)
 #endif
 #ifdef P2_PACKS
-    { "PACKS RUN",     CK_HEX32, CU_NONE, &v.pack_run },      /* bit per meter (table order): 1 = the meter runs from its pack */
+    { "PACKS RUN",     CK_HEX32, CU_NONE, &v.pack_run },      /* bit per row: 1 = that row's pack is the one in the window now */
     U32("PACK ERR",     CU_NONE,   &v.pack_err),              /* the first refusal code of a pack (21 header, 22 ABI, 23 id, 24 origin, 25 size, 26 CRC, 27 entry, 28/29 scratch); 0 none */
-    U32("PACK FILE",    CU_NONE,   &v.pack_file),             /* the bundle: 0 read, 255 no bundle in tau-assets.bin, 30 not a bundle */
-    U32("PACKS SEEN",   CU_NONE,   &v.pack_seen),             /* packs found in the bundle */
+    U32("PACK FILE",    CU_NONE,   &v.pack_file),             /* the bin: 0 in use, 255 none found, else why the last one was refused (see MTOC ERR) */
+    U32("PACKS SEEN",   CU_NONE,   &v.pack_seen),             /* rows in the TOC */
     U32("PACK SRC",     CU_NONE,   &v.pack_src),              /* where the bundle came from: 0 none, 1 tau-assets.bin (MPKB), 2 the core's own tau-packs.bin (the release) */
 #endif
 };
