@@ -43,7 +43,7 @@
 * **No refit and no Omega change in this repo:** Tau Omega must mask the narrowed fields and read `persist_registry.json` (new meanings since v0.7.0; id 33 is new).
 
 ## Layout 2 (external meters, P2.3, 2026-11-12): HOST-ONLY, not yet on a Pocket (the hardware migration test is P2.7)
-Owner decision D-M23: per-meter settings stay in the 16 persist words (no settings file, no data slot); what is remembered is the selected meter and its preset, and two tunings. Spec: `docs/features/meters/EXTERNAL_METERS_SPEC.md` section 5. Reference: `tools/persist_layout.py` (Python, Omega mirrors it); firmware: `fw2/cores/settings_core.h`, `fw2/cores/tune_core.h`; the ids of the seven shipped meters: `fw2/cores/shipped_meter_ids.h` (**placeholders until P2.0**). Every persist id keeps its word (id = word + 10); the 16-variable limit (KB-079) is unchanged: ids 10, 11, 12, 15, 16, 20..23, 27, 28, 29, 30, 31, 32, 33 as before.
+Owner decision D-M23: per-meter settings stay in the 16 persist words (no settings file, no data slot); what is remembered is the selected meter and its preset, and two tunings. Spec: `docs/features/meters/EXTERNAL_METERS_SPEC.md` section 5. Reference: `tools/persist_layout.py` (Python, Omega mirrors it); firmware: `fw2/cores/settings_core.h`, `fw2/cores/tune_core.h`; the ids of the seven shipped meters: `fw2/cores/shipped_meter_ids.h` (the `id_hash` values are P2.0's final ids, checked against `meters/*/meter.json`; the `params_rev` values are placeholders until P2.2). Every persist id keeps its word (id = word + 10); the 16-variable limit (KB-079) is unchanged: ids 10, 11, 12, 15, 16, 20..23, 27, 28, 29, 30, 31, 32, 33 as before.
 
 | Word (id) | Layout 2 | Bits used | Free |
 |---|---|---|---|

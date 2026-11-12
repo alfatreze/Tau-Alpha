@@ -118,6 +118,13 @@ z = ROOT / "release/alfatreze.TAU_0.6.1_2026-10-21.zip"
 if z.exists():
     old = {int(v["id"]): (int(v["address"], 16) - 0x20000000) // 4 for v in json.loads(zipfile.ZipFile(z).read("Cores/alfatreze.TAU/interact.json"))["interact"]["variables"] if v.get("persist")}
     check("id -> word equals the addresses of the released v0.6.1 (ids 24-26 included)", all(pl.ID_TO_WORD[i] == w for i, w in old.items()), str(old))
+sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_manifest as mm
+man = {}
+for mp in (ROOT / "meters").glob("*/meter.json"):
+    d = mm.load(mp)
+    if "p2" in d and d["p2"].get("slot") is not None: man[d["p2"]["slot"]] = d["id"]
+check("fw2/cores/shipped_meter_ids.h holds the first 32 bits of each shipped meter's id, in manifest slot order", [h for _, h, _ in pl.SHIPPED] == [int(man[i][:8], 16) for i in sorted(man)] and sorted(man) == list(range(7)))
 g = pl.golden()
 check("the committed golden vectors equal a fresh run", json.loads((ROOT / "docs/research/persist_layout/golden_vectors.json").read_text()) == json.loads(json.dumps(g)))
 check("the golden resumed migrations (layout 0 and layout 1) all end at the full migration, except that a cut inside a tuning slot loses that slot", all(c["equals_full_migration"] or c["lost_tuning_slots"] for c in g["resume"] + g["resume_v1"]) and not any(c["lost_tuning_slots"] for c in g["resume"]) and any(c["lost_tuning_slots"] for c in g["resume_v1"]) and len(g["resume"]) >= 30 and len(g["resume_v1"]) >= 45)
