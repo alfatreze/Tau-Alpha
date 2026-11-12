@@ -21,6 +21,7 @@ def manifest(k): return json.loads((ROOT / "meters" / k / "meter.json").read_tex
 def build(d, mutant=None):
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "noflush": a = "    MTR_FLUSH();"; assert a in src; src = src.replace(a, "    ;", 1)
+    if mutant == "noquiesce": src = "\n".join(l for l in src.splitlines() if "BEFORE the first card read" not in l) + "\n"
     if mutant == "cutignored": a = "if (cut) pack_struck(cur);"; assert a in src; src = src.replace(a, "if (0) pack_struck(cur);")
     if mutant == "nofallback_req": a = "MTOC_E_NOFALLBACK"; assert a in src; src = src.replace("return MTOC_E_NOFALLBACK;", "(void)0;")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
@@ -199,6 +200,28 @@ with tempfile.TemporaryDirectory() as td:
     check("a meter whose parameter set changed (params_rev bumped) starts from its defaults: the old tuning is not applied", sh[0].startswith("show cur 2 custom 0"), str(sh))
     o = run(exe, "user %s\nnocore\nboot\nselect 2\nsave\nnouser\nrestart\nshow\nsave\n" % full); sv = [l for l in o if l.startswith("saved")]; sh = shows(o)
     check("with no bin at all the player starts on Winamp Bars and the saved selection is kept for when the bin is back", sh[0].startswith("show cur 0") and sv[0] == sv[1] and "hash 00000000" not in sv[1], str(sv) + str(sh))
+    # ---- the music stream (hardware finding, TAU DEV 220): a card read while the stream has a read in flight collides on the one slot driver and the shared tag zone
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\nstate\n" % full); s = state(o)
+    ev = [l.split()[0] for l in o if l[0] in "QRXFC"]
+    check("at selection the stream is quiesced BEFORE the first card read: Q, the reads, F, C -- and no read collided with the stream", ev[:2] == ["Q", "R"] and ev.index("F") > max(i for i, e in enumerate(ev) if e == "R") and ev[-1] == "C" and "X" not in ev and s["collisions"] == 0 and s["err"] == 0, str(ev[:8]))
+    o = run(exe, "user %s\nboot\n" % full); ev = [l.split()[0] for l in o if l[0] in "QRX"]
+    check("the boot read of the TOC is quiesced first too (no stream runs at boot, but the order is asserted anyway)", ev[:2] == ["Q", "R"] and "X" not in ev, str(ev[:4]))
+    o = run(exe, "user %s\nboot\nswap 200\nstate\n" % full); s = state(o)
+    check("200 swaps with the stream always mid-read: not one collision, every load preceded by its own quiesce", s["collisions"] == 0 and s["err"] == 0 and sum(1 for l in o if l == "Q") >= s["loads"] and s["loads"] == 150, str(s))
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\nstate\n" % full); s0 = state(o)
+    check("MWIN counts the quiesce wait (last and worst), in cycles", s0["qlast"] > 0 and s0["qmax"] >= s0["qlast"], str(s0))
+    o = run(exe, "user %s\nboot\nfailread 3\nselect 3\ntick 0\nstate\n" % full); s = state(o)
+    ev = [l.split()[0] for l in o if l[0] in "QRXFC"]; boot_reads = ev.count("R") - 0
+    check("a card read that fails aborts the load AT the failed chunk: no further read, no flush, no run; Winamp Bars shown; MWIN names it (READ FAIL 1, last refused row 3, error 43, the cycles the failed read cost)",
+          s["readfail"] == 1 and s["err"] == 43 and s["lastrow"] == 3 and s["cur"] == 0 and "F" not in ev and not any(e == "C" for e in ev) and s["rfcyc"] >= 750000, str(s) + str(ev[-6:]))
+    q = max(i for i, l in enumerate(o) if l == "Q")
+    check("... and the failed read was the last read of that load (the loader never retries or chains timeouts): exactly 3 reads after the quiesce", len([l for l in o[q:] if l.startswith("R ")]) == 3, str(o[q:q + 8]))
+    pf = (ROOT / "fw2/stream/packfile.c").read_text()
+    check("the per-chunk card timeout is capped at a quarter second (a 1 KB read takes about a millisecond; it was 3 s)", "CLK_HZ / 4u" in pf and "CLK_HZ * 3u" not in pf)
+    with tempfile.TemporaryDirectory() as t7:
+        m = build(Path(t7), "noquiesce")["h"]
+        o = run(m, "user %s\nboot\nselect 1\ntick 0\nstate\n" % full)
+        check("mutant (no quiesce before the loader's card reads) is caught: collisions and a refused pack", state(o)["collisions"] > 0)
     # ---- mutants
     with tempfile.TemporaryDirectory() as t2:
         m = build(Path(t2), "noflush")["h"]

@@ -13,6 +13,7 @@ static uint32_t psram_mem[2048];
 #define METR_PSRAM psram_mem
 #define P2_PACKS 1
 #define MTR_STATE
+#define MTR_OWN_QUIESCE 1
 static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
 static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000] __attribute__((aligned(4)));
 #define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)
@@ -64,7 +65,17 @@ int font_select(uint32_t i) { font_cur = i; return 0; }
 static uint32_t saved_words[SF_WORDS];
 /* the two data slots: a file each, read in pieces, a read past its end fails */
 static uint8_t *fb[2]; static uint32_t fl[2];
-static int rd_slot(int s, uint32_t off, uint8_t *dst, uint32_t len) { if (!fb[s] || (uint64_t)off + len > fl[s]) return 0; memcpy(dst, fb[s] + off, len); return 1; }
+/* The music stream: while a read of it is in flight (stream_inflight, set when a selection or the boot starts and after every tick) ANY card read collides with it on the one slot driver and the shared tag zone: the read FAILS and is logged "X".
+ * Only mp3play_io_quiesce() lets the stream's command finish (clears the flag). Log: "Q" a quiesce, "R off" a card read (before the data is served), "X" a collision. failread N: the Nth card read from now on fails (a failing card). */
+static int stream_inflight, fail_in = -1, collisions, reads_total;
+void mp3play_io_quiesce(void) { printf("Q\n"); stream_inflight = 0; now += 1000u; }
+static int rd_slot(int s, uint32_t off, uint8_t *dst, uint32_t len)
+{
+    printf("R %u\n", off); reads_total++;
+    if (stream_inflight) { printf("X\n"); collisions++; memset(dst, 0xA5, len); return 0; }
+    if (fail_in > 0 && --fail_in == 0) { fail_in = -1; now += 750000u; return 0; }
+    if (!fb[s] || (uint64_t)off + len > fl[s]) return 0; memcpy(dst, fb[s] + off, len); return 1;
+}
 static int rd_user(void *c, uint32_t off, uint8_t *dst, uint32_t len) { (void)c; return rd_slot(0, off, dst, len); }
 static int rd_core(void *c, uint32_t off, uint8_t *dst, uint32_t len) { (void)c; return rd_slot(1, off, dst, len); }
 static void setfile(int s, const char *p)
@@ -76,7 +87,7 @@ static void setfile(int s, const char *p)
 static void state(void)
 {
     uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
-    printf("state cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u overruns %u struck %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, meter_stats.overruns, meter_stats.struck);
+    printf("state cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u overruns %u struck %u readfail %u rfcyc %u qlast %u qmax %u lastrow %u collisions %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, meter_stats.overruns, meter_stats.struck, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row, collisions);
     for (uint32_t m = 0; m < meter_count; m++) printf(" %d", meters_present(m));
     printf(" pstate");
     for (uint32_t m = 0; m < meter_count; m++) printf(" %u", meters_pack_state(m));
@@ -89,11 +100,12 @@ int main(void)
         char a[16], b[400]; b[0] = 0; const int n = sscanf(line, "%15s %399s", a, b); if (n < 1) continue;
         if (!strcmp(a, "user")) setfile(0, b); else if (!strcmp(a, "core")) setfile(1, b);
         else if (!strcmp(a, "nouser")) setfile(0, "/nonexistent"); else if (!strcmp(a, "nocore")) setfile(1, "/nonexistent");
-        else if (!strcmp(a, "boot")) { meters_init(); meters_enter(0, 0, 100, 50); int ok = meters_packs_load_file(rd_user, (void *)1); printf("boot user %d", ok); if (!ok) { ok = meters_packs_load_file(rd_core, (void *)2); printf(" core %d", ok); } printf("\n"); }
-        else if (!strcmp(a, "select")) { meters_select((uint32_t)atoi(b)); printf("cur %u\n", meters_cur()); }
-        else if (!strcmp(a, "next")) { meters_next(1); printf("cur %u\n", meters_cur()); }
-        else if (!strcmp(a, "tick")) { spend = (uint32_t)atoi(b); win++; meters_tick(1); printf("tick done cur %u\n", meters_cur()); }
-        else if (!strcmp(a, "swap")) { const int k = atoi(b); for (int i = 0; i < k; i++) { meters_select((uint32_t)(i % (int)meter_count)); win++; spend = 0; meters_tick(1); } printf("swapped %d\n", k); }
+        else if (!strcmp(a, "failread")) fail_in = atoi(b);
+        else if (!strcmp(a, "boot")) { stream_inflight = 1; meters_init(); meters_enter(0, 0, 100, 50); int ok = meters_packs_load_file(rd_user, (void *)1); printf("boot user %d", ok); if (!ok) { ok = meters_packs_load_file(rd_core, (void *)2); printf(" core %d", ok); } printf("\n"); }
+        else if (!strcmp(a, "select")) { stream_inflight = 1; meters_select((uint32_t)atoi(b)); printf("cur %u\n", meters_cur()); }
+        else if (!strcmp(a, "next")) { stream_inflight = 1; meters_next(1); printf("cur %u\n", meters_cur()); }
+        else if (!strcmp(a, "tick")) { stream_inflight = 1; spend = (uint32_t)atoi(b); win++; meters_tick(1); printf("tick done cur %u\n", meters_cur()); }
+        else if (!strcmp(a, "swap")) { const int k = atoi(b); for (int i = 0; i < k; i++) { stream_inflight = 1; meters_select((uint32_t)(i % (int)meter_count)); win++; spend = 0; meters_tick(1); } printf("swapped %d\n", k); }
         else if (!strcmp(a, "def")) {
             const uint32_t m = meters_cur(); const meter_def_t *d = meters_def(m); char buf[40];
             printf("def row %u name %s np %u npre %u cmp %u cmd %u cyc %u\n", m, d->name, d->np, meters_npre(m), d->cmp, cmd_limit_of(m), cyc_limit_of(m));
@@ -105,7 +117,7 @@ int main(void)
             printf(" col0"); if (meters_thumb_col(m, 0u, &f, &x, &y, &t, &n)) printf(" %u %u %u %u %u", f, x, y, t, n); printf("\n");
         }
         else if (!strcmp(a, "save")) { uint32_t sv[SF_COUNT]; for (uint32_t i = 0; i < SF_COUNT; i++) sv[i] = sf_table[i].def; appearance_get(sv); sf_pack(saved_words, sv); printf("saved hash %08x pos %u id %u\n", sv[SF_METER_HASH], sv[SF_METER_PRE_POS], sv[SF_METER_PRE_ID]); }
-        else if (!strcmp(a, "restart")) {                                  /* Quit and start again: the player boots (the bins), then the saved register file is applied as main_player.c does */
+        else if (!strcmp(a, "restart")) { stream_inflight = 1;                                  /* Quit and start again: the player boots (the bins), then the saved register file is applied as main_player.c does */
             meters_init(); meters_enter(0, 0, 100, 50); if (!meters_packs_load_file(rd_user, (void *)1)) meters_packs_load_file(rd_core, (void *)2);
             uint32_t sv[SF_COUNT]; sf_unpack(saved_words, sv); appearance_set(sv); printf("restarted cur %u\n", meters_cur());
         }

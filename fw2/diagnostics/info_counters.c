@@ -15,7 +15,7 @@
 #endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"
-extern uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_refused, mwin_strikes;     /* fw2/ui/meters.c: PSRAM state (not declared in meter.h: the WebAssembly twins hash it) */
+extern uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_refused, mwin_strikes, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row;     /* fw2/ui/meters.c: PSRAM state (not declared in meter.h: the WebAssembly twins hash it) */
 #endif
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
@@ -184,6 +184,11 @@ const cnt_t counters_table[] = {
     { "MWIN ERR",     CK_U32, CU_NONE,   &mwin_err },              /* the last refusal or strike (22 ABI, 24 origin, 25 size, 26 CRC, 11 header against its TOC row, 40 struck out, 41 descriptor); 0 none */
     { "MWIN REFUSED", CK_U32, CU_NONE,   &mwin_refused },          /* selections that fell back to Winamp Bars because the pack was refused */
     { "MWIN STRIKES", CK_U32, CU_NONE,   &mwin_strikes },          /* packs struck out (a hang cut by the watchdog, or three overruns of the cycle limit) */
+    { "MWIN READ FAIL", CK_U32, CU_NONE, &mwin_readfail },         /* card reads that failed during a load (the load stops at the first; error 43): must stay 0 */
+    { "MWIN RFAIL CYC", CK_U32, CU_CYC, &mwin_readfail_cyc },  /* what the last failed read cost (the per-chunk timeout is a quarter second = 16.7 M cycles) */
+    { "MWIN Q WAIT", CK_U32, CU_CYC,  &mwin_q_last },             /* the wait for the music stream's read in flight before the last load (mp3play_io_quiesce) */
+    { "MWIN Q MAX", CK_U32, CU_CYC, &mwin_q_max },
+    { "MWIN LAST ROW", CK_U32, CU_NONE, &mwin_last_row },          /* the TOC row of the last refused load (with MWIN ERR) */
 #endif
     { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
     { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },

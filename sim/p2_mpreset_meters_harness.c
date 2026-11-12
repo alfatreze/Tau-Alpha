@@ -6,6 +6,7 @@
  * Prints "npre N", then for list positions 0..N-1 "pos P NAME values...", then the outcome of the other scenarios. */
 #define MPH_REAL 1                                                       /* the real preset-file code is included below: meters.c must not supply its stand-ins */
 #define main budget_main
+#define MTR_OWN_QUIESCE 1
 #include "p2_meter_budget_harness.c"
 #undef main
 #include <stdio.h>

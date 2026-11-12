@@ -66,6 +66,16 @@ static volatile uint8_t *pack_window_data(void);
 /* Diagnostics (Info and Report rows MTOC and MWIN: registered features): all in PSRAM, word accesses, cleared by meters_init (the loader does not zero .psram_state). */
 MTR_STATE uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc;
 MTR_STATE uint32_t mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, mwin_refused;
+MTR_STATE uint32_t mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row;       /* card reads that failed (the load stops at the first), the cycles that failed read cost, the quiesce wait (last, worst), the last row refused */
+extern void mp3play_io_quiesce(void);                                       /* fw2/transport/mp3play.c: lets the music stream's read in flight finish; EVERY blocking card read while music plays starts with it (cover, preset files): the slot driver and the 4 KB tag zone are shared */
+#if defined(P2_HOST) && !defined(MTR_OWN_QUIESCE)
+__attribute__((weak)) void mp3play_io_quiesce(void) { }                    /* a host test with no music stream (the window harness has its own) */
+#endif
+static void quiesce(void)
+{
+    const uint32_t t0 = cycles(); mp3play_io_quiesce(); const uint32_t d = cycles() - t0;
+    mwin_q_last = d; if (d > mwin_q_max) mwin_q_max = d;
+}
 MTR_STATE static uint32_t toc_pv_off, toc_packs_off, toc_total, toc_coll[2];
 static uint32_t pack_act = 0xFFu;                                         /* the row whose .data and .bss are in the scratch */
 #define DYN_MAX_P 40u                                          /* parameters a pack meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is loaded; the label and choice strings are read from the window when a row is drawn: meters_param_label / meters_param_choice) */
@@ -327,7 +337,7 @@ static void select_row(uint32_t r)
     if (r != fb_row && r != win_row) {
         int e = window_load(r);
         if (!e) { e = dyn_register(r); if (e) { win_row = 0xFFu; pack_act = 0xFFu; } }
-        if (e) { dyn[r].code = (uint8_t)e; mwin_err = (uint32_t)e; mwin_refused++; cur = fb_row; }          /* refused: the built-in Winamp Bars, the row marked with the reason */
+        if (e) { dyn[r].code = (uint8_t)e; mwin_err = (uint32_t)e; mwin_refused++; mwin_last_row = r; cur = fb_row; }          /* refused: the built-in Winamp Bars, the row marked with the reason */
         else { dyn[r].code = 0xFFu; fresh = 1u; }
     }
     meters_ext_enter(cur);
@@ -475,6 +485,7 @@ int meters_packs_load_file(lib_read_fn rd, void *ctx)                   /* a dat
 {
     mb_info_t in; const uint32_t t0 = cycles();
     in.bad_row = -1;
+    quiesce();                                                             /* no stream runs at boot, and this is cheap when it is idle; the same rule for every card read */
     const int e = toc_open(rd, ctx, &in);
     if (e < 0) return 0;
     mtoc_cyc = cycles() - t0;
@@ -489,19 +500,31 @@ void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err
 {
     *running = win_row < 32u ? 1u << win_row : 0u; *first_err = mwin_err; *file_err = mtoc_state == 1u ? 0u : mtoc_state == 2u ? mtoc_err : 0xFFu; *seen = mtoc_count;
 }
+#define MWIN_E_READ 43u                                                    /* the card read failed (a timeout of the slot driver): the load stopped at the first failed chunk */
+static int cnt_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n)       /* the bin reader with the failures counted: the first failed read ends the load (mpk_install and mb_check_pack return at once), so timeouts never chain */
+{
+    (void)ctx; const uint32_t t0 = cycles();
+    if (bin_rd(bin_ctx, off, dst, n)) return 1;
+    mwin_readfail++; mwin_readfail_cyc = cycles() - t0;
+    return 0;
+}
 /* Loads the pack of row m into the window. 0 = it runs; else the refusal code (and the window holds nothing that may run). The audio stream is untouched; this is called at selection only, never inside a tick. */
 #ifndef MTR_TEST_WINDOW_LOAD                                              /* a host test that has no bin of packs provides its own (sim/p2_dyn_register.h) */
 static int window_load(uint32_t m)
 {
     mb_row_t r; int e = MB_E_COUNT;
+    quiesce();                                                             /* BEFORE the first card read: the music stream's command in flight finishes first (the P0 probe did the same; without it a read collides with the stream: corrupt header, dropouts, a freeze) */
     win_row = 0xFFu; pack_act = 0xFFu;
     if (m >= toc_info.count || (e = mb_row(toc_rd, 0, &toc_info, m, &r)) != MB_OK) return e;
     if (mb_avail(&r, MTR_PACK_ABI, MTR_TAU_MM) != MB_U_OK) return MPK_E_ABI;
     const uint32_t t0 = cycles();
-    mpkb_rd_t src = { bin_rd, bin_ctx, r.pack_off };
-    e = mb_check_pack(bin_rd, bin_ctx, &r);
+    mpkb_rd_t src = { cnt_rd, 0, r.pack_off };
+    const uint32_t rf0 = mwin_readfail;
+    e = mb_check_pack(cnt_rd, 0, &r);
+    if (mwin_readfail != rf0) return MWIN_E_READ;
     if (e) return e;
     e = mpk_install(mpkb_rd, &src, PACK_SCRATCH, pack_window_data(), MB_WINDOW, MTR_PACK_SLOT_SIZE, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, r.id_hash & 0xFFFFu, &win_info);
+    if (mwin_readfail != rf0) return MWIN_E_READ;                          /* a failed card read stopped the install at that chunk: it is a read failure, not a damaged pack */
     if (e) return e;
     MTR_FLUSH();                                                           /* BEFORE anything runs: the instruction cache may hold the previous meter's code at these addresses */
     mpk_activate(&win_info, pack_window_data(), (volatile uint8_t *)PACK_SCRATCH);
@@ -513,7 +536,7 @@ static int window_load(uint32_t m)
 void meters_pack_probe_done(void) { pack_act = 0xFFu; force_next = 1; }          /* the P0 probe (if linked) used the scratch: the live pack's state is gone, activate it again */
 static void packs_reset(void)
 {
-    mtoc_state = mtoc_count = mtoc_err = mtoc_bad_row = mtoc_src = mtoc_cyc = 0u; mwin_loads = mwin_last_cyc = mwin_max_cyc = mwin_last_hash = mwin_err = mwin_strikes = mwin_refused = 0u;
+    mtoc_state = mtoc_count = mtoc_err = mtoc_bad_row = mtoc_src = mtoc_cyc = 0u; mwin_loads = mwin_last_cyc = mwin_max_cyc = mwin_last_hash = mwin_err = mwin_strikes = mwin_refused = 0u; mwin_readfail = mwin_readfail_cyc = mwin_q_last = mwin_q_max = mwin_last_row = 0u;
     toc_pv_off = toc_packs_off = toc_total = toc_coll[0] = toc_coll[1] = 0u;
     win_row = 0xFFu; pack_act = 0xFFu; fb_row = 0u; ps_reset(&win_strike); toc_info.count = 0u;
     for (uint32_t i = 0; i < DYN_ROWS; i++) { dyn[i].ok = 0u; dyn[i].code = 0xFFu; }

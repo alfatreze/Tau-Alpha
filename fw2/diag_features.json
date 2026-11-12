@@ -74,7 +74,12 @@
     "MWIN HASH",
     "MWIN ERR",
     "MWIN REFUSED",
-    "MWIN STRIKES"
+    "MWIN STRIKES",
+    "MWIN READ FAIL",
+    "MWIN RFAIL CYC",
+    "MWIN Q WAIT",
+    "MWIN Q MAX",
+    "MWIN LAST ROW"
   ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
