@@ -6,21 +6,22 @@ docs/features/meters/EXTERNAL_METERS_SPEC.md sections 2, 3 and 7 and docs/featur
   python3 tools/meter_bin.py info BIN [--fw-abi 1.2] [--tau 0.8]                           JSON on stdout (exit 1 when the bin is refused: the code and its name are in the JSON)
   python3 tools/meter_bin.py check BIN [--fw-abi 1.2] [--tau 0.8]                          the firmware's report text (what the C reader prints in the host harness); exit 1 when refused
 
-Layout (little endian): header 32 B | TOC (count x 256 B, display order) | previews (palette 64 B + the 56 x 32 run-length stream each, padded to 4) | packs (TMPK, padded to 4) | u32 CRC-32 of bytes 32.. before it.
+Layout (little endian): header 40 B (..., toc_crc u32 at 32 = CRC-32 of bytes 40..packs_off, 0 u32 at 36) | TOC (count x 256 B, display order) | previews (palette 64 B + the 56 x 32 run-length stream each, padded to 4) | packs (TMPK, padded to 4) | u32 whole-file CRC-32 of bytes 40.. before it (tools only: the firmware never reads it).
+Three levels, as in the firmware: open_toc (header + TOC + previews, toc_crc, rows: what the player does at boot, no pack read), check_pack (one pack header against its row: at selection), check_file (everything, plus the whole-file CRC: tools).
 A v1 bundle ('TPKB', version 1: header 8 B, packs back to back, no outer CRC) is mapped to the same rows. Refusal codes are the table below (the future `MTOC ERR n` Info row)."""
 import hashlib, json, re, struct, sys, zlib
 from dataclasses import dataclass
 from pathlib import Path
 
-HDR, TOC, MAX_METERS, MAX_BIN = 32, 256, 64, 4456448
+HDR, TOC, MAX_METERS, MAX_BIN = 40, 256, 64, 4456448          # HDR: the v2 header (v1 bundles have 8)
 WINDOW, WINDOW_SIZE = 0x24970000, 0x10000      # slot 7 of the 8 pack slots = the window P0 ran on a Pocket (B-1045). The spec's text says 0x24900000 (slot 0's address) in the same sentence: see the P2.1 report; ONE constant here and in meterbin_core.h
 MAX_PREVIEW, PAL, PIXELS, MAX_PARAMS, MAX_NAME = 1024, 64, 56 * 32, 48, 23
 PACK_HDR, V1_HASH_BASE = 48, 0x56310000          # v1 rows: id_hash = V1_HASH_BASE | the pack's meter id (a v1 pack has no 128-bit id)
 FLAG_VISIBLE, FLAG_FALLBACK, FLAG_BINARY_ONLY, FLAG_V1 = 1, 2, 4, 8       # bit 3 (v1 row, id synthesized) is an addition of this reader; the spec names bits 0..2 only
 ABI = 0x0102                                    # the host table this tree builds (fw2/cores/meter_pack_core.h MTR_PACK_ABI)
 # refusal codes: the whole bin is refused (the Info row `MTOC ERR n`, then the player runs on Winamp Bars)
-E_OK, E_SIZE, E_MAGIC, E_VERSION, E_CRC, E_COUNT, E_LAYOUT, E_ID, E_HASH, E_DUP, E_NAME, E_PACK, E_WINDOW, E_PREVIEW, E_RESERVED, E_ORIGIN, E_PARAMS, E_READ, E_DESC = range(19)
-CODE_NAMES = ["OK", "SIZE", "MAGIC", "VERSION", "CRC", "COUNT", "LAYOUT", "ID", "HASH", "DUP", "NAME", "PACK", "WINDOW", "PREVIEW", "RESERVED", "ORIGIN", "PARAMS", "READ", "DESC"]
+E_OK, E_SIZE, E_MAGIC, E_VERSION, E_CRC, E_COUNT, E_LAYOUT, E_ID, E_HASH, E_DUP, E_NAME, E_PACK, E_WINDOW, E_PREVIEW, E_RESERVED, E_ORIGIN, E_PARAMS, E_READ, E_DESC, E_FILECRC = range(20)
+CODE_NAMES = ["OK", "SIZE", "MAGIC", "VERSION", "CRC", "COUNT", "LAYOUT", "ID", "HASH", "DUP", "NAME", "PACK", "WINDOW", "PREVIEW", "RESERVED", "ORIGIN", "PARAMS", "READ", "DESC", "FILECRC"]
 # availability of a row of a sound bin (the list greys it; the bin is not refused)
 U_OK, U_ABI, U_TAU = 0, 1, 2
 
@@ -139,6 +140,7 @@ def compose(entries, strict=True):
         struct.pack_into("<HHH", out, o + 68, *e.version); struct.pack_into("<HHHHHH", out, o + 74, ph["abi"], e.tau_min, e.flags, e.params_rev, di["nparams"], di["cmds"])
         struct.pack_into("<IIIIII", out, o + 88, di["max_cycles"], ko, len(e.pack), ph["crc"], ph["ps_size"], ph["bss"]); struct.pack_into("<II", out, o + 112, po, len(di["preview"]))
         out[po:po + len(di["preview"])] = di["preview"]; out[ko:ko + len(e.pack)] = e.pack
+    struct.pack_into("<I", out, 32, crc32(bytes(out[HDR:packs_off])))
     struct.pack_into("<I", out, total - 4, crc32(bytes(out[HDR:total - 4])))
     return bytes(out)
 
@@ -167,7 +169,7 @@ def compose_from_dirs(dirs, fallback=None, hide=(), strict=True):
 
 # ---------------------------------------------------------------- parse
 def _row_v2(b, i, hdr):
-    """one 256-byte TOC row -> dict; raises BinError with the first failing check (the order is part of the contract: the C reader makes the same checks in the same order)"""
+    """one 256-byte TOC row -> dict, from the TOC copy alone (no pack is read); raises BinError with the first failing check (the C reader makes the same checks in the same order)"""
     o = HDR + TOC * i; r = b[o:o + TOC]
     idr = r[4:44]
     if not valid_id(idr[:32].decode("latin1")) or any(idr[32:]): raise BinError(E_ID, i)
@@ -180,29 +182,65 @@ def _row_v2(b, i, hdr):
     pack_off, pack_size, pack_crc, pstate, bss, prev_off, prev_len = struct.unpack_from("<IIIIIII", r, 92)
     packs_off, end = hdr["packs_off"], hdr["total"] - 4
     if pack_size < PACK_HDR or pack_off & 3 or pack_off < packs_off or pack_off > end or pack_size > end - pack_off: raise BinError(E_PACK, i, "range")
-    ph = b[pack_off:pack_off + PACK_HDR]
-    if ph[:4] != b"TMPK": raise BinError(E_PACK, i, "magic")
-    pabi, _, psize, porigin, _, pcrc, _, _, _, pbss, pps_off, pps_size = struct.unpack_from("<HHIIIIIIIIII", ph, 4)
-    if psize + PACK_HDR != pack_size or pabi != u16(r, 74) or pcrc != pack_crc or pps_size != pstate or pbss != bss: raise BinError(E_PACK, i, "TOC and pack header disagree")
-    if not window_ok(psize, pps_off, pps_size): raise BinError(E_WINDOW, i)
-    if porigin != WINDOW: raise BinError(E_ORIGIN, i)
-    if prev_off < hdr["prev_off"] or prev_off > hdr["packs_off"] or prev_len > hdr["packs_off"] - prev_off or not preview_ok(b[prev_off:prev_off + prev_len]): raise BinError(E_PREVIEW, i)
+    if pack_size - PACK_HDR > WINDOW_SIZE or pstate > WINDOW_SIZE or pack_size - PACK_HDR + pstate > WINDOW_SIZE: raise BinError(E_WINDOW, i)      # the TOC's own bound; the exact one (pstate offset) is check_pack's
+    if prev_off < hdr["pv_off"] or prev_off > hdr["packs_off"] or prev_len > hdr["packs_off"] - prev_off or not preview_ok(b[prev_off:prev_off + prev_len]): raise BinError(E_PREVIEW, i)
     return dict(id_hash=u32(r, 0), id=idr[:32].decode(), name=r[44:44 + r[44:68].index(0)].decode(), ver=(u16(r, 68), u16(r, 70), u16(r, 72)), abi=u16(r, 74), tau_min=u16(r, 76), flags=flags, params_rev=u16(r, 80),
                 nparams=nparams, cmds=u16(r, 84), max_cycles=u32(r, 88), pack_off=pack_off, pack_size=pack_size, pack_crc=pack_crc, pstate=pstate, bss=bss, preview_off=prev_off, preview_len=prev_len)
 
 
-def _parse_v2(b):
-    if len(b) < HDR + 4 or len(b) > MAX_BIN: raise BinError(E_SIZE)
+def check_pack(b, row, i=-1):
+    """A pack's own header against its TOC row (the firmware does this at selection, never at boot): magic, size, ABI, CRC, pstate and bss as the row says, the exact window fit, the window origin. Raises BinError."""
+    ph = b[row["pack_off"]:row["pack_off"] + PACK_HDR]
+    if len(ph) < PACK_HDR or ph[:4] != b"TMPK": raise BinError(E_PACK, i, "magic")
+    pabi, _, psize, porigin, _, pcrc, _, _, _, pbss, pps_off, pps_size = struct.unpack_from("<HHIIIIIIIIII", ph, 4)
+    if psize + PACK_HDR != row["pack_size"] or pabi != row["abi"] or pcrc != row["pack_crc"] or pps_size != row["pstate"] or pbss != row["bss"]: raise BinError(E_PACK, i, "TOC and pack header disagree")
+    if not window_ok(psize, pps_off, pps_size): raise BinError(E_WINDOW, i)
+    if porigin != WINDOW: raise BinError(E_ORIGIN, i)
+
+
+def check_pack_image(b, row):
+    """The image CRC the loader checks while it copies the pack into the window: True when the bytes match the row's pack_crc"""
+    return crc32(b[row["pack_off"] + PACK_HDR:row["pack_off"] + row["pack_size"]]) == row["pack_crc"]
+
+
+def _toc_header(b, file_len):
+    if file_len < 8: raise BinError(E_SIZE)
+    if b[:4] != b"TPKB": raise BinError(E_MAGIC)
+    if u16(b, 4) != 2: raise BinError(E_VERSION)
+    if file_len < HDR + 4 or file_len > MAX_BIN: raise BinError(E_SIZE)
     count = u16(b, 6)
     if count > MAX_METERS: raise BinError(E_COUNT)
-    toc_off, toc_len, prev_off, prev_len, packs_off, total = struct.unpack_from("<IIIIII", b, 8)
-    if total != len(b): raise BinError(E_SIZE, msg="total size %d, file %d" % (total, len(b)))
-    if crc32(b[HDR:total - 4]) != u32(b, total - 4): raise BinError(E_CRC)
-    if toc_off != HDR or toc_len != TOC * count or prev_off != HDR + toc_len or packs_off != prev_off + prev_len or packs_off & 3 or packs_off + 4 > total: raise BinError(E_LAYOUT)
-    hdr = dict(prev_off=prev_off, packs_off=packs_off, total=total)
-    rows = [_row_v2(b, i, hdr) for i in range(count)]
+    toc_off, toc_len, pv_off, pv_len, packs_off, total, toc_crc, rsv = struct.unpack_from("<IIIIIIII", b, 8)
+    if total != file_len: raise BinError(E_SIZE, msg="total size %d, file %d" % (total, file_len))
+    if toc_off != HDR or toc_len != TOC * count or pv_off != HDR + toc_len or packs_off != pv_off + pv_len or packs_off & 3 or packs_off + 4 > total: raise BinError(E_LAYOUT)
+    if rsv: raise BinError(E_RESERVED)
+    if crc32(b[HDR:packs_off]) != toc_crc: raise BinError(E_CRC)
+    return dict(count=count, pv_off=pv_off, packs_off=packs_off, total=total)
+
+
+def open_toc(b, file_len=None):
+    """What the firmware does at boot: the header, then the TOC and the previews (bytes 0..packs_off are all it needs; `b` may end there, `file_len` is the file's size), toc_crc, every row. No pack is read.
+    -> {"version", "count", "bytes", "rows"}; raises BinError (code, row)"""
+    n = len(b) if file_len is None else file_len
+    h = _toc_header(b, n)
+    rows = [_row_v2(b, i, h) for i in range(h["count"])]
     _dups(rows)
-    return dict(version=2, count=count, bytes=len(b), rows=rows)
+    return dict(version=2, count=h["count"], bytes=n, rows=rows)
+
+
+def check_file(b):
+    """open_toc, then the whole-file CRC, then every pack's header against its row: what the tools run (`meter_bin.py check`, Omega after a write). Raises BinError."""
+    r = open_toc(b)
+    if crc32(b[HDR:-4]) != u32(b, len(b) - 4): raise BinError(E_FILECRC)
+    for i, w in enumerate(r["rows"]): check_pack(b, w, i)
+    return r
+
+
+def tuning_collisions(rows):
+    """One flag per row: True when another row has the same low 16 bits of id_hash (a tuning is keyed by them: the firmware starts such a meter from its defaults and never saves its tuning; Omega tells the user at compose time)"""
+    from collections import Counter
+    c = Counter(r["id_hash"] & 0xFFFF for r in rows)
+    return [c[r["id_hash"] & 0xFFFF] > 1 for r in rows]
 
 
 def _dups(rows):
@@ -239,11 +277,11 @@ def _parse_v1(b):
 
 
 def parse(b):
-    """-> {"version", "count", "bytes", "rows": [...]}; raises BinError (code, row) for a bin the firmware refuses whole"""
+    """The full check (check_file) of a v2 bin; a v1 bundle (inspection only: the firmware reads v2 alone) is mapped to rows. -> {"version", "count", "bytes", "rows": [...]}; raises BinError (code, row)"""
     if len(b) < 8: raise BinError(E_SIZE)
     if b[:4] != b"TPKB": raise BinError(E_MAGIC)
     v = u16(b, 4)
-    if v == 2: return _parse_v2(b)
+    if v == 2: return check_file(b)
     if v == 1: return _parse_v1(b)
     raise BinError(E_VERSION)
 
@@ -254,15 +292,17 @@ def avail(row, fw_abi=ABI, fw_tau=0):
     return U_TAU if row["tau_min"] > fw_tau else U_OK
 
 
-def report(b, fw_abi=ABI, fw_tau=0):
-    """The text the C reader's host harness prints for the same bytes (sim/p2_meterbin_harness.c): `open CODE COUNT BADROW`, a `row` line per row, an `avail` line per row."""
-    try: r = parse(b)
+def report(b, fw_abi=ABI, fw_tau=0, mode="file"):
+    """The text the C reader's host harness prints for the same bytes (sim/p2_meterbin_harness.c): `open CODE COUNT BADROW`, a `row` line and an `avail` line per row, a `coll` line (tuning collisions).
+    mode "file" = check_file (or the v1 mapping), "toc" = open_toc only (the firmware's boot path; the C side is then given only bytes 0..packs_off)."""
+    try: r = open_toc(b) if mode == "toc" else parse(b)
     except BinError as e: return "open %d 0 %d\n" % (e.code, e.row)
     out = ["open 0 %d -1" % r["count"]]
     for i, w in enumerate(r["rows"]):
         nums = [i, w["id_hash"]] + [w["id"] or "-"] + list(w["ver"]) + [w[k] for k in ("abi", "tau_min", "flags", "params_rev", "nparams", "cmds", "max_cycles", "pack_off", "pack_size", "pack_crc", "pstate", "bss", "preview_off", "preview_len")]
         out.append("row " + " ".join(str(x) for x in nums) + " " + w["name"])
     for i, w in enumerate(r["rows"]): out.append("avail %d %d" % (i, avail(w, fw_abi, fw_tau)))
+    out.append("coll" + "".join(" %d" % c for c in tuning_collisions(r["rows"])))
     return "\n".join(out) + "\n"
 
 

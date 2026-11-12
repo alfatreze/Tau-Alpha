@@ -1,15 +1,14 @@
 {
  "schema": 1,
- "id": "15413d591e83c64b1972d5225e7e71c0",
- "name": "VU Master",
+ "id": "0d8c03d3a2770c1aac2dc6abbc222afd",
+ "name": "MASTER VU",
  "version": "0.7.0",
  "author": "Tau Alpha",
  "licence": "MIT",
  "abi": "1.0",
  "params_rev": 1,
  "files": {
-  "meter.bin": "d08bcf12d76984afa41dd8ba1c4cb50f5e7385d9fb6b46bbff62445c66f46865"
+  "meter.bin": "f80f7b85440d519159d64da2f6c4db38c836cd13b07665acf61038c298d52be2"
  },
- "signature": null,
- "synthetic_id": "SYNTHETIC test id (docs/research/meter_bin/README.md): the shipped meters' real ids are decided in plan P2.0"
+ "signature": null
 }

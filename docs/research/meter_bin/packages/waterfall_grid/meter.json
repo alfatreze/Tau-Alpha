@@ -1,15 +1,14 @@
 {
  "schema": 1,
- "id": "463e43baa4f12b14c6326fa35e7e71c0",
- "name": "Waterfall",
+ "id": "17e607764b83b9372452eda124ae763f",
+ "name": "WATERFALL",
  "version": "0.7.0",
  "author": "Tau Alpha",
  "licence": "MIT",
  "abi": "1.2",
  "params_rev": 1,
  "files": {
-  "meter.bin": "dff348b5614699b786ffff9f7ceb16a1e915e30669ae64b92fd275dc0afa8866"
+  "meter.bin": "8c96e985986bc53393c4cfa323c530e9e5d02f47d7468a4435403c8e720892a5"
  },
- "signature": null,
- "synthetic_id": "SYNTHETIC test id (docs/research/meter_bin/README.md): the shipped meters' real ids are decided in plan P2.0"
+ "signature": null
 }
