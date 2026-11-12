@@ -125,6 +125,14 @@ def scenario(exe):
         again = list(map(int, run(exe, f"C {' '.join(map(str, got))} {np_}\n{' '.join(map(str, mx3))}\n")[0].split()))      # a record already converted is kept as it is
         good = good and (again == got or n2 == 0)
     ok["a layout-1 record is refused by the layout-2 reader; the migration re-keys it with its preset and entries (an index with no key is dropped; a converted record is kept): %d kept" % kept] = good and kept > 30
+    r4 = random.Random(77); good = True; amb = 0
+    for _ in range(400):                                              # a meter whose id_hash shares its low 16 bits with ANOTHER installed meter must have its tuning refused (one key, two meters)
+        n_ = r4.randint(1, 64); hs = [r4.getrandbits(32) for _ in range(n_)]
+        if r4.random() < 0.5 and n_ > 1: hs[r4.randrange(n_)] = (r4.getrandbits(16) << 16) | (hs[0] & 0xFFFF)       # force a collision with row 0
+        for i in r4.sample(range(n_), min(n_, 6)):
+            want = int(any((hs[j] & 0xFFFF) == (hs[i] & 0xFFFF) for j in range(n_) if j != i))
+            got = int(run(exe, f"A {hs[i]} {n_} {' '.join(map(str, hs))}\n")[0]); good = good and got == want; amb += want
+    ok["tune_key_ambiguous: 1 exactly when ANOTHER installed meter shares the low 16 bits of the id_hash (400 random sets; %d ambiguous rows); a lone meter is never ambiguous; the same hash twice is another meter" % amb] = good and amb > 100 and run(exe, "A 5 1 5\n")[0] == "0" and run(exe, "A 5 2 5 5\n")[0] == "1"
     n, w = py_pack(0, 0, [1] * 40, [0] * 40, [1] * 40)
     ok["only what fits is stored (40 changed flags: the rest are dropped, not corrupted)"] = 0 < n < 40
     return ok
@@ -132,5 +140,8 @@ with tempfile.TemporaryDirectory() as td:
     for k, v in scenario(build(td, 0)).items(): check(k, v)
     m = scenario(build(td, 1))
     check("mutant (the check ignores the data) is caught", not all(m.values()))
+    m2 = scenario(build(td, 2)); check("mutant 2 (tune_key_ambiguous always says unambiguous) is caught", not all(m2.values()))
+    sys.path.insert(0, str(ROOT / "tools")); import persist_layout as pl
+    check("the seven shipped meters have distinct low 16 bits of id_hash (so none loses its tuning to the collision rule)", len({h & 0xFFFF for _, h, _ in pl.SHIPPED}) == 7 and not any(int(run(build(td, 0), f"A {h} 7 {' '.join(str(x) for _, x, _ in pl.SHIPPED)}\n")[0]) for _, h, _ in pl.SHIPPED))
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)

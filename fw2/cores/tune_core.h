@@ -40,6 +40,22 @@ static inline uint8_t tune_check(const uint8_t *b)
 static inline uint32_t tune_key(uint32_t id_hash, uint32_t params_rev) { return (id_hash & 0xFFFFu) | ((params_rev & 15u) << 16); }
 static inline void tune_to_words(const uint8_t *b, uint32_t *w) { for (uint32_t k = 0; k < TUNE_WORDS; k++) { uint32_t pos = k * 31u; w[k] = tune_get(b, &pos, 31u); } }
 static inline void tune_from_words(const uint32_t *w, uint8_t *b) { for (uint32_t i = 0; i < 16u; i++) b[i] = 0; for (uint32_t k = 0; k < TUNE_WORDS; k++) { uint32_t pos = k * 31u; tune_put(b, &pos, w[k] & 0x7FFFFFFFu, 31u); } }
+/* Two installed meters whose id_hash share their low 16 bits would share a tuning key (the key holds only those 16 bits): a tuning saved for one would be applied to the other's parameters by index. With 64 meters that
+ * happens about 3 times in 100 (EXTERNAL_METERS_SPEC.md section 3, "Tuning keys and collisions"). Returns 1 when another of the n installed id_hashes has the same low 16 bits as `id_hash`: P2.4 refuses tuning for such a
+ * row at TOC load (the meter runs from its defaults). A hash that appears twice counts as another meter. */
+static inline int tune_key_ambiguous(const uint32_t *id_hashes, uint32_t n, uint32_t id_hash)
+{
+#if BUG == 2
+    (void)id_hashes; (void)n; (void)id_hash; return 0;                                      /* mutant: the collision is ignored */
+#else
+    uint32_t self = 0;                                                                      /* the row itself is normally in the list: it is one match, not a collision */
+    for (uint32_t i = 0; i < n; i++) {
+        if ((id_hashes[i] & 0xFFFFu) != (id_hash & 0xFFFFu)) continue;
+        if (id_hashes[i] != id_hash || ++self > 1u) return 1;                                  /* a different hash with the same low 16 bits, or the same hash twice */
+    }
+    return 0;
+#endif
+}
 /* Stores the n_in entries (idx[], val[], in index order; `max` the largest value of each parameter) of the meter `key` that started from `preset`. Entries that do not fit are skipped and at most 15 are stored. Returns how many were
  * stored; the words are all zero when none. */
 static inline uint32_t tune_build(uint32_t key, uint32_t preset, const uint8_t *idx, const uint16_t *val, uint32_t n_in, const uint16_t *max, uint32_t *w)
