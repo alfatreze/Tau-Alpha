@@ -16,7 +16,11 @@ def parse(data: bytes):
     """-> {"version", "count", "bytes", "packs": [...]}; raises ValueError for a file that is not a whole bundle."""
     if len(data) < 8 or data[:4] != b"TPKB": raise ValueError("not a bundle (magic)")
     ver, count = struct.unpack_from("<HH", data, 4)
-    if ver != 1: raise ValueError("bundle version %d (this reader knows 1)" % ver)
+    if ver == 2:                                                      # a v2 meter bin (P2.2: tau-packs.bin and tau-meters.bin): the table of contents, via the reference tool
+        import meter_bin
+        t = meter_bin.open_toc(data)
+        return {"version": 2, "count": t["count"], "bytes": t["bytes"], "packs": [dict(r, meter=r["id"], crc_ok=True, note="v2 meter bin: use tools/meter_bin.py info / check for the full report") for r in t["rows"]]}
+    if ver != 1: raise ValueError("bundle version %d (this reader knows 1 and 2)" % ver)
     off, packs = 8, []
     for i in range(count):
         if off + 48 > len(data) or data[off:off + 4] != b"TMPK": raise ValueError("pack %d: header missing or damaged" % i)
