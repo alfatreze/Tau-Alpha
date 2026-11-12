@@ -122,7 +122,14 @@ with tempfile.TemporaryDirectory() as t:
                   and p["bitstream_core_version"] == "4D50331A" and p["bitstream_core_version"] in p["rom_accepts"])
         check(ok, f"{core}: every hash and marker matches the zip")
     r = doc["requires_omega"]
-    check(list(r) == ["library_index_version", "assets_sections", "assets_read_limit_bytes", "report_tags_max", "persist_layout", "packs_abi", "persist_ids_changed", "min_omega"], "requires_omega keys in schema order")
+    check(list(r) == ["library_index_version", "assets_sections", "assets_read_limit_bytes", "report_tags_max", "persist_layout", "packs_abi", "packs_abi_minor", "persist_ids_changed", "min_omega"], "requires_omega keys in schema order")
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _t:
+        _f = Path(_t) / "tau-meters.bin"; _fmt = tc.firmware_formats()["tau-meters.bin"]
+        _good = subprocess.run([sys.executable, str(ROOT / "tools/player2/build_packs.py"), str(_f)], capture_output=True, cwd=ROOT).returncode == 0
+        check(_good and tc._format_ok(_f, _fmt) is None, "tau-meters.bin: a v2 bin the firmware would use passes the format check, and the file is a user file (NOT_SHIPPED)")
+        _d = bytearray(_f.read_bytes()); _d[60] ^= 1; _f.write_bytes(bytes(_d))
+        check("v2 meter bin" in (tc._format_ok(_f, _fmt) or "") and tc.NOT_SHIPPED["tau-meters.bin"] == "user", "a bin with a damaged table is refused by the check")
     check(r["persist_layout"] == 2 and r["packs_abi"] == 1, "capability keys from fw2 (persist layout 2, pack ABI 1)")
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
