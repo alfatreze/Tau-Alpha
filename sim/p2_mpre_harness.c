@@ -4,8 +4,13 @@
 static uint32_t psram_mem[2048];
 #define METR_PSRAM psram_mem
 #define P2_PACKS 1                                                     /* the pack-only meters are rows through their descriptors (argv[2..]) */
-static uint8_t slot_mem[8][0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
-#define PACK_SLOT_DATA(i) (slot_mem[i])
+static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
+static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
+#define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)
+#define MTR_PV_BASE ((volatile uint32_t *)pv_mem)
+#define PACK_WINDOW_DATA (win_mem)
+#define MTR_TEST_WINDOW_LOAD 1
+static uint32_t win_tag(void);
 #define PACK_SCRATCH (scratch_mem)
 #include "../fw2/ui/meters.c"
 #include "p2_dyn_register.h"
@@ -45,7 +50,7 @@ int main(int argc, char **argv)
     if (argc > 1 && argv[1][0] != '-') {                               /* METR mode: load the file, then print every user preset of every meter: "id npre name v0 v1 ..." */
         FILE *f = fopen(argv[1], "rb"); uint32_t n = (uint32_t)fread(fbuf, 1, sizeof fbuf, f); fclose(f);
         printf("loaded %u\n", meters_metr_load(fbuf, n));
-        for (uint32_t m = 0; m < meter_count; m++) {
+        for (uint32_t m = 0; m < 1u; m++) {                              /* METR user presets apply to the built-in meter only since P2.2 (a pack meter is not loaded at boot; P2.4 decides) */
             printf("meter %u npre %u boot %u\n", m, meters_npre(m), meters_preset_of(m));
             for (uint32_t p = 0; p < meters_npre(m); p++) {
                 meters_select(m); meters_preset_select(m, p);
@@ -56,9 +61,9 @@ int main(int argc, char **argv)
     }
     if (argc > 1 && argv[1][0] == '-' && argv[1][1] == 't') {          /* tuning pool mode: "-t" then the descriptors */
         uint32_t w[TUNE_SLOTS * TUNE_WORDS];
-#define SLOT_METER(s) ({ uint32_t mt = 99, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX]; tune_unpack(&w[(s) * TUNE_WORDS], tune_max_of, &mt, &pr, ix, vl) ? mt : 99u; })
+#define SLOT_METER(s) ({ uint32_t mt = 99; for (uint32_t r = 0; r < meter_count; r++) if (tune_k[s] == row_key(r)) mt = r; mt; })       /* the row whose key the slot holds */
 #define SHOW(tag) do { meters_tune_words(w); printf("%s A %u B %u newer %u\n", tag, SLOT_METER(0), SLOT_METER(1), meters_tune_newer()); } while (0)
-#define EDIT(m, i) do { uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np); uint16_t *v = mdef(m)->mv; v[i] = v[i] < mx[i] ? (uint16_t)(v[i] + 1u) : (uint16_t)(v[i] - 1u); meters_params_changed(m); } while (0)
+#define EDIT(m, i) do { meters_select(m); uint32_t np = 0; const uint16_t *mx = tune_max_of(row_key(m), &np);       /* a tuning is made on the meter on screen, which is loaded */ uint16_t *v = mdef(m)->mv; v[i] = v[i] < mx[i] ? (uint16_t)(v[i] + 1u) : (uint16_t)(v[i] - 1u); meters_params_changed(m); } while (0)
         SHOW("empty");
         EDIT(1, 0); SHOW("tuned 1");
         EDIT(2, 0); SHOW("tuned 2");
@@ -74,6 +79,7 @@ int main(int argc, char **argv)
     printf("rows %u count %u\n", up, meter_count);
     meters_preset_select(3, 6); meters_preset_select(2, 9); meters_preset_select(9, 1);          /* 9 is past Chladni's 4 presets: the first; meter 9 does not exist */
     printf("of3 %u of2 %u\n", meters_preset_of(3), meters_preset_of(2));
+    meters_select(3);
     printf("mv3"); for (uint32_t i = 0; i < mdef(3)->np; i++) printf(" %u", mdef(3)->mv[i]); printf("\n");
     meters_select(2); for (int i = 0; i < 5; i++) meters_preset_next();
     printf("chladni_after5 %u name %s\n", meters_preset_of(2), meters_preset_name());

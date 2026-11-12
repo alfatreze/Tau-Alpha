@@ -20,7 +20,7 @@ def build(td, mutant):
     if mutant == "norange": a = "if (p >= meters_npre(m)) p = 0u;"; assert a in src; src = src.replace(a, "")
     if mutant == "offbyone": a = "const uint32_t at = e.off + p * e.psize"; assert a in src; src = src.replace(a, "const uint32_t at = e.off + 1u + p * e.psize")
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/meterbin_core.h", "cores/shipped_meter_ids.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_mpre_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"'))
     (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
@@ -43,8 +43,8 @@ def metr_spec():
         ms.append({"key": key, "default_preset": n - 1, "presets": [{"name": "USER %d" % i, "values": dict(p["values"])} for i, p in enumerate(reg[key]["presets"][:n])]})
     return {"meters": ms}
 def metr_expected(spec):
-    reg = ta.registry(); out = ["loaded %d" % len(KEYS)]
-    for m, e in enumerate(spec["meters"]):
+    reg = ta.registry(); out = ["loaded 1"]
+    for m, e in enumerate(spec["meters"][:1]):      # METR presets apply to the built-in Winamp Bars only since P2.2: a pack meter is not loaded at boot (P2.4 decides how they come back)
         keys = [p["key"] for p in reg[e["key"]]["params"]]
         out.append(f"meter {m} npre {len(e['presets'])} boot {e['default_preset']}")
         for p in e["presets"]: out.append(p["name"] + "".join(" %d" % p["values"][k] for k in keys))

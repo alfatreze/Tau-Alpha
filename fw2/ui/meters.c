@@ -15,7 +15,11 @@
 #include "../cores/helios_core.h"
 #include "../cores/shipped_meter_ids.h"
 #ifndef MTR_STATE
+#ifdef P2_HOST
+#define MTR_STATE                                                     /* a host build has no such section */
+#else
 #define MTR_STATE __attribute__((section(".psram_state")))      /* PSRAM state (word accesses, cleared by meters_init: the loader does not zero it): the loader's counters and the kept selection */
+#endif
 #endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"                                   /* the preset files of the meter on screen (B-967) */
@@ -482,6 +486,7 @@ void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err
     *running = win_row < 32u ? 1u << win_row : 0u; *first_err = mwin_err; *file_err = mtoc_state == 1u ? 0u : mtoc_state == 2u ? mtoc_err : 0xFFu; *seen = mtoc_count;
 }
 /* Loads the pack of row m into the window. 0 = it runs; else the refusal code (and the window holds nothing that may run). The audio stream is untouched; this is called at selection only, never inside a tick. */
+#ifndef MTR_TEST_WINDOW_LOAD                                              /* a host test that has no bin of packs provides its own (sim/p2_dyn_register.h) */
 static int window_load(uint32_t m)
 {
     mb_row_t r; int e = MB_E_COUNT;
@@ -500,6 +505,7 @@ static int window_load(uint32_t m)
     mwin_loads++; mwin_last_hash = r.id_hash; mwin_last_cyc = cycles() - t0; if (mwin_last_cyc > mwin_max_cyc) mwin_max_cyc = mwin_last_cyc;
     return MPK_OK;
 }
+#endif
 void meters_pack_probe_done(void) { pack_act = 0xFFu; force_next = 1; }          /* the P0 probe (if linked) used the scratch: the live pack's state is gone, activate it again */
 static void packs_reset(void)
 {

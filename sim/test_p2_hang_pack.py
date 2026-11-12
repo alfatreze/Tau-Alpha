@@ -61,10 +61,11 @@ def main():
         check("the shipped Bars pack (built from its own source) has no hang code", "hang_ticks" not in syms and "bars_entry" not in syms)
     import build_packs as bp
     with tempfile.TemporaryDirectory() as td:
-        normal = dict(bp.build_all(Path(td)))
-        swapped = dict(bp.build_all(Path(td), ("winamp_bars", 1)))
+        normal = {e.id: e.pack for e in bp.build_entries(Path(td))}
+        swapped = {e.id: e.pack for e in bp.build_entries(Path(td), ("winamp_bars", 1))}
+        bars = bp.manifest("winamp_bars")["id"]
     check("build_packs --hang swaps exactly the named meter's pack and leaves every other pack byte for byte unchanged",
-          normal.keys() == swapped.keys() and swapped["winamp_bars"] != normal["winamp_bars"] and all(swapped[k] == normal[k] for k in normal if k != "winamp_bars"))
+          normal.keys() == swapped.keys() and swapped[bars] != normal[bars] and all(swapped[k] == normal[k] for k in normal if k != bars))
     listed = []
     for pat in ("fw2/**/*.c", "fw2/**/*.h", "fw2/build.sh", "tools/player2/pack_bundle.py", "fw2/diag_features.json", "Makefile"):
         for p in ROOT.glob(pat):

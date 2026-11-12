@@ -29,7 +29,7 @@ int main(int argc, char **argv)
     const uint32_t R = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)METER_N;      /* the pack-only row under test */
     if (argc > 4 && !strcmp(argv[4], "restore")) {
         uint32_t w[8]; for (uint32_t k = 0; k < 8u; k++) w[k] = (uint32_t)strtoul(argv[7 + k], 0, 10);
-        meters_ext_enter(R); meters_preset_restore(R, (uint32_t)atoi(argv[5]), (uint32_t)atoi(argv[6])); meters_tune_apply(w, 0); meters_select(R);
+        meters_select(R); meters_preset_restore(R, (uint32_t)atoi(argv[5]), (uint32_t)atoi(argv[6])); meters_tune_apply(w, 0);      /* the order appearance_set uses since P2.2: the meter (it is loaded), its preset, last the tuning */
         const meter_def_t *d = meters_def(R);
         printf("now pos %u id1 %u custom %u name %s npre %u vals", meters_preset_of(R), meters_preset_id_saved(R), meters_custom(R), meters_preset_name(), meters_npre(R)); for (uint32_t i = 0; i < d->np; i++) printf(" %u", d->mv[i]); printf("\n");
         return 0;

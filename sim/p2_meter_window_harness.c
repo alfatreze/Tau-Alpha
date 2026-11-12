@@ -70,7 +70,7 @@ static void setfile(int s, const char *p)
 static void state(void)
 {
     uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
-    printf("state cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes);
+    printf("state cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u overruns %u struck %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, meter_stats.overruns, meter_stats.struck);
     for (uint32_t m = 0; m < meter_count; m++) printf(" %d", meters_present(m));
     printf(" pstate");
     for (uint32_t m = 0; m < meter_count; m++) printf(" %u", meters_pack_state(m));
@@ -88,6 +88,16 @@ int main(void)
         else if (!strcmp(a, "next")) { meters_next(1); printf("cur %u\n", meters_cur()); }
         else if (!strcmp(a, "tick")) { spend = (uint32_t)atoi(b); win++; meters_tick(1); printf("tick done cur %u\n", meters_cur()); }
         else if (!strcmp(a, "swap")) { const int k = atoi(b); for (int i = 0; i < k; i++) { meters_select((uint32_t)(i % (int)meter_count)); win++; spend = 0; meters_tick(1); } printf("swapped %d\n", k); }
+        else if (!strcmp(a, "def")) {
+            const uint32_t m = meters_cur(); const meter_def_t *d = meters_def(m); char buf[40];
+            printf("def row %u name %s np %u npre %u cmp %u cmd %u cyc %u\n", m, d->name, d->np, meters_npre(m), d->cmp, cmd_limit_of(m), cyc_limit_of(m));
+            for (uint32_t i = 0; i < d->np; i++) printf("p %u %s|type %u|min %u|max %u|nval %u\n", i, meters_param_label(m, i, buf, sizeof buf), d->pd[i].type, d->pd[i].min, d->pd[i].max, d->pd[i].nval);
+        }
+        else if (!strcmp(a, "thumb")) {
+            const uint32_t m = (uint32_t)atoi(b); uint8_t v; uint16_t f; uint8_t x, y, t, n;
+            printf("thumb row %u len %u rle", m, meters_thumb_len(m)); for (uint32_t i = 0; i < 6u && meters_thumb_rle(m, i, &v); i++) printf(" %u", v);
+            printf(" col0"); if (meters_thumb_col(m, 0u, &f, &x, &y, &t, &n)) printf(" %u %u %u %u %u", f, x, y, t, n); printf("\n");
+        }
         else if (!strcmp(a, "state")) state();
     }
     return 0;

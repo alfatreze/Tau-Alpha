@@ -6,7 +6,7 @@ identical wherever a core declares them.
 
 The slots a Tau core declares (data.json), by id: 1 tau.rom (firmware, core-specific), 2 audio (by extension, the music), 4 tau-loading.bin (splash, core-specific), 5 tau-library.tdb (library index,
 read from the media platform), 6 tau-cold.bin (cold image, core-specific), 7 cover images (by extension, `.timg`), 8 tau-assets.bin (the user's themes, presets, meter presets: the one user file,
-never shipped), 9 tau-packs.bin (the meter packs of a PACKS=1 Player 2 core, core-specific, optional: add_packs_slot; format docs/features/TAU_PACKS_FORMAT.md). Persist variables (interact.json,
+never shipped), 9 tau-packs.bin (the meter packs of a PACKS=1 Player 2 core, core-specific, optional: add_packs_slot; format docs/features/TAU_PACKS_FORMAT.md, a v2 bin since P2.2), 10 tau-meters.bin (the user's meter bin, not core-specific, optional, never shipped: add_meters_slot). Persist variables (interact.json,
 16 at most, the Pocket's limit): ids 10, 11, 12, 15, 16, 30 and 20..23, 27..29, 33 are the Player 2 words regrouped by area since v0.7.0, 31 and 32 the last played track (docs/features/PERSISTENCE_LAYOUT.md,
 tools/persist_registry.json); ids 24..26 (the old library words) are retired. The old player's declarations (add_library_slot's persist words) are only added for a variant that is not Player 2."""
 import json
@@ -74,12 +74,26 @@ def add_cold_slot(core_dir: Path) -> None:
 
 def add_packs_slot(core_dir: Path) -> None:
     """Data slot 9: tau-packs.bin, the meter packs of a PACKS=1 core (fw2/stream/packfile.c): core-specific like the ROM and the cold image (parameter bit 1), because the packs are built with the firmware and
-    only run on its ABI. Optional: a card without it falls back to the MPKB section of tau-assets.bin, and without that shows Winamp Bars alone."""
+    only run on its ABI. Since P2.2 it is a v2 bin (docs/features/TAU_PACKS_FORMAT.md, meter_bin.py compose) read by its TOC at boot; the user's own tau-meters.bin (slot 10, add_meters_slot) is preferred when it is sound. Optional: without either the player shows Winamp Bars alone."""
     dj = json.loads((core_dir / "data.json").read_text())
     want = {"name": "Meter packs", "id": 9, "required": False, "deferload": True, "parameters": "0x2", "filename": "tau-packs.bin"}
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 9), None)
     if existing is not None:
         assert existing == want, f"data slot 9 already declared, and differently: {existing}"
+        return
+    dj["data"]["data_slots"].append(want)
+    save(core_dir / "data.json", dj)
+
+
+def add_meters_slot(core_dir: Path) -> None:
+    """Data slot 10: tau-meters.bin, the USER's meter bin (a v2 bin composed by Tau Omega, docs/features/meters/EXTERNAL_METERS_SPEC.md section 2): in Assets/<platform>/common/ like the library index and tau-assets.bin
+    (parameters 0x0: not core-specific, every Tau core on the platform shares it), optional, never shipped in a release zip. JSON only: the firmware picks a slot by id and the data-slot table is APF's
+    (docs/features/meters/EXTERNAL_METERS_P2_PLAN.md P2.0 item 1), so adding it needs no bitstream change."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    want = {"name": "Meters", "id": 10, "required": False, "deferload": True, "parameters": "0x0", "filename": "tau-meters.bin"}
+    existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 10), None)
+    if existing is not None:
+        assert existing == want, f"data slot 10 already declared, and differently: {existing}"
         return
     dj["data"]["data_slots"].append(want)
     save(core_dir / "data.json", dj)

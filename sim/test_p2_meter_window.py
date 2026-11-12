@@ -21,13 +21,15 @@ def manifest(k): return json.loads((ROOT / "meters" / k / "meter.json").read_tex
 def build(d, mutant=None):
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "noflush": a = "    MTR_FLUSH();"; assert a in src; src = src.replace(a, "    ;", 1)
-    if mutant == "badcrcruns": a = "    if (e) return e;\n    MTR_FLUSH();"; assert a in src; src = src.replace(a, "    MTR_FLUSH();")
+    if mutant == "cutignored": a = "if (cut) pack_struck(cur);"; assert a in src; src = src.replace(a, "if (0) pack_struck(cur);")
     if mutant == "nofallback_req": a = "MTOC_E_NOFALLBACK"; assert a in src; src = src.replace("return MTOC_E_NOFALLBACK;", "(void)0;")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub).mkdir()
     (ui / "meters.c").write_text(src)
     for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/meterbin_core.h", "cores/shipped_meter_ids.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
-        (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+        t = (ROOT / "fw2" / f).read_text()
+        if mutant == "badcrcruns" and f == "cores/meter_pack_core.h": a = "if (LIB_CRC_DONE(crc) != crc0) return MPK_E_CRC;"; assert a in t; t = t.replace(a, "")
+        (d / "fw2" / f).write_text(t)
     (d / "sim").mkdir(); (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_window_harness.c").read_text())
     for extra in ("p2_host_regs.h",): (d / "sim" / extra).write_text((ROOT / "sim" / extra).read_text())
     outs = {}
@@ -137,6 +139,25 @@ with tempfile.TemporaryDirectory() as td:
     check("three overruns of the cycle limit: the third strikes the pack out and the player falls back to Winamp Bars", s["cur"] == 0 and s["strikes"] == 1, str(s))
     o = run(exe, "user %s\nboot\nselect 1\ntick 0\ntick %d\ntick %d\ntick 0\nstate\n" % (full, 3 * lim, 3 * lim)); s = state(o)
     check("two overruns are not enough: the pack keeps running", s["cur"] == 1 and s["strikes"] == 0, str(s))
+    # ---- the strike rule on the loaded pack (ported from the old per-slot test): forced pictures are not judged, the limit itself is not an overrun, clean ticks forgive
+    o = run(exe, "user %s\nboot\nselect 1\ntick %d\ntick %d\ntick 0\nstate\n" % (full, 3 * lim, 3 * lim)); s = state(o)
+    check("a forced first picture is never judged, however slow: one overrun after it, the pack runs", s["cur"] == 1 and s["overruns"] == 1 and s["struck"] == 0, str(s))
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\ntick %d\ntick 0\nstate\n" % (full, lim)); s = state(o)
+    check("a tick of exactly the limit is not an overrun", s["overruns"] == 0 and s["cur"] == 1, str(s))
+    over = "tick %d\n" % (3 * lim); clean = "tick 0\n" * 64
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\n%s%s%s%s%stick 0\nstate\n" % (full, over, over, clean * 2, over, over)); s = state(o)
+    check("128 clean ticks forgive two strikes: two strikes, 128 clean ticks, two more: the pack still runs", s["struck"] == 0 and s["cur"] == 1, str(s))
+    o = run(exe, "user %s\nboot\nselect 1\ntick 0\n%s%s%s%s%stick 0\nstate\n" % (full, over, over, clean, over, over)); s = state(o)
+    check("two strikes, 64 clean ticks (only one forgiven), two more: three strikes, the pack is out", s["struck"] == 1 and s["cur"] == 0, str(s))
+    # ---- what the pack's own descriptor says (the loaded row's Configure descriptors, compose code and limits), and the TOC preview
+    o = run(exe, "user %s\nboot\nselect 3\ndef\nthumb 3\nthumb 0\n" % full)
+    dl = [l for l in o if l.startswith("def ") or l.startswith("p ")]; cm = manifest("chladni")
+    check("the loaded pack meter's name, parameter count, one preset and Configure labels are its descriptor's (read from the window)", dl[0].startswith("def row 3 name") and (" np %d npre 1 " % len(cm["params"])) in dl[0] and [l.split("|")[0].split(" ", 2)[2].upper() for l in dl[1:]] == [p["label"].upper() for p in cm["params"]], str(dl[:3]))
+    pv = mb.open_toc(full.read_bytes())["rows"][3]; raw = full.read_bytes(); blk = raw[pv["preview_off"]:pv["preview_off"] + pv["preview_len"]]
+    th = [l for l in o if l.startswith("thumb")]
+    t0 = th[0].split()
+    check("the preview of a pack meter comes from the TOC's preview block: its stream length, first run bytes and first palette entry are the block's", int(t0[4]) == pv["preview_len"] - 64 and [int(x) for x in t0[6:12]] == list(blk[64:70]) and t0[13:18] == [str(blk[0] | blk[1] << 8)] + [str(x) for x in blk[2:6]], th[0])
+    check("Winamp Bars (built in) answers no TOC preview", th[1].split()[4] == "0", th[1])
     # ---- mutants
     with tempfile.TemporaryDirectory() as t2:
         m = build(Path(t2), "noflush")["h"]
@@ -146,6 +167,10 @@ with tempfile.TemporaryDirectory() as td:
         m = build(Path(t3), "nofallback_req")["h"]
         o = run(m, "user %s\nnocore\nboot\nstate\n" % nofb); s = state(o)
         check("mutant (a bin without a fallback row is accepted) is caught", s["src"] == 1)
+    with tempfile.TemporaryDirectory() as t5:
+        m = build(Path(t5), "cutignored")["hcut"]
+        o = run(m, "user %s\nboot\nselect 1\ntick 0\nstate\n" % full)
+        check("mutant (the watchdog cut is ignored at the call site) is caught", state(o)["cur"] == 1)
     with tempfile.TemporaryDirectory() as t4:
         m = build(Path(t4), "badcrcruns")["h"]
         o = run(m, "user %s\nboot\nselect 1\ntick 0\n" % compose_raw(KEYS, "badcrc2.bin", lambda b: b.__setitem__(row_pack_off(b, 1) + 48 + 100, b[row_pack_off(b, 1) + 48 + 100] ^ 0x10)))

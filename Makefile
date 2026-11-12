@@ -136,16 +136,14 @@ test-host:
 	$(PYTHON) sim/test_p2_waterfall_flow.py
 	$(PYTHON) sim/test_p2_lastplayed.py
 	$(PYTHON) sim/test_p2_boot_order.py
-	$(PYTHON) sim/test_p2_pack_strike.py
 	$(PYTHON) sim/test_p2_wdog.py
+	$(PYTHON) sim/test_p2_meter_window.py
 	$(PYTHON) sim/test_p2_hang_pack.py
 	$(PYTHON) sim/test_p2_meter_desc.py
-	$(PYTHON) sim/test_p2_pack_only.py
 	$(PYTHON) sim/test_p2_meter_helpers.py
 	$(PYTHON) sim/test_p2_audio_stats.py
 	$(PYTHON) sim/test_p2_new_meter.py
 	$(PYTHON) sim/test_p2_meter_pack.py
-	$(PYTHON) sim/test_p2_meter_pack_dispatch.py
 	$(PYTHON) sim/test_p2_meter_thumb.py
 	$(PYTHON) sim/test_p2_waterfall.py
 	$(PYTHON) sim/test_p2_settings_service.py

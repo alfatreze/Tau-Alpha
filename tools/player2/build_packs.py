@@ -1,63 +1,64 @@
 #!/usr/bin/env python3
-"""Build tau-packs.bin: every meter pack of Player 2 in slot order, bundled ('TPKB', fw2/cores/meter_pack_core.h), the file a PACKS=1 core ships next to tau.rom and tau-cold.bin (data slot 9, the core's own folder).
+"""Build tau-packs.bin: the shipped meters of Player 2 as a v2 meter bin (docs/features/meters/EXTERNAL_METERS_SPEC.md section 2, tools/meter_bin.py), the file a PACKS=1 core ships next to tau.rom and tau-cold.bin
+(data slot 9, the core's own folder). The firmware reads only its TOC at boot and one pack at a time, when its meter is selected.
 
-  python3 tools/player2/build_packs.py OUT.bin [--hang KEY[:MODE]] [--window-probe]
+  python3 tools/player2/build_packs.py OUT.bin [--hang KEY[:MODE]]
 
---hang swaps one meter's pack for its hang test variant (fw2/ui/meter_pack_<KEY>_hang.c, the pack watchdog's Pocket test, docs/features/PACK_WATCHDOG_PLAN.md W4; MODE 0 = plain endless loop, 1 = endless
-loop issuing engine commands; default 0). Only a test package asks for it; no release does.
+Every meter with a p2 block in meters/<key>/meter.json is linked for the ONE execution window (0x24970000, the 64 KiB slot P0 proved on a Pocket) with its permanent 128-bit id (the same file), in the order of the
+manifests' p2 slot (the current meter order; Winamp Bars first and flagged as the built-in fallback). The TOC row takes the meter's name from its pack's own descriptor, params_rev from cores/shipped_meter_ids.h (the one place
+that also feeds the persisted tunings' keys), version 1.0.0 until the meters are versioned. The pack header's `meter id` is the low 16 bits of the id hash (informational).
 
---window-probe appends, after the normal packs, a second copy of every pack linked for the free slot WINDOW_SLOT (7) with meter id PROBE_ID_BASE + id (0x100 + id): the instrument of the external-meters spike
-(docs/features/meters/EXTERNAL_METERS_PLAN.md, phase P0; fw2/diagnostics/pack_swap_probe.c). The normal installer skips ids it has no slot for, so a probe bundle behaves exactly like the normal one for the player.
+--hang swaps one meter's pack for its hang test variant (fw2/ui/meter_pack_<KEY>_hang.c, the pack watchdog's Pocket test, docs/features/PACK_WATCHDOG_PLAN.md W4; MODE 0 = plain endless loop, 1 = endless loop issuing
+engine commands; default 0). Only a test package asks for it; no release does.
 
-Which meters are packs, their slots and ids come from the manifests (tools/player2/pack_meter.py): every meter with a p2 block. The packs are built from the CURRENT source, so call this from the same
-tree and commit as the firmware it ships with (tools/package_dev_build.py does, for a PACKS=1 build): a pack is linked against the host table of the firmware's ABI and refused (E22) by any other.
-"""
-import sys, tempfile
-WINDOW_SLOT = 7            # the free pack slot (MTR_PACK_SLOTS is 8, the registry uses 0..6): the one execution window of the lazy-loading design
-PROBE_ID_BASE = 0x100      # fw2/cores/meter_pack_core.h MTR_PACK_PROBE_ID_BASE
+The packs are built from the CURRENT source, so call this from the same tree and commit as the firmware it ships with (tools/package_dev_build.py does, for a PACKS=1 build): a pack is linked against the host table of the
+firmware's ABI and refused by any other."""
+import json, re, sys, tempfile
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pack_meter as pm, pack_bundle as pb
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent)); sys.path.insert(0, str(ROOT / "tools"))
+import pack_meter as pm, meter_bin as mb
+
+FALLBACK = "winamp_bars"                 # the built-in meter the firmware falls back to (flag bit 1 of its TOC row)
 
 
-def build_window(workdir: Path):
-    """[(key, blob)] the probe copies: each pack linked for the window slot, its header id PROBE_ID_BASE + id"""
-    out = []
+def shipped_revs():
+    """params_rev of the shipped meters by their id hash, from fw2/cores/shipped_meter_ids.h (X(index, id_hash, params_rev))"""
+    t = (ROOT / "fw2/cores/shipped_meter_ids.h").read_text()
+    return {int(h, 16): int(r) for _i, h, r in re.findall(r"X\((\d+),\s*(0x[0-9A-Fa-f]+)u,\s*(\d+)u\)", t)}
+
+
+def manifest(key):
+    return json.loads((ROOT / "meters" / key / "meter.json").read_text())
+
+
+def build_entries(workdir: Path, hang=None):
+    """[meter_bin.Entry] for every shipped meter in p2 slot order, each pack linked for the window; hang = (key, mode) builds that meter's hang test pack instead"""
+    revs, out = shipped_revs(), []
     for key in sorted(pm.SLOT, key=lambda k: pm.SLOT[k]):
-        blob, _ = pm.build(key, pm.SLOT_BASE + WINDOW_SLOT * pm.SLOT_SIZE, workdir / (key + "_win.elf"), header_id=PROBE_ID_BASE + pm.METER_IDS[key])
-        out.append((key + "@window", blob))
-    return out
-
-
-def build_all(workdir: Path, hang=None):
-    """[(key, blob)] in slot order; hang = (key, mode) builds that meter's hang test pack instead"""
-    out = []
-    for key in sorted(pm.SLOT, key=lambda k: pm.SLOT[k]):
+        m = manifest(key); hid = int(m["id"][:8], 16)
         if hang and key == hang[0]:
-            blob, _ = pm.build(key, pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE, workdir / (key + ".elf"), ["-DHANG_MODE=%d" % hang[1]], source=key + "_hang")
+            blob, _ = pm.build(key, mb.WINDOW, workdir / (key + ".elf"), ["-DHANG_MODE=%d" % hang[1]], source=key + "_hang", header_id=hid & 0xFFFF)
         else:
-            blob, _ = pm.build(key, pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE, workdir / (key + ".elf"))
-        out.append((key, blob))
+            blob, _ = pm.build(key, mb.WINDOW, workdir / (key + ".elf"), header_id=hid & 0xFFFF)
+        name = mb.desc_info(blob[mb.PACK_HDR:])["name"]
+        out.append(mb.Entry(id=m["id"], name=name, version=(1, 0, 0), pack=blob, flags=mb.FLAG_VISIBLE | (mb.FLAG_FALLBACK if key == FALLBACK else 0), params_rev=revs.get(hid, 0)))
     return out
 
 
 def main():
     argv = sys.argv[1:]
     hang = None
-    window = "--window-probe" in argv
-    argv = [a for a in argv if a != "--window-probe"]
     if len(argv) == 3 and argv[1] == "--hang":
-        k, _, m = argv[2].partition(":"); hang = (k, int(m or 0)); argv = argv[:1]
+        k, _, mode = argv[2].partition(":"); hang = (k, int(mode or 0)); argv = argv[:1]
         if k not in pm.SLOT: print("no such meter pack: " + k); return 2
     if len(argv) != 1:
         print(__doc__); return 2
     out = Path(argv[0]); out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
-        packs = build_all(Path(td), hang)
-        if window:
-            packs += build_window(Path(td))
-    out.write_bytes(pb.bundle([b for _, b in packs]))
-    print("%s: %d B, %d pack(s): %s" % (out, out.stat().st_size, len(packs), ", ".join(k for k, _ in packs)))
+        entries = build_entries(Path(td), hang)
+    out.write_bytes(mb.compose(entries))
+    print("%s: %d B, v2 bin, %d meter(s): %s" % (out, out.stat().st_size, len(entries), ", ".join(e.name for e in entries)))
     return 0
 
 
