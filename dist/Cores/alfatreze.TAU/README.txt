@@ -31,27 +31,31 @@ OPTIONAL: nice to have
   Playlists        .m3u / .m3u8 files next to the music
   Name sidecar     tau-names.bin + tau-names.json in Assets/tau/common/
                    (keeps your original names and tags; made with the library)
-  Meter and EQ     tau-assets.bin in Assets/tau/common/ (extra meters,
-  packs            Halcyon EQ presets; made by Tau Omega)
+  Themes and       tau-assets.bin in Assets/tau/common/ (up to four extra
+  meter presets    colour themes, plus meter presets)
   ReplayGain       read from the tags in your files; Tau Omega can write them
 
 
-TWO WAYS TO DO IT
------------------
-TAU OMEGA (free, Mac / Windows / Linux), the full toolbox
+TWO TOOLS
+---------
+TAU OMEGA (free, Mac / Windows / Linux): the full toolbox
   https://github.com/alfatreze/Tau-Omega/releases/latest
-  - copies music to the card and builds the library, name sidecar and covers
-  - converts any format to MP3 or FLAC for TAU
-  - writes ReplayGain, builds playlists, manages your meter and EQ presets
-  - checks the whole card
+  - Copy music: puts your music on the card
+  - Library: builds the library index and the name sidecar
+  - Covers: makes the fast cover files
+  - Convert: turns other formats into MP3 or FLAC
+  - ReplayGain: evens out loudness between tracks
+  - Playlists: builds .m3u playlists
+  - Themes and meter presets: makes tau-assets.bin
+  - Card check: finds what is missing or out of date
 
-POCKET SYNC / PUPDATE PLUGIN "TAU Library" (small, inside the updater)
+POCKET SYNC / PUPDATE PLUGIN "TAU Library": small, inside the updater
   https://github.com/alfatreze/tau-alpha-pocket-sync
-  - Check the card (read only): what is missing or out of date
-  - Rebuild the library: index, name sidecar and covers for the music that
-    is already on the card; shows the plan first, and offers to rename names
-    the Pocket cannot open (it keeps a backup)
-  - does NOT copy music or convert formats: use Tau Omega for that
+  - Check the card: read-only report of what is missing or stale
+  - Rebuild the library: library index, name sidecar and covers for the
+    music already on the card, with the plan shown first
+  - Rename: offers to rename names the Pocket cannot open (backup kept)
+  Not in the plugin: copying music, converting, themes. Use Tau Omega.
 
 By hand: python3 tools/sync_media.py MUSIC_DIR --all-tau --library
 (tools in https://github.com/alfatreze/Tau-Alpha)
