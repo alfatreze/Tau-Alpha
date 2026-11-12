@@ -145,7 +145,7 @@ void settings_view_draw(void)
         gfx_text(24, y + 9, label, on ? UI_ON_ACCENT : (soon ? OFFC : FG), bg);
         if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? UI_ON_ACCENT : (soon ? OFFC : DIM), bg);
     }
-    gfx_rect(0, 322, GFX_W, 38, BG);
+    { const uint32_t ye = TOP_Y + MG_VIS * ROW_H; gfx_rect(0, ye, GFX_W, 360u - ye, BG); }                                /* the gap under the last row too: eight rows end at y 306, the hints start at 322, and the 16 px between kept a strip of the old screen (owner's screenshot 2026-11-12) */
     gfx_text(20, 322, pg == PG_CHOICE ? (menu.choice_val[d] == V_METER ? "UP DOWN  A PICK  X CONFIGURE" : "UP DOWN  A PICK  B BACK") : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
     gfx_text(20, 340, d ? "B BACK  START CLOSE" : "B OR START CLOSE", DIM, BG);
 }
