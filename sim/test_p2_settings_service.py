@@ -13,7 +13,7 @@ def run(mutant=0):
             src = src.replace(a, "if (!streaming) { publish(vals); was_dirty = 0; }")
         if mutant == 2: a = "(int32_t)(cycles() - lazy_t0) >= (int32_t)LAZY_STREAMING_CYC"; assert a in src; src = src.replace(a, "(int32_t)(cycles() - lazy_t0) >= (int32_t)CLK_HZ")
         (d / "fw2/settings/settings.c").write_text(src)
-        for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+        for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h", "cores/tune_core.h", "cores/shipped_meter_ids.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
         (d / "sim/h.c").write_text((ROOT / "sim/p2_settings_service_harness.c").read_text())
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)

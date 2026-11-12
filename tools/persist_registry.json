@@ -4,9 +4,9 @@
     "10": {
       "name": "(internal) playback",
       "word": "SW_PLAYBACK",
-      "meaning": 3,
-      "since": "v0.7.0",
-      "what": "(Player 2) word 0: bits 30-27 the layout version (0 = the legacy layout of v0.6.1 and older, where this word was the volume 0-100; 1 = the layout by area, docs/features/PERSISTENCE_LAYOUT.md), bit 26 which tuning slot was saved last (0 = A, 1 = B); the rest is reserved for playback options. A default of 1<<27 puts a fresh card on the new layout; a card saved before is migrated at the first boot"
+      "meaning": 4,
+      "since": "v0.8.0",
+      "what": "(Player 2) word 0: bits 30-27 the layout version (0 = the legacy layout of v0.6.1 and older, where this word was the volume 0-100; 1 = the layout by area of v0.7.x; 2 = persist_layout 2 of external meters: the selected meter by id hash, docs/features/PERSISTENCE_LAYOUT.md), bit 26 which tuning slot was saved last (0 = A, 1 = B); the rest is reserved for playback options. A default of 2<<27 puts a fresh card on layout 2; a card saved before is migrated at the first boot"
     },
     "11": {
       "name": "(internal) appearance",
@@ -25,72 +25,72 @@
     "15": {
       "name": "(internal) meters 1",
       "word": "SW_METERS1",
-      "meaning": 3,
-      "since": "v0.7.0",
-      "what": "(Player 2) word 5: the selected meter bits 5-0 (an index in the meter table), then the selected preset of meters 0-5, four bits each from bit 6; before v0.7.0 this word was the meter number alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+      "meaning": 4,
+      "since": "v0.8.0",
+      "what": "(Player 2) word 5: the selected meter's id_hash, bits 30-0 (its low 31 bits; 0 = none, Winamp Bars); before v0.8.0 this word was the selected meter's table index (bits 5-0) and the selected preset of meters 0-5 (four bits each from bit 6) with bit 30 as the converted mark. A migration maps the old index to the shipped meter's id hash"
     },
     "16": {
       "name": "(internal) meters 2",
       "word": "SW_METERS2",
-      "meaning": 3,
-      "since": "v0.7.0",
-      "what": "(Player 2) word 6: the selected preset of meters 6-12, four bits each from bit 0; before v0.7.0 this word was the Halcyon EQ preset. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+      "meaning": 4,
+      "since": "v0.8.0",
+      "what": "(Player 2) word 6: the selected meter's preset: position in the pack's own list bits 3-0, preset file id + 1 bits 10-4 (0 = none), bits 16-11 scratch (the meter index a migration came from, ignored by the player), bit 29 the mark that this word is already in layout 2 (a migration resumes from it); before v0.8.0 this word held the preset of meter 6 and the preset file ids of meters 0-2 (bit 30 the mark)"
     },
     "20": {
       "name": "(internal) tuning A 1",
       "word": "SW_TUNE_A1",
-      "meaning": 4,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot A, word 1 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+      "meaning": 5,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot A, word 1 of 4 (fw2/cores/tune_core.h: check byte 8 bits, meter KEY 20 bits (low 16 bits of the meter's id_hash, then the low 4 bits of its params_rev), preset 7 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.8.0 the record is keyed by the meter's id hash (was a 5-bit table index) with a new check seed: a migration re-keys the tunings of the shipped meters and drops the rest"
     },
     "21": {
       "name": "(internal) tuning A 2",
       "word": "SW_TUNE_A2",
-      "meaning": 4,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot A, word 2 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+      "meaning": 5,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot A, word 2 of 4 (fw2/cores/tune_core.h: check byte 8 bits, meter KEY 20 bits (low 16 bits of the meter's id_hash, then the low 4 bits of its params_rev), preset 7 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.8.0 the record is keyed by the meter's id hash (was a 5-bit table index) with a new check seed: a migration re-keys the tunings of the shipped meters and drops the rest"
     },
     "22": {
       "name": "(internal) tuning A 3",
       "word": "SW_TUNE_A3",
-      "meaning": 4,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot A, word 3 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+      "meaning": 5,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot A, word 3 of 4 (fw2/cores/tune_core.h: check byte 8 bits, meter KEY 20 bits (low 16 bits of the meter's id_hash, then the low 4 bits of its params_rev), preset 7 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.8.0 the record is keyed by the meter's id hash (was a 5-bit table index) with a new check seed: a migration re-keys the tunings of the shipped meters and drops the rest"
     },
     "23": {
       "name": "(internal) tuning A 4",
       "word": "SW_TUNE_A4",
-      "meaning": 4,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot A, word 4 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.7.0 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
+      "meaning": 5,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot A, word 4 of 4 (fw2/cores/tune_core.h: check byte 8 bits, meter KEY 20 bits (low 16 bits of the meter's id_hash, then the low 4 bits of its params_rev), preset 7 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.8.0 the record is keyed by the meter's id hash (was a 5-bit table index) with a new check seed: a migration re-keys the tunings of the shipped meters and drops the rest"
     },
     "27": {
       "name": "(internal) tuning B 1",
       "word": "SW_TUNE_B1",
-      "meaning": 3,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot B, word 1 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 27 was the theme index"
+      "meaning": 4,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot B, word 1 of 4, same layout as slot A (keyed by the meter's id hash since v0.8.0); the slot saved least recently is evicted. Before v0.7.0 id 27 was the theme index"
     },
     "28": {
       "name": "(internal) tuning B 2",
       "word": "SW_TUNE_B2",
-      "meaning": 3,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot B, word 2 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 28 was the theme polarity and the ReplayGain mode"
+      "meaning": 4,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot B, word 2 of 4, same layout as slot A (keyed by the meter's id hash since v0.8.0); the slot saved least recently is evicted. Before v0.7.0 id 28 was the theme polarity and the ReplayGain mode"
     },
     "29": {
       "name": "(internal) tuning B 3",
       "word": "SW_TUNE_B3",
-      "meaning": 2,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot B, word 3 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 29 was the meter presets, the font and the sixth meter's preset"
+      "meaning": 3,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot B, word 3 of 4, same layout as slot A (keyed by the meter's id hash since v0.8.0); the slot saved least recently is evicted. Before v0.7.0 id 29 was the meter presets, the font and the sixth meter's preset"
     },
     "30": {
       "name": "(internal) meters 3",
       "word": "SW_METERS3",
-      "meaning": 2,
-      "since": "v0.7.0",
-      "what": "(Player 2) word 15: the selected preset of meters 13-19, four bits each from bit 0 (until v0.6.1 bits 3-0 were the seventh meter's preset, which is meter 6 and now lives in word 6). Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
+      "meaning": 3,
+      "since": "v0.8.0",
+      "what": "(Player 2) word 15: FREE since v0.8.0 (reads 0; a migration empties it); before that the preset file ids of meters 3-6, seven bits each, bit 30 the converted mark"
     },
     "31": {
       "name": "(internal) last played 1",
@@ -109,9 +109,9 @@
     "33": {
       "name": "(internal) tuning B 4",
       "word": "SW_TUNE_B4",
-      "meaning": 1,
-      "since": "v0.7.0",
-      "what": "(Player 2) tuning slot B, word 4 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.7.0 id 33 was not declared"
+      "meaning": 2,
+      "since": "v0.8.0",
+      "what": "(Player 2) tuning slot B, word 4 of 4, same layout as slot A (keyed by the meter's id hash since v0.8.0); the slot saved least recently is evicted. Before v0.7.0 id 33 was not declared"
     }
   },
   "retired": {

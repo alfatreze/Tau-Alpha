@@ -5,6 +5,8 @@ is already on the new layout is not touched (no write at all); on a narrow (16-w
 import random, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import persist_layout as pl
 PROBE = 4
 fails = 0
 def check(name, ok, extra=""):
@@ -22,7 +24,7 @@ def build(d, mutant):
     if mutant == 2:
         a = "wr(16u, save16); wr(0u, save0);"; assert a in src; src = src.replace(a, "wr(0u, save0);")
     (d / "fw2/settings/settings.c").write_text(src)
-    for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h", "cores/tune_core.h", "cores/shipped_meter_ids.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_settings_boot_harness.c").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
@@ -55,7 +57,7 @@ def tests(exe):
         mig = p["log"][PROBE:]                                                  # after the probe's own four writes (word 0, 16, 16 back, 0 back)
         if not mig or mig[-1] != 0 or 0 in mig[:-1]: order = False
     ok["a legacy card is migrated at boot: the register file ends as the pure migration says"] = good
-    ok["the Info numbers after a boot: SET MIGRATED 1 and SET LAYOUT 1 for a legacy card, 0 and 1 for a card already by area"] = (parse(run(exe, "R " + fmt(legacy(random.Random(9))) + "\nI\n"))["layout"] == 1
+    ok["the Info numbers after a boot: SET MIGRATED 1 and SET LAYOUT 2 for a legacy card, 0 and 2 for a card already by area"] = (parse(run(exe, "R " + fmt(legacy(random.Random(9))) + "\nI\n"))["layout"] == 2
         and parse(run(exe, "R " + fmt(list(map(int, run(exe, "E " + fmt(legacy(random.Random(9))) + "\n")[0].split()))) + "\nI\n"))["migrated"] == 0)
     ok["word 0 is written last, once, and only after every other word"] = order
     # a power loss after k writes, then a normal boot
@@ -68,6 +70,20 @@ def tests(exe):
         if second["regs"] != want: ok_loss = False; bad = ("loss", k, total)
         if k < total and (regs_after[0] >> 27) != 0 and k < total: ok_loss = False; bad = ("word 0 marked early", k)
     ok["a power loss after any number of migration writes (%d total, probe excluded) is repaired by the next boot to the same result" % total] = ok_loss
+    # a layout-1 card (TAU DEV 182 .. 219, v0.7.x) is migrated too (no tuning table is registered here: its tunings are dropped; the migration with a table is tested in test_persist_layout.py)
+    r1 = random.Random(8); good1 = True; bad1 = ""
+    for n in range(40):
+        w1 = pl.random_v1_words(r1)
+        want1 = list(map(int, run(exe, "E " + fmt(w1) + "\n")[0].split()))
+        p1 = parse(run(exe, "R " + fmt(w1) + "\nI\n")); mig1 = p1["log"][PROBE:]
+        if p1["regs"] != want1 or p1["migrated"] != 1 or p1["layout"] != 2 or p1["regs"][0] >> 27 != 2 or not mig1 or mig1[-1] != 0 or 0 in mig1[:-1]: good1 = False; bad1 = (n, "result", p1["migrated"])
+        if any(want1[k] for k in (8, 9, 10, 11, 16, 17, 18, 21, 15)): good1 = False; bad1 = (n, "tuning not dropped")
+    ok["a layout-1 card is migrated at boot to layout 2 (migrated 1, layout 2, word 0 written last, the register file equals the pure migration)"] = good1
+    w1 = pl.random_v1_words(random.Random(2)); want1 = list(map(int, run(exe, "E " + fmt(w1) + "\n")[0].split())); total1 = len(parse(run(exe, "R " + fmt(w1) + "\nI\n"))["log"]); loss1 = True
+    for k in range(PROBE, total1 + 1):
+        first = parse(run(exe, "R " + fmt(w1) + "\nW %d\nI\n" % k)); second = parse(run(exe, "R " + fmt(first["regs"]) + "\nI\n"))
+        if second["regs"] != want1: loss1 = False; bad = ("loss v1", k, total1)
+    ok["a power loss after any number of the writes of a layout-1 migration (%d total) is repaired by the next boot to the same result" % total1] = loss1
     # an up-to-date card: no write, values unchanged; word 16 holds a tuning and survives the probe
     new = list(map(int, run(exe, "E " + fmt(legacy(r)) + "\n")[0].split())); new[16] = 123456789; new[21] = 987654321; new[8] = 55555
     p = parse(run(exe, "R " + fmt(new) + "\nI\n"))
@@ -76,7 +92,7 @@ def tests(exe):
     ok["it writes nothing but the probe's own words 0 and 16 (put back to what they held)"] = not nolog and p["regs"][0] == new[0]
     # a narrow file: nothing is written at 16 and up, word 0 keeps its marker
     wl = legacy(r); p = parse(run(exe, "N 1\nR " + fmt(wl) + "\nI\n"))
-    ok["on a narrow (16-word) file the legacy card is still migrated and no write aliases onto word 0 (word 0 ends as version 1)"] = p["regs"][0] >> 27 == 1 and p["migrated"] == 1
+    ok["on a narrow (16-word) file the legacy card is still migrated and no write aliases onto word 0 (word 0 ends as version 2)"] = p["regs"][0] >> 27 == 2 and p["migrated"] == 1
     return ok
 with tempfile.TemporaryDirectory() as td:
     d = Path(td); exe = build(d / "a", 0)

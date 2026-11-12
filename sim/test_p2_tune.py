@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | meter 5 | preset 7 | count 4 | count x { index 6 | value n bits } in
-4 words of 31 bits), the C reader must give back what the Python writer stored, and anything else (zeros, a flipped bit, an index past the table, a value past its maximum) is refused.
+"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | key 20 | preset 7 | count 4 | count x { index 6 | value n bits } in
+4 words of 31 bits, persist_layout 2; seed 0x3C), the C reader must give back what the Python writer stored, and anything else (zeros, a flipped bit, an index past the table, a value past its maximum) is refused.
 Mutant: the check byte ignores the data."""
 import random, subprocess, sys, tempfile
 from pathlib import Path
@@ -19,25 +19,32 @@ def nbits(mx):
     n = 1
     while n < 16 and (mx >> n): n += 1
     return n
-def py_pack(meter, preset, mv, base, mx):
+def py_build(head, seed, keybits, key, preset, entries, mx):
+    """the layout in Python, generic over the header: check 8 | key (keybits) | preset 7 | count 4 | entries from bit `head`; entries = [(index, value)] in index order"""
     bits = [0] * 128
     def put(pos, v, n):
         for i in range(n): bits[pos + i] = (v >> i) & 1
         return pos + n
-    pos, n = 24, 0
-    py_pack.last = []
-    for i in range(len(mv)):
-        if mv[i] == base[i] or n >= 15: continue
+    pos, n = head, 0
+    py_build.last = []
+    for i, v in entries:
+        if n >= 15: continue
         nb = nbits(mx[i])
         if pos + 6 + nb > 124: continue
-        pos = put(pos, i, 6); pos = put(pos, mv[i], nb); n += 1; py_pack.last.append((i, mv[i]))
+        pos = put(pos, i, 6); pos = put(pos, v, nb); n += 1; py_build.last.append((i, v))
     if not n: return 0, [0, 0, 0, 0]
-    put(8, meter & 31, 5); put(13, preset & 127, 7); put(20, n, 4)
+    put(8, key & ((1 << keybits) - 1), keybits); put(8 + keybits, preset & 127, 7); put(15 + keybits, n, 4)
     b = [sum(bits[8 * k + j] << j for j in range(8)) for k in range(16)]
-    c = 0x5A                                       # the seed of the 7-bit-preset layout (0xA5 was the 4-bit one): a tuning saved in the earlier layout is refused (reset once, B-968)
+    c = seed
     for k in range(1, 16): c = (((c << 1) | (c >> 7)) & 255); c = (c + b[k]) & 255
     put(0, c, 8)
     return n, [sum(bits[31 * k + j] << j for j in range(31)) for k in range(4)]
+def py_pack(key, preset, mv, base, mx):
+    r = py_build(39, 0x3C, 20, key, preset, [(i, mv[i]) for i in range(len(mv)) if mv[i] != base[i]], mx); py_pack.last = py_build.last
+    return r
+def py_pack_v1(meter, preset, entries, mx):
+    """persist_layout 1 (TAU DEV 182 .. 219): check 8 | meter 5 | preset 7 | count 4 | entries from bit 24, seed 0x5A"""
+    return py_build(24, 0x5A, 5, meter, preset, entries, mx)
 def py_pack_old(meter, preset, mv, base, mx):
     """the layout before B-968, for the check that a tuning saved then is refused: check 8 | meter 5 | preset 4 | count 4 | entries from bit 21, seed 0xA5"""
     bits = [0] * 128
@@ -64,7 +71,7 @@ def rand_case():
     mx = [rng.choice([1, 1, 3, 11, 15, 100, 255, 400, 65535]) for _ in range(np_)]
     base = [rng.randint(0, m) for m in mx]
     mv = [rng.randint(0, m) if rng.random() < 0.3 else b for m, b in zip(mx, base)]
-    return rng.randint(0, 31), rng.randint(0, 127), mv, base, mx
+    return rng.choice([rng.randint(0, 31), rng.randint(0, 0xFFFFF)]), rng.randint(0, 127), mv, base, mx
 def scenario(exe):
     ok = {}
     cases = [rand_case() for _ in range(300)]
@@ -85,7 +92,7 @@ def scenario(exe):
     ok["the C reader gives back the stored meter, preset and the changed parameters"] = good and stored > 100
     mx = [10, 255, 65535, 3]; w = py_pack(2, 5, [3, 255, 40000, 1], [0, 0, 0, 0], mx)[1]
     r = run(exe, f"U {' '.join(map(str, w))} 4\n{' '.join(map(str, mx))}\n")
-    ok["a small example round-trips (meter 2, preset 5, four changed values)"] = r[0] == "4 2 5" and r[1:] == ["0 3", "1 255", "2 40000", "3 1"]
+    ok["a small example round-trips (key 2, preset 5, four changed values)"] = r[0] == "4 2 5" and r[1:] == ["0 3", "1 255", "2 40000", "3 1"]
     r = run(exe, "U 0 0 0 0 4\n10 255 65535 3\n")
     ok["all zeros (no tuning) is refused"] = r[0].startswith("0")
     flipped = [w[0] ^ 4, w[1], w[2], w[3]]
@@ -102,6 +109,30 @@ def scenario(exe):
         if not n2: continue
         total += 1; rr = run(exe, f"U {' '.join(map(str, w2))} {np_}\n{' '.join(map(str, mx2))}\n"); refused += rr[0].startswith("0")
     ok["a tuning saved in the earlier layout (4-bit preset) is refused: reset once (%d of %d)" % (refused, total)] = total > 30 and refused >= total - 1
+    r3 = random.Random(5); good = True; kept = 0
+    for _ in range(80):                                                   # a record of layout 1 is refused by the reader of layout 2 (its seed differs), and the migration re-keys it keeping preset and entries
+        np_ = r3.randint(1, 30); mx3 = [r3.choice([1, 3, 15, 255, 65535]) for _ in range(np_)]
+        ent = sorted(r3.sample(range(np_), r3.randint(1, min(np_, 12)))); m = r3.randint(0, 20); pre = r3.randint(0, 127)
+        n1, w1 = py_pack_v1(m, pre, [(i, r3.randint(1, mx3[i])) for i in ent], mx3); ent1 = list(py_build.last)
+        if not n1: continue
+        good = good and run(exe, f"U {' '.join(map(str, w1))} {np_}\n{' '.join(map(str, mx3))}\n")[0].startswith("0")
+        got = list(map(int, run(exe, f"C {' '.join(map(str, w1))} {np_}\n{' '.join(map(str, mx3))}\n")[0].split()))
+        if m >= 16: good = good and got == [0, 0, 0, 0]; continue
+        n2, w2 = py_build(39, 0x3C, 20, m * 0x1111 + 5, pre, ent1, mx3)
+        good = good and got == w2; kept += n2 > 0
+        if n2:
+            back = run(exe, f"U {' '.join(map(str, got))} {np_}\n{' '.join(map(str, mx3))}\n"); good = good and back[0].split()[:3] == [str(n2), str(m * 0x1111 + 5), str(pre)]
+        again = list(map(int, run(exe, f"C {' '.join(map(str, got))} {np_}\n{' '.join(map(str, mx3))}\n")[0].split()))      # a record already converted is kept as it is
+        good = good and (again == got or n2 == 0)
+    ok["a layout-1 record is refused by the layout-2 reader; the migration re-keys it with its preset and entries (an index with no key is dropped; a converted record is kept): %d kept" % kept] = good and kept > 30
+    r4 = random.Random(77); good = True; amb = 0
+    for _ in range(400):                                              # a meter whose id_hash shares its low 16 bits with ANOTHER installed meter must have its tuning refused (one key, two meters)
+        n_ = r4.randint(1, 64); hs = [r4.getrandbits(32) for _ in range(n_)]
+        if r4.random() < 0.5 and n_ > 1: hs[r4.randrange(n_)] = (r4.getrandbits(16) << 16) | (hs[0] & 0xFFFF)       # force a collision with row 0
+        for i in r4.sample(range(n_), min(n_, 6)):
+            want = int(any((hs[j] & 0xFFFF) == (hs[i] & 0xFFFF) for j in range(n_) if j != i))
+            got = int(run(exe, f"A {hs[i]} {n_} {' '.join(map(str, hs))}\n")[0]); good = good and got == want; amb += want
+    ok["tune_key_ambiguous: 1 exactly when ANOTHER installed meter shares the low 16 bits of the id_hash (400 random sets; %d ambiguous rows); a lone meter is never ambiguous; the same hash twice is another meter" % amb] = good and amb > 100 and run(exe, "A 5 1 5\n")[0] == "0" and run(exe, "A 5 2 5 5\n")[0] == "1"
     n, w = py_pack(0, 0, [1] * 40, [0] * 40, [1] * 40)
     ok["only what fits is stored (40 changed flags: the rest are dropped, not corrupted)"] = 0 < n < 40
     return ok
@@ -109,5 +140,8 @@ with tempfile.TemporaryDirectory() as td:
     for k, v in scenario(build(td, 0)).items(): check(k, v)
     m = scenario(build(td, 1))
     check("mutant (the check ignores the data) is caught", not all(m.values()))
+    m2 = scenario(build(td, 2)); check("mutant 2 (tune_key_ambiguous always says unambiguous) is caught", not all(m2.values()))
+    sys.path.insert(0, str(ROOT / "tools")); import persist_layout as pl
+    check("the seven shipped meters have distinct low 16 bits of id_hash (so none loses its tuning to the collision rule)", len({h & 0xFFFF for _, h, _ in pl.SHIPPED}) == 7 and not any(int(run(build(td, 0), f"A {h} 7 {' '.join(str(x) for _, x, _ in pl.SHIPPED)}\n")[0]) for _, h, _ in pl.SHIPPED))
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
