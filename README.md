@@ -81,6 +81,8 @@ sources and the honest limits, is [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 3. Build a library: `python3 tools/sync_media.py /path/to/music --all-tau --library`. This is required -- there is no other way to browse or queue more than one file.
 4. Start the core from the Pocket menu. Press **Select** for the library, **Start** for Settings.
 
+**Updating with Pocket Sync.** Its install dialog ticks only the folders that changed (`Assets/tau/` and `Cores/alfatreze.TAU/`) and leaves `Platforms/` unticked when it is the same as the one on your card. That is fine: leave it unticked. Tick `Platforms/` only if the release notes say the platform name or icon changed. Your music, library index and covers in `Assets/tau/common/` are not in the release and are not touched. If "Remove duplicate existing files" worries you, untick it for the first update and check that `Assets/tau/common/` is intact.
+
 Full controls, playlists, settings and known limits: [docs/guide/USER_GUIDE.md](docs/guide/USER_GUIDE.md).
 
 <br clear="right">
