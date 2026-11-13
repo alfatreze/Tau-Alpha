@@ -35,9 +35,10 @@ static void syn_install(uint32_t count)
     toc_pv_off = in.pv_off; toc_packs_off = in.packs_off; toc_total = in.total;
     toc_index(&in);
 }
+static uint32_t syn_force_hash;                                                 /* a test: every pack row takes this id_hash (a meter that is not one of the shipped seven) */
 static void syn_hash_to_row(uint32_t k, const char *name, uint32_t cmds, uint32_t cyc, uint32_t np, uint32_t slot, uint32_t flags)
 {
-    syn_row(k, slot < SHIPPED_METERS_N ? shipped_meter_hash[slot] : 0x10000000u + k, name, flags, cmds, cyc, np, 1u, MTR_PACK_ABI, 0u);
+    syn_row(k, syn_force_hash ? syn_force_hash : slot < SHIPPED_METERS_N ? shipped_meter_hash[slot] : 0x10000000u + k, name, flags, cmds, cyc, np, 1u, MTR_PACK_ABI, 0u);
 }
 static uint32_t dyn_load_files(int n, char **files)
 {

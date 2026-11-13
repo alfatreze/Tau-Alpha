@@ -26,6 +26,7 @@ int main(int argc, char **argv)
     if (argc < 3) return 2;
     strncpy(dir_root, argv[2], sizeof dir_root - 1); if (argc > 3) degrade_level = (uint32_t)atoi(argv[3]);
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
+    if (getenv("FORCEHASH")) syn_force_hash = (uint32_t)strtoul(getenv("FORCEHASH"), 0, 10);
     char *df[1] = { argv[1] }; dyn_load_files(1, df);
     const uint32_t R = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)METER_N;      /* the pack-only row under test */
     if (argc > 4 && !strcmp(argv[4], "restore")) {

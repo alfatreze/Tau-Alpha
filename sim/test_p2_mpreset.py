@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as td:
     exe = build(td); tmp = Path(td)
     # 1. the factory set of every meter
     for key, d in mans.items():
-        params = mp.params_of(d); files = mp.factory_files(d); mid = d["index"]; keys = [p[0] for p in params]
+        params = mp.params_of(d); files = mp.factory_files(d, legacy=True); mid = d["index"]; keys = [p[0] for p in params]
         f = tmp / "i.bin"; f.write_bytes(files["%d/index.tpi" % mid]); o = run(exe, "idx", f, mid)
         ok = o[0] == "idx 0 %d" % len(d["presets"]) and [l.split(" ", 2)[2] for l in o[1:]] == [p["name"].upper()[:15] for p in d["presets"]]
         good = True
@@ -49,6 +49,18 @@ with tempfile.TemporaryDirectory() as td:
             want = [str(pr["values"][k]) if k in pr["values"] else str(dflt) for k, _, _, _, dflt in params]
             good = good and code == 0 and vals == want and hit == len([k for k in keys if k in pr["values"]])
         check("%s: the index (%d presets) and every preset check out and apply exactly the manifest's values" % (key, len(d["presets"])), ok and good, (o[:2], key))
+    # 1b. P2.4: the folder is the first 8 hex digits of the meter's id and the files carry the hash's low 16 bits as their meter id (the decimal manifest-index folder is the legacy form, still written with legacy=True)
+    for key, d in mans.items():
+        params = mp.params_of(d); files = mp.factory_files(d); fold = d["id"][:8].lower(); mid16 = int(fold, 16) & 0xFFFF
+        names = sorted(files); want = sorted(["%s/index.tpi" % fold] + ["%s/p%d.tpr" % (fold, i) for i in range(len(d["presets"]))])
+        f = tmp / "i.bin"; f.write_bytes(files["%s/index.tpi" % fold]); o = run(exe, "idx", f, mid16)
+        good = o[0] == "idx 0 %d" % len(d["presets"])
+        for i, pr in enumerate(d["presets"]):
+            code, hit, vals = pre(exe, td, files["%s/p%d.tpr" % (fold, i)], mid16, i, params)
+            good = good and code == 0 and vals == [str(pr["values"][k]) if k in pr["values"] else str(dflt) for k, _, _, _, dflt in params]
+        legacy_ids = {mp.parse_index(v)[0] for r, v in mp.factory_files(d, legacy=True).items() if r.endswith("index.tpi")}
+        check("%s: the factory set is written under tau-presets/%s/ (8 hex digits of the id), its files carry the meter id %d (the hash's low 16 bits) and check out; the legacy form is the decimal folder with id %d" % (key, fold, mid16, d["index"]),
+              names == want and good and mp.parse_index(files["%s/index.tpi" % fold])[0] == mid16 and legacy_ids == {d["index"]}, (names, want))
     # 2. a meter that gained a parameter keeps its preset; a key the meter does not have is ignored
     d = mans["layered_wave"]; params = mp.params_of(d); mid = d["index"]
     older = [p for p in params if p[0] not in ("taper_head", "taper_tail", "direction")]                       # the meter as it was before B-958/B-961
@@ -65,7 +77,7 @@ with tempfile.TemporaryDirectory() as td:
     code, hit, vals = pre(exe, td, hand, mid, 9, params)
     check("a value outside the range is clamped to its maximum (%d -> %s)" % (60000, vals[idx["layers"]] if vals else ""), code == 0 and vals and vals[idx["layers"]] == str(hi))
     # 4. refusals
-    good = mp.factory_files(d)["%d/p0.tpr" % mid]
+    good = mp.factory_files(d, legacy=True)["%d/p0.tpr" % mid]
     check("a wrong meter id is refused (5)", pre(exe, td, good, mid + 1, 0, params)[0] == 5)
     check("a wrong preset id is refused (6)", pre(exe, td, good, mid, 1, params)[0] == 6)
     check("a truncated file is refused", all(pre(exe, td, good[:n], mid, 0, params)[0] != 0 for n in (0, 5, 13, len(good) - 1)))
@@ -73,7 +85,7 @@ with tempfile.TemporaryDirectory() as td:
     bad = 0
     for key in ("layered_wave", "chladni"):
         dd = mans[key]; pp = mp.params_of(dd)
-        for rel, data in mp.factory_files(dd).items():
+        for rel, data in mp.factory_files(dd, legacy=True).items():
             for i in range(len(data)):
                 b = bytearray(data); b[i] ^= 0x5A
                 if rel.endswith(".tpi"):
