@@ -31,6 +31,8 @@ Each step has a host test that fails first, then passes; each ends in a commit. 
 3. Fix the ids of our seven meters (128 random bits each, made once, recorded in `meters/<key>/meter.json` and the collection repository).
 4. Decide where the TOC copy lives in PSRAM (the existing `.psram_state` region, free of hot RAM cost) and how it is read (word reads through the data alias, as `desc_rd` does for descriptors).
 
+**P2.4 status (2026-11-13): built on branch claude/p24-registry-0a8b56, host-only, TAU DEV 222 packaged not installed (B-1058; script EXTERNAL_METERS_P2_4_TEST.md).**
+
 **P2.2 status (2026-11-13): built, merged, PASSED on a Pocket with TAU DEV 221 (B-1055 DEV 220 failed for a missing stream quiesce, B-1057 DEV 221 passed: 165 loads, no error, no dropout counter moved, persistence kept; worst load 146 ms, 4 KB chunks to try).**
 
 **P2.0 results (2026-11-12).**
