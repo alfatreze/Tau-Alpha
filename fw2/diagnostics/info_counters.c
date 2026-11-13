@@ -15,7 +15,7 @@
 #endif
 #ifdef P2_PACKS
 #include "../cores/mpreset_host.h"
-extern uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_refused, mwin_strikes, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row;     /* fw2/ui/meters.c: PSRAM state (not declared in meter.h: the WebAssembly twins hash it) */
+extern uint32_t mtoc_state, mtoc_count, mtoc_err, mtoc_bad_row, mtoc_src, mtoc_cyc, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_refused, mwin_strikes, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row, msel_saved, msel_commits, msel_aborts, msel_clean_s, msel_pend_hash, msel_skipped, msel_notune, msel_cur_notune, msel_rows;     /* fw2/ui/meters.c: PSRAM state (not declared in meter.h: the WebAssembly twins hash it) */
 #endif
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
@@ -189,6 +189,15 @@ const cnt_t counters_table[] = {
     { "MWIN Q WAIT", CK_U32, CU_CYC,  &mwin_q_last },             /* the wait for the music stream's read in flight before the last load (mp3play_io_quiesce) */
     { "MWIN Q MAX", CK_U32, CU_CYC, &mwin_q_max },
     { "MWIN LAST ROW", CK_U32, CU_NONE, &mwin_last_row },          /* the TOC row of the last refused load (with MWIN ERR) */
+    { "MSEL SAVED",   CK_HEX32, CU_NONE, &msel_saved },       /* the id_hash (31 bits) the register file holds: the COMMITTED meter (external meters P2.4); it follows a newly selected meter only after MTR_COMMIT_SECS (5) of clean running */
+    { "MSEL PEND",    CK_HEX32, CU_NONE, &msel_pend_hash },       /* the selection waiting for its clean run (0: none) */
+    { "MSEL CLEAN",   CK_U32, CU_NONE,   &msel_clean_s },         /* seconds the waiting selection has run cleanly (it commits at 5) */
+    { "MSEL COMMITS", CK_U32, CU_NONE,   &msel_commits },         /* selections that reached the saved word after their clean run */
+    { "MSEL ABORTS",  CK_U32, CU_NONE,   &msel_aborts },          /* selections cut before they committed: refused, struck out or cut by the watchdog */
+    { "MSEL ROWS",    CK_U32, CU_NONE,   &msel_rows },            /* rows X and the list can reach (visible and runnable) */
+    { "MSEL SKIPPED", CK_U32, CU_NONE,   &msel_skipped },         /* visible rows this firmware cannot run (another ABI, a newer TAU): skipped by X */
+    { "MSEL NOTUNE",  CK_U32, CU_NONE,   &msel_notune },          /* rows whose low 16 id bits another row shares: they run from their defaults and save no tuning */
+    { "MSEL CUR NOTUNE", CK_U32, CU_NONE, &msel_cur_notune },     /* 1 when the meter on screen is one of them */
 #endif
     { "NM RES A",     CK_HEX32, CU_NONE, &nm_res[0] },              /* the accented-name matrix (BUG-001, Check page, Y): one nibble per variant, 0..7 here (variant 0 lowest), 8..15 in NM RES B: 1 right file, 2 another file, 3 read failed, 4 no such file, 5 other target code, 6 over the firmware's limit, 7 timeout */
     { "NM RES B",     CK_HEX32, CU_NONE, &nm_res[1] },

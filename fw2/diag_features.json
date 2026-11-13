@@ -79,7 +79,16 @@
     "MWIN RFAIL CYC",
     "MWIN Q WAIT",
     "MWIN Q MAX",
-    "MWIN LAST ROW"
+    "MWIN LAST ROW",
+    "MSEL SAVED",
+    "MSEL PEND",
+    "MSEL CLEAN",
+    "MSEL COMMITS",
+    "MSEL ABORTS",
+    "MSEL ROWS",
+    "MSEL SKIPPED",
+    "MSEL NOTUNE",
+    "MSEL CUR NOTUNE"
   ],
   "counter_rows_in_both_builds_wall_clock": [
     "BOOT EPOCH",
@@ -104,5 +113,5 @@
     "report_page_draw",
     "counters_refresh"
   ],
-  "counter_rows_note": "SDA <SCAN|ENG|CPU> <REQ|WORDS|BUSY|WAIT|URGENT|BAD>: the per-port SDRAM statistics of tau_sdram_sched_v read through the MMIO window 0x1D4/0x1D8 (docs/MMIO_ALLOCATION.md), inside '#if P2_DIAG' in fw2/diagnostics/info_counters.c (the 54 bytes of shadow values and the refresh are also P2_DIAG only). The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks both lists against the cold image of each build. MTOC / MWIN rows (external meters P2.2, fw2/ui/meters.c state in .psram_state): in '#ifdef P2_PACKS' inside the Diagnostic Build's table only; the variables themselves are functional state (the TOC reader and the window loader) and stay in both builds, cold code, no hot RAM."
+  "counter_rows_note": "SDA <SCAN|ENG|CPU> <REQ|WORDS|BUSY|WAIT|URGENT|BAD>: the per-port SDRAM statistics of tau_sdram_sched_v read through the MMIO window 0x1D4/0x1D8 (docs/MMIO_ALLOCATION.md), inside '#if P2_DIAG' in fw2/diagnostics/info_counters.c (the 54 bytes of shadow values and the refresh are also P2_DIAG only). The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks both lists against the cold image of each build. MTOC / MWIN / MSEL rows (external meters P2.2 and P2.4, fw2/ui/meters.c state in .psram_state): in '#ifdef P2_PACKS' inside the Diagnostic Build's table only; the variables themselves are functional state (the TOC reader and the window loader) and stay in both builds, cold code, no hot RAM."
 }

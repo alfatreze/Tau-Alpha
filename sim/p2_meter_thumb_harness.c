@@ -9,6 +9,7 @@ uint16_t th_role[TR_COUNT];
 static uint8_t desc[METER_SLOTS][4096]; static uint32_t dlen[METER_SLOTS];
 static int drd(void *ctx, uint32_t off, uint8_t *dst, uint32_t n) { const uint32_t r = (uint32_t)(uintptr_t)ctx; if (off > dlen[r] || n > dlen[r] - off) return 0; for (uint32_t i = 0; i < n; i++) dst[i] = desc[r][off + i]; return 1; }
 static int hdr(uint32_t m, md_hdr_t *h) { return m >= METER_N && m < METER_SLOTS && dlen[m] && md_header(drd, (void *)(uintptr_t)m, dlen[m], h); }
+int meters_is_builtin(uint32_t m) { return m < METER_N; }
 int meters_present(uint32_t m) { return m < METER_N || (m < METER_SLOTS && dlen[m]); }
 uint32_t meters_thumb_len(uint32_t m) { md_hdr_t h; return hdr(m, &h) ? h.rle_len : 0u; }
 int meters_thumb_rle(uint32_t m, uint32_t i, uint8_t *v) { md_hdr_t h; return hdr(m, &h) && md_rle_byte(drd, (void *)(uintptr_t)m, &h, i, v); }

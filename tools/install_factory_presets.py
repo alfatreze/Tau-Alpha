@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes the factory meter presets (tools/player2/mpreset.py: one index and one file per preset for every Player 2 meter) onto a card, where the firmware looks for them: <media root>/tau-presets/<meter id>/ (B-967).
+"""Writes the factory meter presets (tools/player2/mpreset.py: one index and one file per preset for every Player 2 meter) onto a card, where the firmware looks for them: <media root>/tau-presets/<8 hex digits of the meter's id>/ (B-967; external meters P2.4: before it the folder was the decimal manifest index, which the firmware still reads for the seven shipped meters when the new folder is absent).
 The media root is the one the card's library was built for (the `root` of Assets/<platform>/common/tau-library.tdb, normally /Assets/tau/common/), so the same files serve the release and every developer core.
 
   python3 tools/install_factory_presets.py --card /Volumes/Pock              dry run: what would be written

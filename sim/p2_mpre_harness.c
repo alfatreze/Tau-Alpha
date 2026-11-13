@@ -50,7 +50,9 @@ int main(int argc, char **argv)
     if (argc > 1 && argv[1][0] != '-') {                               /* METR mode: load the file, then print every user preset of every meter: "id npre name v0 v1 ..." */
         FILE *f = fopen(argv[1], "rb"); uint32_t n = (uint32_t)fread(fbuf, 1, sizeof fbuf, f); fclose(f);
         printf("loaded %u\n", meters_metr_load(fbuf, n));
-        for (uint32_t m = 0; m < 1u; m++) {                              /* METR user presets apply to the built-in meter only since P2.2 (a pack meter is not loaded at boot; P2.4 decides) */
+        for (uint32_t m = 0; m < meter_count; m++) {                       /* METR user presets apply to every meter that is a row, the built-in one and the pack meters (applied again each time a pack is loaded: P2.4) */
+            if (!meters_present(m)) continue;
+            meters_select(m);
             printf("meter %u npre %u boot %u\n", m, meters_npre(m), meters_preset_of(m));
             for (uint32_t p = 0; p < meters_npre(m); p++) {
                 meters_select(m); meters_preset_select(m, p);
@@ -69,15 +71,16 @@ int main(int argc, char **argv)
         EDIT(2, 0); SHOW("tuned 2");
         EDIT(3, 0); SHOW("tuned 3 evicts the oldest");
         EDIT(2, 1); SHOW("tuned 2 again replaces its own slot");
-        meters_preset_select(3, meters_preset_of(3)); SHOW("preset of 3 reselected drops its tuning");
-        uint32_t saved[TUNE_SLOTS * TUNE_WORDS], newer = meters_tune_newer(), v2 = mdef(2)->mv[1]; meters_tune_words(saved);
-        meters_preset_select(2, meters_preset_of(2)); meters_preset_select(1, meters_preset_of(1)); SHOW("both presets reselected");
-        meters_tune_apply(saved, newer); SHOW("boot restore");
-        printf("restored custom2 %u custom1 %u v2 %u\n", custom[2], custom[1], mdef(2)->mv[1] == v2);
+        const uint32_t v2 = mdef(2)->mv[1];                                                          /* meter 2 is on screen, tuned */
+        meters_select(3); meters_preset_select(3, meters_preset_of(3)); SHOW("preset of 3 reselected drops its tuning");
+        uint32_t saved[TUNE_SLOTS * TUNE_WORDS], newer = meters_tune_newer(); meters_tune_words(saved);
+        meters_select(2); meters_preset_select(2, meters_preset_of(2)); meters_select(1); meters_preset_select(1, meters_preset_of(1)); SHOW("both presets reselected");
+        meters_select(2); meters_tune_apply(saved, newer); SHOW("boot restore");                    /* the boot selects the saved meter, then applies the words */
+        printf("restored custom2 %u custom1 %u v2 %u\n", meters_custom(2), meters_custom(1), mdef(2)->mv[1] == v2);
         return 0;
     }
     printf("rows %u count %u\n", up, meter_count);
-    meters_preset_select(3, 6); meters_preset_select(2, 9); meters_preset_select(9, 1);          /* 9 is past Chladni's 4 presets: the first; meter 9 does not exist */
+    meters_select(3); meters_preset_select(3, 6); meters_select(2); meters_preset_select(2, 9); meters_preset_select(9, 1);          /* 9 is past Chladni's 4 presets: the first; meter 9 does not exist; only the meter on screen has a preset */
     printf("of3 %u of2 %u\n", meters_preset_of(3), meters_preset_of(2));
     meters_select(3);
     printf("mv3"); for (uint32_t i = 0; i < mdef(3)->np; i++) printf(" %u", mdef(3)->mv[i]); printf("\n");

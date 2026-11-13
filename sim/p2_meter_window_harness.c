@@ -26,6 +26,7 @@ static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 static void win_flush(void);
 #include "../fw2/ui/meters.c"
 static uint32_t now, win, spend, flushes, calls;
+uint32_t wd_host_cut = 1u;                                                      /* WD_HOST_CUT builds: 1 = the watchdog cuts every pack tick (a hang), 0 = it runs; the command `cut` flips it */
 static uint32_t fnv(const uint8_t *p, uint32_t n) { uint32_t h = 2166136261u; for (uint32_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; } return h; }
 static void win_flush(void) { flushes++; printf("W %08x\n", fnv(win_mem, win_info.size)); printf("F\n"); }       /* the whole image as the window holds it at the flush */
 static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)in; (void)api; calls++; now += spend; printf("C %08x entry %x\n", fnv(win_mem, 256u), e); return 0; }
@@ -87,7 +88,8 @@ static void setfile(int s, const char *p)
 static void state(void)
 {
     uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
-    printf("state cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u overruns %u struck %u readfail %u rfcyc %u qlast %u qmax %u lastrow %u collisions %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, meter_stats.overruns, meter_stats.struck, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row, collisions);
+    printf("state saved %08x pend %08x clean %u commits %u aborts %u rows %u skipped %u notune %u curnotune %u ", msel_saved, msel_pend_hash, msel_clean_s, msel_commits, msel_aborts, msel_rows, msel_skipped, msel_notune, msel_cur_notune);
+    printf("cur %u count %u src %u mtoc_err %u mtoc_count %u loads %u last_cyc %u max_cyc %u last_hash %08x err %u strikes %u overruns %u struck %u readfail %u rfcyc %u qlast %u qmax %u lastrow %u collisions %u present", meters_cur(), meter_count, meters_pack_source(), mtoc_err, mtoc_count, mwin_loads, mwin_last_cyc, mwin_max_cyc, mwin_last_hash, mwin_err, mwin_strikes, meter_stats.overruns, meter_stats.struck, mwin_readfail, mwin_readfail_cyc, mwin_q_last, mwin_q_max, mwin_last_row, collisions);
     for (uint32_t m = 0; m < meter_count; m++) printf(" %d", meters_present(m));
     printf(" pstate");
     for (uint32_t m = 0; m < meter_count; m++) printf(" %u", meters_pack_state(m));
@@ -104,6 +106,10 @@ int main(void)
         else if (!strcmp(a, "boot")) { stream_inflight = 1; meters_init(); meters_enter(0, 0, 100, 50); int ok = meters_packs_load_file(rd_user, (void *)1); printf("boot user %d", ok); if (!ok) { ok = meters_packs_load_file(rd_core, (void *)2); printf(" core %d", ok); } printf("\n"); }
         else if (!strcmp(a, "select")) { stream_inflight = 1; meters_select((uint32_t)atoi(b)); printf("cur %u\n", meters_cur()); }
         else if (!strcmp(a, "next")) { stream_inflight = 1; meters_next(1); printf("cur %u\n", meters_cur()); }
+        else if (!strcmp(a, "prev")) { stream_inflight = 1; meters_next(-1); printf("cur %u\n", meters_cur()); }
+        else if (!strcmp(a, "walk")) { const int k = atoi(b); uint32_t rows[256]; for (int i = 0; i < k && i < 256; i++) { stream_inflight = 1; meters_next(1); rows[i] = meters_cur(); } printf("walk"); for (int i = 0; i < k && i < 256; i++) printf(" %u", rows[i]); printf("\n"); }       /* X, k times: the rows visited, in order */
+        else if (!strcmp(a, "tune")) { uint32_t w[8]; meters_tune_words(w); printf("tune"); for (int i = 0; i < 8; i++) printf(" %u", w[i]); printf("\n"); }
+        else if (!strcmp(a, "maxes")) { uint32_t np = 0; const uint16_t *m = meters_shipped_max_of((uint32_t)atoi(b), &np); printf("maxes %u", m ? np : 0u); for (uint32_t i = 0; m && i < np; i++) printf(" %u", m[i]); printf("\n"); }
         else if (!strcmp(a, "tick")) { stream_inflight = 1; spend = (uint32_t)atoi(b); win++; meters_tick(1); printf("tick done cur %u\n", meters_cur()); }
         else if (!strcmp(a, "swap")) { const int k = atoi(b); for (int i = 0; i < k; i++) { stream_inflight = 1; meters_select((uint32_t)(i % (int)meter_count)); win++; spend = 0; meters_tick(1); } printf("swapped %d\n", k); }
         else if (!strcmp(a, "def")) {
@@ -123,6 +129,10 @@ int main(void)
         }
         else if (!strcmp(a, "edit")) { const uint32_t i = (uint32_t)atoi(b); const meter_def_t *d = meters_def(meters_cur()); d->mv[i] = (uint16_t)(d->mv[i] + 1u); meters_params_changed(meters_cur()); }
         else if (!strcmp(a, "show")) { const meter_def_t *d = meters_def(meters_cur()); printf("show cur %u custom %u mv", meters_cur(), meters_custom(meters_cur())); for (uint32_t i = 0; i < 3u && i < d->np; i++) printf(" %u", d->mv[i]); printf("\n"); }
+        else if (!strcmp(a, "advance")) { now += (uint32_t)atoi(b) * CLK_HZ; }                      /* SECONDS of the 66.667 MHz counter pass */
+        else if (!strcmp(a, "cut")) wd_host_cut = (uint32_t)atoi(b);
+        else if (!strcmp(a, "flags")) { const uint32_t m = (uint32_t)atoi(b); char nm[40]; printf("flags row %u %u name %s\n", m, meters_row_flags(m), meters_row_name(m, nm, sizeof nm)); }
+        else if (!strcmp(a, "list")) { printf("list %u:", meters_list_count()); for (uint32_t i = 0; i < meters_list_count(); i++) printf(" %u", meters_list_row(i)); printf("\n"); }
         else if (!strcmp(a, "state")) state();
     }
     return 0;

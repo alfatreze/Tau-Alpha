@@ -23,17 +23,13 @@ typedef struct { uint8_t word, shift, width; uint32_t min, max, def; } sf_field_
  *   words 8..11 and 16, 17, 18, 21     the tuning pool: two slots of four words (a tuning is the delta of ONE meter from its preset, keyed by id_hash low 16 and params_rev low 4: cores/tune_core.h)
  *   words 19, 20                       the last played track (cores/lastplayed_core.h)
  * The Pocket takes 16 persist variables: this is all 16. A word's unused bits are free for later options of its area. */
-#define SF_METERS_MAX 7u               /* the shipped meters of layout 0 and 1 (cores/shipped_meter_ids.h): the table indexes a migration maps to an id_hash; appearance.c asserts the registry fits (until P2.4 replaces it) */
+#define SF_METERS_MAX 7u               /* the shipped meters of layout 0 and 1 (cores/shipped_meter_ids.h): the table indexes a migration maps to an id_hash; the migration only */
 enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER_HASH, SF_FONT, SF_LAYOUT, SF_TUNE_NEW, SF_METER_PRE_POS, SF_METER_PRE_ID,
        SF_TUNE0, SF_TUNE1, SF_TUNE2, SF_TUNE3, SF_TUNE4, SF_TUNE5, SF_TUNE6, SF_TUNE7,
-       /* COMPATIBILITY entries (no storage, width 0: they always read 0 and are never written): the layout-1 names fw2/ui/appearance.c still uses, kept so it compiles until P2.4 replaces its call sites; the legacy reader
-        * also uses them as scratch for the layout-0 values it maps. */
-       SF_METER, SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_MPRE5, SF_MPRE6, SF_MPID0, SF_MPID1, SF_MPID2, SF_MPID3, SF_MPID4, SF_MPID5, SF_MPID6,
        SF_LAST0, SF_LAST1, SF_COUNT };
 #define SF_LAYOUT_VERSION 2u
 #define SF_WORDS 32u                   /* the register file: 32 words (the wide file; an older 16-word bitstream cannot hold word 16 and up) */
 #define SF_T31(w) { w, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }
-#define SF_NONE { 0u, 0u, 0u, 0u, 0u, 0u }
 static const sf_field_t sf_table[SF_COUNT] = {
     { 2u,  0u, 7u,  0u, 100u, 94u },   /* volume 0..100 (the dB taper position), default 94 */
     { 2u,  7u, 2u,  0u, 2u,   0u  },   /* repeat: 0 off, 1 all, 2 one */
@@ -50,7 +46,6 @@ static const sf_field_t sf_table[SF_COUNT] = {
     { 6u,  4u, 7u, 0u, 127u, 0u },     /* the preset FILE the selected meter was set to: 0 = none (the meter's defaults), else the preset's id + 1 (ids 0..126) */
     /* the tuning pool: slot A = words 8..11 (persist ids 20..23), slot B = words 16, 17, 18, 21 (ids 27, 28, 29 and 33); 31 bits each (cores/tune_core.h) */
     SF_T31(8u), SF_T31(9u), SF_T31(10u), SF_T31(11u), SF_T31(16u), SF_T31(17u), SF_T31(18u), SF_T31(21u),
-    SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE, SF_NONE,   /* SF_METER, SF_MPRE0..6, SF_MPID0..6: no storage */
     /* the last played track (cores/lastplayed_core.h): words 19 and 20 = persist ids 31 and 32 (a record that fails its check is ignored) */
     SF_T31(19u), SF_T31(20u),
 };
@@ -69,12 +64,13 @@ static const uint8_t sf_mark_word[] = { 1u, 2u, 6u };
 static const uint8_t sf_mark_bit[]  = { 30u, 30u, 29u };
 static const uint8_t sf_write_order[] = { 1u, 2u, 6u, 5u, 15u, 16u, 17u, 18u, 21u, 8u, 9u, 10u, 11u, 19u, 20u };
 /* ---- the LEGACY layout (TAU DEV 181 and older, layout version 0): read once to migrate. The meter and its presets are read into the compatibility slots (scratch) ---- */
+#define SF_LG_METER 100u               /* the legacy table's scratch targets (not fields of sf_table): the layout-0 meter index and the seven per-meter preset positions */
 typedef struct { uint8_t field, word, shift, width; uint32_t min, max, def; } sf_legacy_t;
 static const sf_legacy_t sf_legacy[] = {
     { SF_VOLUME,  0u,  0u, 32u, 0u, 100u, 94u }, { SF_REPEAT, 2u, 0u, 32u, 0u, 2u, 0u }, { SF_RGMODE, 17u, 4u, 2u, 0u, 2u, 0u }, { SF_HALCYON, 6u, 0u, 32u, 0u, 30u, 0u },
-    { SF_COLOUR,  1u,  0u, 32u, 0u, 18u, 1u }, { SF_THEME, 16u, 0u, 32u, 0u, 31u, 0u }, { SF_POLARITY, 17u, 0u, 1u, 0u, 1u, 0u }, { SF_METER, 5u, 0u, 32u, 0u, 14u, 0u },
-    { SF_MPRE0, 18u, 0u, 4u, 0u, 7u, 0u }, { SF_MPRE0 + 1, 18u, 4u, 4u, 0u, 7u, 0u }, { SF_MPRE0 + 2, 18u, 8u, 4u, 0u, 7u, 0u }, { SF_MPRE0 + 3, 18u, 12u, 4u, 0u, 15u, 0u }, { SF_MPRE0 + 4, 18u, 16u, 4u, 0u, 7u, 0u },
-    { SF_FONT, 18u, 20u, 3u, 0u, 7u, 0u }, { SF_MPRE0 + 5, 18u, 23u, 4u, 0u, 7u, 0u }, { SF_MPRE0 + 6, 15u, 0u, 4u, 0u, 15u, 0u },
+    { SF_COLOUR,  1u,  0u, 32u, 0u, 18u, 1u }, { SF_THEME, 16u, 0u, 32u, 0u, 31u, 0u }, { SF_POLARITY, 17u, 0u, 1u, 0u, 1u, 0u }, { SF_LG_METER, 5u, 0u, 32u, 0u, 14u, 0u },
+    { SF_LG_METER + 1u, 18u, 0u, 4u, 0u, 7u, 0u }, { SF_LG_METER + 1u + 1, 18u, 4u, 4u, 0u, 7u, 0u }, { SF_LG_METER + 1u + 2, 18u, 8u, 4u, 0u, 7u, 0u }, { SF_LG_METER + 1u + 3, 18u, 12u, 4u, 0u, 15u, 0u }, { SF_LG_METER + 1u + 4, 18u, 16u, 4u, 0u, 7u, 0u },
+    { SF_FONT, 18u, 20u, 3u, 0u, 7u, 0u }, { SF_LG_METER + 1u + 5, 18u, 23u, 4u, 0u, 7u, 0u }, { SF_LG_METER + 1u + 6, 15u, 0u, 4u, 0u, 15u, 0u },
     { SF_LAST0, 19u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { SF_LAST1, 20u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u },
 };
 #define SF_LEGACY_N (sizeof sf_legacy / sizeof sf_legacy[0])
@@ -144,27 +140,26 @@ static inline uint32_t sf_key_of_index(uint32_t i)
 #endif
 }
 typedef const uint16_t *(*sf_max_of_t)(uint32_t meter, uint32_t *np);
-/* The values a LEGACY register file held, every field validated with its own ranges, the other fields at their default. The legacy meter index and preset positions are left in the compatibility slots (SF_METER,
- * SF_MPRE0..6) for sf_migrate_words_t; sf_legacy_unpack clears them. The tuning of the old single slot is not carried over (its header differs and it is a session convenience). */
-static inline void sf_legacy_unpack_raw(const uint32_t *words, uint32_t *vals)
+/* The values a LEGACY register file held, every field validated with its own ranges, the other fields at their default. The legacy meter index goes to *idx_out and the per-meter preset positions stay in local scratch (the
+ * compatibility fields of P2.3 are gone). The tuning of the old single slot is not carried over (its header differs and it is a session convenience). */
+static inline void sf_legacy_unpack_idx(const uint32_t *words, uint32_t *vals, uint32_t *idx_out)
 {
+    uint32_t scr[1u + SF_METERS_MAX];
     for (uint32_t i = 0; i < SF_COUNT; i++) vals[i] = sf_table[i].def;
+    for (uint32_t i = 0; i < 1u + SF_METERS_MAX; i++) scr[i] = 0u;
     for (uint32_t k = 0; k < SF_LEGACY_N; k++) {
         const sf_legacy_t *l = &sf_legacy[k];
         const uint32_t m = l->width >= 32u ? 0xFFFFFFFFu : ((1u << l->width) - 1u);
-        const uint32_t v = (words[l->word] >> l->shift) & m;
-        vals[l->field] = (v < l->min || v > l->max) ? l->def : v;
+        const uint32_t v = (words[l->word] >> l->shift) & m, ok = (v < l->min || v > l->max) ? l->def : v;
+        if (l->field >= SF_LG_METER) scr[l->field - SF_LG_METER] = ok; else vals[l->field] = ok;
     }
-    const uint32_t idx = vals[SF_METER];
+    const uint32_t idx = scr[0];
     vals[SF_METER_HASH] = sf_hash31_of_index(idx);
-    vals[SF_METER_PRE_POS] = idx < SF_METERS_MAX ? vals[SF_MPRE0 + idx] : 0u;
+    vals[SF_METER_PRE_POS] = idx < SF_METERS_MAX ? scr[1u + idx] : 0u;
     vals[SF_METER_PRE_ID] = 0u;
+    if (idx_out) *idx_out = idx;
 }
-static inline void sf_legacy_unpack(const uint32_t *words, uint32_t *vals)
-{
-    sf_legacy_unpack_raw(words, vals);
-    vals[SF_METER] = 0u; for (uint32_t m = 0; m < SF_METERS_MAX; m++) { vals[SF_MPRE0 + m] = 0u; vals[SF_MPID0 + m] = 0u; }
-}
+static inline void sf_legacy_unpack(const uint32_t *words, uint32_t *vals) { sf_legacy_unpack_idx(words, vals, 0); }
 static inline uint32_t sf_v1_get(const uint32_t *w, const uint8_t *spec, uint32_t max)
 {
     const uint32_t v = (w[spec[0]] >> spec[1]) & ((1u << spec[2]) - 1u);
@@ -177,8 +172,7 @@ static inline uint32_t sf_v1_get(const uint32_t *w, const uint8_t *spec, uint32_
 static inline void sf_migrate_words_t(const uint32_t *words, uint32_t *out, sf_max_of_t max_of)
 {
     if (sf_is_legacy(words)) {
-        uint32_t vals[SF_COUNT]; sf_legacy_unpack_raw(words, vals);
-        const uint32_t idx = vals[SF_METER];
+        uint32_t vals[SF_COUNT], idx; sf_legacy_unpack_idx(words, vals, &idx);
         for (uint32_t i = 0; i < SF_WORDS; i++) out[i] = 0u;
         sf_pack(out, vals);
         out[6] |= (idx < 63u ? idx : 63u) << SF_SCRATCH_SHIFT;

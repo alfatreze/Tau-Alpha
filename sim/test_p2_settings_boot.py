@@ -24,7 +24,8 @@ def build(d, mutant):
     if mutant == 2:
         a = "wr(16u, save16); wr(0u, save0);"; assert a in src; src = src.replace(a, "wr(0u, save0);")
     (d / "fw2/settings/settings.c").write_text(src)
-    for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h", "cores/tune_core.h", "cores/shipped_meter_ids.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+    (d / "fw2/generated").mkdir()
+    for f in ("settings/settings.h", "platform/mmio.h", "cores/settings_core.h", "cores/tune_core.h", "cores/shipped_meter_ids.h", "generated/meter_registry.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_settings_boot_harness.c").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
@@ -84,6 +85,25 @@ def tests(exe):
         first = parse(run(exe, "R " + fmt(w1) + "\nW %d\nI\n" % k)); second = parse(run(exe, "R " + fmt(first["regs"]) + "\nI\n"))
         if second["regs"] != want1: loss1 = False; bad = ("loss v1", k, total1)
     ok["a power loss after any number of the writes of a layout-1 migration (%d total) is repaired by the next boot to the same result" % total1] = loss1
+    # P2.4: with the shipped meters' parameter maxima (settings_init_t, main_player.c) a layout-1 tuning is CONVERTED at boot, with the real tables of the manifests (not an invented fixture)
+    sys.path.insert(0, str(ROOT / "tools/player2")); import tune_capacity as tc, meter_manifest as mm
+    mans = sorted((mm.load(f) for f in (ROOT / "meters").glob("*/meter.json")), key=lambda d: d.get("p2", {}).get("slot", 99))
+    mans = [d for d in mans if "p2" in d]; real = [tc.maxes(d) for d in mans]
+    def real_max(i): return real[i] if i < len(real) else None
+    rr = random.Random(77); conv = True; badc = ""; kept = 0
+    for tm in range(7):
+        for n in range(6):
+            w1 = pl.random_v1_words(rr)
+            for k in (8, 9, 10, 11, 16, 17, 18, 21): w1[k] = 0
+            mx = real[tm]; ent = [(i, min(mx[i], 1 + rr.randint(0, 3))) for i in range(min(3, len(mx)))]
+            for k, v in zip((8, 9, 10, 11), pl.tune_v1_pack(tm, rr.randint(0, 5), ent, mx)): w1[k] = v
+            want = pl.migrate(w1, real_max)
+            p = parse(run(exe, "R " + fmt(w1) + "\nJ\n")); q = parse(run(exe, "R " + fmt(w1) + "\nI\n"))
+            if p["regs"] != want or p["migrated"] != 1: conv = False; badc = (tm, n, "J differs from the reference migration")
+            if not p["regs"][8] or ((p["regs"][8] >> 8) & 0xFFFFF) != pl.tune_key(pl.SHIPPED[tm][1], pl.SHIPPED[tm][2]): conv = False; badc = (tm, n, "tuning dropped or mis-keyed")
+            if q["regs"][8]: conv = False; badc = (tm, n, "without the table the tuning must be dropped (the old settings_init)")
+            kept += 1 if p["regs"][8] else 0
+    ok["with the shipped meters' parameter maxima a layout-1 tuning converts on migration (all 7 shipped meters, %d cards: the register file equals the reference migration, the key is the meter's id hash + params_rev); without them it is dropped" % kept] = conv
     # an up-to-date card: no write, values unchanged; word 16 holds a tuning and survives the probe
     new = list(map(int, run(exe, "E " + fmt(legacy(r)) + "\n")[0].split())); new[16] = 123456789; new[21] = 987654321; new[8] = 55555
     p = parse(run(exe, "R " + fmt(new) + "\nI\n"))

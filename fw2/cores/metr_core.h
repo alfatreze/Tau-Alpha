@@ -49,6 +49,27 @@ static inline int metr_find(const uint8_t *d, uint32_t n, uint32_t id, const met
     }
     return 0;
 }
+/* The same for a section that is not in addressable memory (the firmware keeps it in PSRAM, which takes word accesses only): `b(off)` returns the byte at offset off of the section, `n` is its length. */
+typedef uint32_t (*metr_byte_fn)(uint32_t off);
+static inline int metr_find_rd(metr_byte_fn b, uint32_t n, uint32_t id, const metr_p_t *ps, uint32_t np, metr_e_t *out)
+{
+    uint32_t count = b(12u) | (b(13u) << 8), pos = 14u;
+    for (uint32_t k = 0; k < count; k++) {
+        if (pos + 2u > n) return 0;
+        const uint32_t len = b(pos) | (b(pos + 1u) << 8), at = pos + 2u;
+        if (len < 7u || at + len > n) return 0;
+        pos = at + len;
+        if (b(at) != id) continue;
+        const uint32_t schema = b(at + 1u), npre = b(at + 4u), nparams = b(at + 5u);
+        if (schema > 1u || nparams != np || npre < 1u || npre > METR_MAX_PRE) return 0;
+        uint32_t psize = METR_NAME;
+        for (uint32_t i = 0; i < np; i++) psize += ps[i].wide ? 2u : 1u;
+        if (len != 6u + npre * psize + 1u || b(at + 6u + npre * psize) >= npre) return 0;
+        out->off = at + 6u; out->npre = (uint8_t)npre; out->def = (uint8_t)b(at + 6u + npre * psize); out->psize = (uint8_t)psize;
+        return 1;
+    }
+    return 0;
+}
 /* The name of preset p: printable upper-case ASCII, at most 15 characters. */
 static inline void metr_name(const uint8_t *d, const metr_e_t *e, uint32_t p, char *out)
 {

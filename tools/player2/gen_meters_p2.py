@@ -97,6 +97,15 @@ rout.append("/* the draw-command ceiling of one drawn tick of each meter (manife
 rout.append("static const uint16_t meter_cmd_budget[METER_N] = { " + ", ".join(str(d["p2"].get("cmds", 0)) for d in STATIC) + " };")
 rout.append("/* the cycles one drawn tick of a PACK may take (manifest p2.max_cycles; 0 = no limit): three overruns disable the pack, cores/pack_strike_core.h */")
 rout.append("static const uint32_t meter_cyc_limit[METER_N] __attribute__((unused)) = { " + ", ".join("%du" % d["p2"].get("max_cycles", 0) for d in STATIC) + " };")
+# the largest value of every parameter of the seven shipped meters, by their layout-1 table index (the p2 slot): what the one-time migration of a layout-1 card needs to keep a saved tuning (settings_init_t, external meters P2.4).
+# Not hot RAM: meters.c is a cold object (rodata in the cold image).
+def _tmax(d): return [65535 if r["type"] == 3 else 1 if r["type"] == 2 else r["max"] for r in param_rows(d)]
+_tm = [_tmax(d) for d in ORDER]
+rout.append("/* the largest value of each parameter of the shipped meters (colour 65535, on/off 1, else the descriptor's max) by table index (the p2 slot = the layout-1 index): cores/settings_core.h sf_max_of_t, meters_shipped_max_of() */")
+rout.append("#define SHIPPED_TMAX_N %du" % len(_tm))
+rout.append("__attribute__((unused)) static const uint8_t shipped_tmax_np[SHIPPED_TMAX_N] = { " + ", ".join(str(len(t)) for t in _tm) + " };")
+rout.append("__attribute__((unused)) static const uint8_t shipped_tmax_off[SHIPPED_TMAX_N + 1u] = { " + ", ".join(str(sum(len(t) for t in _tm[:i])) for i in range(len(_tm) + 1)) + " };")
+rout.append("__attribute__((unused)) static const uint16_t shipped_tmax[%d] = { " % sum(len(t) for t in _tm) + ", ".join(str(v) for t in _tm for v in t) + " };")
 rout += ["#endif", ""]
 reg_text = "\n".join(rout)
 

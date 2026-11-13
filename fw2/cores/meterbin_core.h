@@ -137,6 +137,15 @@ static inline void mb_tune_collisions(const uint32_t *h, uint32_t n, uint8_t *fl
     for (uint32_t i = 1; i < n; i++) if ((k[i] >> 8) == (k[i - 1u] >> 8)) { flag[k[i] & 255u] = 1u; flag[k[i - 1u] & 255u] = 1u; }
 #endif
 }
+/* The fields of a row's 256 raw bytes, with NO validation: for a TOC that mb_open_toc() already accepted (the firmware reads rows this way all the time: names, flags, limits, one 256-byte read each). */
+static inline void mb_row_decode(const uint8_t *t, mb_row_t *r)
+{
+    r->id_hash = mb_ld32(t); for (uint32_t k = 0; k < 32u; k++) r->id[k] = (char)t[4 + k]; r->id[32] = 0;
+    for (uint32_t k = 0; k < 24u; k++) r->name[k] = (char)t[44 + k];
+    for (uint32_t k = 0; k < 3u; k++) r->ver[k] = (uint16_t)mb_ld16(t + 68 + 2 * k);
+    r->abi = (uint16_t)mb_ld16(t + 74); r->tau_min = (uint16_t)mb_ld16(t + 76); r->flags = (uint16_t)mb_ld16(t + 78); r->params_rev = (uint16_t)mb_ld16(t + 80); r->nparams = (uint16_t)mb_ld16(t + 82); r->cmds = (uint16_t)mb_ld16(t + 84);
+    r->max_cycles = mb_ld32(t + 88); r->pack_off = mb_ld32(t + 92); r->pack_size = mb_ld32(t + 96); r->pack_crc = mb_ld32(t + 100); r->pstate = mb_ld32(t + 104); r->bss = mb_ld32(t + 108); r->preview_off = mb_ld32(t + 112); r->preview_len = mb_ld32(t + 116);
+}
 /* ---- one row, from the TOC copy alone ---- */
 static inline int mb_row_check(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint32_t i, mb_row_t *r, int *rerr)
 {
@@ -153,7 +162,7 @@ static inline int mb_row_check(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint
     for (uint32_t k = 120u; k < MB_TOC; k++) if (t[k]) return MB_E_RESERVED;
     const uint32_t nparams = mb_ld16(t + 82);
     if (nparams > MB_MAX_PARAMS) return MB_E_PARAMS;
-    const uint32_t pack_off = mb_ld32(t + 92), pack_size = mb_ld32(t + 96), pack_crc = mb_ld32(t + 100), pstate = mb_ld32(t + 104), bss = mb_ld32(t + 108), pv_off = mb_ld32(t + 112), pv_len = mb_ld32(t + 116);
+    const uint32_t pack_off = mb_ld32(t + 92), pack_size = mb_ld32(t + 96), pstate = mb_ld32(t + 104), pv_off = mb_ld32(t + 112), pv_len = mb_ld32(t + 116);
     const uint32_t end = in->total - 4u;
 #if BUG == 5
     (void)end;
@@ -164,11 +173,7 @@ static inline int mb_row_check(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint
     if (pack_size - MB_PACK_HDR > MB_WINDOW_SIZE || pstate > MB_WINDOW_SIZE || pack_size - MB_PACK_HDR + pstate > MB_WINDOW_SIZE) return MB_E_WINDOW;
     if (pv_off < in->pv_off || pv_off > in->packs_off || pv_len > in->packs_off - pv_off) return MB_E_PREVIEW;
     if (!mb_preview_ok(rd, ctx, pv_off, pv_len, rerr)) return *rerr ? MB_E_READ : MB_E_PREVIEW;
-    r->id_hash = h; for (uint32_t k = 0; k < 32u; k++) r->id[k] = (char)t[4 + k]; r->id[32] = 0;
-    for (uint32_t k = 0; k < 24u; k++) r->name[k] = (char)t[44 + k];
-    for (uint32_t k = 0; k < 3u; k++) r->ver[k] = (uint16_t)mb_ld16(t + 68 + 2 * k);
-    r->abi = (uint16_t)mb_ld16(t + 74); r->tau_min = (uint16_t)mb_ld16(t + 76); r->flags = (uint16_t)flags; r->params_rev = (uint16_t)mb_ld16(t + 80); r->nparams = (uint16_t)nparams; r->cmds = (uint16_t)mb_ld16(t + 84);
-    r->max_cycles = mb_ld32(t + 88); r->pack_off = pack_off; r->pack_size = pack_size; r->pack_crc = pack_crc; r->pstate = pstate; r->bss = bss; r->preview_off = pv_off; r->preview_len = pv_len;
+    mb_row_decode(t, r);
     return MB_OK;
 }
 /* ---- the boot path ---- */
@@ -222,6 +227,15 @@ static inline int mb_row(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint32_t i
     int rerr = 0;
     if (i >= in->count) return MB_E_COUNT;
     return mb_row_check(rd, ctx, in, i, r, &rerr);
+}
+/* Row i without re-validating it (the TOC was accepted at boot): ONE 256-byte read. MB_E_COUNT past the end, MB_E_READ when the reader fails. */
+static inline int mb_row_fast(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint32_t i, mb_row_t *r)
+{
+    uint8_t t[MB_TOC];
+    if (i >= in->count) return MB_E_COUNT;
+    if (!rd(ctx, MB_HDR + MB_TOC * i, t, MB_TOC)) return MB_E_READ;
+    mb_row_decode(t, r);
+    return MB_OK;
 }
 /* Every row's id_hash (n reads of 4 bytes) into h[count]; 0 when a read failed. */
 static inline int mb_hashes(mb_rd_fn rd, void *ctx, const mb_info_t *in, uint32_t *h)
