@@ -32,6 +32,15 @@ with tempfile.TemporaryDirectory() as td:
     out3 = Path(td) / "o3"; sy.main([str(out3), "--collide"])
     rc = mb.open_toc((out3 / "tau-meters.bin").read_bytes())["rows"]
     check("--collide: rows 9 and 10 (TEST 09, TEST 10) share the low 16 bits of their id_hash and nothing else does", rc[8]["id"][4:8] == rc[9]["id"][4:8] and rc[8]["id"] != rc[9]["id"] and len({r["id"][4:8] for r in rc}) == 63)
+    out4 = Path(td) / "o4"; sy.main([str(out4), "--hang-row", "64", "--collide"])
+    r4 = mb.open_toc((out4 / "tau-meters-hang.bin").read_bytes())["rows"]; p4 = mb.open_toc((out4 / "tau-meters.bin").read_bytes())["rows"]
+    check("--hang-row 64: HANG TEST is the LAST row (so a walk over rows 1..63 never meets it) and row 8 is TEST 08 again", r4[63]["name"] == "HANG TEST" and r4[7]["name"] == "TEST 08" and len(r4) == 64)
+    check("--hang-row: the plain bin is unchanged by it, and --collide still applies to both", [r["name"] for r in p4] == [r["name"] for r in ra] and r4[8]["id"][4:8] == r4[9]["id"][4:8])
+    bad2 = 0
+    for n in (7, 65, 0):
+        try: sy.main([str(Path(td) / "o5"), "--hang-row", str(n)])
+        except (ValueError, SystemExit): bad2 += 1
+    check("a hang row outside 8..rows is refused", bad2 == 3)
     bad = 0
     for n in (7, 65):
         try: sy.build(n)

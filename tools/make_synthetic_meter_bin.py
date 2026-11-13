@@ -40,8 +40,8 @@ def patched(pack, id_hex):
     b = bytearray(pack); struct.pack_into("<H", b, 6, int(id_hex[:8], 16) & 0xFFFF); return bytes(b)
 
 
-def build(rows=MAX_ROWS, hang=False, collide=False, workdir=None, real=None):
-    """[Entry] x rows: the shipped meters, then synthetic rows (row HANG_ROW is the hang pack when hang); `real` = the shipped entries when the caller has built them already (tests)"""
+def build(rows=MAX_ROWS, hang=False, collide=False, workdir=None, real=None, hang_row=HANG_ROW):
+    """[Entry] x rows: the shipped meters, then synthetic rows (row `hang_row`, 8 by default, is the hang pack when hang); `real` = the shipped entries when the caller has built them already (tests)"""
     if not 8 <= rows <= MAX_ROWS: raise ValueError("rows must be 8..%d (the seven shipped meters and at least one synthetic row)" % MAX_ROWS)
     with tempfile.TemporaryDirectory() as td:
         wd = Path(workdir) if workdir else Path(td)
@@ -54,7 +54,7 @@ def build(rows=MAX_ROWS, hang=False, collide=False, workdir=None, real=None):
             ident = synth_id(n, col)
             if ident in used or any(ident[:8] == u[:8] for u in used) or (not collide and any(ident[4:8] == u[4:8] for u in used)): raise ValueError("synthetic id %d collides: change the seed" % n)
             used.add(ident)
-            if hang and n == HANG_ROW:
+            if hang and n == hang_row:
                 blob, _ = pm.build("winamp_bars", mb.WINDOW, wd / "hang.elf", ["-DHANG_MODE=0"], source="winamp_bars_hang", header_id=int(ident[:8], 16) & 0xFFFF)
                 out.append(mb.Entry(id=ident, name="HANG TEST", version=(0, 0, 1), pack=blob, flags=mb.FLAG_VISIBLE, params_rev=1))
             else:
@@ -66,7 +66,7 @@ def build(rows=MAX_ROWS, hang=False, collide=False, workdir=None, real=None):
 README = """Synthetic meter bins for the external-meters stress test (TAU DEV 222, docs/features/meters/EXTERNAL_METERS_P2_4_TEST.md).
 
   tau-meters.bin        %d rows: the seven shipped meters, then TEST 08 ... TEST %02d (each runs like one of the real meters)
-  tau-meters-hang.bin   the same, but row 8 is HANG TEST (a pack that hangs after 200 pictures): the safe-boot test
+  tau-meters-hang.bin   the same, but row %d is HANG TEST (a pack that hangs after 200 pictures): the safe-boot test
 
 COPY (by hand; the user bin is never in a package zip; nothing here writes the card):
   1. Eject nothing yet. Copy ONE of the two files to the card as   Assets/tau/common/tau-meters.bin   (the name must be exactly that).
@@ -78,15 +78,16 @@ Do not leave tau-meters-hang.bin on the card for daily use.
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("out", type=Path); ap.add_argument("--rows", type=int, default=MAX_ROWS); ap.add_argument("--collide", action="store_true", help="rows 9 and 10 share their low 16 id bits (the tuning-collision case)")
+    ap.add_argument("out", type=Path); ap.add_argument("--rows", type=int, default=MAX_ROWS); ap.add_argument("--collide", action="store_true", help="rows 9 and 10 share their low 16 id bits (the tuning-collision case)"); ap.add_argument("--hang-row", type=int, default=HANG_ROW, help="the 1-based row of HANG TEST in the hang variant (8..rows; 64 puts it last, so a walk over the other rows never meets it)")
     a = ap.parse_args(argv)
+    if not 8 <= a.hang_row <= a.rows: ap.error("--hang-row must be 8..%d" % a.rows)
     a.out.mkdir(parents=True, exist_ok=True)
     for name, hang in (("tau-meters.bin", False), ("tau-meters-hang.bin", True)):
-        blob = mb.compose(build(a.rows, hang, a.collide))
+        blob = mb.compose(build(a.rows, hang, a.collide, hang_row=a.hang_row))
         (a.out / name).write_bytes(blob)
         info = mb.open_toc(blob)
         print("%s: %d B, %d rows (%s ... %s)" % (a.out / name, len(blob), len(info["rows"]), info["rows"][0]["name"], info["rows"][-1]["name"]))
-    (a.out / "README.txt").write_text(README % (a.rows, a.rows))
+    (a.out / "README.txt").write_text(README % (a.rows, a.rows, a.hang_row))
     return 0
 
 
