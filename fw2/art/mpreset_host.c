@@ -16,18 +16,22 @@ extern void mp3play_io_quiesce(void);
 #define MPH_SLOT 7u                                                  /* the cover's slot: the same kind of open and read (measured: DEV 212, about 33 ms for 200 bytes) */
 #define PRE_AT (((MP_IDX_MAX_BYTES + 3u) & ~3u) / 4u)               /* word index of the cached preset file */
 uint32_t mph_idx_ok, mph_reads, mph_fails, mph_err, mph_read_max, mph_open_max;
-static uint32_t idx_n, idx_mid = 0xFFFFFFFFu, pre_id = 0xFFFFFFFFu, pre_len, bad_mask;     /* bad_mask: the meters whose index is missing or damaged: not asked again until the next boot */
+static uint32_t idx_n, idx_key, idx_mid, idx_chk, idx_dec, idx_have, pre_id = 0xFFFFFFFFu, pre_len;     /* the cached index: the meter's id hash, the manifest id (decimal folder), the folder kind (idx_dec), the 16-bit meter id its files carry */
+static uint32_t bad_h[4], bad_n;                                                             /* the id hashes whose folder is missing or damaged: not asked again until the next boot (a ring of four: only the meter on screen is ever asked) */
+static int is_bad(uint32_t h) { for (uint32_t i = 0; i < 4u && i < bad_n; i++) if (bad_h[i] == h) return 1; return 0; }
+static void add_bad(uint32_t h) { bad_h[bad_n & 3u] = h; bad_n++; }
 
-P2_COLD_TEXT static uint32_t build_path(char *out, uint32_t cap, uint32_t mid, int id)       /* <root>/tau-presets/<mid>/index.tpi or p<id>.tpr */
+P2_COLD_TEXT static uint32_t build_path(char *out, uint32_t cap, uint32_t key, uint32_t dec, int id)       /* <root>/tau-presets/<folder>/index.tpi or p<id>.tpr; the folder is the first 8 hex digits of the meter's id (its id_hash), or (the seven shipped meters, cards made before external meters) the decimal manifest index */
 {
     uint32_t n = library_root(out, cap);
     if (!n || n + 40u > cap) return 0;
     if (out[n - 1u] == '/') n--;                                                          /* the library's root ends with a slash ("/Assets/tau/common/") */
     const char *a = "/tau-presets/"; for (; *a; a++) out[n++] = *a;
-    char d[4]; uint32_t k = 0; uint32_t v = mid; do { d[k++] = (char)('0' + v % 10u); v /= 10u; } while (v && k < 3u); while (k) out[n++] = d[--k];
+    if (dec) { char d[4]; uint32_t k = 0; uint32_t v = key; do { d[k++] = (char)('0' + v % 10u); v /= 10u; } while (v && k < 3u); while (k) out[n++] = d[--k]; }
+    else for (int sh = 28; sh >= 0; sh -= 4) { const uint32_t nb = (key >> sh) & 15u; out[n++] = (char)(nb < 10u ? '0' + nb : 'a' + nb - 10u); }
     out[n++] = '/';
     if (id < 0) { const char *f = "index.tpi"; for (; *f; f++) out[n++] = *f; }
-    else { out[n++] = 'p'; v = (uint32_t)id; k = 0; do { d[k++] = (char)('0' + v % 10u); v /= 10u; } while (v && k < 3u); while (k) out[n++] = d[--k]; const char *f = ".tpr"; for (; *f; f++) out[n++] = *f; }
+    else { char d[4]; uint32_t k = 0; uint32_t v = (uint32_t)id; out[n++] = 'p'; do { d[k++] = (char)('0' + v % 10u); v /= 10u; } while (v && k < 3u); while (k) out[n++] = d[--k]; const char *f = ".tpr"; for (; *f; f++) out[n++] = *f; }
     out[n] = 0; return n;
 }
 /* Opens `path` and reads `len` bytes from 0 into the tag buffer; 1 when read. Governor NORMAL only; the stream is let finish first. Times go to the diagnostics. */
@@ -62,29 +66,35 @@ P2_COLD_TEXT static int idx_name_at(uint32_t i, char *out, uint8_t *id)
     uint32_t k = 0; for (; k < MP_NAME - 1u && e[2u + k]; k++) out[k] = (char)e[2u + k];
     out[k] = 0; return 1;
 }
-P2_COLD_TEXT static uint32_t enter(uint32_t mid)
+P2_COLD_TEXT static uint32_t enter_in(uint32_t hash, uint32_t key, uint32_t dec, uint32_t chk)       /* 0 with mph_err 11 = the folder is not there (the caller may try the next kind) */
 {
-    if (mid == idx_mid && idx_n) return idx_n;                                            /* already cached */
-    idx_n = 0; idx_mid = 0xFFFFFFFFu; pre_id = 0xFFFFFFFFu;
     char path[LIBP_MAX_PATH];
-    if (!build_path(path, sizeof path, mid, -1)) { mph_err = 1u; return 0; }
+    if (!build_path(path, sizeof path, key, dec, -1)) { mph_err = 1u; return 0; }
     if (!read_file(path, 14u)) return 0;
     const uint32_t cnt = (uint32_t)MPH_TAGB[12] | ((uint32_t)MPH_TAGB[13] << 8);
     if (cnt > MP_IDX_MAX) { mph_err = 2u; return 0; }
     const uint32_t total = 14u + cnt * MP_IDX_ENTRY;
     if (!read_file(path, total)) return 0;
     uint8_t *b = (uint8_t *)(uintptr_t)MPH_TAGB;                                           /* the read is complete: plain reads */
-    const int e = mp_index_check(b, total, mid);
+    const int e = mp_index_check(b, total, chk);
     if (e) { mph_err = 20u + (uint32_t)e; return 0; }
     to_psram(0u, total);
-    idx_n = cnt; idx_mid = mid; mph_idx_ok++; mph_err = 0u;
+    idx_n = cnt; idx_key = hash; idx_mid = dec ? key : MPH_NO_MID; idx_dec = dec; idx_chk = chk; idx_have = 1u; mph_idx_ok++; mph_err = 0u;
     return idx_n;
 }
-P2_COLD_TEXT uint32_t mph_enter(uint32_t mid)
+P2_COLD_TEXT static uint32_t enter(uint32_t hash, uint32_t mid)
 {
-    if (mid < 32u && (bad_mask >> mid & 1u)) return 0u;
-    const uint32_t n = enter(mid);
-    if (!n && mph_err != 10u && mid < 32u) bad_mask |= 1u << mid;                          /* missing or damaged: remembered; "the governor is busy" is not a verdict on the file */
+    if (idx_have && idx_n && hash == idx_key) return idx_n;                               /* already cached */
+    idx_n = 0; idx_have = 0; pre_id = 0xFFFFFFFFu;
+    uint32_t n = enter_in(hash, hash, 0u, hash & 0xFFFFu);                                /* the folder named by the id */
+    if (!n && mph_err == 11u && mid != MPH_NO_MID) n = enter_in(hash, mid, 1u, mid);      /* absent: the decimal folder of a card from before external meters (the seven shipped meters only) */
+    return n;
+}
+P2_COLD_TEXT uint32_t mph_enter(uint32_t hash, uint32_t mid)
+{
+    if (is_bad(hash)) return 0u;
+    const uint32_t n = enter(hash, mid);
+    if (!n && mph_err != 10u) add_bad(hash);                                               /* missing or damaged: remembered; "the governor is busy" is not a verdict on the file */
     return n;
 }
 P2_COLD_TEXT uint32_t mph_count(void) { return idx_n; }
@@ -109,21 +119,21 @@ P2_COLD_TEXT int mph_find(uint32_t id1)
     for (uint32_t i = 1u; i <= idx_n; i++) if (mph_id1(i) == id1) return (int)i;
     return -1;
 }
-P2_COLD_TEXT int mph_values(uint32_t mid, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals)
+P2_COLD_TEXT int mph_values(uint32_t hash, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals)
 {
     if (pos == 0u) { mp_defaults(ps, np, vals); return 1; }
-    if (mid != idx_mid || pos > idx_n) return 0;
+    if (!idx_have || hash != idx_key || pos > idx_n) return 0;
     char nm[MP_NAME]; uint8_t id; idx_name_at(pos - 1u, nm, &id);
     uint8_t pb[MP_PRE_MAX_BYTES];
     if (pre_id == id) { from_psram(PRE_AT, pb, pre_len); }                                   /* the preset read last (the tuning's base): no read */
     else {
         char path[LIBP_MAX_PATH];
-        if (!build_path(path, sizeof path, mid, id)) { mph_err = 1u; mph_fails++; return 0; }
+        if (!build_path(path, sizeof path, idx_dec ? idx_mid : idx_key, idx_dec, id)) { mph_err = 1u; mph_fails++; return 0; }
         if (!read_file(path, 14u)) { mph_fails++; return 0; }
         const uint32_t len = 14u + MPH_TAGB[13] + 4u * (uint32_t)MPH_TAGB[12];
         if (len > MP_PRE_MAX_BYTES || !read_file(path, len)) { mph_err = len > MP_PRE_MAX_BYTES ? 3u : mph_err; mph_fails++; return 0; }
         for (uint32_t k = 0; k < len; k++) pb[k] = MPH_TAGB[k];
-        const int e = mp_preset_check(pb, len, mid, id);
+        const int e = mp_preset_check(pb, len, idx_chk, id);
         if (e) { mph_err = 30u + (uint32_t)e; mph_fails++; return 0; }
         to_psram(PRE_AT, len); pre_id = id; pre_len = len; mph_reads++; mph_err = 0u;
     }

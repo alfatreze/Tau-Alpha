@@ -14,6 +14,7 @@
 #include "regions.h"
 #include "theme.h"
 #include "meter.h"
+#include "meters_toc.h"
 #include "../platform/platform.h"
 #include "helios.h"
 #include "xfade.h"
@@ -27,7 +28,8 @@
 #define TOP_Y 34u
 #define MLIST_ROW_H 40u                      /* the METER list: rows tall enough for a 32 px preview */
 #define MLIST_VIS 7u
-_Static_assert(METER_SLOTS <= MLIST_VIS, "the METER list shows every meter without scrolling: give it its own scrolling before adding more");
+#define MTR_NAME_LEN_UI 24u
+/* The METER list shows the FIRST MLIST_VIS meters X can reach, in TOC order, whatever the bin holds (up to 64); Now Playing's X reaches all of them. The meter on screen may be a later one: the list then has no star. Scrolling is P2.5. */
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
@@ -57,7 +59,7 @@ static void value_text(const mg_row_t *r, char *o)
     switch (r->kind) {
     case RK_GROUP: s = ">"; break;
     case RK_TOGGLE: s = v ? "ON" : "OFF"; break;
-    case RK_CHOICE: s = mg_choices[r->arg].opt[v < mg_choices[r->arg].n ? v : 0u]; break;
+    case RK_CHOICE: if (r->arg == V_METER) { meters_row_name(meters_cur(), o, 16u); return; } s = mg_choices[r->arg].opt[v < mg_choices[r->arg].n ? v : 0u]; break;       /* the meter on screen, whichever row it is (the list holds only the first seven) */
     case RK_VOL: put_num(o, v); return;
     case RK_SOON: s = "SOON"; break;
     default: s = ""; break;
@@ -123,8 +125,11 @@ void settings_view_draw(void)
             if (i >= n) { gfx_rect(0, y, GFX_W, MLIST_ROW_H, BG); continue; }
             const int on = i == menu.sel[d]; const uint16_t bg = on ? ACC : BG;
             gfx_rect(0, y, GFX_W, MLIST_ROW_H, bg);
-            meter_thumb_draw(meters_list_row(i), 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
-            gfx_text(92, y + 12, mg_choices[V_METER].opt[i], on ? UI_ON_ACCENT : FG, bg);
+            char nm[MTR_NAME_LEN_UI]; const uint32_t row = meters_list_row(i);
+            meter_thumb_draw(row, 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
+            meters_row_name(row, nm, sizeof nm);
+            gfx_text(92, y + 12, nm, on ? UI_ON_ACCENT : FG, bg);
+            if (meters_row_flags(row) & MROW_REFUSED) gfx_text(GFX_W - 60 - gfx_text_width("!"), y + 12, "!", on ? UI_ON_ACCENT : UI_RED, bg);                   /* it crashed last time or was refused: selecting it tries again */
             if (vals[V_METER] == i) gfx_text(GFX_W - 24 - gfx_text_width("*"), y + 12, "*", on ? UI_ON_ACCENT : DIM, bg);
         }
         { const uint32_t ye = TOP_Y + MLIST_VIS * MLIST_ROW_H; gfx_rect(0, ye, GFX_W, 360u - ye, BG); }                 /* the gap under the last row too (seven rows end above the hints: it kept the old screen) */
@@ -153,11 +158,11 @@ void settings_view_draw(void)
 /* The option lists that depend on the build and on tau-assets.bin: the colours, the themes (built-in then file themes) and the meters. Called once at boot after the assets are read. */
 void settings_view_init_choices(void)
 {
-    static const char *theme_names[8], *meter_names[8];
+    static const char *theme_names[8];
+    static const char *const meter_names[MLIST_VIS] = { "", "", "", "", "", "", "" };        /* the list draws each name from the TOC (meters_row_name); only the count matters here */
     uint32_t n = theme_count(); if (n > 8u) n = 8u;
     for (uint32_t i = 0; i < n; i++) theme_names[i] = theme_name(i);
-    uint32_t m = meters_list_count(); if (m > 8u) m = 8u;
-    for (uint32_t i = 0; i < m; i++) meter_names[i] = meters_def(meters_list_row(i))->name;
+    uint32_t m = meters_list_count(); if (m > MLIST_VIS) m = MLIST_VIS;
     mg_set_choice(V_COLOUR, th_palette_name, 19u);
     mg_set_choice(V_THEME, theme_names, n);
     mg_set_choice(V_METER, meter_names, m);

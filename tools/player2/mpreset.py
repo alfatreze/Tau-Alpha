@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Meter presets as separate files (docs/features/METER_PRESETS_EXTERNAL.md, B-966): the writer, the reader and the factory generator for the two file kinds that fw2/cores/mpreset_core.h reads.
 
-  <meter id>/index.tpi    the presets of one meter in list order (id, hidden flag, name); the folder is the meter's manifest id
-  <meter id>/p<id>.tpr    one preset: a sparse list of (parameter key hash, value)
+  <folder>/index.tpi    the presets of one meter in list order (id, hidden flag, name); the folder is the first 8 lower-case hex digits of the meter's id (its id_hash, external meters P2.4;
+                        the `meter id` u16 inside the files is the hash's low 16 bits). Cards made before external meters have the DECIMAL manifest id as the folder (12 ... 18, the meter id u16 = that number):
+                        the firmware still reads those for the seven shipped meters when the hash folder is absent, and `factory --legacy` writes them (for tests).
+  <folder>/p<id>.tpr    one preset: a sparse list of (parameter key hash, value)
 
-  python3 tools/player2/mpreset.py factory OUT_DIR [KEY ...]    writes the factory set of the meters (from meters/<key>/meter.json) under OUT_DIR/tau-presets/
+  python3 tools/player2/mpreset.py factory OUT_DIR [KEY ...]    writes the factory set of the meters (from meters/<key>/meter.json) under OUT_DIR/tau-presets/<hash>/  (--legacy: the decimal folders)
   python3 tools/player2/mpreset.py show FILE                    prints a .tpi or .tpr file
 
 The writer refuses what the firmware would have to repair: a key the meter does not have, a value outside the parameter's range, two parameters whose key hashes collide, a name over 15 characters, more than 127 presets or an id over 126."""
@@ -95,26 +97,32 @@ def apply_preset(data, params):
             if ph == h: vals[i] = min(max(v, lo), hi); break
     return vals
 
-def factory_files(manifest):
+def folder_of(manifest, legacy=False):
+    """(folder name, the meter id u16 the files carry): the first 8 hex digits of the id and the hash's low 16 bits; legacy = the decimal manifest index for both"""
+    if legacy: return str(manifest["index"]), manifest["index"]
+    h = manifest["id"][:8].lower()
+    return h, int(h, 16) & 0xFFFF
+
+def factory_files(manifest, legacy=False):
     """{relative path: bytes} of a meter's factory set, from the presets of its manifest (every parameter written, so a change of a default later cannot change a factory preset)"""
-    params = params_of(manifest); mid = manifest["index"]; key = manifest["key"]
+    params = params_of(manifest); folder, mid = folder_of(manifest, legacy); key = manifest["key"]
     keys = [p[0] for p in params]
     files = {}; entries = []
     for i, pr in enumerate(manifest["presets"]):
         nm = pr["name"].upper()[:15]
         vals = {k: int(pr["values"][k]) for k in keys if k in pr["values"]}
-        files["%d/p%d.tpr" % (mid, i)] = build_preset(mid, i, nm, vals, params)
+        files["%s/p%d.tpr" % (folder, i)] = build_preset(mid, i, nm, vals, params)
         entries.append({"id": i, "name": nm})
-    files["%d/index.tpi" % mid] = build_index(mid, entries)
+    files["%s/index.tpi" % folder] = build_index(mid, entries)
     return files
 
 def main(argv):
     if len(argv) >= 3 and argv[1] == "factory":
-        out = Path(argv[2]) / "tau-presets"; keys = argv[3:]
+        out = Path(argv[2]) / "tau-presets"; legacy = "--legacy" in argv; keys = [a for a in argv[3:] if a != "--legacy"]
         for mf in sorted((ROOT / "meters").glob("*/meter.json")):
             d = mm.load(mf)
             if "p2" not in d or (keys and d["key"] not in keys): continue
-            for rel, data in factory_files(d).items():
+            for rel, data in factory_files(d, legacy).items():
                 (out / rel).parent.mkdir(parents=True, exist_ok=True); (out / rel).write_bytes(data)
             print("%s: %d presets" % (d["key"], len(d["presets"])))
         return 0
