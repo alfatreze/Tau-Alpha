@@ -2,6 +2,7 @@
  *   "R w0 .. w31"        load the register file
  *   "W n"                allow n more writes (default unlimited), "N 0|1" narrow file (16 words: an index of 16 and up aliases onto 0..15)
  *   "I"                  settings_init: prints the written words in order ("w <word>" lines), then "regs" with the 32 words, "vals" with the SF_COUNT values and "migrated n"
+ *   "J"                  settings_init_t with the parameter maxima of the shipped meters (P2.4: a layout-1 tuning is converted, not dropped); prints like "I"
  *   "E w0 .. w31"        prints the migrated words of that legacy register file (sf_migrate_words) */
 #include <stdio.h>
 #include <stdint.h>
@@ -14,6 +15,12 @@ static void host_wr(uint32_t a, uint32_t v);
 #define REG_RD(a) host_rd((uint32_t)(a))
 #define REG_WR(a, v) host_wr((uint32_t)(a), (v))
 #include "../fw2/settings/settings.c"
+#include "../fw2/generated/meter_registry.h"
+static const uint16_t *shipped_max(uint32_t idx, uint32_t *np)                    /* the same table, the same code as meters_shipped_max_of() in fw2/ui/meters.c: what main_player.c hands to settings_init_t */
+{
+    if (idx >= SHIPPED_TMAX_N) return 0;
+    *np = shipped_tmax_np[idx]; return &shipped_tmax[shipped_tmax_off[idx]];
+}
 static uint32_t slot(void) { return narrow ? (idx & 15u) : (idx & 31u); }
 static uint32_t host_rd(uint32_t a) { if (a == R_SET_DAT) return regs[slot()]; if (a == R_CYCLES) return now; return 0; }
 static void host_wr(uint32_t a, uint32_t v)
@@ -32,9 +39,9 @@ int main(void)
         else if (c == 'W') { scanf("%u", &x); budget = x; }
         else if (c == 'N') { scanf("%u", &x); narrow = x; }
         else if (c == 'E') { uint32_t w[32], o[32]; for (int i = 0; i < 32; i++) { scanf("%u", &x); w[i] = x; } sf_migrate_words(w, o); for (int i = 0; i < 32; i++) printf("%u ", o[i]); printf("\n"); }
-        else if (c == 'I') {
+        else if (c == 'I' || c == 'J') {
             uint32_t vals[SF_COUNT]; nlog = 0; memset(&settings_stats, 0, sizeof settings_stats);
-            settings_init(vals);
+            if (c == 'J') settings_init_t(vals, shipped_max); else settings_init(vals);
             for (uint32_t i = 0; i < nlog; i++) printf("w %u\n", log_[i]);
             printf("regs"); for (int i = 0; i < 32; i++) printf(" %u", regs[i]); printf("\nvals"); for (uint32_t i = 0; i < SF_COUNT; i++) printf(" %u", vals[i]); printf("\nmigrated %u wide %u layout %u\n", settings_stats.migrated, settings_stats.wide, settings_stats.layout);
         }

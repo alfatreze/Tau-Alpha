@@ -45,7 +45,7 @@ def run(exe, script):
 def state(out):
     ln = [l for l in out if l.startswith("state")][-1].split()
     kv = {}; i = 1
-    while i < len(ln) and ln[i] not in ("present",): kv[ln[i]] = int(ln[i + 1], 16) if ln[i] == "last_hash" else int(ln[i + 1]); i += 2
+    while i < len(ln) and ln[i] not in ("present",): kv[ln[i]] = int(ln[i + 1], 16) if ln[i] in ("last_hash", "saved", "pend") else int(ln[i + 1]); i += 2
     j = ln.index("present") + 1; pres = []
     while ln[j] != "pstate": pres.append(int(ln[j])); j += 1
     j += 1; ps = []
@@ -185,20 +185,20 @@ with tempfile.TemporaryDirectory() as td:
     check("the preview of a pack meter comes from the TOC's preview block: its stream length, first run bytes and first palette entry are the block's", int(t0[4]) == pv["preview_len"] - 64 and [int(x) for x in t0[6:12]] == list(blk[64:70]) and t0[13:18] == [str(blk[0] | blk[1] << 8)] + [str(x) for x in blk[2:6]], th[0])
     check("Winamp Bars (built in) answers no TOC preview", th[1].split()[4] == "0", th[1])
     # ---- persistence (layout 2 of the persisted settings, wired by fw2/ui/appearance.c): Quit and start again keeps the meter, its tuning and the other tuned meter
-    o = run(exe, "user %s\nboot\nselect 2\nshow\nedit 1\nshow\nsave\nrestart\nshow\nselect 1\nshow\n" % full)
+    o = run(exe, "user %s\nboot\nselect 2\nshow\nedit 1\nshow\nadvance 6\ntick 0\nsave\nrestart\nshow\nselect 1\nshow\n" % full)
     sh = shows(o)
     check("a restart keeps the selected meter (by its id hash) and the tuning made on it", "restarted cur 2" in o and sh[1] != sh[0] and sh[2] == sh[1] and sh[2].split()[4] == "1", str(sh))
-    o = run(exe, "user %s\nboot\nselect 1\nedit 1\nshow\nselect 2\nedit 1\nshow\nsave\nrestart\nshow\nselect 1\nshow\n" % full); sh = shows(o)
+    o = run(exe, "user %s\nboot\nselect 1\nedit 1\nshow\nselect 2\nedit 1\nshow\nadvance 6\ntick 0\nsave\nrestart\nshow\nselect 1\nshow\n" % full); sh = shows(o)
     check("the other tuned meter (the second tuning slot) is restored when it is loaded after the restart", sh[3] == sh[0], str(sh))
     check("... and the meter on screen after the restart is the one that was shown at Quit", sh[2].startswith("show cur 2"), str(sh))
-    o = run(exe, "user %s\nboot\nselect 3\nsave\nuser %s\nrestart\nshow\nsave\nuser %s\nrestart\nshow\n" % (full, small, full)); sh = shows(o)
+    o = run(exe, "user %s\nboot\nselect 3\nadvance 6\ntick 0\nsave\nuser %s\nrestart\nshow\nsave\nuser %s\nrestart\nshow\n" % (full, small, full)); sh = shows(o)
     sv = [l for l in o if l.startswith("saved")]
     check("a saved meter that is gone (a bin without it): Winamp Bars runs, and the saved hash is written back unchanged until the user picks another; it returns when the meter does", sh[0].startswith("show cur 0") and sv[0] == sv[1] and sh[1].startswith("show cur 3"), str(sv) + str(sh))
     def rev_up(es):
         es = list(es); es[2] = mb.Entry(**{**es[2].__dict__, "params_rev": 5}); return es
-    o = run(exe, "user %s\nboot\nselect 2\nedit 1\nsave\nuser %s\nrestart\nshow\n" % (full, bin_of(KEYS, "rev.bin", rev_up))); sh = shows(o)
+    o = run(exe, "user %s\nboot\nselect 2\nedit 1\nadvance 6\ntick 0\nsave\nuser %s\nrestart\nshow\n" % (full, bin_of(KEYS, "rev.bin", rev_up))); sh = shows(o)
     check("a meter whose parameter set changed (params_rev bumped) starts from its defaults: the old tuning is not applied", sh[0].startswith("show cur 2 custom 0"), str(sh))
-    o = run(exe, "user %s\nnocore\nboot\nselect 2\nsave\nnouser\nrestart\nshow\nsave\n" % full); sv = [l for l in o if l.startswith("saved")]; sh = shows(o)
+    o = run(exe, "user %s\nnocore\nboot\nselect 2\nadvance 6\ntick 0\nsave\nnouser\nrestart\nshow\nsave\n" % full); sv = [l for l in o if l.startswith("saved")]; sh = shows(o)
     check("with no bin at all the player starts on Winamp Bars and the saved selection is kept for when the bin is back", sh[0].startswith("show cur 0") and sv[0] == sv[1] and "hash 00000000" not in sv[1], str(sv) + str(sh))
     # ---- the music stream (hardware finding, TAU DEV 220): a card read while the stream has a read in flight collides on the one slot driver and the shared tag zone
     o = run(exe, "user %s\nboot\nselect 1\ntick 0\nstate\n" % full); s = state(o)
@@ -237,7 +237,7 @@ with tempfile.TemporaryDirectory() as td:
         check("mutant (the watchdog cut is ignored at the call site) is caught", state(o)["cur"] == 1)
     with tempfile.TemporaryDirectory() as t6:
         m = build(Path(t6), "notuneapply")["h"]
-        o = run(m, "user %s\nboot\nselect 2\nedit 1\nsave\nrestart\nshow\n" % full)
+        o = run(m, "user %s\nboot\nselect 2\nedit 1\nadvance 6\ntick 0\nsave\nrestart\nshow\n" % full)
         check("mutant (the saved tuning is not applied at boot) is caught", shows(o)[-1].split()[4] == "0")
     with tempfile.TemporaryDirectory() as t4:
         m = build(Path(t4), "badcrcruns")["h"]

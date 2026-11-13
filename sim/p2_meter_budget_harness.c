@@ -71,7 +71,8 @@ int main(int argc, char **argv)
     run(64); printf("and a while longer: self %u\n", meters_self_degrade(0));
     degrade_level = 1; spend[idx_winamp_bars] = B + 1; run(4); degrade_level = 0;
     printf("the governor's level wins when higher: told %u\n", last_degrade_seen);
-    meters_select(4); spend[4] = 1000; tick(); tick(); printf("another meter has its own level: vu self %u bars self %u\n", meters_self_degrade(4), meters_self_degrade(idx_winamp_bars));
+    meters_select(4); spend[4] = 1000; tick(); tick(); printf("the meter on screen has its own level: vu self %u\n", meters_self_degrade(4));
+    meters_select(idx_winamp_bars); printf("a swap is a new start: bars self %u\n", meters_self_degrade(idx_winamp_bars));
     /* beam exposure: rows 50..149 written; the beam (line = row + 4) is inside them, ahead of them, behind them, or the bitstream has no beam counter */
     meters_init(); meters_enter(0, 0, 100, 50); tick(); meters_select(idx_winamp_bars); touch_y = 50; touch_h = 100; spend[idx_winamp_bars] = 1; scan = 0; tick();
     uint32_t d0 = meter_stats.direct, e0 = meter_stats.exposed;

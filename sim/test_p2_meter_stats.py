@@ -13,7 +13,7 @@ def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meters.c").read_text()
-    if mutant == "lastmax": a = "if (spent > meter_stats.max_cyc[cur]) meter_stats.max_cyc[cur] = spent;"; assert a in src; src = src.replace(a, "meter_stats.max_cyc[cur] = spent;")
+    if mutant == "lastmax": a = "if (spent > meter_stats.max_cyc[act.slot]) meter_stats.max_cyc[act.slot] = spent;"; assert a in src; src = src.replace(a, "meter_stats.max_cyc[act.slot] = spent;")
     if mutant == "nodegrade": a = "if (dg && dg < 3u && !force_next) {"; assert a in src; src = src.replace(a, "if (0) {")
     if mutant == "skipforce": a = "if (dg && dg < 3u && !force_next) {"; assert a in src; src = src.replace(a, "if (dg && dg < 3u) {")
     if mutant == "ungated": a = "static int composed(const meter_def_t *d) { const uint32_t c = d->cmp & 0xFFFFu; return c == 1u || (c > 1u && cmp_gate(d->mv, c)); }"; assert a in src; src = src.replace(a, "static int composed(const meter_def_t *d) { return (d->cmp & 0xFFFFu) != 0u; }")

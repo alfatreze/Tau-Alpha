@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The per-meter draw-command budget (fw2/cores/meter_budget_core.h, used by fw2/ui/meters.c; manifest p2.cmds): the commands a drawn tick issues (the gfx_cmds counter, which every engine command passes) are judged
 against the meter's ceiling. A tick over it raises the meter's own degrade level (0..2: every 2nd / 4th window drawn, the meter is told through mtr_in_t.degrade); MB_RECOVER clean ticks lower it again; a forced repaint is not
-judged; the governor's level wins when it is higher; every meter has its own level. Beam exposure: the rows a tick wrote (gfx_touch) against the beam (helios_core.h): inside = exposed, ahead / behind / blanking / no counter / nothing visible / stash only = not. Mutants: a tick exactly at the ceiling counts as over; no hysteresis; nothing is judged; forced repaints are judged; the own level is ignored."""
+judged; the governor's level wins when it is higher; the meter on screen has its own level, a swap is a new start (the level is part of the one active-meter record, P2.4). Beam exposure: the rows a tick wrote (gfx_touch) against the beam (helios_core.h): inside = exposed, ahead / behind / blanking / no counter / nothing visible / stash only = not. Mutants: a tick exactly at the ceiling counts as over; no hysteresis; nothing is judged; forced repaints are judged; the own level is ignored."""
 import subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,9 +14,9 @@ def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meters.c").read_text(); flags = []
-    if mutant == "nojudge": a = "mb_judge(&budget[cur], meter_stats.cmds_last, cmd_limit_of(cur));"; assert a in src; src = src.replace(a, "")
+    if mutant == "nojudge": a = "mb_judge(&act.budget, meter_stats.cmds_last, cmd_limit_of(cur));"; assert a in src; src = src.replace(a, "")
     if mutant == "judgeforce": a = "if (!in.force) { mb_judge("; assert a in src; src = src.replace(a, "if (1) { mb_judge(")
-    if mutant == "ownignored": a = "mb_effective(mp3play_degrade_now(), budget[cur].level)"; assert a in src; src = src.replace(a, "mp3play_degrade_now()")
+    if mutant == "ownignored": a = "mb_effective(mp3play_degrade_now(), act.budget.level)"; assert a in src; src = src.replace(a, "mp3play_degrade_now()")
     if mutant == "noexpose": a = "if (!hl_rows_safe("; assert a in src; src = src.replace(a, "if (0 && !hl_rows_safe(")
     if mutant == "exposeall": a = "if (!hl_rows_safe("; assert a in src; src = src.replace(a, "if (1 || !hl_rows_safe(")
     if mutant == "atceiling": flags = ["-DBUG=1"]
@@ -35,7 +35,7 @@ def run(d):
     return subprocess.run([str(d / "h"), str(d / "vu.desc")], capture_output=True, text=True).stdout.strip().split("\n")
 import re
 B = int(re.search(r"meter_cmd_budget\[METER_N\] = \{ (\d+)", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))       # Winamp Bars' ceiling (the first meter): the expectations follow the manifest
-GOOD = [g.replace("@B1", str(B + 1)).replace("@B", str(B)) for g in ['ceiling bars @B', 'inside self 0 over 0 last @B', 'exactly at the ceiling: self 0 over 0', 'one over: self 1 over 1', 'max @B1', 'over for 8 windows: drawn 3 self 2', 'the meter was told degrade 2', 'a forced repaint is not judged: over 4 self 2', 'back inside for 64 windows: drawn 16 self 1', 'and a while longer: self 0', "the governor's level wins when higher: told 1", 'another meter has its own level: vu self 1 bars self 2', 'beam inside: rows 50-150 direct 1 exposed 1', 'beam well ahead of the rows: direct 1 exposed 0', 'beam already past: direct 1 exposed 0', 'vertical blanking: direct 1 exposed 0', 'no beam counter: direct 1 exposed 0', 'nothing visible drawn: rows 0 direct 0', 'stash rows only: direct 0 exposed 0']]
+GOOD = [g.replace("@B1", str(B + 1)).replace("@B", str(B)) for g in ['ceiling bars @B', 'inside self 0 over 0 last @B', 'exactly at the ceiling: self 0 over 0', 'one over: self 1 over 1', 'max @B1', 'over for 8 windows: drawn 3 self 2', 'the meter was told degrade 2', 'a forced repaint is not judged: over 4 self 2', 'back inside for 64 windows: drawn 16 self 1', 'and a while longer: self 0', "the governor's level wins when higher: told 1", 'the meter on screen has its own level: vu self 1', 'a swap is a new start: bars self 0', 'beam inside: rows 50-150 direct 1 exposed 1', 'beam well ahead of the rows: direct 1 exposed 0', 'beam already past: direct 1 exposed 0', 'vertical blanking: direct 1 exposed 0', 'no beam counter: direct 1 exposed 0', 'nothing visible drawn: rows 0 direct 0', 'stash rows only: direct 0 exposed 0']]
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))
     for g, o in zip(GOOD, out): check(g, g == o)
