@@ -58,15 +58,14 @@ def tune_key(id_hash, params_rev): return (id_hash & 0xFFFF) | ((params_rev & 15
 
 
 def _fields():
-    """(name, word, shift, width, min, max, default) in the firmware's order (sf_table). The fifteen after the tuning fields (METER, MPRE0..6, MPID0..6) are COMPATIBILITY entries with no storage (width 0): they keep fw2/ui/appearance.c
-    compiling until P2.4 replaces its call sites; they always read 0 and are never written."""
+    """(name, word, shift, width, min, max, default) in the firmware's order (sf_table). The fifteen layout-1 compatibility entries (METER, MPRE0..6, MPID0..6; no storage) of P2.3 are gone since P2.4: the legacy reader keeps the old index and
+    preset positions in local scratch."""
     t = [("VOLUME", 2, 0, 7, 0, 100, 94), ("REPEAT", 2, 7, 2, 0, 2, 0), ("RGMODE", 2, 9, 2, 0, 2, 0), ("HALCYON", 2, 11, 5, 0, 30, 0),
          ("COLOUR", 1, 0, 5, 0, 18, 1), ("THEME", 1, 5, 6, 0, 31, 0), ("POLARITY", 1, 11, 1, 0, 1, 0), ("METER_HASH", 5, 0, 31, 0, HASH31, 0), ("FONT", 1, 12, 3, 0, 7, 0),
          ("LAYOUT", 0, 27, 4, 0, 15, LAYOUT_VERSION), ("TUNE_NEW", 0, 26, 1, 0, 1, 0),
          ("METER_PRE_POS", 6, 0, 4, 0, 15, 0), ("METER_PRE_ID", 6, 4, 7, 0, 127, 0)]
     for k, w in enumerate((8, 9, 10, 11, 16, 17, 18, 21)):      # two tuning slots of four words (slot A ids 20-23, slot B ids 27-29 and 33)
         t.append(("TUNE%d" % k, w, 0, 31, 0, 0x7FFFFFFF, 0))
-    t += [("METER", 0, 0, 0, 0, 0, 0)] + [("MPRE%d" % m, 0, 0, 0, 0, 0, 0) for m in range(7)] + [("MPID%d" % m, 0, 0, 0, 0, 0, 0) for m in range(7)]
     t += [("LAST0", 19, 0, 31, 0, 0x7FFFFFFF, 0), ("LAST1", 20, 0, 31, 0, 0x7FFFFFFF, 0)]       # the last played track (ids 31, 32: the same in every layout)
     return t
 

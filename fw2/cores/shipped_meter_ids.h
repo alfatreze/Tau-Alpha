@@ -15,8 +15,13 @@
     X(4, 0x0D8C03D3u, 3u)  /* vu_master      */ \
     X(5, 0x17E60776u, 1u)  /* waterfall_grid */ \
     X(6, 0x0C82D9F0u, 17u) /* sound_map      */
+/* The manifest index (meters/<key>/meter.json "index") of each shipped meter, in the same order: the id the METR section of tau-assets.bin is keyed by (12 ... 18) and the folder name of tau-presets/ on cards made before external
+ * meters (the firmware still reads those folders when the hash folder is absent). sim/test_p2_meter_window.py checks this list against the manifests. */
+#define SHIPPED_MID_LIST(X) X(12) X(13) X(14) X(16) X(15) X(17) X(18)
+#define SHIPPED_MID_X(m) m,
 #define SHIPPED_HASH_X(i, h, r) h,
 #define SHIPPED_REV_X(i, h, r) r,
 static const uint32_t shipped_meter_hash[SHIPPED_METERS_N] = { SHIPPED_METER_LIST(SHIPPED_HASH_X) };   /* the whole 32-bit id_hash */
 static const uint8_t shipped_meter_rev[SHIPPED_METERS_N] = { SHIPPED_METER_LIST(SHIPPED_REV_X) };      /* params_rev */
+__attribute__((unused)) static const uint8_t shipped_meter_mid[SHIPPED_METERS_N] = { SHIPPED_MID_LIST(SHIPPED_MID_X) };      /* manifest index */
 #endif

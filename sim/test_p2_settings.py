@@ -21,7 +21,6 @@ def model_table():
          ("COLOUR", 1, 0, 5, 0, 18, 1), ("THEME", 1, 5, 6, 0, 31, 0), ("POLARITY", 1, 11, 1, 0, 1, 0), ("METER_HASH", 5, 0, 31, 0, 0x7FFFFFFF, 0), ("FONT", 1, 12, 3, 0, 7, 0),
          ("LAYOUT", 0, 27, 4, 0, 15, 2), ("TUNE_NEW", 0, 26, 1, 0, 1, 0), ("METER_PRE_POS", 6, 0, 4, 0, 15, 0), ("METER_PRE_ID", 6, 4, 7, 0, 127, 0)]
     for k, w in enumerate((8, 9, 10, 11, 16, 17, 18, 21)): t.append(("TUNE%d" % k, w, 0, 31, 0, 0x7FFFFFFF, 0))
-    t += [("METER", 0, 0, 0, 0, 0, 0)] + [("MPRE%d" % m, 0, 0, 0, 0, 0, 0) for m in range(7)] + [("MPID%d" % m, 0, 0, 0, 0, 0, 0) for m in range(7)]      # compatibility entries: no storage (width 0)
     t += [("LAST0", 19, 0, 31, 0, 0x7FFFFFFF, 0), ("LAST1", 20, 0, 31, 0, 0x7FFFFFFF, 0)]
     return t
 TABLE = model_table(); NAMES = [r[0] for r in TABLE]; IDX = {n: i for i, n in enumerate(NAMES)}

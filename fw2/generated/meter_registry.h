@@ -20,4 +20,9 @@ static const uint8_t meter_manifest_id[METER_N] = { 12 };      /* the id of each
 static const uint16_t meter_cmd_budget[METER_N] = { 64 };
 /* the cycles one drawn tick of a PACK may take (manifest p2.max_cycles; 0 = no limit): three overruns disable the pack, cores/pack_strike_core.h */
 static const uint32_t meter_cyc_limit[METER_N] __attribute__((unused)) = { 200000u };
+/* the largest value of each parameter of the shipped meters (colour 65535, on/off 1, else the descriptor's max) by table index (the p2 slot = the layout-1 index): cores/settings_core.h sf_max_of_t, meters_shipped_max_of() */
+#define SHIPPED_TMAX_N 7u
+__attribute__((unused)) static const uint8_t shipped_tmax_np[SHIPPED_TMAX_N] = { 8, 2, 11, 38, 5, 7, 4 };
+__attribute__((unused)) static const uint8_t shipped_tmax_off[SHIPPED_TMAX_N + 1u] = { 0, 8, 10, 21, 59, 64, 71, 75 };
+__attribute__((unused)) static const uint16_t shipped_tmax[75] = { 16, 3, 100, 100, 1, 1, 800, 100, 90, 80, 1, 6000, 4, 6000, 6000, 1024, 2048, 100, 2000, 1, 2, 2, 6, 4, 1, 1, 15, 15, 15, 15, 15, 1, 400, 240, 100, 100, 2, 3, 11, 11, 11, 65535, 65535, 65535, 3, 1, 50, 100, 2, 3, 5, 100, 2, 36, 36, 36, 36, 36, 36, 1, 1, 65535, 65535, 65535, 3, 400, 200, 12, 2000, 3, 1, 2, 200, 12, 10 };
 #endif
