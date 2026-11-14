@@ -108,6 +108,7 @@ int main(void)
         else if (!strcmp(a, "next")) { stream_inflight = 1; meters_next(1); printf("cur %u\n", meters_cur()); }
         else if (!strcmp(a, "prev")) { stream_inflight = 1; meters_next(-1); printf("cur %u\n", meters_cur()); }
         else if (!strcmp(a, "walk")) { const int k = atoi(b); uint32_t rows[256]; for (int i = 0; i < k && i < 256; i++) { stream_inflight = 1; meters_next(1); rows[i] = meters_cur(); } printf("walk"); for (int i = 0; i < k && i < 256; i++) printf(" %u", rows[i]); printf("\n"); }       /* X, k times: the rows visited, in order */
+        else if (!strcmp(a, "mid")) printf("mid row %u manifest %u hash %08x\n", meters_cur(), mid_of(meters_cur()), act.hash);
         else if (!strcmp(a, "tune")) { uint32_t w[8]; meters_tune_words(w); printf("tune"); for (int i = 0; i < 8; i++) printf(" %u", w[i]); printf("\n"); }
         else if (!strcmp(a, "maxes")) { uint32_t np = 0; const uint16_t *m = meters_shipped_max_of((uint32_t)atoi(b), &np); printf("maxes %u", m ? np : 0u); for (uint32_t i = 0; m && i < np; i++) printf(" %u", m[i]); printf("\n"); }
         else if (!strcmp(a, "tick")) { stream_inflight = 1; spend = (uint32_t)atoi(b); win++; meters_tick(1); printf("tick done cur %u\n", meters_cur()); }

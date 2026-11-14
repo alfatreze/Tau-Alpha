@@ -641,6 +641,7 @@ static const char *dyn_pre_name(uint32_t p) { (void)p; return "DEFAULT"; }
 #ifndef MPH_REAL                                                      /* a host test that does not run the preset files (the real ones are in fw2/art/mpreset_host.c): nothing found */
 __attribute__((weak)) uint32_t mph_enter(uint32_t hash, uint32_t mid) { (void)hash; (void)mid; return 0u; }
 __attribute__((weak)) void mph_name(uint32_t pos, char *out) { (void)pos; out[0] = 0; }
+__attribute__((weak)) void mph_forget(uint32_t hash) { (void)hash; }
 __attribute__((weak)) uint32_t mph_id1(uint32_t pos) { (void)pos; return 0u; }
 __attribute__((weak)) int mph_find(uint32_t id1) { (void)id1; return -1; }
 __attribute__((weak)) int mph_values(uint32_t hash, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals) { (void)hash; (void)pos; (void)ps; (void)np; (void)vals; return 0; }
@@ -669,7 +670,12 @@ static void ext_enter_cur(void)                                     /* the meter
     if (!n) return;                                                  /* no files, damaged, or the governor is busy: the meter's one preset, DEFAULT (or its METR presets), stays */
     act.ext = 1u; act.user_n = (uint8_t)(n + 1u);
 }
-void meters_ext_enter(uint32_t m) { if (m == cur && meters_present(m)) { ext_enter_cur(); } }
+void meters_ext_enter(uint32_t m)                                    /* Configure > Preset is opened for the meter on screen: when its preset files are not in use (the first attempt at selection met a busy governor or a card read that failed, TAU DEV 222), try again now; the remembered file choice is applied once they are */
+{
+    if (m != cur || !meters_present(m) || act.ext) return;
+    mph_forget(act.hash); ext_enter_cur();
+    if (act.ext && act.want_id) apply_id();
+}
 int meters_present(uint32_t m) { return m < meter_count && (m == fb_row || (toc_sel[m >> 5] >> (m & 31u) & 1u)); }
 static const meter_def_t *mdef(uint32_t m)
 {

@@ -14,11 +14,11 @@
 static uint8_t tag_mem[4096]; static uint32_t mph_mem[1100]; char _tag_start;
 #define MPH_TAGB ((const volatile uint8_t *)tag_mem)
 #define MPH_PSRAM mph_mem
-static char dir_root[256]; static uint32_t opens, open_fail_all;      /* degrade_level is the budget harness's: the governor's level */
+static char dir_root[256]; static uint32_t opens, open_fail_all, open_fail_first;      /* degrade_level is the budget harness's: the governor's level */
 uint32_t library_root(char *out, uint32_t cap) { (void)cap; out[0] = 0; return 0u + (strcpy(out, "/R/"), 3u); }          /* the real root ends with a slash too */
 void mp3play_io_quiesce(void) { }
 static char opened[256];
-int slot_open_path(uint32_t slot, const char *path) { (void)slot; opens++; if (open_fail_all) return 0; snprintf(opened, sizeof opened, "%s%s", dir_root, path + 2); FILE *f = fopen(opened, "rb"); if (!f) return 0; fclose(f); return 1; }
+int slot_open_path(uint32_t slot, const char *path) { (void)slot; opens++; if (open_fail_all || (open_fail_first && opens <= open_fail_first)) return 0; snprintf(opened, sizeof opened, "%s%s", dir_root, path + 2); FILE *f = fopen(opened, "rb"); if (!f) return 0; fclose(f); return 1; }
 int slot_read_blocking(uint32_t slot, uint32_t off, uint32_t dst, uint32_t len, uint32_t to) { (void)slot; (void)dst; (void)to; FILE *f = fopen(opened, "rb"); if (!f) return 0; fseek(f, (long)off, SEEK_SET); const uint32_t n = (uint32_t)fread(tag_mem, 1, len, f); fclose(f); return n == len; }
 #include "../fw2/art/mpreset_host.c"
 int main(int argc, char **argv)
@@ -29,6 +29,14 @@ int main(int argc, char **argv)
     if (getenv("FORCEHASH")) syn_force_hash = (uint32_t)strtoul(getenv("FORCEHASH"), 0, 10);
     char *df[1] = { argv[1] }; dyn_load_files(1, df);
     const uint32_t R = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)METER_N;      /* the pack-only row under test */
+    if (argc > 4 && !strcmp(argv[4], "late")) {                              /* hardware finding (TAU DEV 222): the first attempt fails (OPENFAIL: the first N opens fail; or the governor is busy: argv[3]), then the user opens Configure > Preset: */
+        if (getenv("OPENFAIL")) open_fail_first = (uint32_t)atoi(getenv("OPENFAIL"));
+        meters_select(R); printf("selected npre %u err %u\n", meters_npre(R), mph_err);
+        degrade_level = 0; open_fail_first = 0; opens = 0;
+        meters_ext_enter(R);                                                 /* what configure_view_enter does */
+        printf("configure npre %u err %u\n", meters_npre(R), mph_err);
+        return 0;
+    }
     if (argc > 4 && !strcmp(argv[4], "restore")) {
         uint32_t w[8]; for (uint32_t k = 0; k < 8u; k++) w[k] = (uint32_t)strtoul(argv[7 + k], 0, 10);
         meters_select(R); meters_preset_restore(R, (uint32_t)atoi(argv[5]), (uint32_t)atoi(argv[6])); meters_tune_apply(w, 0);      /* the order appearance_set uses since P2.2: the meter (it is loaded), its preset, last the tuning */

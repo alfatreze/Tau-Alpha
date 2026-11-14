@@ -41,6 +41,7 @@ static void paint_all(void)
 void configure_view_enter(void)
 {
     meter = meters_cur(); cf.n = 0; cf.sel = 0; cf.top = 0; picking = 0;
+    meters_ext_enter(meter);                                           /* the preset files of this meter, when selection could not read them (busy governor, a failed card read): asked again when the page opens */
     rebuild(); paint_all();
 }
 void configure_view_redraw(void) { paint_all(); }
