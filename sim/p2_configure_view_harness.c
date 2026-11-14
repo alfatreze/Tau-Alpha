@@ -9,6 +9,7 @@ static uint16_t mv[4] = { 16, 0, 1, 200 };
 static uint32_t cur_pre; static int custom;
 static void tick(const mtr_in_t *i) { (void)i; }
 const meter_def_t meter_table[] = { { "FAKE", tick, 3, 0, 0, mv, pd, 4, 0 } };
+void meters_ext_enter(uint32_t m) { (void)m; }
 uint32_t meter_count = 1; const meter_def_t *meters_def(uint32_t m) { (void)m; return &meter_table[0]; }
 const char *meters_param_label(uint32_t m, uint32_t id, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].label; }
 const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].vals[val]; }

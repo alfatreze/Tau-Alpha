@@ -7,6 +7,7 @@
 #include "mpreset_core.h"
 #define MPH_NO_MID 0xFFFFu                              /* a meter with no manifest id (not one of the shipped seven): only the folder named by its id */
 uint32_t mph_enter(uint32_t hash, uint32_t mid);        /* reads the index of the meter with id_hash `hash` into the cache, from tau-presets/<8 hex digits of the hash>/, else (mid != MPH_NO_MID) from the old decimal folder tau-presets/<mid>/; returns the number of presets (0: none, or the read failed: see mph_err) */
+void     mph_forget(uint32_t hash);                     /* forget that this meter's folder was missing or damaged: the next mph_enter asks the card again */
 uint32_t mph_count(void);                               /* presets in the cached index */
 void     mph_name(uint32_t pos, char *out);             /* the name at list position pos (0 = "DEFAULT", 1.. = the index entries), at most 15 characters */
 int      mph_values(uint32_t hash, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals);   /* the values of list position pos; 0 when the file cannot be read now (the caller keeps what it has) */

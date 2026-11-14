@@ -128,6 +128,14 @@ with tempfile.TemporaryDirectory() as td:
     syn1 = sy.build(8, False, False, real=shipped); new = binf([shipped[0], syn1[7], *shipped[1:]], "ins.bin")          # a new row inserted at position 1, in front of the saved meter
     o = run(exe, "user %s\nboot\nselect 2\n%ssave\nuser %s\nrestart\nstate\n" % (b7, CL, new)); s = state(o)
     check("a newly installed meter (a row never selected before) is never selected by itself: the saved meter (Chladni, now row 3) is selected by its hash, not the new row 1 that took its place in the order", "restarted cur 3" in o and s["count"] == 8 and s["cur"] == 3, lastsel(o))
+    # ---------- the manifest id of a row (METR, the decimal preset folder) is the same for the shipped rows of a USER bin as of the core's own bin; a synthetic row has none
+    MID = {0: 12, 1: 13, 2: 14, 3: 16, 4: 15, 5: 17, 6: 18}
+    for nm, bn, src in (("the core's own bin", b7, "core"), ("a 64-row user bin whose first rows are the shipped ones", b64, "user")):
+        o = run(exe, "%s %s\nboot\n" % (src, bn) + "".join("select %d\nmid\n" % r for r in range(7)))
+        got = {int(l.split()[2]): int(l.split()[4]) for l in o if l.startswith("mid ")}
+        check("the manifest id of the seven shipped rows is 12, 13, 14, 16, 15, 17, 18 in %s (it picks the decimal preset folder and the METR entry)" % nm, got == MID, got)
+    o = run(exe, "user %s\nboot\nselect 9\nmid\n" % b64)
+    check("a synthetic row has no manifest id (65535): only its hash folder is read", " manifest 65535 " in [l for l in o if l.startswith("mid ")][0], o[-2:])
     # ---------- tuning key collisions
     cb = binf(sy.build(64, False, True, real=shipped), "col.bin")
     o = run(exe, "user %s\nboot\nstate\nselect 9\nstate\nedit 1\nshow\nadvance 6\ntick 0\ntune\nselect 2\nedit 1\ntune\n" % cb)

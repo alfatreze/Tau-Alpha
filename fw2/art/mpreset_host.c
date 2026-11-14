@@ -97,6 +97,10 @@ P2_COLD_TEXT uint32_t mph_enter(uint32_t hash, uint32_t mid)
     if (!n && mph_err != 10u) add_bad(hash);                                               /* missing or damaged: remembered; "the governor is busy" is not a verdict on the file */
     return n;
 }
+P2_COLD_TEXT void mph_forget(uint32_t hash)                                                   /* the user opened Configure > Preset: a folder that was missing or failed before (it may have been a transient failure) is asked again */
+{
+    for (uint32_t i = 0; i < 4u; i++) if (bad_h[i] == hash) bad_h[i] = 0xFFFFFFFFu;            /* a hash no row has: 0xFFFFFFFF is not a 31-bit hash, and the entry stays harmless in the ring */
+}
 P2_COLD_TEXT uint32_t mph_count(void) { return idx_n; }
 P2_COLD_TEXT void mph_name(uint32_t pos, char *out)
 {

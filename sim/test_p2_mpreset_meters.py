@@ -134,6 +134,24 @@ def scenario(LEG):
 
 scenario(False)          # the folder is the first 8 hex digits of the id
 scenario(True)           # a card made before external meters: the decimal manifest-index folder, read for the seven shipped meters when the hash folder is absent
+# hardware finding, TAU DEV 222 (Scope listed only DEFAULT with the decimal folders on the card): a failure on the FIRST attempt at selection (a transient open failure, or the governor not NORMAL at that moment) must not leave the meter
+# without its presets for good: opening Configure > Preset tries again
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); desc = tmp / "lw.desc"; desc.write_bytes(md.build_desc(d, t)); exe = build(td)
+    def late(leg, degrade=0, openfail=0, name="x"):
+        CUR_LEG[0] = leg; root = setup(td, name)
+        o = subprocess.run([str(exe), str(desc), str(root), str(degrade), "late"], capture_output=True, text=True, env=dict(os.environ, ROW=str(slot), OPENFAIL=str(openfail))).stdout.strip().splitlines()
+        return [int(l.split()[2]) for l in o if l.startswith(("selected", "configure"))]
+    nd1 = len(d["presets"]) + 1
+    for leg, lab in ((True, "decimal folders (the card of the finding)"), (False, "hash folder")):
+        r = late(leg, name="ok%d" % leg)
+        check("[%s] no failure: the presets are listed at selection and still after Configure opens" % lab, r == [nd1, nd1], r)
+        r = late(leg, degrade=2, name="dg%d" % leg)
+        check("[%s] the governor is busy at selection (only DEFAULT), then Configure > Preset opens: the presets ARE listed" % lab, r == [1, nd1], r)
+        r = late(leg, openfail=1 if not leg else 2, name="of%d" % leg)
+        check("[%s] a transient open failure at selection (the first attempts fail), then Configure opens: the presets ARE listed" % lab, r == [1, nd1], r)
+cv = (ROOT / "fw2/ui/configure_view.c").read_text()
+check("configure_view_enter asks for the meter's preset files (meters_ext_enter) when the page opens (the TAU DEV 222 finding: nothing ever retried)", "meters_ext_enter(meter);" in cv.split("void configure_view_enter(void)")[1].split("}")[0])
 # a meter that is NOT one of the shipped seven: only the folder named by its id is read, never a decimal one
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); desc = tmp / "lw.desc"; desc.write_bytes(md.build_desc(d, t)); exe = build(td)
