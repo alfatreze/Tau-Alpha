@@ -31,14 +31,26 @@ def build(d, mutant=None):
     if mutant == "hidden_ok": sub("if (fb || (av && vis)) toc_sel", "if (fb || av) toc_sel")
     if mutant == "unavail_ok": sub("if (fb || (av && vis)) toc_sel", "if (fb || vis) toc_sel")
     if mutant == "collide_ignored": flags = ["-DBUG=9"]
+    if mutant == "hidden_listed": sub("if (fb || vis) toc_lst", "if (fb || av) toc_lst")
+    if mutant == "step_all": sub("if (r != row && meters_present(r)) return r;", "if (r != row) return r;")
+    vsrc = (ROOT / "fw2/ui/meterlist_view.c").read_text() if (ROOT / "fw2/ui/meterlist_view.c").exists() else ""
+    def vsub(a, b):
+        nonlocal vsrc
+        assert a in vsrc, a[:60]; vsrc = vsrc.replace(a, b, 1)
+    if mutant == "nogap": vsub("gfx_rect(0, ye, GFX_W, GFX_H - ye, BG);", "(void)ye;")
+    if mutant == "unavail_pickable": vsub("if (!(meters_row_flags(row) & MROW_SELECTABLE)) { ml_msg = 1u; return MLG_REFUSED; }", "")
+    if mutant == "x_noselect": vsub("meters_select(row);\n    return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;", "return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;")
+    if mutant == "nofit": vsub("if (n < 2u || gfx_text_width(s) <= maxw) return;", "return;")
+    if mutant == "noindicator": vsub("gfx_text(GFX_W - 20 - gfx_text_width(pos), 6, pos, DIM, BG);", "(void)pos;")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub_ in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub_).mkdir()
-    (ui / "meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
+    (ui / "meters.c").write_text(src); (ui / "meterlist_view.c").write_text(vsrc)
+    for f in ("ui/meterlist_thumb.c", "ui/meterlist_thumb.h", "ui/meterlist_view.h", "generated/meter_thumbs.h", "ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
               "cores/helios_core.h", "cores/shipped_meter_ids.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/meterbin_core.h", "cores/library_core.h", "cores/audio_stats_core.h",
               "cores/settings_core.h", "generated/meter_presets.h", "generated/meter_registry.h", "cores/gfx_touch_core.h", "cores/ramp_core.h"):
         pth = ROOT / "fw2" / f
         if not pth.exists(): continue
+        if (d / "fw2" / f).exists(): continue
         (d / "fw2" / f).parent.mkdir(parents=True, exist_ok=True); (d / "fw2" / f).write_text(pth.read_text())
     (d / "sim").mkdir(); (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_window_harness.c").read_text()); (d / "sim/p2_host_regs.h").write_text((ROOT / "sim/p2_host_regs.h").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-DWD_HOST_CUT", *flags, "-include", str(d / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
@@ -150,6 +162,79 @@ with tempfile.TemporaryDirectory() as td:
     o = run(exe, "".join("maxes %d\n" % i for i in range(8)))
     got = [list(map(int, l.split()[1:])) for l in o]
     check("meters_shipped_max_of(i) returns the parameter maxima of each shipped meter exactly as the manifests give them (tune_capacity.maxes); an index past the seven answers none", [g[1:] for g in got[:7]] == mx and [g[0] for g in got[:7]] == [len(m) for m in mx] and got[7] == [0], str(got[7]))
+    # ---------- P2.5: the METER list: one order with X, rows from the TOC, greyed and hidden rows, scroll feedback, the whole page drawn
+    sys.path.insert(0, str(ROOT / "tools/player2"))
+    def load_adv(name):
+        b = (ROOT / "fw2/generated/fonts" / name).read_bytes(); body = b[12:]
+        nr = body[20]; off = 24 + 4 * nr; nn = sum(b2 - a + 1 for a, b2 in (struct.unpack_from("<HH", body, 24 + 4 * i) for i in range(nr)))
+        return list(body[off:off + nn])[:95]
+    FONTS = {"SemiBold": load_adv("SpaceGrotesk-SemiBold.tfnt"), "Bold": load_adv("SpaceGrotesk-Bold.tfnt"), "Tamzen": load_adv("Tamzen8x16r.tfnt"), "Tamzen Bold": load_adv("Tamzen8x16b.tfnt")}
+    def uilist(o):
+        l = [x for x in o if x.startswith("uilist")][-1]; n = int(l.split()[1].rstrip(":")); return n, [tuple(map(int, t.split("/"))) for t in l.split()[2:]]
+    ONEGO = binf(sy.build(64, True, True, real=shipped, hang_row=64, unavailable=20, hidden=21), "onego.bin")       # 64 rows; TEST 20 (row index 19) unavailable, TEST 21 (index 20) hidden, HANG TEST last, TEST 09 and 10 colliding
+    S, U, SEL = 1, 2, 16                                                                                             # (flag bits of meters_toc.h: VISIBLE 1, UNAVAILABLE 2, SELECTABLE 16)
+    cases = [("7 rows", b7), ("64 rows", b64), ("63 rows", binf(sy.build(63, False, False, real=shipped), "b63.bin")), ("8 rows", binf(sy.build(8, False, False, real=shipped), "b8.bin")), ("a hidden row", hid), ("unavailable rows", un), ("the one-go bin (64 rows, one unavailable, one hidden, HANG TEST last)", ONEGO)]
+    for nm, bf in cases:
+        o = run(exe, "user %s\nboot\nuilist\nwalk 140\n" % bf)
+        n, rows = uilist(o); sel_seq = [r for r, f in rows if f & SEL]; w = [int(x) for x in [l for l in o if l.startswith("walk")][0].split()[1:]]
+        exp = [sel_seq[(1 + i) % len(sel_seq)] for i in range(140)]
+        check("%s: X walks exactly the SELECTABLE rows of the list, in the list's order (one order for both screens), and wraps" % nm, w == exp and rows[0][0] == 0 and [r for r, _ in rows] == sorted(r for r, _ in rows), (w[:10], exp[:10]))
+    o = run(exe, "user %s\nboot\nuilist\n" % b7); n, rows = uilist(o)
+    check("7 rows: the list shows 7, all selectable and visible", n == 7 and all(f & SEL and f & S for _, f in rows), rows)
+    o = run(exe, "user %s\nboot\nuilist\n" % ONEGO); n, rows = uilist(o); idx = {r: f for r, f in rows}
+    check("the one-go bin: 63 rows listed (the hidden TEST 21 is absent), the unavailable TEST 20 is listed (visible, unavailable, NOT selectable), HANG TEST (last) is listed and selectable, Winamp Bars is selectable",
+          n == 63 and 20 not in idx and idx[19] & U and idx[19] & S and not idx[19] & SEL and idx[63] & SEL and idx[0] & SEL, (n, idx.get(19), idx.get(63)))
+    o = run(exe, "nouser\nnocore\nboot\nuilist\nstep 1\n"); n, rows = uilist(o)
+    check("no bin at all: the list is the one built-in meter and X stays on it", n == 1 and rows[0][0] == 0 and rows[0][1] & SEL and "step 1 from 0 -> 0" in o, o[-3:])
+    o = run(exe, "user %s\nboot\nselect 30\nuiindex 30\nselect 0\nuiindex 63\nuiindex 19\nuiindex 21\n" % ONEGO)
+    ix = [l for l in o if l.startswith("uiindex")]
+    check("row -> list position skips the hidden row (row 21 is list position 20 because row 20 is hidden, row 63 is 62); the current meter's position is what the list opens on", ix[0] == "uiindex row 30 -> 29" and ix[1] == "uiindex row 63 -> 62" and ix[2] == "uiindex row 19 -> 19" and ix[3] == "uiindex row 21 -> 20", ix)
+    # picking, Configure, unavailable
+    o = run(exe, "user %s\nboot\npick 29\nsave\nadvance 6\ntick 0\nsave\nstate\n" % ONEGO); pk = [l for l in o if l.startswith("pick")][0]; sv = saves(o); s_ = state(o)
+    h30 = int(mb.open_toc(ONEGO.read_bytes())["rows"][30]["id"][:8], 16) & 0x7FFFFFFF
+    check("A on a normal row (list position 29 = row 30, TEST 31) selects it (the same select_row path as X): that meter runs; the saved word follows ONLY after the commit window (5 s of clean running)", pk == "pick 29 guard 2 cur 30 msg 0" and sv[0] == FB and sv[1] == (h30 | 0) and s_["collisions"] == 0, (pk, [hex(x) for x in sv], hex(h30)))
+    o = run(exe, "user %s\nboot\nselect 5\npick 19\nstate\n" % ONEGO); pk = [l for l in o if l.startswith("pick")][0]
+    check("A on the UNAVAILABLE row (TEST 20): nothing changes (the meter on screen stays), one short message is set; any key clears it", pk == "pick 19 guard 1 cur 5 msg 1" and "msg 0" in run(exe, "user %s\nboot\npick 19\nkeyclear\n" % ONEGO)[-1], pk)
+    o = run(exe, "user %s\nboot\ncfg 29\n" % ONEGO)
+    check("X on a normal row selects THAT row first (the registry loads only the active meter), then Configure opens for it", [l for l in o if l.startswith("cfg")][0] == "cfg 29 guard 3 cur 30 msg 0", o[-2:])
+    o = run(exe, "user %s\nboot\nselect 5\ncfg 19\n" % ONEGO)
+    check("X on the unavailable row refuses: the meter on screen stays and no Configure opens", [l for l in o if l.startswith("cfg")][0] == "cfg 19 guard 1 cur 5 msg 1", o[-2:])
+    o = run(exe, "user %s\nboot\nselect 5\npick 0\n" % ONEGO)
+    check("Winamp Bars (list position 0) stays selectable in every bin", [l for l in o if l.startswith("pick")][0] == "pick 0 guard 2 cur 0 msg 0", o[-2:])
+    # names, previews, longest name, indicator, markers, coverage
+    longn = "W" * 23; lng = binf(mod(sy.build(64, False, False, real=shipped), lambda es: setattr(es[9], "name", longn)), "long.bin")
+    for fn, adv in FONTS.items():
+        o = run(exe, "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, adv)), lng))
+        txt = [l.split(" ", 4) for l in o if l.startswith("t ")]; names = [t for t in txt if int(t[1]) == 92 and t[4].startswith("WWW")]
+        ok = len(names) == 1 and 92 + int(names[0][3]) <= 330 and (names[0][4] == longn or (names[0][4].endswith(".") and longn.startswith(names[0][4][:-1])))
+        check("the longest name (23 'W') fits the row next to the preview and the markers in %s: the name ends before x 330; a name that does not fit is cut and ends with a dot" % fn, ok, names)
+        o = run(exe, "adv %s\nuser %s\nboot\ndraw 0 0\n" % (" ".join(map(str, adv)), b64)); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+        nmx = [t[4] for t in txt if int(t[1]) == 92]
+        check("short names are drawn whole (%s): the first rows' names come from the TOC (WINAMP BARS, then the TEST rows' own names)" % fn, nmx[:3] == ["WINAMP BARS", "SCOPE", "CHLADNI"] or nmx[0] == "WINAMP BARS", nmx[:4])
+    o = run(exe, "adv %s\nuser %s\nboot\nselect 9\ncurname\n" % (" ".join(map(str, FONTS["Bold"])), lng))
+    cn = [l for l in o if l.startswith("curname")][0][8:]
+    check("Settings > Appearance > METER: the value is the current meter's name from the TOC, cut to fit by the same rule (a 23 character name in Space Grotesk Bold)", cn == longn or (cn.endswith(".") and longn.startswith(cn[:-1])), cn)
+    o = run(exe, "user %s\nboot\nselect 30\ncurname\n" % b64)
+    check("... and a normal name is shown whole (TEST 31)", [l for l in o if l.startswith("curname")][0] == "curname TEST 31", o[-1])
+    for nm, bf, top, sel in (("7 rows", b7, 0, 0), ("8 rows", cases[3][1], 1, 7), ("63 rows", cases[2][1], 56, 62), ("64 rows", b64, 0, 0), ("64 rows scrolled", b64, 30, 33), ("64 rows at the end", b64, 57, 63), ("the one-go bin", ONEGO, 14, 19), ("one row only", None, 0, 0)):
+        o = run(exe, ("user %s\nboot\n" % bf if bf else "nouser\nnocore\nboot\n") + "draw %d %d\n" % (top, sel)); d = [l for l in o if l.startswith("draw")][0].split()
+        check("%s: every pixel of the 400 x 360 page is drawn or cleared in the frame (nothing of the previous screen is left: title, rows, the gaps, the hints), no card read" % nm, d[6] == "0" and d[10] == "0", d)
+    o = run(exe, "user %s\nboot\nselect 30\ndraw 27 30\n" % b64); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+    ys = [(int(t[1]), int(t[2]), t[4]) for t in txt]
+    star = [y for x, y, tx in ys if tx == "*"]; row30_y = 34 + (30 - 27) * 40 + 12
+    check("the current meter keeps its * marker, on its own row (list position 30 at top 27 -> row 3 of the window); no star on any other row", star == [row30_y], (star, row30_y))
+    o = run(exe, "user %s\nboot\ndraw 0 0\n" % b64); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+    check("the current meter (row 0) shows its star while it is in the window; scrolling away removes it", [t for t in txt if t[4] == "*"] != [] and [t for t in run(exe, "user %s\nboot\ndraw 20 20\n" % b64) if t.startswith("t ") and t.endswith(" *")] == [])
+    for nm, bf, top, sel, text in (("64 rows", b64, 11, 11, "12 / 64"), ("64 rows, the last", b64, 57, 63, "64 / 64"), ("the one-go bin (63 listed)", ONEGO, 14, 62, "63 / 63"), ("7 rows", b7, 0, 2, "3 / 7")):
+        o = run(exe, "user %s\nboot\ndraw %d %d\n" % (bf, top, sel)); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+        ind = [t for t in txt if t[4] == text and int(t[2]) == 6]
+        check("the position indicator reads '%s' in the title line, right aligned inside the screen (%s)" % (text, nm), len(ind) == 1 and int(ind[0][1]) + int(ind[0][3]) <= 380, txt[:3])
+    o = run(exe, "user %s\nboot\ndraw 14 19\n" % ONEGO); bl = [l.split() for l in o if l.startswith("b ")]; txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+    check("previews come from the TOC through the stash (one palette blit per listed AVAILABLE row in the window, 56 x 32 at x 20): the window of 7 rows holds the unavailable row, which draws no preview (a greyed placeholder) and its name in the faint colour", len(bl) == 6 and all(b[1] == "20" and b[3:] == ["56", "32"] for b in bl), bl)
+    # ---------- the music stream model: scrolling the list never reads the card
+    o = run(exe, "user %s\nboot\n" % ONEGO + "".join("draw %d %d\n" % (t, t) for t in range(0, 57)) + "state\n")
+    dd = [l.split() for l in o if l.startswith("draw")]
+    check("scrolling the whole list (57 window positions) reads nothing from the card: every draw reports 0 reads, previews and names come from the PSRAM copy of the TOC", len(dd) == 57 and all(x[10] == "0" for x in dd), dd[:2])
     # ---------- mutants (each rule's test fails without its line of code)
     for m, label, script, bad in (
         ("commit_at_once", "a selection commits at once (no clean run needed)", "user %s\nboot\nselect 2\ntick 0\nsave\n" % b7, lambda o: saves(o)[-1] != FB),
@@ -157,7 +242,14 @@ with tempfile.TemporaryDirectory() as td:
         ("refusal_commits", "a refused pack still commits", "user %s\nboot\nselect 1\n%sselect 2\ntick 0\nadvance 6\ntick 0\nsave\n" % (tmp / "crc.bin", CL), lambda o: saves(o)[-1] != HS[1]),
         ("hidden_ok", "hidden rows are selectable", "user %s\nboot\nlist\n" % hid, lambda o: lst(o) != "list 6: 0 1 2 4 5 6"),
         ("unavail_ok", "unavailable rows are selectable", "user %s\nboot\nlist\n" % un, lambda o: lst(o) != "list 5: 0 1 3 5 6"),
-        ("collide_ignored", "the collision rule is ignored", "user %s\nboot\nstate\n" % cb, lambda o: state(o)["notune"] != 2)):
+        ("collide_ignored", "the collision rule is ignored", "user %s\nboot\nstate\n" % cb, lambda o: state(o)["notune"] != 2),
+        ("hidden_listed", "a hidden row is listed", "user %s\nboot\nuilist\n" % hid, lambda o: uilist(o)[0] != 6),
+        ("step_all", "X also visits the unavailable rows (the two screens disagree)", "user %s\nboot\nwalk 25\n" % ONEGO, lambda o: [l for l in o if l.startswith("walk")] != [l for l in run(exe, "user %s\nboot\nwalk 25\n" % ONEGO) if l.startswith("walk")]),
+        ("nogap", "the gap under the rows is not cleared (a strip of the old screen)", "user %s\nboot\ndraw 0 0\n" % b7, lambda o: [l for l in o if l.startswith("draw")][0].split()[6] != "0"),
+        ("unavail_pickable", "an unavailable row can be picked", "user %s\nboot\nselect 5\npick 19\n" % ONEGO, lambda o: "cur 5" not in [l for l in o if l.startswith("pick")][0]),
+        ("x_noselect", "X does not select the row before Configure", "user %s\nboot\ncfg 29\n" % ONEGO, lambda o: "cur 30" not in [l for l in o if l.startswith("cfg")][0]),
+        ("nofit", "a long name is not cut", "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, FONTS["Bold"])), lng), lambda o: any(l.startswith("t 92 ") and l.split(" ", 4)[4].startswith("WWW") and 92 + int(l.split()[3]) > 330 for l in o)),
+        ("noindicator", "no position indicator", "user %s\nboot\ndraw 11 11\n" % b64, lambda o: not any(l.endswith(" 12 / 64") for l in o))):
         with tempfile.TemporaryDirectory() as t2:
             mexe = build(Path(t2), m)
             check("mutant (%s) is caught" % label, bad(run(mexe, script)))

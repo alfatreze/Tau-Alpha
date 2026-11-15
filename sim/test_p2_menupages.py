@@ -53,6 +53,30 @@ with tempfile.TemporaryDirectory() as td:
     check("INFO (last row of Home) is an action", r[1][5:] == (2, 1, 0), r)
     _, r = run(g, "D D R D A D D D D D D D D D D A")
     check("Playback: SHUFFLE (second row) toggles", r[4][5:] == (1, 4, 1), r)
+    # ---------- the METER list scrolls through up to 64 rows (P2.5): 7 visible, the selection always inside them, Up/Down wrap, it opens on the current meter
+    def listwalk(n, cur, keys):
+        _, r = run(g, "n %d v 13 %d R D D D R %s" % (n, cur, keys))
+        return r
+    for n in (7, 8, 63, 64):
+        for cur in (0, n // 2, n - 1):
+            r = listwalk(n, cur, "")
+            vis_ok = r[-1][1:3] == (2, 5) and r[-1][3] == cur and r[-1][4] <= cur < r[-1][4] + 7 and r[-1][4] <= max(0, n - 7)
+            check("METER list over %d rows opens on the current meter %d, visible (top %d), highlighted" % (n, cur, r[-1][4]), vis_ok, r[-1])
+        r = listwalk(n, 0, " ".join("D" for _ in range(n + 2)))
+        sels = [x[3] for x in r[5:]]; tops = [x[4] for x in r[5:]]
+        check("%d rows: Down visits every row in order and WRAPS to row 0 (the menu convention), the selection is always one of the 7 visible rows" % n,
+              sels[:n] == [(i + 1) % n for i in range(n)] and all(t <= s < t + 7 for s, t in zip(sels, tops)) and all(t <= max(0, n - 7) for t in tops), (sels[:12], tops[:12]))
+        r = listwalk(n, 0, " ".join("U" for _ in range(3)))
+        sels = [x[3] for x in r[5:]]
+        check("%d rows: Up from row 0 wraps to row %d" % (n, n - 1), sels[0] == n - 1 and r[5][4] == max(0, n - 7) and all(t <= s < t + 7 for s, t in zip(sels, [x[4] for x in r[5:]])), r[5:])
+    r = listwalk(64, 9, "D D D D")
+    check("scrolling is by one row: the window follows the selection down (row 9 opens showing rows 3..9, then each Down moves it by one: 4, 5, 6, 7)", [x[4] for x in r[5:]] == [4, 5, 6, 7], [x[4] for x in r[5:]])
+    _, r = run(g, "n 64 v 13 40 R D D D R A")
+    check("A on the highlighted row picks it: the value id of METER (13) and the row position 40, back to Appearance", r[-1][5:] == (1, 13, 40) and r[-1][1] == 1, r[-1])
+    _, r = run(g, "n 64 v 13 40 R D D D R B")
+    check("B backs out of the list without a change", r[-1][5] == 0 and r[-1][1] == 1, r[-1])
+    m4 = build(td, 4)
+    check("mutant 4 (the METER list scrolls for 8 rows instead of 7: its last row is off screen) is caught", run(m4, "n 64 v 13 0 R D D D R D D D D D D D") != run(g, "n 64 v 13 0 R D D D R D D D D D D D"))
     for bug, what, scen in ((1, "Left on the volume goes back", "D R v 0 0 L"), (2, "an option sets the wrong value id", "D R D A D A"), (3, "backing out of an option list applies it", "D R D A D B")):
         m = build(td, bug)
         check(f"mutant {bug} ({what}) is caught", run(m, scen) != run(g, scen))

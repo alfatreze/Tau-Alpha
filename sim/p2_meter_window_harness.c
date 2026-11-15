@@ -43,15 +43,22 @@ METER_LIST(STUB_X)
 int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; return 0; }
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 uint32_t gfx_cmds; void gfx_touch_reset(void) { } uint32_t gfx_touch_rows(void) { return 0u; } uint32_t gfx_cur_buf(void) { return 0; } uint32_t gfx_front_buf(void) { return 0; }
-void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
-uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; return 0; }
+/* A recording screen for the METER list page (fw2/ui/meterlist_view.c): every gfx_rect / gfx_text / gfx_cblit stamps the pixels it covers with the current serial, so `draw` can say which pixels of the 400 x 360 page the frame did not touch (they would keep the previous screen). */
+#define SCR_W 400u
+#define SCR_H 360u
+static uint16_t screen_stamp[SCR_H][SCR_W]; static uint32_t shot_serial = 1u, adv_tab[95]; static int have_adv, rec_log;
+static void stamp(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { for (uint32_t j = y; j < y + h && j < SCR_H; j++) for (uint32_t i = x; i < x + w && i < SCR_W; i++) screen_stamp[j][i] = (uint16_t)shot_serial; }
+void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { stamp(x, y, w, h); if (rec_log) printf("r %u %u %u %u %u\n", x, y, w, h, c); }
+uint32_t gfx_text_width(const char *s) { uint32_t w = 0; for (; *s; s++) w += have_adv ? adv_tab[(unsigned char)*s >= 0x20 && (unsigned char)*s <= 0x7E ? (unsigned char)*s - 0x20u : 0u] : 8u; return w; }
+uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)f; (void)b; const uint32_t w = gfx_text_width(s); stamp(x, y, w, 16u); if (rec_log) printf("t %u %u %u %s\n", x, y, w, s); return x + w; }
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+void gfx_clut_begin(uint32_t s) { (void)s; } void gfx_clut_put(uint16_t c) { (void)c; }
 int gfx_blend_ready(void) { return 0; } void gfx_blend_on(uint32_t a) { (void)a; } void gfx_blend_off(void) { }
 void gfx_blend_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 int gfx_mb_write(uint32_t a, uint32_t d) { (void)a; (void)d; return 0; } int gfx_mb_read(uint32_t a, uint32_t *d) { (void)a; *d = 0; return 0; }
 void gfx_fence(void) { }
 void gfx_clut_load(uint32_t s, const uint16_t *c, uint32_t n) { (void)s; (void)c; (void)n; }
-void gfx_cblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+void gfx_cblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; stamp(c, d, e, f); if (rec_log) printf("b %u %u %u %u\n", c, d, e, f); }
 void gfx_bar(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint16_t f, uint16_t g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
 void gfx_scroll_down(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 void gfx_scroll_left(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
@@ -63,6 +70,8 @@ uint8_t th_theme, th_pol, th_pal; uint32_t font_cur;
 void theme_set(uint32_t t, uint32_t p, uint32_t c) { th_theme = (uint8_t)t; th_pol = (uint8_t)p; th_pal = (uint8_t)c; }
 int font_select(uint32_t i) { font_cur = i; return 0; }
 #include "../fw2/ui/appearance.c"
+#include "../fw2/ui/meterlist_thumb.c"
+#include "../fw2/ui/meterlist_view.c"
 static uint32_t saved_words[SF_WORDS];
 /* the two data slots: a file each, read in pieces, a read past its end fails */
 static uint8_t *fb[2]; static uint32_t fl[2];
@@ -134,6 +143,21 @@ int main(void)
         else if (!strcmp(a, "cut")) wd_host_cut = (uint32_t)atoi(b);
         else if (!strcmp(a, "flags")) { const uint32_t m = (uint32_t)atoi(b); char nm[40]; printf("flags row %u %u name %s\n", m, meters_row_flags(m), meters_row_name(m, nm, sizeof nm)); }
         else if (!strcmp(a, "list")) { printf("list %u:", meters_list_count()); for (uint32_t i = 0; i < meters_list_count(); i++) printf(" %u", meters_list_row(i)); printf("\n"); }
+        else if (!strcmp(a, "adv")) { char *p = line + 3; for (int i = 0; i < 95; i++) adv_tab[i] = (uint32_t)strtoul(p, &p, 10); have_adv = 1; }       /* the advances of 0x20..0x7E of the font under test */
+        else if (!strcmp(a, "uilist")) { printf("uilist %u:", meters_ui_count()); for (uint32_t i = 0; i < meters_ui_count(); i++) printf(" %u/%u", meters_ui_row(i), meters_row_flags(meters_ui_row(i))); printf("\n"); }
+        else if (!strcmp(a, "uiindex")) { const uint32_t r = (uint32_t)atoi(b); printf("uiindex row %u -> %u\n", r, meters_ui_index(r)); }
+        else if (!strcmp(a, "step")) { const int d = atoi(b); const uint32_t r = meters_ui_step(meters_cur(), d); printf("step %d from %u -> %u\n", d, meters_cur(), r); }
+        else if (!strcmp(a, "draw")) {                                                         /* draw TOP SEL: the page of the METER list with the previous screen = serial 0 */
+            unsigned top = 0, sel = 0; sscanf(line, "%*s %u %u", &top, &sel); const uint32_t n = meters_ui_count();
+            memset(screen_stamp, 0, sizeof screen_stamp); shot_serial = 1u; rec_log = 1; const uint32_t r0 = reads_total, q0 = 0; (void)q0;
+            meterlist_draw("METER", top, sel, n, meters_ui_index(meters_cur()));
+            rec_log = 0; uint32_t un = 0, firstrow = 9999u; for (uint32_t y = 0; y < SCR_H; y++) for (uint32_t x = 0; x < SCR_W; x++) if (screen_stamp[y][x] != 1u) { un++; if (y < firstrow) firstrow = y; }
+            printf("draw top %u sel %u uncovered %u firstrow %u reads %u\n", top, sel, un, firstrow, reads_total - r0);
+        }
+        else if (!strcmp(a, "pick")) { const uint32_t i = (uint32_t)atoi(b); stream_inflight = 1; const uint32_t g = meterlist_guard(i, MLG_A); printf("pick %u guard %u cur %u msg %u\n", i, g, meters_cur(), meterlist_msg()); }
+        else if (!strcmp(a, "cfg")) { const uint32_t i = (uint32_t)atoi(b); stream_inflight = 1; const uint32_t g = meterlist_guard(i, MLG_X); printf("cfg %u guard %u cur %u msg %u\n", i, g, meters_cur(), meterlist_msg()); }
+        else if (!strcmp(a, "keyclear")) { meterlist_msg_clear(); printf("msg %u\n", meterlist_msg()); }
+        else if (!strcmp(a, "curname")) { char nm[32]; meterlist_cur_name(nm, sizeof nm); printf("curname %s\n", nm); }
         else if (!strcmp(a, "state")) state();
     }
     return 0;

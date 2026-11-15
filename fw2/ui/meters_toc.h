@@ -11,6 +11,10 @@
 uint32_t    meters_row_flags(uint32_t row);                          /* the MROW_ bits of a TOC row (0 past the end) */
 const char *meters_row_name(uint32_t row, char *buf, uint32_t n);    /* the name of a row, into buf (always terminated); returns buf */
 int         meters_is_builtin(uint32_t row);                         /* 1 for the built-in Winamp Bars row (its preview and parameters are in the firmware) */
+uint32_t    meters_ui_count(void);                                   /* the ONE list the Settings METER list shows and X walks: the visible rows in TOC order (a row this firmware cannot run is in it, greyed; a hidden row is not) */
+uint32_t    meters_ui_row(uint32_t i);                               /* list position -> TOC row */
+uint32_t    meters_ui_index(uint32_t row);                           /* TOC row -> list position */
+uint32_t    meters_ui_step(uint32_t row, int dir);                   /* X: the next / previous row of the list that can be picked (wraps) */
 uint32_t    meters_saved_hash(void);                                 /* the 31-bit id_hash the register file holds: the COMMITTED meter (see meters.c: the commit rule) */
 uint32_t    meters_hash_is_shown(void);                              /* 1 when the saved meter is the one on screen (its preset is live), else the kept snapshot is saved */
 uint32_t    meters_saved_pos(void);                                  /* the preset position / preset file id + 1 to save with it */
