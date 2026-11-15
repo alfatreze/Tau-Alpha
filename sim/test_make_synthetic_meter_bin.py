@@ -36,6 +36,21 @@ with tempfile.TemporaryDirectory() as td:
     r4 = mb.open_toc((out4 / "tau-meters-hang.bin").read_bytes())["rows"]; p4 = mb.open_toc((out4 / "tau-meters.bin").read_bytes())["rows"]
     check("--hang-row 64: HANG TEST is the LAST row (so a walk over rows 1..63 never meets it) and row 8 is TEST 08 again", r4[63]["name"] == "HANG TEST" and r4[7]["name"] == "TEST 08" and len(r4) == 64)
     check("--hang-row: the plain bin is unchanged by it, and --collide still applies to both", [r["name"] for r in p4] == [r["name"] for r in ra] and r4[8]["id"][4:8] == r4[9]["id"][4:8])
+    out6 = Path(td) / "o6"; sy.main([str(out6), "--hang-row", "64", "--collide", "--unavailable", "20", "--hidden", "21"])
+    p6 = mb.open_toc((out6 / "tau-meters.bin").read_bytes())["rows"]; h6 = mb.open_toc((out6 / "tau-meters-hang.bin").read_bytes())["rows"]
+    check("--unavailable 20: TEST 20 (row 20, 1-based) asks for a newer TAU than any firmware has; --hidden 21: TEST 21 is not flagged visible; every other row is visible with the plain tau_min",
+          p6[19]["name"] == "TEST 20" and p6[19]["tau_min"] > ra[19]["tau_min"] and p6[19]["tau_min"] >= 0x7F00 and p6[20]["name"] == "TEST 21" and not p6[20]["flags"] & mb.FLAG_VISIBLE
+          and all(r["flags"] & mb.FLAG_VISIBLE for i, r in enumerate(p6) if i != 20) and all(r["tau_min"] == ra[i]["tau_min"] for i, r in enumerate(p6) if i != 19), (p6[19], p6[20]))
+    check("... the same two rows in the hang variant, HANG TEST still last, collisions kept, the independent reader accepts both bins, ids and packs of the other rows equal the plain bin's",
+          h6[19]["tau_min"] == p6[19]["tau_min"] and not h6[20]["flags"] & mb.FLAG_VISIBLE and h6[63]["name"] == "HANG TEST" and p6[8]["id"][4:8] == p6[9]["id"][4:8]
+          and [r["id"] for i, r in enumerate(p6) if i not in (19, 20)] == [r["id"] for i, r in enumerate(r4) if i not in (19, 20)] and mb.check_file((out6 / "tau-meters.bin").read_bytes()) is not False)
+    out7 = Path(td) / "o7"; sy.main([str(out6.parent / "o6b"), "--hang-row", "64", "--collide", "--unavailable", "20", "--hidden", "21"])
+    check("deterministic with the new options too", (out6 / "tau-meters.bin").read_bytes() == (out6.parent / "o6b" / "tau-meters.bin").read_bytes())
+    bad3 = 0
+    for args in (["--unavailable", "7"], ["--unavailable", "65"], ["--hidden", "7"], ["--hidden", "65"], ["--unavailable", "20", "--hidden", "20"], ["--hang-row", "30", "--hidden", "30"], ["--hang-row", "30", "--unavailable", "30"]):
+        try: sy.main([str(Path(td) / "o8"), *args]); 
+        except (ValueError, SystemExit): bad3 += 1
+    check("an unavailable or hidden row outside 8..rows, one row both, or the hang row hidden or unavailable, is refused", bad3 == 7, bad3)
     bad2 = 0
     for n in (7, 65, 0):
         try: sy.main([str(Path(td) / "o5"), "--hang-row", str(n)])
