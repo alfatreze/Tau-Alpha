@@ -73,14 +73,15 @@ def build(rows=MAX_ROWS, hang=False, collide=False, workdir=None, real=None, han
         return out
 
 
-README = """Synthetic meter bins for the external-meters stress test (TAU DEV 222, docs/features/meters/EXTERNAL_METERS_P2_4_TEST.md).
+README = """Synthetic meter bins for the external-meters stress tests (docs/features/meters/EXTERNAL_METERS_P2_4_TEST.md, EXTERNAL_METERS_P2_5_TEST.md).
 
-  tau-meters.bin        %d rows: the seven shipped meters, then TEST 08 ... TEST %02d (each runs like one of the real meters)
+  tau-meters.bin        %d rows: the seven shipped meters, then TEST 08 ... TEST %02d (each runs like one of the real meters:
+                        TEST 08+6k Scope, 09+6k Chladni, 10+6k Layered Wave, 11+6k VU Master, 12+6k Waterfall Grid, 13+6k Sound Map)
   tau-meters-hang.bin   the same, but row %d is HANG TEST (a pack that hangs after 200 pictures): the safe-boot test
-
+%s
 COPY (by hand; the user bin is never in a package zip; nothing here writes the card):
   1. Eject nothing yet. Copy ONE of the two files to the card as   Assets/tau/common/tau-meters.bin   (the name must be exactly that).
-  2. The firmware prefers it to the core's own tau-packs.bin when it is sound. Boot TAU DEV 222.
+  2. The firmware prefers it to the core's own tau-packs.bin when it is sound. Boot the test core.
   3. To go back: delete Assets/tau/common/tau-meters.bin (the core's own bin of seven meters is used again).
 Do not leave tau-meters-hang.bin on the card for daily use.
 """
@@ -102,7 +103,8 @@ def main(argv=None):
         (a.out / name).write_bytes(blob)
         info = mb.open_toc(blob)
         print("%s: %d B, %d rows (%s ... %s)" % (a.out / name, len(blob), len(info["rows"]), info["rows"][0]["name"], info["rows"][-1]["name"]))
-    (a.out / "README.txt").write_text(README % (a.rows, a.rows, a.hang_row))
+    extra = "".join("  row %d (TEST %02d) is %s\n" % (v, v, w) for v, w in ((a.unavailable, "UNAVAILABLE: it asks for a newer TAU than any firmware has (listed greyed, cannot be picked)"), (a.hidden, "HIDDEN: not flagged visible (not listed, X skips it)")) if v is not None)
+    (a.out / "README.txt").write_text(README % (a.rows, a.rows, a.hang_row, extra))
     return 0
 
 
