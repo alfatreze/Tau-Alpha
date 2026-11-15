@@ -8,7 +8,7 @@
 #include "../cores/menupages_core.h"
 #include "../cores/view_core.h"
 #include "nowplaying.h"
-#include "meterlist_thumb.h"
+#include "meterlist_view.h"
 #include "../generated/meter_registry.h"
 #include "views.h"
 #include "regions.h"
@@ -26,10 +26,7 @@
 #define ACC  UI_ACCENT
 #define ROW_H 34u
 #define TOP_Y 34u
-#define MLIST_ROW_H 40u                      /* the METER list: rows tall enough for a 32 px preview */
-#define MLIST_VIS 7u
-#define MTR_NAME_LEN_UI 24u
-/* The METER list shows the FIRST MLIST_VIS meters X can reach, in TOC order, whatever the bin holds (up to 64); Now Playing's X reaches all of them. The meter on screen may be a later one: the list then has no star. Scrolling is P2.5. */
+/* The METER list (fw2/ui/meterlist_view.c) is the TOC's visible rows in TOC order, up to 64, scrolling seven at a time: the same list and order Now Playing's X walks (meters_ui_*). */
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
@@ -38,7 +35,7 @@ static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;  
 
 static void pull(void)
 {
-    const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_list_index(meters_cur()) };       /* the METER choice is a position in the list of the meters that are there */
+    const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_ui_index(meters_cur()) };       /* the METER choice is a position in the list of the rows the TOC shows */
     for (uint32_t k = 0; k < 4u; k++) if (vals[V_COLOUR + k] != cur_vals[k]) { vals[V_COLOUR + k] = cur_vals[k]; dirty = 1; }
     for (uint32_t i = 0; i < PREF_COUNT; i++) { uint32_t v = mp3play_pref_get(i); if (v != vals[i]) { vals[i] = v; dirty = 1; } }
     mg_speed_for_mode(vals[V_STRETCH]);                           /* the speed list follows the mode */
@@ -59,7 +56,7 @@ static void value_text(const mg_row_t *r, char *o)
     switch (r->kind) {
     case RK_GROUP: s = ">"; break;
     case RK_TOGGLE: s = v ? "ON" : "OFF"; break;
-    case RK_CHOICE: if (r->arg == V_METER) { meters_row_name(meters_cur(), o, 16u); return; } s = mg_choices[r->arg].opt[v < mg_choices[r->arg].n ? v : 0u]; break;       /* the meter on screen, whichever row it is (the list holds only the first seven) */
+    case RK_CHOICE: if (r->arg == V_METER) { meterlist_cur_name(o, 24u); return; } s = mg_choices[r->arg].opt[v < mg_choices[r->arg].n ? v : 0u]; break;       /* the meter on screen by its TOC name, whichever row it is */
     case RK_VOL: put_num(o, v); return;
     case RK_SOON: s = "SOON"; break;
     default: s = ""; break;
@@ -76,6 +73,7 @@ void settings_view_enter(void)
 {
     xfade_finish(); shown_sig = 0xFFFFFFFFu;
     if (!resume) mg_open(&menu);
+    mg_set_choice(V_METER, 0, meters_ui_count());                    /* the METER list holds the TOC's visible rows (a bin may have changed since boot: none does at run time, but the count is cheap) */
     resume = 0; pull(); dirty = 1;
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
 }
@@ -83,8 +81,13 @@ int settings_view_input(uint32_t edge)
 {
     xfade_finish();                                   /* a key while a fade runs: the fade is completed first, then the key acts on the finished page */
     pull();
-    if ((edge & KEY_X) && menu.page[menu.depth] == PG_CHOICE && menu.choice_val[menu.depth] == V_METER) {       /* X in the METER list: that meter's Configure page */
-        meters_select(meters_list_row(menu.sel[menu.depth])); resume = 1; return V_CONFIGURE;
+    if (menu.page[menu.depth] == PG_CHOICE && menu.choice_val[menu.depth] == V_METER) {          /* the METER list */
+        meterlist_msg_clear();                                               /* the refusal line goes with the next key */
+        if (edge & (KEY_A | KEY_X)) {
+            const uint32_t g = meterlist_guard(menu.sel[menu.depth], (edge & KEY_X) ? MLG_X : MLG_A);      /* A picks, X selects the row and opens its Configure page; a meter this firmware cannot run is refused (one line) */
+            if (g == MLG_REFUSED) { dirty = 1; return VW_STAY; }
+            if (g == MLG_CONFIGURE) { resume = 1; return V_CONFIGURE; }
+        }
     }
     mg_effect_t e = mg_input(&menu, edge, vals);
     dirty = 1;
@@ -96,7 +99,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_COLOUR) theme_set(th_theme, th_pol, e.value);
         else if (e.id == V_THEME) theme_set(e.value, th_pol, th_pal);
         else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
-        else if (e.id == V_METER) meters_select(meters_list_row(e.value));
+        else if (e.id == V_METER) { }                                  /* picked in meterlist_guard (A on the highlighted row), which has already selected it */
         else if (e.id == V_BLANK) blank_sel = (uint8_t)e.value;
         else if (e.id == V_FONT) font_select(e.value);                 /* loads the font into the engine; the main loop repaints the view once (font_changed) */
         else if (e.id == V_CYMO) aout_cymo_user_off(e.value ? 0 : 1);
@@ -116,33 +119,16 @@ void settings_view_draw(void)
     dirty = 0;
     { const uint32_t sg = page_sig(); if (sg != shown_sig) { if (shown_sig != 0xFFFFFFFFu) xfade_request(); shown_sig = sg; } }
     const uint32_t d = menu.depth, pg = menu.page[d], n = mg_rows(&menu), top = menu.top[d];
-    gfx_rect(0, 0, GFX_W, TOP_Y, BG);
     const char *title = pg == PG_CHOICE ? mg_pages[menu.page[d - 1u]].rows[menu.sel[d - 1u]].label : mg_pages[pg].title;
+    if (pg == PG_CHOICE && menu.choice_val[d] == V_METER) { meterlist_draw(title, top, menu.sel[d], n, vals[V_METER]); return; }       /* the METER list draws its whole page: title, rows, position, hints */
+    gfx_rect(0, 0, GFX_W, TOP_Y, BG);
     gfx_text(20, 6, title, ACC, BG);
-    if (pg == PG_CHOICE && menu.choice_val[d] == V_METER) {         /* the METER list: a preview beside each name, taller rows */
-        for (uint32_t k = 0; k < MLIST_VIS; k++) {
-            const uint32_t i = top + k, y = TOP_Y + k * MLIST_ROW_H;
-            if (i >= n) { gfx_rect(0, y, GFX_W, MLIST_ROW_H, BG); continue; }
-            const int on = i == menu.sel[d]; const uint16_t bg = on ? ACC : BG;
-            gfx_rect(0, y, GFX_W, MLIST_ROW_H, bg);
-            char nm[MTR_NAME_LEN_UI]; const uint32_t row = meters_list_row(i);
-            meter_thumb_draw(row, 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
-            meters_row_name(row, nm, sizeof nm);
-            gfx_text(92, y + 12, nm, on ? UI_ON_ACCENT : FG, bg);
-            if (meters_row_flags(row) & MROW_REFUSED) gfx_text(GFX_W - 60 - gfx_text_width("!"), y + 12, "!", on ? UI_ON_ACCENT : UI_RED, bg);                   /* it crashed last time or was refused: selecting it tries again */
-            if (vals[V_METER] == i) gfx_text(GFX_W - 24 - gfx_text_width("*"), y + 12, "*", on ? UI_ON_ACCENT : DIM, bg);
-        }
-        { const uint32_t ye = TOP_Y + MLIST_VIS * MLIST_ROW_H; gfx_rect(0, ye, GFX_W, 360u - ye, BG); }                 /* the gap under the last row too (seven rows end above the hints: it kept the old screen) */
-        gfx_text(20, 322, "UP DOWN  A PICK  X CONFIGURE", DIM, BG);
-        gfx_text(20, 340, "B BACK  START CLOSE", DIM, BG);
-        return;
-    }
     for (uint32_t k = 0; k < MG_VIS; k++) {
         const uint32_t i = top + k, y = TOP_Y + k * ROW_H;
         if (i >= n) { gfx_rect(0, y, GFX_W, ROW_H, BG); continue; }
         const int on = i == menu.sel[d];
         const uint16_t bg = on ? ACC : BG;
-        char v[16]; const char *label;
+        char v[24]; const char *label;
         if (pg == PG_CHOICE) { label = mg_choices[menu.choice_val[d]].opt[i]; v[0] = vals[menu.choice_val[d]] == i ? '*' : 0; v[1] = 0; }
         else { const mg_row_t *r = &mg_pages[pg].rows[i]; label = r->label; value_text(r, v); }
         const int soon = pg != PG_CHOICE && mg_pages[pg].rows[i].kind == RK_SOON;
@@ -151,7 +137,7 @@ void settings_view_draw(void)
         if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? UI_ON_ACCENT : (soon ? OFFC : DIM), bg);
     }
     { const uint32_t ye = TOP_Y + MG_VIS * ROW_H; gfx_rect(0, ye, GFX_W, 360u - ye, BG); }                                /* the gap under the last row too: eight rows end at y 306, the hints start at 322, and the 16 px between kept a strip of the old screen (owner's screenshot 2026-11-12) */
-    gfx_text(20, 322, pg == PG_CHOICE ? (menu.choice_val[d] == V_METER ? "UP DOWN  A PICK  X CONFIGURE" : "UP DOWN  A PICK  B BACK") : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
+    gfx_text(20, 322, pg == PG_CHOICE ? "UP DOWN  A PICK  B BACK" : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
     gfx_text(20, 340, d ? "B BACK  START CLOSE" : "B OR START CLOSE", DIM, BG);
 }
 
@@ -159,13 +145,11 @@ void settings_view_draw(void)
 void settings_view_init_choices(void)
 {
     static const char *theme_names[8];
-    static const char *const meter_names[MLIST_VIS] = { "", "", "", "", "", "", "" };        /* the list draws each name from the TOC (meters_row_name); only the count matters here */
     uint32_t n = theme_count(); if (n > 8u) n = 8u;
     for (uint32_t i = 0; i < n; i++) theme_names[i] = theme_name(i);
-    uint32_t m = meters_list_count(); if (m > MLIST_VIS) m = MLIST_VIS;
     mg_set_choice(V_COLOUR, th_palette_name, 19u);
     mg_set_choice(V_THEME, theme_names, n);
-    mg_set_choice(V_METER, meter_names, m);
+    mg_set_choice(V_METER, 0, meters_ui_count());                      /* the list draws each name from the TOC (meterlist_view.c): only the count is kept here, up to 64 */
 }
 void settings_view_keep(void) { resume = 1u; }
 void settings_view_redraw(void) { xfade_finish(); gfx_rect(0, 0, GFX_W, GFX_H, BG); dirty = 1; pull(); }
