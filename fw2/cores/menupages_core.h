@@ -61,6 +61,16 @@ enum { EF_NONE = 0, EF_SET, EF_ACTION, EF_CLOSE };            /* what the caller
 typedef struct { uint8_t kind, id; uint32_t value; } mg_effect_t;
 typedef struct { uint8_t page[MG_DEPTH], sel[MG_DEPTH], top[MG_DEPTH], choice_val[MG_DEPTH]; uint8_t depth; } mg_t;       /* depth 0 = Home; entry i is the page shown at level i */
 #define MG_VIS 8u                                              /* rows visible at once */
+#define MG_VIS_METER 7u                                        /* the METER list draws taller rows (a 56 x 32 preview each): seven fit. The list's size comes from the TOC (mg_set_choice, up to 64): there is no static meter name or count here. */
+/* The rows visible on level d: the METER list shows fewer than any other page, so its scroll window must be that size (with 8 the seventh row below the top was selected but off screen). */
+static inline uint32_t mg_vis(const mg_t *m, uint32_t d)
+{
+#if BUG == 4
+    (void)m; (void)d; return MG_VIS;
+#else
+    return m->page[d] == PG_CHOICE && m->choice_val[d] == V_METER ? MG_VIS_METER : MG_VIS;
+#endif
+}
 
 static inline void mg_open(mg_t *m) { m->depth = 0; m->page[0] = PG_HOME; m->sel[0] = 0; m->top[0] = 0; }
 static inline uint32_t mg_cur(const mg_t *m) { return m->depth; }
@@ -71,10 +81,10 @@ static inline uint32_t mg_rows(const mg_t *m)
 }
 static inline void mg_fix(mg_t *m)
 {
-    uint32_t n = mg_rows(m), d = m->depth, sel = m->sel[d], top = m->top[d];
+    uint32_t n = mg_rows(m), d = m->depth, sel = m->sel[d], top = m->top[d], vis = mg_vis(m, d);
     if (sel < top) top = sel;
-    if (sel >= top + MG_VIS) top = sel + 1u - MG_VIS;
-    uint32_t maxtop = n > MG_VIS ? n - MG_VIS : 0u;
+    if (sel >= top + vis) top = sel + 1u - vis;
+    uint32_t maxtop = n > vis ? n - vis : 0u;
     if (top > maxtop) top = maxtop;
     m->top[d] = (uint8_t)top;
 }
