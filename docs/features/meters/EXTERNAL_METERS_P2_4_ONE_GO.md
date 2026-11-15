@@ -2,6 +2,8 @@
 
 One card visit: the card has **TAU DEV 222** and the 64-row user bin `Assets/tau/common/tau-meters.bin` (`work/p24/one-go/tau-meters-hang.bin`: Winamp Bars, Scope, Chladni, Layered Wave, VU Master, Waterfall, Sound Map, then TEST 08 ... TEST 63, and **HANG TEST as the LAST row**; rows TEST 09 and TEST 10 deliberately share their tuning key). Start a long playlist and let it play for the whole test. **Pause before every screenshot** (a screenshot while playing adds one dropout). Photograph the **Report** page (Select+Start, refresh, then Menu+Start); I decode every row from the picture.
 
+**Which real meter each TEST row runs as** (the synthetic rows reuse the six real packs in this order, then repeat every six): TEST 08 = Scope, 09 = Chladni, 10 = Layered Wave, 11 = VU Master, **12 = Waterfall**, 13 = Sound Map, **14 = Scope** again, 15 = Chladni, 16 = Layered Wave, 17 = VU Master, 18 = Waterfall, 19 = Sound Map, 20 = Scope ... (so step 3's tuning at TEST 12 is a Waterfall parameter; the factory presets exist only for the seven REAL rows, a TEST row lists only DEFAULT).
+
 X on Now Playing is the next meter, in table order, and wraps. Counters restart at every boot.
 
 | Step | What you do | Photo |
