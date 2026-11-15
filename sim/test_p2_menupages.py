@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory() as td:
         sels = [x[3] for x in r[5:]]
         check("%d rows: Up from row 0 wraps to row %d" % (n, n - 1), sels[0] == n - 1 and r[5][4] == max(0, n - 7) and all(t <= s < t + 7 for s, t in zip(sels, [x[4] for x in r[5:]])), r[5:])
     r = listwalk(64, 9, "D D D D")
-    check("scrolling is by one row: the window follows the selection down (row 9 shows rows 3..9, then 10 moves it to 4..10)", [x[4] for x in r[5:]] == [3, 4, 5, 6], [x[4] for x in r[5:]])
+    check("scrolling is by one row: the window follows the selection down (row 9 opens showing rows 3..9, then each Down moves it by one: 4, 5, 6, 7)", [x[4] for x in r[5:]] == [4, 5, 6, 7], [x[4] for x in r[5:]])
     _, r = run(g, "n 64 v 13 40 R D D D R A")
     check("A on the highlighted row picks it: the value id of METER (13) and the row position 40, back to Appearance", r[-1][5:] == (1, 13, 40) and r[-1][1] == 1, r[-1])
     _, r = run(g, "n 64 v 13 40 R D D D R B")
