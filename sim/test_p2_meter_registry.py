@@ -31,17 +31,17 @@ def build(d, mutant=None):
     if mutant == "hidden_ok": sub("if (fb || (av && vis)) toc_sel", "if (fb || av) toc_sel")
     if mutant == "unavail_ok": sub("if (fb || (av && vis)) toc_sel", "if (fb || vis) toc_sel")
     if mutant == "collide_ignored": flags = ["-DBUG=9"]
-    if mutant == "hidden_listed": sub("if (fb || (av && vis)) toc_lst", "if (fb || av) toc_lst")
-    if mutant == "step_all": sub("if (r != cur && (meters_row_flags(r) & MROW_SELECTABLE)) return r;", "if (r != cur) return r;")
+    if mutant == "hidden_listed": sub("if (fb || vis) toc_lst", "if (fb || av) toc_lst")
+    if mutant == "step_all": sub("if (r != row && meters_present(r)) return r;", "if (r != row) return r;")
     vsrc = (ROOT / "fw2/ui/meterlist_view.c").read_text() if (ROOT / "fw2/ui/meterlist_view.c").exists() else ""
     def vsub(a, b):
         nonlocal vsrc
         assert a in vsrc, a[:60]; vsrc = vsrc.replace(a, b, 1)
-    if mutant == "nogap": vsub("gfx_rect(0, ye, GFX_W, GFX_H - ye, BG);", "")
+    if mutant == "nogap": vsub("gfx_rect(0, ye, GFX_W, GFX_H - ye, BG);", "(void)ye;")
     if mutant == "unavail_pickable": vsub("if (!(meters_row_flags(row) & MROW_SELECTABLE)) { ml_msg = 1u; return MLG_REFUSED; }", "")
     if mutant == "x_noselect": vsub("meters_select(row);\n    return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;", "return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;")
-    if mutant == "nofit": vsub("while (n && gfx_text_width(s) > maxw)", "while (0 && n && gfx_text_width(s) > maxw)")
-    if mutant == "noindicator": vsub("gfx_text(GFX_W - 20 - gfx_text_width(pos), 6, pos, DIM, BG);", "")
+    if mutant == "nofit": vsub("if (n < 2u || gfx_text_width(s) <= maxw) return;", "return;")
+    if mutant == "noindicator": vsub("gfx_text(GFX_W - 20 - gfx_text_width(pos), 6, pos, DIM, BG);", "(void)pos;")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub_ in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub_).mkdir()
     (ui / "meters.c").write_text(src); (ui / "meterlist_view.c").write_text(vsrc)
@@ -172,7 +172,7 @@ with tempfile.TemporaryDirectory() as td:
     def uilist(o):
         l = [x for x in o if x.startswith("uilist")][-1]; n = int(l.split()[1].rstrip(":")); return n, [tuple(map(int, t.split("/"))) for t in l.split()[2:]]
     ONEGO = binf(sy.build(64, True, True, real=shipped, hang_row=64, unavailable=20, hidden=21), "onego.bin")       # 64 rows; TEST 20 (row index 19) unavailable, TEST 21 (index 20) hidden, HANG TEST last, TEST 09 and 10 colliding
-    S, V, U, SEL = 1, 2, 4, 16                                                                                       # (flag bits: VISIBLE 1, UNAVAILABLE 2, SELECTABLE 16)
+    S, U, SEL = 1, 2, 16                                                                                             # (flag bits of meters_toc.h: VISIBLE 1, UNAVAILABLE 2, SELECTABLE 16)
     cases = [("7 rows", b7), ("64 rows", b64), ("63 rows", binf(sy.build(63, False, False, real=shipped), "b63.bin")), ("8 rows", binf(sy.build(8, False, False, real=shipped), "b8.bin")), ("a hidden row", hid), ("unavailable rows", un), ("the one-go bin (64 rows, one unavailable, one hidden, HANG TEST last)", ONEGO)]
     for nm, bf in cases:
         o = run(exe, "user %s\nboot\nuilist\nwalk 140\n" % bf)
@@ -186,9 +186,9 @@ with tempfile.TemporaryDirectory() as td:
           n == 63 and 20 not in idx and idx[19] & U and idx[19] & S and not idx[19] & SEL and idx[63] & SEL and idx[0] & SEL, (n, idx.get(19), idx.get(63)))
     o = run(exe, "nouser\nnocore\nboot\nuilist\nstep 1\n"); n, rows = uilist(o)
     check("no bin at all: the list is the one built-in meter and X stays on it", n == 1 and rows[0][0] == 0 and rows[0][1] & SEL and "step 1 from 0 -> 0" in o, o[-3:])
-    o = run(exe, "user %s\nboot\nselect 30\nuiindex 30\nselect 0\nuiindex 63\nuiindex 20\nuiindex 21\n" % ONEGO)
+    o = run(exe, "user %s\nboot\nselect 30\nuiindex 30\nselect 0\nuiindex 63\nuiindex 19\nuiindex 21\n" % ONEGO)
     ix = [l for l in o if l.startswith("uiindex")]
-    check("row -> list position skips the hidden row (row 21 is list position 20, row 63 is 62); the current meter's position is what the list opens on", ix[0] == "uiindex row 30 -> 29" and ix[1] == "uiindex row 63 -> 62" and ix[2] == "uiindex row 20 -> 19" and ix[3] == "uiindex row 21 -> 20", ix)
+    check("row -> list position skips the hidden row (row 21 is list position 20 because row 20 is hidden, row 63 is 62); the current meter's position is what the list opens on", ix[0] == "uiindex row 30 -> 29" and ix[1] == "uiindex row 63 -> 62" and ix[2] == "uiindex row 19 -> 19" and ix[3] == "uiindex row 21 -> 20", ix)
     # picking, Configure, unavailable
     o = run(exe, "user %s\nboot\npick 29\nsave\nadvance 6\ntick 0\nsave\nstate\n" % ONEGO); pk = [l for l in o if l.startswith("pick")][0]; sv = saves(o); s_ = state(o)
     h30 = int(mb.open_toc(ONEGO.read_bytes())["rows"][30]["id"][:8], 16) & 0x7FFFFFFF
@@ -205,7 +205,7 @@ with tempfile.TemporaryDirectory() as td:
     longn = "W" * 23; lng = binf(mod(sy.build(64, False, False, real=shipped), lambda es: setattr(es[9], "name", longn)), "long.bin")
     for fn, adv in FONTS.items():
         o = run(exe, "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, adv)), lng))
-        txt = [l.split(" ", 4) for l in o if l.startswith("t ")]; names = [t for t in txt if int(t[1]) == 92 and t[4].startswith("W")]
+        txt = [l.split(" ", 4) for l in o if l.startswith("t ")]; names = [t for t in txt if int(t[1]) == 92 and t[4].startswith("WWW")]
         ok = len(names) == 1 and 92 + int(names[0][3]) <= 330 and (names[0][4] == longn or (names[0][4].endswith(".") and longn.startswith(names[0][4][:-1])))
         check("the longest name (23 'W') fits the row next to the preview and the markers in %s: the name ends before x 330; a name that does not fit is cut and ends with a dot" % fn, ok, names)
         o = run(exe, "adv %s\nuser %s\nboot\ndraw 0 0\n" % (" ".join(map(str, adv)), b64)); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
@@ -243,12 +243,12 @@ with tempfile.TemporaryDirectory() as td:
         ("hidden_ok", "hidden rows are selectable", "user %s\nboot\nlist\n" % hid, lambda o: lst(o) != "list 6: 0 1 2 4 5 6"),
         ("unavail_ok", "unavailable rows are selectable", "user %s\nboot\nlist\n" % un, lambda o: lst(o) != "list 5: 0 1 3 5 6"),
         ("collide_ignored", "the collision rule is ignored", "user %s\nboot\nstate\n" % cb, lambda o: state(o)["notune"] != 2),
-        ("hidden_listed", "a hidden row is listed", "user %s\nboot\nuilist\n" % ONEGO, lambda o: uilist(o)[0] != 63),
-        ("step_all", "X also visits the unavailable rows (the two screens disagree)", "user %s\nboot\nwalk 25\n" % ONEGO, lambda o: 19 in [int(x) for x in [l for l in o if l.startswith("walk")][0].split()[1:]]),
+        ("hidden_listed", "a hidden row is listed", "user %s\nboot\nuilist\n" % hid, lambda o: uilist(o)[0] != 6),
+        ("step_all", "X also visits the unavailable rows (the two screens disagree)", "user %s\nboot\nwalk 25\n" % ONEGO, lambda o: [l for l in o if l.startswith("walk")] != [l for l in run(exe, "user %s\nboot\nwalk 25\n" % ONEGO) if l.startswith("walk")]),
         ("nogap", "the gap under the rows is not cleared (a strip of the old screen)", "user %s\nboot\ndraw 0 0\n" % b7, lambda o: [l for l in o if l.startswith("draw")][0].split()[6] != "0"),
         ("unavail_pickable", "an unavailable row can be picked", "user %s\nboot\nselect 5\npick 19\n" % ONEGO, lambda o: "cur 5" not in [l for l in o if l.startswith("pick")][0]),
         ("x_noselect", "X does not select the row before Configure", "user %s\nboot\ncfg 29\n" % ONEGO, lambda o: "cur 30" not in [l for l in o if l.startswith("cfg")][0]),
-        ("nofit", "a long name is not cut", "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, FONTS["Bold"])), lng), lambda o: not any(l.startswith("t 92 ") and 92 + int(l.split()[3]) <= 330 for l in o)),
+        ("nofit", "a long name is not cut", "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, FONTS["Bold"])), lng), lambda o: any(l.startswith("t 92 ") and l.split(" ", 4)[4].startswith("WWW") and 92 + int(l.split()[3]) > 330 for l in o)),
         ("noindicator", "no position indicator", "user %s\nboot\ndraw 11 11\n" % b64, lambda o: not any(l.endswith(" 12 / 64") for l in o))):
         with tempfile.TemporaryDirectory() as t2:
             mexe = build(Path(t2), m)

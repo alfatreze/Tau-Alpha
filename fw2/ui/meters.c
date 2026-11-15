@@ -103,7 +103,7 @@ static void quiesce(void)
     const uint32_t t0 = cycles(); mp3play_io_quiesce(); const uint32_t d = cycles() - t0;
     mwin_q_last = d; if (d > mwin_q_max) mwin_q_max = d;
 }
-MTR_STATE static uint32_t toc_pv_off, toc_packs_off, toc_total, toc_coll[2], toc_sel[2], toc_una[2], row_code[MTR_ROWS];     /* the TOC copy's regions; the rows whose tuning key another row shares / that X and the list can reach / that this firmware cannot run; the last refusal of each row (0 none) */
+MTR_STATE static uint32_t toc_pv_off, toc_packs_off, toc_total, toc_coll[2], toc_sel[2], toc_lst[2], toc_una[2], row_code[MTR_ROWS];     /* the TOC copy's regions; the rows whose tuning key another row shares / that X and the list can pick (toc_sel) / that the list shows: visible, runnable or not (toc_lst) / that this firmware cannot run; the last refusal of each row (0 none) */
 static uint32_t pack_act = 0xFFu;                                         /* the row whose .data and .bss are in the scratch */
 #define DYN_MAX_P 40u                                          /* parameters a pack meter may have (the numeric part of its Configure descriptors is copied to hot RAM while it is loaded; the label and choice strings are read from the window when a row is drawn: meters_param_label / meters_param_choice) */
 static meter_def_t act_def, idle_def;                          /* the loaded row's definition; and what any other row answers (its name and parameter count: the rest is not loaded) */
@@ -472,7 +472,7 @@ static void toc_index(const mb_info_t *in)
 {
     uint32_t h[MTR_ROWS]; uint8_t fl[MTR_ROWS]; mb_row_t r;
     toc_info = *in; mtoc_count = in->count; mtoc_state = 1u; mtoc_err = 0u;
-    toc_sel[0] = toc_sel[1] = toc_una[0] = toc_una[1] = 0u; msel_skipped = 0u; fb_row = 0xFFu;
+    toc_sel[0] = toc_sel[1] = toc_lst[0] = toc_lst[1] = toc_una[0] = toc_una[1] = 0u; msel_skipped = 0u; fb_row = 0xFFu;
     for (uint32_t i = 0; i < in->count; i++) {
         h[i] = 0u; row_code[i] = 0u;
         if (mb_row_fast(toc_rd, 0, in, i, &r) != MB_OK) continue;
@@ -480,6 +480,7 @@ static void toc_index(const mb_info_t *in)
         const int av = mb_avail(&r, MTR_PACK_ABI, MTR_TAU_MM) == MB_U_OK, fb = (r.flags & MB_F_FALLBACK) != 0u, vis = (r.flags & MB_F_VISIBLE) != 0u;
         if (fb && fb_row == 0xFFu) fb_row = (uint8_t)i;
         if (fb || (av && vis)) toc_sel[i >> 5] |= 1u << (i & 31u);
+        if (fb || vis) toc_lst[i >> 5] |= 1u << (i & 31u);                 /* the list shows every visible row, a row this firmware cannot run greyed; a hidden row is not shown at all */
         if (!av && !fb) { toc_una[i >> 5] |= 1u << (i & 31u); if (vis) msel_skipped++; }
     }
     if (fb_row == 0xFFu) fb_row = 0u;
@@ -546,7 +547,7 @@ static uint32_t pv_row = 0xFFFFFFFFu, pv_off_c, pv_len_c;                      /
 static void packs_reset(void)
 {
     mtoc_state = mtoc_count = mtoc_err = mtoc_bad_row = mtoc_src = mtoc_cyc = 0u; mwin_loads = mwin_last_cyc = mwin_max_cyc = mwin_last_hash = mwin_err = mwin_strikes = mwin_refused = 0u; mwin_readfail = mwin_readfail_cyc = mwin_q_last = mwin_q_max = mwin_last_row = 0u;
-    toc_pv_off = toc_packs_off = toc_total = toc_coll[0] = toc_coll[1] = toc_una[0] = toc_una[1] = 0u; toc_sel[0] = 1u; toc_sel[1] = 0u;      /* no bin: row 0, Winamp Bars, is the one meter */
+    toc_pv_off = toc_packs_off = toc_total = toc_coll[0] = toc_coll[1] = toc_una[0] = toc_una[1] = 0u; toc_sel[0] = 1u; toc_sel[1] = 0u; toc_lst[0] = 1u; toc_lst[1] = 0u;      /* no bin: row 0, Winamp Bars, is the one meter */
     win_row = 0xFFu; pack_act = 0xFFu; fb_row = 0u; ps_reset(&win_strike); toc_info.count = 0u; pv_row = 0xFFFFFFFFu;
     for (uint32_t i = 0; i < MTR_ROWS; i++) row_code[i] = 0u;
 }
@@ -677,6 +678,7 @@ void meters_ext_enter(uint32_t m)                                    /* Configur
     if (act.ext && act.want_id) apply_id();
 }
 int meters_present(uint32_t m) { return m < meter_count && (m == fb_row || (toc_sel[m >> 5] >> (m & 31u) & 1u)); }
+static int row_listed(uint32_t m) { return m < meter_count && (m == fb_row || (toc_lst[m >> 5] >> (m & 31u) & 1u)); }      /* shown in the METER list */
 static const meter_def_t *mdef(uint32_t m)
 {
     if (m == cur) return m == fb_row ? &meter_table[0] : &act_def;
@@ -750,6 +752,7 @@ uint32_t meters_thumb_len(uint32_t m) { (void)m; return 0u; }
 int meters_thumb_rle(uint32_t m, uint32_t i, uint8_t *v) { (void)m; (void)i; (void)v; return 0; }
 int meters_thumb_col(uint32_t m, uint32_t c, uint16_t *fixed, uint8_t *a, uint8_t *b, uint8_t *t, uint8_t *n) { (void)m; (void)c; (void)fixed; (void)a; (void)b; (void)t; (void)n; return 0; }
 int meters_present(uint32_t m) { return m < METER_N; }
+static int row_listed(uint32_t m) { return m < METER_N; }
 static const meter_def_t *mdef(uint32_t m) { return &meter_table[m < METER_N ? m : 0u]; }
 static uint32_t mid_of(uint32_t m) { (void)m; return act.mid; }
 static uint32_t cmd_limit_of(uint32_t m) { (void)m; return act.cmds; }
@@ -787,7 +790,17 @@ const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf
 #endif
     (void)buf; (void)n; const meter_def_t *d = mdef(m); return id < d->np && d->pd[id].vals && val < d->pd[id].nval ? d->pd[id].vals[val] : "";
 }
-/* The METER list and X: the rows a person can reach, in TOC order. A row is listed when it is visible and this firmware can run it (the fallback always); the others are skipped and marked (meters_row_flags). */
+/* The METER list and X walk ONE list of rows, in TOC order: the rows the TOC flags visible (the built-in fallback always), up to 64. A row this firmware cannot run is in the list but greyed (MROW_UNAVAILABLE) and cannot be picked, X steps over it; a hidden row is not in it at all. */
+uint32_t meters_ui_count(void) { uint32_t n = 0; for (uint32_t m = 0; m < meter_count; m++) n += (uint32_t)row_listed(m); return n; }
+uint32_t meters_ui_row(uint32_t i) { for (uint32_t m = 0; m < meter_count; m++) if (row_listed(m) && i-- == 0u) return m; return 0u; }       /* list position -> row */
+uint32_t meters_ui_index(uint32_t row) { uint32_t n = 0; for (uint32_t m = 0; m < row && m < meter_count; m++) n += (uint32_t)row_listed(m); return n; }       /* row -> list position */
+uint32_t meters_ui_step(uint32_t row, int dir)                           /* X: the next (dir > 0) or previous row of the list that can be picked, wrapping; `row` itself when there is no other */
+{
+    const uint32_t n = meters_ui_count(); uint32_t i = meters_ui_index(row);
+    for (uint32_t k = 0; k < n; k++) { i = dir > 0 ? (i + 1u) % n : (i + n - 1u) % n; const uint32_t r = meters_ui_row(i); if (r != row && meters_present(r)) return r; }
+    return row;
+}
+/* The older list of the rows that can be picked (the same rows the list shows, less the greyed ones): kept for the tests; the UI uses meters_ui_*. */
 uint32_t meters_list_count(void) { uint32_t n = 0; for (uint32_t m = 0; m < meter_count; m++) n += (uint32_t)meters_present(m); return n; }
 uint32_t meters_list_row(uint32_t i) { for (uint32_t m = 0; m < meter_count; m++) if (meters_present(m) && i-- == 0u) return m; return 0u; }       /* the i-th meter that is there -> its row */
 uint32_t meters_list_index(uint32_t row) { uint32_t n = 0; for (uint32_t m = 0; m < row && m < meter_count; m++) n += (uint32_t)meters_present(m); return n; }       /* the other way */
@@ -844,9 +857,7 @@ static void select_row(uint32_t r, uint32_t boot)
 void meters_select(uint32_t idx) { select_row(idx, 0u); }
 void meters_next(int dir)
 {
-    uint32_t t = cur;
-    for (uint32_t k = 0; k < meter_count; k++) { t = dir > 0 ? (t + 1u) % meter_count : (t + meter_count - 1u) % meter_count; if (meters_present(t)) break; }      /* skipping a row that is not listed */
-    select_row(t, 0u);
+    select_row(meters_ui_step(cur, dir), 0u);                           /* the next row of the one list (the Settings list shows the same rows in the same order) */
 }
 /* The saved selection is the meter's id hash (31 bits, cores/settings_core.h SF_METER_HASH), not a row: installing, removing or reordering meters never changes which meter a card remembers. */
 int meters_select_hash(uint32_t h31)                                  /* the boot restore: 1 when the meter is there and runs, else Winamp Bars runs and the saved hash is kept to be written back */
