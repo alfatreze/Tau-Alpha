@@ -48,11 +48,10 @@ static void gather(about_in_t *in)
 #ifdef P2_PACKS
     meters_pack_info(&run, &err, &file, &seen);
 #else
-    (void)err; (void)file;                                              /* a build without loadable meters has none to report */
+    file = 0xFFu;                                                        /* a build without loadable meters: Winamp Bars alone */
 #endif
     in->themes = th_file_n; in->eq_user = halcyon_user_n; in->packs_seen = seen;
-    uint32_t n = 0; for (uint32_t b = 0; b < 32u; b++) n += (run >> b) & 1u;
-    in->packs_run = n > seen ? seen : n;
+    (void)run; in->meter_file = file; in->meter_failed = err != 0u;
     in->migrated = (uint8_t)settings_stats.migrated;
     in->dropouts = aout_stats.dry; in->read_errors = lp_stream.fails_total + lp.open_err;
     in->uptime_s = counters_uptime_s;                                 /* the main loop's clock (the same as the Info page and the Report) */

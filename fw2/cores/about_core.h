@@ -17,7 +17,8 @@ typedef struct {
     const char *eq;                                            /* the Halcyon selection by name ("OFF", a preset...) */
     uint32_t tempo_q8; uint8_t varispeed; uint32_t volume;     /* 256 = 1.00x; varispeed: pitch follows the speed; volume 0..100 */
     const char *theme, *colour, *font, *meter; uint8_t light, art_on;
-    uint32_t themes, eq_user, packs_seen, packs_run;
+    uint32_t themes, eq_user, packs_seen;                      /* packs_seen: rows in the meter table (0 with no bin) */
+    uint32_t meter_file; uint8_t meter_failed;                 /* the bin: 0 sound, 0xFF none, else why it was refused; a meter was refused or struck since start */
     uint8_t  migrated;                                         /* this boot carried the settings over from an older version */
     uint32_t dropouts, read_errors, uptime_s;
 } about_in_t;
@@ -90,7 +91,11 @@ static inline void ab_fill(const about_in_t *in, uint32_t r, about_row_t *o)
     case AR_CARD_H: HEAD("ON THE CARD"); break;
     case AR_THEMES: LBL("THEMES"); n = ab_num(v, 0, C, in->themes); ab_str(v, n, C, " CUSTOM"); break;
     case AR_EQPRE: LBL("EQ PRESETS"); n = ab_str(v, 0, C, "8 BUILT IN, "); n = ab_num(v, n, C, in->eq_user); ab_str(v, n, C, " YOURS"); break;
-    case AR_METERS: LBL("METERS"); n = ab_num(v, 0, C, in->packs_run); n = ab_str(v, n, C, " OF "); n = ab_num(v, n, C, in->packs_seen); ab_str(v, n, C, in->packs_run == in->packs_seen ? " LOADED" : " LOADED: SOME FAILED"); break;
+    case AR_METERS: LBL("METERS");                           /* the meter table, not the packs in memory (only the meter on screen is resident since P2.2) */
+        if (in->meter_file != 0u && in->meter_file != 0xFFu) { n = ab_str(v, 0, C, "BIN REFUSED (CODE "); n = ab_num(v, n, C, in->meter_file); ab_str(v, n, C, ")"); }
+        else if (in->meter_file == 0xFFu || in->packs_seen == 0u) ab_str(v, 0, C, "WINAMP BARS ONLY");
+        else { n = ab_num(v, 0, C, in->packs_seen); n = ab_str(v, n, C, in->packs_seen == 1u ? " METER" : " METERS"); if (in->meter_failed) ab_str(v, n, C, " (A METER FAILED)"); }
+        break;
     case AR_SETTINGS: LBL("SETTINGS"); ab_str(v, 0, C, in->migrated ? "CARRIED OVER FROM AN OLDER VERSION" : "OK"); break;
     case AR_HEALTH_H: HEAD("HEALTH"); break;
     case AR_AUDIO: LBL("AUDIO");

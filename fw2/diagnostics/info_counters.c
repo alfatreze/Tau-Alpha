@@ -489,7 +489,7 @@ const cnt_t counters_table[] = {
     U32("PACK ERR",     CU_NONE,   &v.pack_err),              /* the first refusal code of a pack (21 header, 22 ABI, 23 id, 24 origin, 25 size, 26 CRC, 27 entry, 28/29 scratch); 0 none */
     U32("PACK FILE",    CU_NONE,   &v.pack_file),             /* the bin: 0 in use, 255 none found, else why the last one was refused (see MTOC ERR) */
     U32("PACKS SEEN",   CU_NONE,   &v.pack_seen),             /* rows in the TOC */
-    U32("PACK SRC",     CU_NONE,   &v.pack_src),              /* where the bundle came from: 0 none, 1 tau-assets.bin (MPKB), 2 the core's own tau-packs.bin (the release) */
+    U32("PACK SRC",     CU_NONE,   &v.pack_src),              /* where the meter bin came from: 0 none, 1 the user's tau-meters.bin (data slot 10), 2 the core's own tau-packs.bin (slot 9, the release); the MPKB section of tau-assets.bin is retired */
 #endif
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
