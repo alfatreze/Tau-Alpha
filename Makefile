@@ -141,6 +141,7 @@ test-host:
 	$(PYTHON) sim/test_p2_meter_registry.py
 	$(PYTHON) sim/test_p2_packfile.py
 	$(PYTHON) sim/test_make_synthetic_meter_bin.py
+	$(PYTHON) sim/test_meter_package.py
 	$(PYTHON) sim/test_p2_tau_mm.py
 	$(PYTHON) sim/test_p2_hang_pack.py
 	$(PYTHON) sim/test_p2_meter_desc.py

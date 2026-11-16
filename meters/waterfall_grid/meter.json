@@ -1,6 +1,13 @@
 {
   "key": "waterfall_grid",
   "id": "17e607764b83b9372452eda124ae763f",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
   "enum": "VIZ_WATERFALL_GRID",
   "index": 17,
   "name": "WATERFALL",
