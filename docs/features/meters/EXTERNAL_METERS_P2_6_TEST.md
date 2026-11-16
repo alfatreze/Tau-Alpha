@@ -2,7 +2,7 @@
 
 **Why:** every Pocket test of the external-meters work (DEV 220 to 224) used the **Diagnostic Build** (`DIAG=1`). The **normal build** (`DIAG=0`: the About page, the support Report, no Check, no Info table) with these features has never run on a Pocket, and it is the build most people get. This session is that first look. **The firmware is DEV 224's** with `DIAG=0` and one change in the About page (the METERS row, below); same bitstream `wdog-w3` (`4D50331B`).
 
-**Package (built, NOT installed):** `work/diagnostics/tau-dev-225/pocket` (zip and `tau-compat.json` next to it). `tau.rom` SHA-256 `da9d9b90...6343`, `bitstream.rbf_r` `4ce03b2c...2245` (the same bitstream as DEV 224), `tau-packs.bin` `2beefdc2...c381`. Version in the ROM: `0.7.1-dev.225+7a82c24d`. Flags: `PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=0,RAM_192K=1,CLK66=1,SDRAM_BUSY=1`. Free hot RAM of this build: **5,840 B** (the same as DEV 224's normal build; the Diagnostic Build is 2,880 B).
+**Package (built, NOT installed):** `work/diagnostics/tau-dev-225/pocket` (zip and `tau-compat.json` next to it). `tau.rom` SHA-256 `34d44942...0270`, `bitstream.rbf_r` `4ce03b2c...2245` (the same bitstream as DEV 224), `tau-packs.bin` `2beefdc2...c381`. Version in the ROM: `0.7.1-dev.225+5a587dbc`. Flags: `PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=0,RAM_192K=1,CLK66=1,SDRAM_BUSY=1`. Free hot RAM of this build: **5,840 B** (the same as DEV 224's normal build; the Diagnostic Build is 2,880 B).
 
 **Card:** install with `tools/install_dev_core.py` (dry run, your approval, `--card /Volumes/Pock`, `--remove "alfatreze.TAU DEV 224"`). **Before the session take the P2.5 test bin off the card** (the installer never touches `Assets/tau/common/tau-meters.bin`): part A needs the shipped seven only. Part B (optional) puts a small user bin back.
 
@@ -14,7 +14,7 @@ No Info page, no Check, no Settings > Diagnostics, no `MTOC` / `MWIN` / `MSEL` r
 ## Part A: the seven shipped meters (no user bin)
 | Step | What you do | What you should see |
 |---|---|---|
-| **1. Boot** | Start `TAU DEV 225` from the core list. | Splash, then Now Playing with a track playing as usual. Settings > About: **VERSION `0.7.1-dev.225`**, BUILD `7a82c24d`, CHANNEL **DEV**, HARDWARE **`4D50331B`**. |
+| **1. Boot** | Start `TAU DEV 225` from the core list. | Splash, then Now Playing with a track playing as usual. Settings > About: **VERSION `0.7.1-dev.225`**, BUILD `5a587dbc`, CHANNEL **DEV**, HARDWARE **`4D50331B`**. |
 | **2. X through the seven** | With music playing press **X** eight times, slowly at first, then quickly. | Winamp Bars, Winamp Scope, Chladni, Layered Wave, VU Master, Waterfall, Sound Map, then **Winamp Bars again** (it wraps). Every meter draws and moves with the music; **no freeze, no black screen, no stray picture left over**, the music does not stutter. |
 | **3. The METER list** | Settings > Appearance > METER (A). | The list shows the **same seven in the same order**, a preview each, the title line **`1 / 7`** style indicator, the star on the meter on screen. Pick **Chladni** (A): Appearance reads CHLADNI, Now Playing shows Chladni. |
 | **4. Configure and presets** | Settings > Appearance > METER > CONFIGURE (or Start+Y). Change a value; **Select+X** on Now Playing for the next preset. | Parameters change the live meter; presets cycle (names appear). **Preset names are listed**, not just DEFAULT. |
