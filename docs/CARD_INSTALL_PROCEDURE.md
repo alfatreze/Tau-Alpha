@@ -23,6 +23,14 @@ Still needs explicit approval for the write (section 0). If any step of this doc
 (and `sim/test_install_dev_core.py`, part of `make test-host`) in the same commit; the list below is the spec the
 script implements, kept for reference and for the rare manual case.
 
+## The user's meter bin (P2.6: no change to the script)
+
+`Assets/tau/common/tau-meters.bin` (data slot 10) is the **user's** file, like `tau-assets.bin` and the library: **no package contains it** (the check `check_meter_slots` in `tools/check_tau_package.py` and `tau_compat.layout` refuse
+a package that does), so an install never writes, replaces or removes it. What the script does about it, all covered by `sim/test_install_dev_core.py`: (1) a `--replace` or `--remove` backs it up with the core (it is not media);
+(2) with the release's `tau-compat.json` (its `layout` has the `role user, slot 10` entry) the pre-write check reads the card's copy as a v2 meter bin and **refuses before writing anything** when this release cannot read it:
+delete or repair the file (or install without `--compat`: the firmware then falls back to the shipped meters by itself); (3) `tau-packs.bin` (slot 9, the shipped meters) belongs to the core and IS replaced with it.
+Before an install that is meant to test a user bin, put the bin on the card AFTER the install and say in the plan that it is there; never copy one over a bin the owner placed without looking at its SHA-256 first.
+
 ## Which card (changed 2026-10-10)
 
 The owner's original `Pock` card is lost. **`CARDWRITE` is now the Pocket card** for every Tau install, sync and read-back; the earlier

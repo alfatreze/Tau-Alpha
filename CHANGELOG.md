@@ -2,6 +2,21 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
+## Unreleased
+
+Not a release: what has changed in the player since v0.7.1, for the next version (the number is the owner's call). Nothing here is published yet.
+
+### New
+- **The METER list scrolls.** Settings > Appearance > METER shows seven meters at a time and scrolls (with a position like "12 / 64"). It lists the same meters in the same order as X on Now Playing; a meter that needs a newer TAU is shown greyed and cannot be picked.
+- **More than seven meters.** TAU can read one optional file of extra meters, `Assets/tau/common/tau-meters.bin` (up to 64 meters), that you put on the card; it is never part of an update, and without it TAU uses the meters it ships with. Which app builds that file is up to Tau Omega's own release notes.
+- **Safe start.** If the player resets or hangs while a meter is on screen, the next start begins on Winamp Bars instead of the same meter, and the meter you chose is only remembered after it has run cleanly for a few seconds. A meter you add is never chosen by itself.
+
+### Improved
+- **Meter presets are listed reliably.** Configure > Preset could show only DEFAULT even though the preset files were on the card (one busy moment or one failed read at the time you picked the meter was never retried); they are looked up again when you open Configure.
+- **Meters load when you pick them.** TAU reads the meter list at start and loads only the meter on screen (about 20 ms typically on a Pocket), instead of keeping every meter's code ready.
+- **The meter you chose is remembered by its identity**, so adding, removing or reordering meters never changes which one is selected.
+- Omega: new optional user file `Assets/tau/common/tau-meters.bin` (data slot 10, a `TPKB` version 2 bin of up to 64 meters, never in a release zip). A core reads it if and only if its `tau-compat.json` `layout` has the `role` user, `slot` 10 entry for it (its `format` says what it reads); no entry means the core ignores the file. `tau-packs.bin` is a v2 bin now, and `persist_layout` is 2.
+
 ## v0.7.1 — 11 November 2026
 
 The same player as v0.7.0 with one addition: a link for Pocket Sync users. Same bitstream, no new Tau Omega needed.
