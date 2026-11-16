@@ -11,9 +11,9 @@ CACHES = ["core_viewby_platform.bin", "corelist_cache.bin", "cores_cache.bin", "
 fails = 0
 
 
-def check(name, cond):
+def check(name, cond, info=""):
     global fails
-    print(("ok   " if cond else "FAIL ") + name)
+    print(("ok   " if cond else "FAIL ") + name + ("" if cond else "\n     " + str(info)))
     fails += 0 if cond else 1
 
 
@@ -254,6 +254,57 @@ with tempfile.TemporaryDirectory() as td:
 
     rc, out = run(pkg, "--card", td / "nocard")
     check("a missing card is a clean stop", rc != 0 and "not mounted" in out)
+
+
+# P2.6: a release core with data slots 9 and 10. The user's meter bin (Assets/tau/common/tau-meters.bin, written by Tau Omega) is NEVER overwritten, replaced or dropped by an install; tau-packs.bin
+# (slot 9, core-specific) is the core's own and IS replaced; a card whose user bin this release cannot read is refused before anything is written, like a bad tau-assets.bin.
+with tempfile.TemporaryDirectory() as td2:
+    import hashlib, zipfile
+    td2 = Path(td2); sys.path.insert(0, str(ROOT / "tools")); sys.path.insert(0, str(ROOT / "tools/player2"))
+    import tau_compat as tc, tau_version, package_dev_build as pdb, build_packs as bpk, meter_bin as mbin
+    card2 = td2 / "card"
+    for d in ("Cores", "Assets", "Platforms/_images", "System"): (card2 / d).mkdir(parents=True)
+    rel2 = td2 / "pkg" / "pocket"; shutil.copytree(ROOT / "dist", rel2)
+    pdb.declare_packs_slots(rel2 / "Cores/alfatreze.TAU"); pdb.build_packs_bin(rel2 / "Assets/tau/alfatreze.TAU")
+    ver2 = json.loads((rel2 / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
+    rp = rel2 / "Assets/tau/alfatreze.TAU/tau.rom"; rp.write_bytes(tau_version.stamp(rp.read_bytes(), ver2))
+    check("P2.6 fixture: the package declares slot 10 and ships no tau-meters.bin", any(sl["id"] == 10 for sl in json.loads((rel2 / "Cores/alfatreze.TAU/data.json").read_text())["data"]["data_slots"]) and not list(rel2.rglob("tau-meters.bin")))
+    zp2 = td2 / "alfatreze.TAU_rel.zip"
+    with zipfile.ZipFile(zp2, "w") as z:
+        for f in sorted(rel2.rglob("*")):
+            if f.is_file() and f.relative_to(rel2).parts[0] in ("Cores", "Assets", "Platforms"): z.write(f, str(f.relative_to(rel2)))
+    cl2 = td2 / "CL.md"; cl2.write_text((ROOT / "CHANGELOG.md").read_text().replace("## v0.6.0-alpha.4", f"## v{ver2}-preview.1 \u2014 8 October 2026\n- test\n\n## v0.6.0-alpha.4", 1))
+    reg2 = json.loads((ROOT / "tools/persist_registry.json").read_text())
+    for v in reg2["ids"].values():
+        if tc.tag_key(v["since"]) > tc.tag_key(f"v{ver2}-preview.1"): v["since"] = f"v{ver2}-preview.1"
+    (td2 / "reg.json").write_text(json.dumps(reg2))
+    cp2 = td2 / "tau-compat.json"
+    cp2.write_text(tc.dumps(tc.build(release=f"v{ver2}-preview.1", zips=[zp2], previous=None, bitstream_version=tc.rom_accepts(rp.read_bytes())[0], changelog=cl2, registry_file=td2 / "reg.json")))
+    e10 = [e for e in json.loads(cp2.read_text())["packages"][0]["layout"] if e["path"].endswith("tau-meters.bin")]
+    check("P2.6 fixture: the manifest has the user, slot 10 entry", len(e10) == 1 and e10[0]["role"] == "user" and e10[0]["slot"] == 10)
+    def snap(base): return {str(f.relative_to(base)): hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(base.rglob("*")) if f.is_file()}
+    rc, out = run(rel2, "--card", card2, "--backup-dir", td2 / "b0", "--compat", cp2, "--no-eject", "--yes")
+    check("a fresh install of a slot 10 core succeeds, card check included", rc == 0 and "card matches" in out, out[-400:])
+    packs_pkg = (rel2 / "Assets/tau/alfatreze.TAU/tau-packs.bin").read_bytes()
+    check("tau-packs.bin (slot 9) is installed in the core's own folder, identical", (card2 / "Assets/tau/alfatreze.TAU/tau-packs.bin").read_bytes() == packs_pkg)
+    check("an install without a user bin does not create one", not (card2 / "Assets/tau/common/tau-meters.bin").exists())
+    ub_data = bpk.build_from_packages(td2)[0]; ub = card2 / "Assets/tau/common/tau-meters.bin"; ub.parent.mkdir(parents=True, exist_ok=True); ub.write_bytes(ub_data)
+    (card2 / "Assets/tau/alfatreze.TAU/tau-packs.bin").write_bytes(b"stale")
+    rc, out = run(rel2, "--card", card2, "--backup-dir", td2 / "b1", "--replace", "--allow-release", "--compat", cp2, "--no-eject", "--yes")
+    check("--replace of a release core: the user's tau-meters.bin is untouched (same bytes)", rc == 0 and ub.read_bytes() == ub_data, out[-300:])
+    check("--replace replaces the core's own tau-packs.bin (slot 9)", (card2 / "Assets/tau/alfatreze.TAU/tau-packs.bin").read_bytes() == packs_pkg)
+    check("the backup of the replaced core holds the user's tau-meters.bin (nothing is lost if the card is wrong)", (td2 / "b1/alfatreze.TAU/Assets/tau/common/tau-meters.bin").read_bytes() == ub_data)
+    check("the card check lists no error for the user bin", "ERROR" not in out and "tau-meters.bin" not in "".join(l for l in out.splitlines() if "ERROR" in l))
+    ub.write_bytes(b"TPKB" + (7).to_bytes(2, "little") + bytes(60))                  # a bin of a version this release cannot read
+    damaged = snap(card2)
+    rc, out = run(rel2, "--card", card2, "--backup-dir", td2 / "b2", "--replace", "--allow-release", "--compat", cp2, "--no-eject", "--yes")
+    check("a user bin this release cannot read is refused BEFORE writing, naming the file, the card untouched", rc != 0 and "refused before writing" in out and "tau-meters.bin" in out and not (td2 / "b2").exists() and snap(card2) == damaged, out[-400:])
+    ub.write_bytes(ub_data)
+    rc, out = run(rel2, "--card", card2, "--backup-dir", td2 / "b3", "--replace", "--allow-release", "--compat", cp2, "--no-eject", "--yes")
+    check("with the user bin sound again the same install goes through and keeps it", rc == 0 and ub.read_bytes() == ub_data)
+    ub.write_bytes(ub_data)
+    rc, out = run("--card", card2, "--remove", "alfatreze.TAU", "--allow-release", "--backup-dir", td2 / "b4", "--no-eject", "--yes")
+    check("removing a release core backs up the user's tau-meters.bin first", rc == 0 and (td2 / "b4/alfatreze.TAU/Assets/tau/common/tau-meters.bin").read_bytes() == ub_data, out[-300:])
 
 # B-542: media is only left out of a backup when it is provably not lost.
 sys.path.insert(0, str(ROOT / "tools"))

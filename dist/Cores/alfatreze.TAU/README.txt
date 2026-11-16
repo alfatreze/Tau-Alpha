@@ -33,6 +33,9 @@ OPTIONAL: nice to have
                    (keeps your original names and tags; made with the library)
   Themes and       tau-assets.bin in Assets/tau/common/ (up to four extra
   meter presets    colour themes, plus meter presets)
+  More meters      tau-meters.bin in Assets/tau/common/ (extra meters, up to 64
+                   in all; TAU works without it). Never part of an update: delete
+                   it to go back to the meters that came with TAU
   ReplayGain       read from the tags in your files; Tau Omega can write them
 
 
@@ -62,6 +65,6 @@ By hand: python3 tools/sync_media.py MUSIC_DIR --all-tau --library
 
 
 Updating TAU later never touches Assets/tau/common/ (your music, index,
-covers and presets stay as they are).
+covers, presets and meters stay as they are).
 
 Guide and controls: https://github.com/alfatreze/Tau-Alpha

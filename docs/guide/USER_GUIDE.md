@@ -160,6 +160,18 @@ as a QR code.
 
 Meter drawing waits for the display beam, so it does not tear.
 
+**The METER list scrolls.** Settings > Appearance > METER shows seven meters at a time and scrolls (Up/Down, wrapping at the ends); a small
+"12 / 64" in the corner says where you are. It lists the same meters, in the same order, as **X** on Now Playing. A meter that needs a newer TAU
+than the one you have is shown greyed (N/A) and cannot be picked.
+
+**More than the shipped meters.** TAU ships its own meters and does not need anything else. The player can also read **one optional file of
+extra meters**, `Assets/tau/common/tau-meters.bin`: up to 64 meters in all, the order of the list being the order in the file. Tau Omega is the
+app that is meant to build that file; whether and when your Tau Omega does is its own release note, not a promise made here. Until then you only
+have it if you made it yourself (see [Media and tools](MEDIA_AND_TOOLS.md#the-meter-bin-tau-metersbin)). With no such file, or with a file TAU cannot
+use, the shipped meters are used and nothing else changes. A meter you add is never selected by itself, and a meter that crashes the player
+is not started again at the next boot (the player starts on Winamp Bars and marks it) until you pick it again. Extra meters run with full
+access to the player: add only meters you trust.
+
 ## Halcyon EQ
 
 **Y** steps the Halcyon EQ preset (after the last one, off). The current one is named in the mode row, dimmed when off. **Settings > Audio > HALCYON EQ** opens the full page: a live

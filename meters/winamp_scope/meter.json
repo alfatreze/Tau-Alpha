@@ -1,6 +1,13 @@
 {
   "key": "winamp_scope",
   "id": "143acb80cbcd1b08b84c2661eeab3414",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
   "enum": "VIZ_WINAMP_SCOPE",
   "index": 13,
   "name": "WINAMP SCOPE",

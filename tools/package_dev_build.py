@@ -31,6 +31,22 @@ VARIANTS = {   # fw/build.sh target -> (ROM dir, kind text, default note)
                    "release", "work/ram192k"),
 }
 
+def wants_packs(variant, build_flags):
+    """a Player 2 build with PACKS=1 carries the meter bins: data slot 9 (tau-packs.bin, shipped, core-specific) and slot 10 (tau-meters.bin, the user's, never shipped)"""
+    return variant == "player2" and "PACKS=1" in (build_flags or "")
+
+def declare_packs_slots(core_dir):
+    slots_lib.add_packs_slot(core_dir)                  # data slot 9 = tau-packs.bin: the meter packs of this firmware, shipped with it (the release must; a dev build does it too, so no merge into tau-assets.bin is needed)
+    slots_lib.add_meters_slot(core_dir)                 # data slot 10 = tau-meters.bin: the USER's meter bin (Tau Omega writes it; preferred over tau-packs.bin when it is sound; never shipped)
+
+def build_packs_bin(asset_dir, hang_pack=None):
+    """tau-packs.bin of this tree, composed from the seven .tmeter packages (tools/player2/build_packs.py), into the core's asset folder"""
+    subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(asset_dir / "tau-packs.bin")] + (["--hang", hang_pack] if hang_pack else []), cwd=root, check=True)
+
+def stage_packs(core_dir, asset_dir, hang_pack=None):
+    """what a PACKS=1 Player 2 package gets, in one call (the slots, then the bin): the release path (make_release.py --player2) does exactly these two steps in main(); sim/test_release_slots.py stages with this, no firmware build"""
+    declare_packs_slots(core_dir); build_packs_bin(asset_dir, hang_pack)
+
 def save(p, v): p.write_text(json.dumps(v, indent=4) + "\n")
 def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def bitrev(a, b): b.write_bytes(a.read_bytes().translate(bytes(int(f"{x:08b}"[::-1], 2) for x in range(256))))
@@ -208,9 +224,8 @@ def main():
     if c.name != f"{m['author']}.{short}": raise ValueError("core folder does not match author.shortname metadata")
     if not (rom.parent / "tau-cold.bin").exists(): sys.exit(f"{rom.parent}/tau-cold.bin missing")
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
-    with_packs = args.variant == "player2" and "PACKS=1" in (args.build_flags or "")
-    if with_packs: slots_lib.add_packs_slot(c)          # data slot 9 = tau-packs.bin: the meter packs of this firmware, shipped with it (the release must; a dev build does it too, so no merge into tau-assets.bin is needed)
-    if with_packs: slots_lib.add_meters_slot(c)         # data slot 10 = tau-meters.bin: the USER's meter bin (Tau Omega writes it; preferred over tau-packs.bin when it is sound; never shipped)
+    with_packs = wants_packs(args.variant, args.build_flags)
+    if with_packs: declare_packs_slots(c)               # data slots 9 and 10; the bin itself is built below, once the asset folder exists
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     if shared_media:                                    # library index and tau-assets.bin come from TAU's common/ (platform_ids[1])
@@ -223,8 +238,7 @@ def main():
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
     if args.preset_probe:
         (cd / "preset-probe.bin").write_bytes(b"TPRB" + bytes((i * 37 + 11) & 255 for i in range(4, 200)))
-    if with_packs:
-        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")] + (["--hang", args.hang_pack] if args.hang_pack else []), cwd=root, check=True)     # every pack, from this tree, in slot order
+    if with_packs: build_packs_bin(cd, args.hang_pack)     # every pack, from this tree, in slot order
     if full_ver:
         import tau_version
         try:

@@ -1,6 +1,13 @@
 {
   "key": "layered_wave",
   "id": "5812803445b81ffae735527099ef6793",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
   "enum": "VIZ_LAYERED_WAVE",
   "index": 16,
   "name": "LAYERED WAVE",

@@ -1,5 +1,5 @@
 {
- "commit": "03c71fc3be5be6381ef31c2ea5b53d8e25e715d0",
+ "commit": "902f35b17c25f7b512513887571840ea9a9bd7c7",
  "dirty": false,
  "files": {
   "dist/Assets/tau/alfatreze.TAU/tau-cold.bin": {
@@ -24,7 +24,7 @@
   },
   "dist/Cores/alfatreze.TAU/core.json": {
    "bytes": 995,
-   "sha256": "4c017134ae9f0ad0af230460f00b10621371ada6f6446872e3f43f9b9d869d11"
+   "sha256": "6b14ab845ebd018fc270f8a385c5fd6fc179140f436c4bcf449e4ac8e398cc4e"
   },
   "dist/Cores/alfatreze.TAU/data.json": {
    "bytes": 1899,
@@ -39,8 +39,12 @@
    "sha256": "1f026a73eacbe9565f855af60387dbc9e3f179061bf274e797f22578a405675c"
   },
   "dist/Cores/alfatreze.TAU/interact.json": {
-   "sha256": "0ad46b7db6da8b23fd1f2ba7c6ceb1c674f75225e806c315662800ea4d152949",
-   "bytes": 8384
+   "bytes": 8365,
+   "sha256": "e2445691207c19c574a4fe99de49374ca2a5de94e766c7fbcd923a7df6e46292"
+  },
+  "dist/Cores/alfatreze.TAU/updaters.json": {
+   "bytes": 72,
+   "sha256": "e18df4264e0ac41e89bd1a76a293e5990077e1b66a028cada06f09bc3d9ec7f2"
   },
   "dist/Cores/alfatreze.TAU/variants.json": {
    "bytes": 85,
@@ -57,66 +61,6 @@
   "dist/Platforms/tau.json": {
    "bytes": 146,
    "sha256": "7220f696ede0d71229b18aebc09b100dd4bfd8383f5e0e7b752bf732fdd68cb1"
-  },
-  "package/Assets/tau_dev/alfatreze.TAU DEV 128/tau-cold.bin": {
-   "bytes": 169512,
-   "sha256": "028751894cec8b2c9450bd00e464e5313b437c242e4c78fb5a01dcf5d70e4751"
-  },
-  "package/Assets/tau_dev/alfatreze.TAU DEV 128/tau-loading.bin": {
-   "bytes": 98370,
-   "sha256": "85bd29278b0ba0518bb46fecdbdd6786003407c3ee8e8e9abfcccf2d783fb2ec"
-  },
-  "package/Assets/tau_dev/alfatreze.TAU DEV 128/tau.rom": {
-   "bytes": 117104,
-   "sha256": "f4b77d22b221c72b8ceadd68903c1890d82485687bc0491c173cf70943c64c79"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/audio.json": {
-   "bytes": 54,
-   "sha256": "64993a5e54ccec690f8ef50234a4a2e575f09ea69fd996fbd3852af3776b30da"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/bitstream.rbf_r": {
-   "bytes": 1919620,
-   "sha256": "f23b4f83ff016ddeb7fc6e6d3344acde6ad9ffbddb91ebb67d4842a894c0cd19"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/core.json": {
-   "bytes": 981,
-   "sha256": "fa2980676cbf27af1ad9039847f75a8c174f0e088ae95415778f06dd316732a0"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/data.json": {
-   "bytes": 1911,
-   "sha256": "2509868e55a7a6d7479119ef25dcf0b11e19932c9802080745d399bbb92ad78d"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/icon.bin": {
-   "bytes": 2592,
-   "sha256": "2221cf05ab14b9cca0c48b93a2e6176903a6a17e9ccdeacc03d2f3992540ce91"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/input.json": {
-   "bytes": 1566,
-   "sha256": "1f026a73eacbe9565f855af60387dbc9e3f179061bf274e797f22578a405675c"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/interact.json": {
-   "bytes": 7166,
-   "sha256": "f8d1ca6ee212d23afe1f0ee7c748f0bb810805cb293f4abf262df861b4fd57df"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/variants.json": {
-   "bytes": 85,
-   "sha256": "93bedfd28d1160474d79025a1bcaa10cdee8396699851d3ea3d747746a41e3ed"
-  },
-  "package/Cores/alfatreze.TAU DEV 128/video.json": {
-   "bytes": 302,
-   "sha256": "45c1074326f53fe1ffa6fa121f4c9cac8ab248ce7acf448a779e6e379d7ae351"
-  },
-  "package/Platforms/_images/tau_dev.bin": {
-   "bytes": 171930,
-   "sha256": "f686014bb95aa2b57a26035bd2ed74529cedd3eb0a4f77e1ddda582d010e2fe7"
-  },
-  "package/Platforms/tau_dev.json": {
-   "bytes": 150,
-   "sha256": "78088e83222377918769af8f524eff94c50a4bdf021b6a2bc8a27796097f93c6"
-  },
-  "package/bitstream-manifest.json": {
-   "bytes": 774,
-   "sha256": "0e0a3f2f2741a44aa50908b04c116f3fbe0eb8008ded1f29466934442c30e2fe"
   }
  },
  "ram_snapshots": {

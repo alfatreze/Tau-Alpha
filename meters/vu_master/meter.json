@@ -1,6 +1,13 @@
 {
   "key": "vu_master",
   "id": "0d8c03d3a2770c1aac2dc6abbc222afd",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 3,
+  "tau_min": "0.0",
   "enum": "VIZ_VU_MASTER",
   "index": 15,
   "name": "MASTER VU",

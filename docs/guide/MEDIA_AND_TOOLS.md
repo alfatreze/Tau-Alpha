@@ -4,7 +4,7 @@ How to prepare music, covers, themes and cores for the Pocket's SD card. The too
 Pillow and numpy for the image tools). The desktop companion app [Tau Omega](#the-tau-omega-companion-app) wraps the same jobs.
 
 Contents: [The card layout](#the-card-layout) · [sync_media.py](#syncmediapy-copy-convert-verify) · [The library index](#the-library-index-tau-librarytdb) ·
-[Cover art (TIM1)](#cover-art-tim1) · [The theme and meter file](#the-theme-and-meter-file-tau-assetsbin) ·
+[Cover art (TIM1)](#cover-art-tim1) · [The meter bin](#the-meter-bin-tau-metersbin) · [The theme and meter file](#the-theme-and-meter-file-tau-assetsbin) ·
 [install_dev_core.py](#installdevcorepy-installing-a-core) · [Other tools](#other-tools) · [Tau Omega](#the-tau-omega-companion-app)
 
 ## The card layout
@@ -18,7 +18,8 @@ Contents: [The card layout](#the-card-layout) · [sync_media.py](#syncmediapy-co
 | `/Memories/Screenshots/` | Screenshots taken with Menu + Start |
 
 The core's data slots (declared in `data.json`; source `tools/tau_data_slots.py`): **5** the library index (`tau-library.tdb`,
-optional), **6** the cold image, **7** pre-scaled cover files (opened by name), **8** `tau-assets.bin` (optional).
+optional), **6** the cold image, **7** pre-scaled cover files (opened by name), **8** `tau-assets.bin` (optional), **9** `tau-packs.bin` (the
+shipped meters, part of the release, in the core's own folder), **10** `tau-meters.bin` (your own meters, optional: see below).
 
 ## sync_media.py: copy, convert, verify
 
@@ -102,6 +103,18 @@ python3 tools/sync_media.py MUSIC_DIR --all-tau --library --art-variants     # p
 - Needs Pillow and numpy. Design and the reader: [COVER_TIMG_READER.md](../COVER_TIMG_READER.md); the format study and results:
   [IMAGE_FORMATS.md](../IMAGE_FORMATS.md). The `TIM1` container is not yet frozen.
 
+## The meter bin (tau-meters.bin)
+
+`Assets/tau/common/tau-meters.bin` (data slot 10) is an **optional** file of extra meters, a `TPKB` version 2 bin with up to 64 meters (at most
+4,456,448 bytes) that the player reads when it starts. It is **your** file: **no release zip ever contains it**, so unzipping a release over the card
+does not overwrite it, and `tools/install_dev_core.py` never replaces or deletes it (it backs it up with the core when it replaces or removes one, and, when given the
+release's `tau-compat.json`, refuses before writing anything if the card's copy is a bin this release cannot read). It is shared by
+every TAU core on the card (TAU, TAU Diagnostics, TAU Preview). The file is made by Tau Omega when it supports meters, or by hand with
+`tools/meter_package.py compose OUT.bin PACKAGE...` from `.tmeter` packages (`tools/meter_package.py verify FILE` checks one first;
+Winamp Bars must be among them: it is the fallback). The player prefers this file when it is sound and otherwise uses the shipped meters
+in `tau-packs.bin`. **To remove it:** delete `Assets/tau/common/tau-meters.bin` from the card; the next start uses the seven shipped meters
+again. Format: [EXTERNAL_METERS_SPEC.md](../features/meters/EXTERNAL_METERS_SPEC.md).
+
 ## The theme and meter file (tau-assets.bin)
 
 An optional `tau-assets.bin` in `Assets/tau/common/` (data slot 8) can add themes and replace meter presets. Container `TAUA`
@@ -139,6 +152,7 @@ release cores are never touched without `--allow-release`. Procedure: [CARD_INST
 | `tools/decode_tau_suite.py` | Decode Check / Info / Meter Sweep reports from a QR screenshot, the persist file or the short code |
 | `tools/tau_image.py` | The TIM1 encoder and decoder |
 | `tools/gen_themes.py`, `tools/tau_assets.py` | Themes and the `tau-assets.bin` container |
+| `tools/meter_package.py` | `.tmeter` meter packages: `pack`, `verify`, `compose` (the `tau-meters.bin` bin) |
 
 ## The Tau Omega companion app
 

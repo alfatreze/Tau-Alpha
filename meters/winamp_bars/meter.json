@@ -1,6 +1,13 @@
 {
   "key": "winamp_bars",
   "id": "7dddfe63121e904843088c075cc28ce9",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
   "enum": "VIZ_WINAMP_BARS",
   "index": 12,
   "name": "WINAMP BARS",
