@@ -18,6 +18,19 @@ def read_json(path):
         return json.load(stream)
 
 
+def check_meter_slots(data, names):
+    """data slot 10 (tau-meters.bin, the user's meter bin, decision D-M24): when a core declares it, it must be the user's optional file -- not core-specific (every Tau core of the platform shares it), not required (a missing
+    file must never stop the core), not deferless -- and the package (`names`: every file path of the zip or folder) must not hold the file, or installing it would overwrite the user's copy. A core without slot 10 (v0.7.1) is fine:
+    it ignores the file."""
+    for slot in data:
+        if slot.get("id") == 10 or slot.get("filename") == "tau-meters.bin":
+            assert slot.get("id") == 10 and slot.get("filename") == "tau-meters.bin", f"data slot 10 must be tau-meters.bin: {slot}"
+            assert not int(str(slot["parameters"]), 16) & 2, "data slot 10 (tau-meters.bin) must not be core-specific: it is the user's meter bin, shared by every Tau core"
+            assert not slot.get("required"), "data slot 10 (tau-meters.bin) must be optional"
+            assert slot.get("deferload"), "data slot 10 (tau-meters.bin) must be deferload"
+    assert not any(str(n).endswith("tau-meters.bin") for n in names), "tau-meters.bin is the user's file and must never be shipped in a package"
+
+
 def main():
     core = read_json(CORE_DIR / "core.json")["core"]["metadata"]
     data = read_json(CORE_DIR / "data.json")["data"]["data_slots"]
@@ -46,6 +59,7 @@ def main():
             assert int(str(slot["parameters"]), 16) & 2, f"data slot {slot['id']} ({slot['filename']}) must be core-specific (parameter bit 1)"
     assert not any((DIST / "Assets/tau/common" / n).exists() for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin")), \
         "build-bound files must not be in the platform-wide common/ folder"
+    check_meter_slots(data, [str(p.relative_to(DIST)) for p in DIST.rglob("*") if p.is_file()])
     assert PLATFORM_ART.stat().st_size == 521 * 165 * 2
     assert (CORE_DIR / "icon.bin").stat().st_size == 36 * 36 * 2
 
