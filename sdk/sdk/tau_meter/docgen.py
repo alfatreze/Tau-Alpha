@@ -10,7 +10,7 @@ OUT = SDK_ROOT.parent / "docs" / "HOST_TABLE.md"
 
 
 def struct_fields(text, name):
-    m = re.search(r"typedef struct \{(.*?)\} %s;" % name, text, re.S)
+    m = re.search(r"typedef struct \{((?:(?!typedef struct).)*?)\} %s;" % name, text, re.S)
     out = []
     for ln in m.group(1).splitlines():
         mm = re.match(r"\s*(?P<decl>[^/]*?;)\s*/\*\s*\[(?P<ver>\d\.\d)\]\s*(?P<doc>.*?)\s*\*/", ln)
@@ -42,11 +42,9 @@ def render():
          "Coordinates are pixels of the 400 x 360 screen, colours RGB565. The column **since** is the ABI minor that introduced the entry: a meter that uses a 1.1 or 1.2 entry must say so (`\"abi\": \"1.1\"` in `meter.json`); the suite fails a meter that does not.", "",
          "## `mtr_in_t`: the inputs (read only)", "", "| field | type | since | meaning |", "|---|---|---|---|"]
     for decl, ver, doc in struct_fields(t, "mtr_in_t"):
-        ty, names = re.match(r"(.+?)\s+(\*?\w.*);", decl).groups()
-        ty = ty.strip()
-        for n in [x.strip() for x in names.split(",")]:
-            star = "*" if n.startswith("*") else ""
-            L.append("| `%s` | `%s%s` | %s | %s |" % (n.lstrip("*"), ty, (" " + star) if star else "", ver, doc.replace("|", "\\|")))
+        m = re.match(r"(?P<ty>(?:const\s+)?\w+)\s*(?P<star>\*?)\s*(?P<names>\w+(?:\s*,\s*\w+)*);$", decl)
+        names = ", ".join("`%s`" % n.strip() for n in m.group("names").split(","))
+        L.append("| %s | `%s%s` | %s | %s |" % (names, m.group("ty"), (" " + m.group("star")) if m.group("star") else "", ver, doc.replace("|", "\\|")))
     L += ["", "## `mtr_host_api_t`: the host table", "", "Draw commands (counted against the meter's `cmds` ceiling, one each): %s. The convenience macros `mtr_rect`, `mtr_text`, `mtr_bar`, `mtr_scroll_down`, `mtr_scroll_left`, `mtr_blit`, `mtr_rect_stash` count for you; "
           "for the other draw calls use `tau_meter_cmds++` yourself or accept an undercount (the player counts the engine commands it really executes, not your number)." % ", ".join("`%s`" % n for n in sorted(dc)), "",
           "| entry | signature | since | what it does |", "|---|---|---|---|"]

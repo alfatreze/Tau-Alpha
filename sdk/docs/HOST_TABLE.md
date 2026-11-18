@@ -7,22 +7,17 @@ Everything a meter may use is in `include/tau_meter.h`. The player calls `mtr_pa
 
 | field | type | since | meaning |
 |---|---|---|---|
-| `uint8_t *spec` | `const` | 1.0 | MTR_BANDS bands, 0..255, after the player's ballistics (fast attack, slow release) |
+| `spec` | `const uint8_t *` | 1.0 | MTR_BANDS bands, 0..255, after the player's ballistics (fast attack, slow release) |
 | `frame` | `uint32_t` | 1.0 | ticks since the meter was entered |
 | `dt_ms` | `uint16_t` | 1.0 | ms since the previous tick |
-| `x` | `uint16_t` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
-| `y` | `uint16_t` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
-| `w` | `uint16_t` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
-| `h` | `uint16_t` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
+| `x`, `y`, `w`, `h` | `uint16_t` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
 | `bg` | `uint16_t` | 1.0 | the background colour (RGB565) to erase with |
 | `force` | `uint8_t` | 1.0 | 1 = repaint the whole rectangle and drop every redraw cache (the context changed: new meter, new box, resumed) |
 | `paused` | `uint8_t` | 1.0 | playback is paused or stopped: levels fall to zero |
-| `peak_l` | `uint32_t` | 1.0 | the loudest sample of each channel since the previous tick, 0..24575 (3/4 of full scale) |
-| `peak_r` | `uint32_t` | 1.0 | the loudest sample of each channel since the previous tick, 0..24575 (3/4 of full scale) |
+| `peak_l`, `peak_r` | `uint32_t` | 1.0 | the loudest sample of each channel since the previous tick, 0..24575 (3/4 of full scale) |
 | `degrade` | `uint8_t` | 1.0 | 0 full; 1 and 2: the player skips windows (every 2nd, every 4th), a meter may also reduce detail; the meter is switched off at 3 |
-| `int8_t *wave` | `const` | 1.0 | optional signed waveform columns; NULL in the player today: build one from peak_l and peak_r |
-| `rms_l` | `uint16_t` | 1.1 | RMS of each channel over the picture's window, same scale as the peaks (0..24575); needs stats_ok |
-| `rms_r` | `uint16_t` | 1.1 | RMS of each channel over the picture's window, same scale as the peaks (0..24575); needs stats_ok |
+| `wave` | `const int8_t *` | 1.0 | optional signed waveform columns; NULL in the player today: build one from peak_l and peak_r |
+| `rms_l`, `rms_r` | `uint16_t` | 1.1 | RMS of each channel over the picture's window, same scale as the peaks (0..24575); needs stats_ok |
 | `corr` | `int16_t` | 1.1 | L/R correlation, Q8: -256 opposite phase, 0 unrelated, +256 identical; 0 when stats_ok is 0 |
 | `centroid` | `uint8_t` | 1.1 | spectral centroid, 0..255: the level-weighted mean band |
 | `crest` | `uint8_t` | 1.1 | peak / RMS, Q4 (16 = 1.0); 0 when stats_ok is 0 |
@@ -36,23 +31,6 @@ Draw commands (counted against the meter's `cmds` ceiling, one each): `bar`, `bl
 
 | entry | signature | since | what it does |
 |---|---|---|---|
-| `spec` | `const uint8_t *spec` | 1.0 | MTR_BANDS bands, 0..255, after the player's ballistics (fast attack, slow release) |
-| `frame` | `uint32_t frame` | 1.0 | ticks since the meter was entered |
-| `dt_ms` | `uint16_t dt_ms` | 1.0 | ms since the previous tick |
-| `h` | `uint16_t x, y, w, h` | 1.0 | the rectangle the meter owns, in screen pixels; it never draws outside it |
-| `bg` | `uint16_t bg` | 1.0 | the background colour (RGB565) to erase with |
-| `force` | `uint8_t force` | 1.0 | 1 = repaint the whole rectangle and drop every redraw cache (the context changed: new meter, new box, resumed) |
-| `paused` | `uint8_t paused` | 1.0 | playback is paused or stopped: levels fall to zero |
-| `peak_r` | `uint32_t peak_l, peak_r` | 1.0 | the loudest sample of each channel since the previous tick, 0..24575 (3/4 of full scale) |
-| `degrade` | `uint8_t degrade` | 1.0 | 0 full; 1 and 2: the player skips windows (every 2nd, every 4th), a meter may also reduce detail; the meter is switched off at 3 |
-| `wave` | `const int8_t *wave` | 1.0 | optional signed waveform columns; NULL in the player today: build one from peak_l and peak_r |
-| `rms_r` | `uint16_t rms_l, rms_r` | 1.1 | RMS of each channel over the picture's window, same scale as the peaks (0..24575); needs stats_ok |
-| `corr` | `int16_t corr` | 1.1 | L/R correlation, Q8: -256 opposite phase, 0 unrelated, +256 identical; 0 when stats_ok is 0 |
-| `centroid` | `uint8_t centroid` | 1.1 | spectral centroid, 0..255: the level-weighted mean band |
-| `crest` | `uint8_t crest` | 1.1 | peak / RMS, Q4 (16 = 1.0); 0 when stats_ok is 0 |
-| `flux` | `uint8_t flux` | 1.1 | spectral flux: the summed rise of the bands since the previous picture, at most 255 |
-| `onset` | `uint8_t onset` | 1.1 | 1 when this picture holds a hit (a flux spike against its own running mean) |
-| `stats_ok` | `uint8_t stats_ok` | 1.1 | 1 when the hardware statistics block is present (rms_l, rms_r, corr and crest are real) |
 | `abi` | `uint32_t abi` | 1.0 | the player's ABI: major << 8 \| minor |
 | `rect` | `void rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t colour)` | 1.0 | fill a rectangle (one engine command); the player clips it around fullscreen exclusions **(draw command)** |
 | `role` | `const uint16_t *role` | 1.0 | the theme colours, MTR_ROLE_COUNT entries indexed by MTR_ROLE_*: read-only |

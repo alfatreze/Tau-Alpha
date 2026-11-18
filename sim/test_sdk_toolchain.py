@@ -79,7 +79,7 @@ for b in built:
     ms, fs = mpk.load(b["sdk"]); mg, fg = mpk.load(b["gcc"])
     ds, dg = suite.descriptor(fs["meter.bin"]), suite.descriptor(fg["meter.bin"])
     check("%-15s the descriptors are identical (name, %d parameters, limits, preview)" % (k, len(ds["params"])), ds == dg)
-    skip = lambda n: n in ("meter.bin", "README.md") or n.startswith("source/")      # the pack, the generated readme and the source copy differ by design
+    skip = lambda n: n in ("meter.bin", "README.md", "meter.json") or n.startswith("source/")      # the pack, the generated readme and the source copy differ by design
     same_files = sorted(n for n in fs if not skip(n)) == sorted(n for n in fg if not skip(n)) and all(fs[n] == fg[n] for n in fs if not skip(n))
     check("%-15s the presets and licence files are identical" % k, same_files)
     check("%-15s manifest fields identical (id, name, version, abi, tau_min, params_rev)" % k, all(ms[f] == mg[f] for f in ("id", "name", "version", "abi", "tau_min", "params_rev", "author", "licence")), (ms, mg))
