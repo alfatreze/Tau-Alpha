@@ -4,6 +4,10 @@
 #include "../platform/platform.h"
 #define SVP_FN P2_COLD_TEXT static                   /* the pure core's functions go to the cold image too: the self-test adds nothing to the hot code */
 #include "../cores/save_probe_core.h"
+/* The registers (docs/MMIO_ALLOCATION.md): defined HERE, not in fw2/platform/mmio.h, because the committed WebAssembly meter modules hash that header (a change would make every one of them stale), and no meter uses these. */
+#define R_SAVE_ST    0x800001ECu        /* tau_save_ram.sv (TAU_SAVE): read [31] built in, [30] the bridge has written it, [28:24] log2(words), [15:0] words the bridge wrote at the load */
+#define R_SAVE_IDX   0x800001F0u        /* word index (R/W); DATA steps it */
+#define R_SAVE_DATA  0x800001F4u        /* the word at IDX, little-endian file order (R/W); every access steps IDX. After writing IDX read R_SAVE_ST once before the first data read (the RAM's output register lags the index by a cycle) */
 #define SV_SLOT_ID 11u                       /* the save slot's id in data.json (tools/tau_data_slots.py add_save_probe_slot) */
 #ifdef P2_HOST
 #define SV_COLD

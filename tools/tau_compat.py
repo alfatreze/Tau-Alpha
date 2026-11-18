@@ -322,6 +322,10 @@ def firmware_formats(root=ROOT):
 NOT_SHIPPED = {"tau-library.tdb": "generated", "tau-assets.bin": "user", "tau-meters.bin": "user"}
 # Generated files in the media root that have NO data slot (the firmware opens tau-names.bin by path, like the cover and the skip list): the name sidecar of docs/features/NAME_SIDECAR_SPEC.md.
 GENERATED_NO_SLOT = ("tau-names.bin", "tau-names.json")
+# The files of nonvolatile data slots (the Pocket writes them back at Quit, so they are the USER's state, the one thing an update must never overwrite): they live in Saves/<platform>/<core>/ (parameter bit 1)
+# or Saves/<platform>/common/. A zip may ship ONE zeroed seed so the first boot has a file to load (the Pocket only writes back a slot it loaded: docs/features/meters/METER_SAVE_FILE_SPEC.md); an installer creates it
+# when missing and leaves an existing one alone (role "user", "seed" true). tau-save-probe.bin is the S1 spike's 8 KB probe file; tau-meter-settings.bin is the release file (format v1 of the same spec).
+SAVE_FILES = ("tau-save-probe.bin", "tau-meter-settings.bin")
 # Slots opened by name at run time (no filename), by extension set.
 BY_EXTENSION = {("flac", "mp3"): "media", ("timg",): "cover"}
 
@@ -337,7 +341,15 @@ def layout(pkg, root=ROOT, obsolete=()):
         if sl.get("filename") in BUILD_BOUND and not int(str(sl.get("parameters", "0")), 16) & CORE_SPECIFIC:
             raise CompatError(f"{pkg['zip']}: data slot {sl['id']} ({sl['filename']}) is build-bound but not core-specific: set parameter bit 1 "
                               "(two cores on one platform would load each other's firmware)")
+    saves = f"Saves/{plat}/{core}/"
     for path, h in sorted(pkg["files"].items()):
+        if path.startswith("Saves/"):
+            fn = path.rsplit("/", 1)[-1]
+            sl = by_name.get(fn)
+            if not (path.startswith(saves) and fn in SAVE_FILES and sl and sl.get("nonvolatile")):
+                raise CompatError(f"{pkg['zip']}: ships {path}: only the seed file of a nonvolatile data slot may ship under Saves/<platform>/<core>/ ({', '.join(SAVE_FILES)})")
+            out.append({"path": path, "role": "user", "sha256": h, "slot": sl["id"], "required": False, "seed": True})      # created when missing, never overwritten
+            continue
         if path.startswith(common) and path[len(common):] in BUILD_BOUND:
             raise CompatError(f"{pkg['zip']}: ships {path} in the platform-wide common/ folder; build-bound files go in {mine} (tools/tau_layout.py)")
         if path.startswith(mine) and path[len(mine):] in by_name:
@@ -368,6 +380,17 @@ def layout(pkg, root=ROOT, obsolete=()):
     media = where[lib["id"]] if lib else common
     for sl in slots:
         fn = sl.get("filename")
+        if fn and sl.get("nonvolatile"):                   # a save slot: its file is the user's, in Saves/ (not Assets/); a shipped seed was added above
+            sp = where[sl["id"]].replace("Assets/", "Saves/", 1) + fn
+            if fn not in SAVE_FILES:
+                raise CompatError(f"{pkg['zip']}: nonvolatile data slot {sl['id']} names {fn}, which is not in tau_compat.SAVE_FILES")
+            if not int(str(sl.get("parameters", "0")), 16) & CORE_SPECIFIC:
+                raise CompatError(f"{pkg['zip']}: nonvolatile data slot {sl['id']} ({fn}) must be core-specific (parameter bit 1): each core keeps its own save file")
+            if sl.get("deferload") or int(str(sl.get("parameters", "0")), 16) & 4:
+                raise CompatError(f"{pkg['zip']}: nonvolatile data slot {sl['id']} ({fn}) must not be deferload and must not take another slot's file name (parameter bit 2)")
+            if sp not in shipped:
+                out.append({"path": sp, "role": "user", "slot": sl["id"], "required": False, "seed": False})
+            continue
         if fn:
             if common + fn in shipped or mine + fn in shipped:
                 continue

@@ -70,6 +70,9 @@ def main():
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
     ap.add_argument("--hang-pack", metavar="KEY[:MODE]", help="a TEST package for the pack watchdog (W4): that meter's pack is replaced by its hang variant (needs --variant player2 and PACKS=1; the core's description says so)")
     ap.add_argument("--preset-probe", action="store_true", help="a TEST package for the preset-read measurement (docs/features/METER_PRESETS_EXTERNAL.md step 0b, B-963): writes preset-probe.bin (200 bytes: \"TPRB\" then byte i = (i*37+11) & 255) into the core's Assets folder, which the Diagnostic Build of this firmware opens and reads on every new track (Report rows PP ...)")
+    ap.add_argument("--save-probe", action="store_true", help="a TEST package for the meter save file's S1 spike (docs/features/meters/METER_SAVE_FILE_SPEC.md, METER_SAVE_FILE_TEST.md): declares the nonvolatile data slot 11 (tau-save-probe.bin, 8,192 bytes, address "
+                    "0x30000000) and ships a ZEROED seed file in Saves/<platform>/<core>/ (the installer creates it when missing and never overwrites it). Needs --variant player2, a Diagnostic Build (DIAG=1) and a bitstream built with TAU_SAVE")
+    ap.add_argument("--save-probe-params", choices=("0x2", "0x22"), default="0x2", help="the save slot's parameters: 0x2 (core-specific; the seed file must exist) or 0x22 (adds bit 5, the Pocket fills the memory with 0xFF when the file is missing: the second probe)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -153,6 +156,15 @@ def main():
     else:
         rbf, already_reversed = src / "Cores/alfatreze.TAU/bitstream.rbf_r", True
 
+    if args.save_probe:
+        man_probe = Path(str(rbf) + ".json") if args.rbf else None
+        if args.variant != "player2" or "DIAG=0" in (args.build_flags or "") or args.release_diagnostic or args.diagnostic_core:
+            sys.exit("--save-probe needs --variant player2 and a Diagnostic Build (--build-flags with DIAG=1 or without DIAG=0): the self-test and its SV rows are diagnostic-only (docs/features/meters/METER_SAVE_FILE_TEST.md)")
+        if man_probe is None or not man_probe.is_file():
+            sys.exit("--save-probe needs --rbf with its fit manifest (<rbf>.json from tools/vm_fit.py collect): a bitstream without the save RAM would run the probe on nothing")
+        if "TAU_SAVE" not in json.loads(man_probe.read_text()).get("macros", []):
+            sys.exit(f"--save-probe: {man_probe.name} says this bitstream was not built with TAU_SAVE (macros: {json.loads(man_probe.read_text()).get('macros')}); the Report would show SV PRESENT 0")
+
     if args.release_diagnostic:
         # The release's Diagnostic Build, in its channel (RELEASE_SYSTEM_SPEC section 4): "TAU Diagnostics" beside TAU, or
         # "TAU Preview Diagnostics" in the Preview channel. It replaces the old alfatreze.TAU_DIAGNOSTIC (own platform, own media copy).
@@ -191,7 +203,7 @@ def main():
     full_ver = (None if args.release_diagnostic else args.semver if args.semver else
                 f"{base_ver}-dev.barcode.{args.barcode}" if args.barcode is not None else f"{base_ver}-dev.{args.number}")
     if not args.release_diagnostic:
-        desc = f"TAU {label}: {kind}, " + (args.note or default_note) + (f" [HANG TEST: the {args.hang_pack.split(':')[0]} pack hangs after 200 pictures]" if args.hang_pack else "") + (" [PRESET READ PROBE]" if args.preset_probe else "")
+        desc = f"TAU {label}: {kind}, " + (args.note or default_note) + (f" [HANG TEST: the {args.hang_pack.split(':')[0]} pack hangs after 200 pictures]" if args.hang_pack else "") + (" [PRESET READ PROBE]" if args.preset_probe else "") + (" [SAVE PROBE]" if args.save_probe else "")
     if args.semver and not args.note:
         # A Stable or Preview release keeps the core.json description of dist/ (63 characters at most; it also tells people how to get music onto the card); the fuller text goes to info.txt, the About screen.
         desc = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["description"]
@@ -226,6 +238,8 @@ def main():
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     with_packs = wants_packs(args.variant, args.build_flags)
     if with_packs: declare_packs_slots(c)               # data slots 9 and 10; the bin itself is built below, once the asset folder exists
+    if args.save_probe:
+        slots_lib.add_save_probe_slot(c, args.save_probe_params)     # data slot 11 = tau-save-probe.bin (nonvolatile, 8 KB at 0x30000000); its seed file is written below
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     if shared_media:                                    # library index and tau-assets.bin come from TAU's common/ (platform_ids[1])
@@ -236,6 +250,10 @@ def main():
     shutil.copy2(rom, cd / "tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
+    if args.save_probe:                                 # the zeroed seed: the Pocket only writes back a slot it LOADED, so the first file must exist (the installer creates it when missing, never overwrites)
+        sd = out / "Saves" / platform / core_id
+        sd.mkdir(parents=True)
+        (sd / "tau-save-probe.bin").write_bytes(bytes(slots_lib.SAVE_SIZE))
     if args.preset_probe:
         (cd / "preset-probe.bin").write_bytes(b"TPRB" + bytes((i * 37 + 11) & 255 for i in range(4, 200)))
     if with_packs: build_packs_bin(cd, args.hang_pack)     # every pack, from this tree, in slot order

@@ -2,7 +2,7 @@
 """Host test for tools/install_dev_core.py: installs the real dist/ package onto a scratch 'card' and checks the
 dry run, the install, --replace (media survives), the catalog-cache deletion and the release-core protection.
 Never touches a real card."""
-import json, shutil, subprocess, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -305,6 +305,50 @@ with tempfile.TemporaryDirectory() as td2:
     ub.write_bytes(ub_data)
     rc, out = run("--card", card2, "--remove", "alfatreze.TAU", "--allow-release", "--backup-dir", td2 / "b4", "--no-eject", "--yes")
     check("removing a release core backs up the user's tau-meters.bin first", rc == 0 and (td2 / "b4/alfatreze.TAU/Assets/tau/common/tau-meters.bin").read_bytes() == ub_data, out[-300:])
+
+
+# The save slot's seed file (the S1 spike of the meter save file, docs/features/meters/METER_SAVE_FILE_SPEC.md): a package may ship a zeroed file under Saves/<platform>/<core>/; the installer creates it
+# when it is missing and NEVER overwrites an existing one (the Pocket writes it back at Quit: it is the user's state), a restore removes a file it created, and a dry run says which.
+with tempfile.TemporaryDirectory() as td3:
+    td3 = Path(td3); card3 = td3 / "card"
+    for d in ("Cores", "Assets", "Platforms/_images", "System"):
+        (card3 / d).mkdir(parents=True)
+    sys.path.insert(0, str(ROOT / "tools"))
+    import tau_data_slots as tds
+    pk3 = td3 / "pkg"; shutil.copytree(ROOT / "dist", pk3)
+    tds.add_save_probe_slot(pk3 / "Cores/alfatreze.TAU")
+    seed_rel = "Saves/tau/alfatreze.TAU/tau-save-probe.bin"
+    (pk3 / seed_rel).parent.mkdir(parents=True); (pk3 / seed_rel).write_bytes(bytes(tds.SAVE_SIZE))
+    rc, out = run(pk3, "--card", card3)
+    check("the dry run says the missing save file will be created and writes nothing", rc == 0 and "missing, will be created" in out and not (card3 / seed_rel).exists(), out[-400:])
+    rc, out = run(pk3, "--card", card3, "--backup-dir", td3 / "b1", "--no-eject", "--yes")
+    check("the install creates the zeroed save file (8,192 bytes)", rc == 0 and (card3 / seed_rel).read_bytes() == bytes(8192), out[-400:])
+    (card3 / seed_rel).write_bytes(b"WRITTEN BY THE POCKET AT QUIT".ljust(8192, b"\x01"))
+    mine = (card3 / seed_rel).read_bytes()
+    rc, out = run(pk3, "--card", card3)
+    check("a second dry run says the existing save file is kept", rc != 0 or "exists on the card, kept" in out, out[-300:])
+    rc, out = run(pk3, "--card", card3, "--backup-dir", td3 / "b2", "--replace", "--allow-release", "--no-eject", "--yes")
+    check("a re-install (--replace) never overwrites the save file the Pocket wrote", rc == 0 and (card3 / seed_rel).read_bytes() == mine and "kept" in out, out[-400:])
+    (card3 / seed_rel).unlink()
+    env = dict(os.environ, TAU_INSTALL_TEST_CORRUPT="copy:Cores/alfatreze.TAU/bitstream.rbf_r")
+    r = subprocess.run(TOOL + [str(pk3), "--card", str(card3), "--backup-dir", str(td3 / "b3"), "--replace", "--allow-release", "--no-eject", "--yes"], capture_output=True, text=True, cwd=ROOT, env=env)
+    check("a failed install removes the save file it had just created (the card is restored)", r.returncode != 0 and not (card3 / seed_rel).exists(), (r.stdout + r.stderr)[-500:])
+    import tau_compat as tc2
+    data = json.loads((pk3 / "Cores/alfatreze.TAU/data.json").read_text())
+    pkg = {"zip": "x.zip", "core_id": "alfatreze.TAU", "platform": "tau", "platforms": ["tau"], "data": data,
+           "files": {"Cores/alfatreze.TAU/core.json": "a" * 64, "Assets/tau/alfatreze.TAU/tau.rom": "b" * 64, "Assets/tau/alfatreze.TAU/tau-cold.bin": "c" * 64, "Assets/tau/alfatreze.TAU/tau-loading.bin": "f" * 64, seed_rel: "d" * 64}}
+    lay = tc2.layout(pkg)
+    ent = [e for e in lay if e["path"] == seed_rel]
+    check("tau-compat lists the seed as a user file that is created when missing and never overwritten", len(ent) == 1 and ent[0]["role"] == "user" and ent[0].get("seed") is True and ent[0]["slot"] == 11, ent)
+    pkg2 = dict(pkg, files={k: v for k, v in pkg["files"].items() if k != seed_rel})
+    ent = [e for e in tc2.layout(pkg2) if e["path"] == seed_rel]
+    check("a save slot without a shipped seed is still listed (user, not a seed), so the plugin's Check knows the path", len(ent) == 1 and ent[0]["role"] == "user" and ent[0].get("seed") is False, ent)
+    bad = dict(pkg, files=dict(pkg["files"], **{"Saves/tau/alfatreze.TAU/evil.bin": "e" * 64}))
+    try:
+        tc2.layout(bad); ok = False
+    except tc2.CompatError:
+        ok = True
+    check("any other file under Saves/ is refused when a release manifest is built", ok)
 
 # B-542: media is only left out of a backup when it is provably not lost.
 sys.path.insert(0, str(ROOT / "tools"))
