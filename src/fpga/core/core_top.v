@@ -307,11 +307,17 @@ core_bridge_cmd icb (
 // (ADDRESS_MASK_UPPER_4 = 0) and of 0xF8xxxxxx, which is the only region the
 // spec reserves.
 wire [31:0] set_bridge_rd_data;
+`ifdef TAU_SAVE
+wire [31:0] save_bridge_rd_data;   // tau_save_ram (core_game.vh section 8b): the meter-settings save slot, read back by APF at Quit
+`endif
 
 always @(*) begin
     casex (bridge_addr)
         32'hF8xxxxxx: bridge_rd_data = cmd_bridge_rd_data;
         32'h2xxxxxxx: bridge_rd_data = set_bridge_rd_data;
+`ifdef TAU_SAVE
+        32'h3xxxxxxx: bridge_rd_data = save_bridge_rd_data;   // the save slot's `address` (data.json), docs/features/meters/METER_SAVE_FILE_SPEC.md
+`endif
         default:      bridge_rd_data = 32'h0;
     endcase
 end

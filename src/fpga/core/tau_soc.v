@@ -115,6 +115,8 @@ module tau_soc #(
     parameter SDA_ENABLE = 0,
     // Pack watchdog (tau_wdog.sv, docs/features/PACK_WATCHDOG_PLAN.md): registers 0x1DC-0x1E8; its expiry is the CPU's timer interrupt. With 0 the registers read 0, writes are ignored and the interrupt input stays tied to 0.
     parameter WDOG_ENABLE = 0,
+    // Meter-settings save RAM (tau_save_ram.sv, outside this module; docs/features/meters/METER_SAVE_FILE_SPEC.md): registers 0x1EC-0x1F4. With 0 they read 0, writes are ignored and nothing else changes.
+    parameter SAVE_ENABLE = 0,
     parameter BUG_FONT_NO_INC = 0,      // mutation hooks for sim/tb_font_soc.v (1 must make it fail): the index does not step after a data write / the completed-load counter never counts
     parameter BUG_FONT_NO_GEN = 0
 ) (
@@ -298,6 +300,16 @@ module tau_soc #(
     output reg  [4:0]   sda_wd,
     input  wire [31:0]  sda_status,
     input  wire [31:0]  sda_val,
+
+    // Meter-settings save RAM, CPU side (clk): index write, data write (registered pulse + data), data read request (the bus samples the data one cycle later).
+    output reg          save_idx_we,
+    output reg  [31:0]  save_idx_wd,
+    output reg          save_data_we,
+    output reg  [31:0]  save_data_wd,
+    output wire         save_data_req,
+    input  wire [31:0]  save_idx_rd,
+    input  wire [31:0]  save_data_rd,
+    input  wire [31:0]  save_status,
 
     // B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, flipping on every
     // real DAC-domain sample-hold update. Synchronised into `clk` with tau_cdc_sync1 below and turned
@@ -1201,6 +1213,8 @@ module tau_soc #(
     localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
     localparam [8:0] R_RTC_ST = 9'h1C4, R_RTC_EPOCH = 9'h1C8, R_RTC_DATE = 9'h1CC, R_RTC_TIME = 9'h1D0;   // wall clock (read only)
     localparam [8:0] R_SDA_SEL = 9'h1D4, R_SDA_VAL = 9'h1D8;
+    localparam [8:0] R_SAVE_ST = 9'h1EC, R_SAVE_IDX = 9'h1F0, R_SAVE_DATA = 9'h1F4;   // meter-settings save RAM: ST read-only, IDX word index (R/W), DATA the word at IDX (R/W, both step IDX)
+    assign save_data_req = (SAVE_ENABLE != 0) & d_req & d_is_mmio & ~dWE & (mmio_reg == R_SAVE_DATA);
     localparam [8:0] R_WDOG_ARM = 9'h1DC, R_WDOG_ST = 9'h1E0, R_WDOG_ACK = 9'h1E4, R_WDOG_CNT = 9'h1E8;   // pack watchdog (ARM write-only, ST and CNT read-only, ACK write-only)                                          // per-port SDRAM statistics window
     reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
     reg  [1:0]  stats_ctl_d  = 2'd0;
@@ -1396,7 +1410,7 @@ module tau_soc #(
         con_wr      <= 1'b0;
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
-        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0; sda_we <= 1'b0; wdog_arm_we <= 1'b0; wdog_ack_we <= 1'b0;
+        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0; sda_we <= 1'b0; wdog_arm_we <= 1'b0; wdog_ack_we <= 1'b0; save_idx_we <= 1'b0; save_data_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
@@ -1431,7 +1445,7 @@ module tau_soc #(
             ring_en <= 1'b0; ring_hold <= 1'b0; ring_base <= 23'd0; ring_size <= 23'd2; ring_wptr <= 23'd0;   // B-741
             gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
-            set_idx <= 5'd0; set_wdata <= 32'd0;
+            set_idx <= 5'd0; set_wdata <= 32'd0; save_idx_wd <= 32'd0; save_data_wd <= 32'd0;
             sdram_start <= 1'b0;
             sdram_write <= 1'b0;
             sdram_addr <= 25'd0;
@@ -1486,6 +1500,8 @@ module tau_soc #(
                 R_STATS_IDX: begin stats_idx_d <= dDAT_MOSI[2:0]; stats_idx_we <= 1'b1; end
                 R_WDOG_ARM:  if (WDOG_ENABLE != 0) begin wdog_arm_d <= dDAT_MOSI; wdog_arm_we <= 1'b1; end
                 R_WDOG_ACK:  if (WDOG_ENABLE != 0) wdog_ack_we <= 1'b1;
+                R_SAVE_IDX:  if (SAVE_ENABLE != 0) begin save_idx_wd  <= dDAT_MOSI; save_idx_we  <= 1'b1; end
+                R_SAVE_DATA: if (SAVE_ENABLE != 0) begin save_data_wd <= dDAT_MOSI; save_data_we <= 1'b1; end
                 R_SDA_SEL:   if (SDA_ENABLE != 0) begin sda_wd <= dDAT_MOSI[4:0]; sda_we <= 1'b1; end   // the window ignores it while a snapshot is pending
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
@@ -1640,6 +1656,9 @@ module tau_soc #(
             R_RTC_TIME:    mmio_rdata = rtc_time_s;                                      // BCD time, [27:24] day of week, 0x00HHMMSS
             R_WDOG_ST:     mmio_rdata = (WDOG_ENABLE != 0) ? wdog_status : 32'd0;           // [31] present, [1] expired, [0] armed
             R_WDOG_CNT:    mmio_rdata = (WDOG_ENABLE != 0) ? wdog_counts : 32'd0;           // [31:16] arms, [15:0] expiries (wrap)
+            R_SAVE_ST:     mmio_rdata = (SAVE_ENABLE != 0) ? save_status : 32'd0;          // [31] present, [30] the bridge has written the RAM, [28:24] log2 of the words, [15:0] words the bridge wrote
+            R_SAVE_IDX:    mmio_rdata = (SAVE_ENABLE != 0) ? save_idx_rd : 32'd0;
+            R_SAVE_DATA:   mmio_rdata = (SAVE_ENABLE != 0) ? save_data_rd : 32'd0;           // the word at SAVE_IDX; the index steps one cycle after the request
             R_SDA_SEL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_status : 32'd0;          // [31] present, [8] a snapshot is pending, [4:0] the selection
             R_SDA_VAL:     mmio_rdata = (SDA_ENABLE != 0) ? sda_val : 32'd0;             // the snapshot of the selected counter (stable until the next select)
             R_STATS_DATA:  mmio_rdata = stats_rd;                                      // audio statistics read-out word at STATS_IDX (0 when not built)

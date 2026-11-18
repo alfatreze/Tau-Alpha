@@ -236,6 +236,12 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_SPEC_EN 0
 `endif
 
+// TAU_SAVE: the meter-settings save RAM (tau_save_ram.sv, docs/features/meters/METER_SAVE_FILE_SPEC.md): 8 KB behind the bridge region 0x3xxxxxxx and MMIO 0x1EC-0x1F4. Without the macro nothing of it exists (the bridge read mux, the SoC parameter and the ports reduce to what they were).
+`ifdef TAU_SAVE
+`define TAU_SAVE_EN 1
+`else
+`define TAU_SAVE_EN 0
+`endif
 `ifdef TAU_STATS
 `define TAU_STATS_EN 1
 `else
@@ -365,6 +371,7 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_SDA_EN 0
 `endif
+wire        soc_save_idx_we, soc_save_data_we, soc_save_data_req; wire [31:0] soc_save_idx_wd, soc_save_data_wd, soc_save_idx_rd, soc_save_data_rd, soc_save_status;
 wire        soc_sda_we;   wire [4:0] soc_sda_wd;   wire [31:0] soc_sda_status, soc_sda_val;
 wire        soc_font_we;
 wire [12:0] soc_font_waddr;
@@ -432,9 +439,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN), .WDOG_ENABLE(`TAU_WDOG_EN)) u_soc (
+tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN), .WDOG_ENABLE(`TAU_WDOG_EN), .SAVE_ENABLE(`TAU_SAVE_EN)) u_soc (
 `else
-tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN), .WDOG_ENABLE(`TAU_WDOG_EN)) u_soc (
+tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN), .RTC_ENABLE(`TAU_RTC_EN), .SDA_ENABLE(`TAU_SDA_EN), .WDOG_ENABLE(`TAU_WDOG_EN), .SAVE_ENABLE(`TAU_SAVE_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -557,6 +564,8 @@ tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .sdram_busy_rd (soc_sdram_busy_rd),
     .rtc_valid (rtc_valid), .rtc_epoch_seconds (rtc_epoch_seconds), .rtc_date_bcd (rtc_date_bcd), .rtc_time_bcd (rtc_time_bcd),
     .sda_we (soc_sda_we), .sda_wd (soc_sda_wd), .sda_status (soc_sda_status), .sda_val (soc_sda_val),
+    .save_idx_we (soc_save_idx_we), .save_idx_wd (soc_save_idx_wd), .save_data_we (soc_save_data_we), .save_data_wd (soc_save_data_wd), .save_data_req (soc_save_data_req),
+    .save_idx_rd (soc_save_idx_rd), .save_data_rd (soc_save_data_rd), .save_status (soc_save_status),
     .i2s_diag_toggle (soc_i2s_diag_toggle),
     .vblank_rd     (soc_vblank_rd),
     .scan_rd       (soc_scan_rd),
@@ -994,6 +1003,20 @@ sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
     .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck),
     .diag_toggle (soc_i2s_diag_toggle)
 );
+
+// -- 8b. Meter-settings save RAM (TAU_SAVE) -------------------------------------------
+// The slot is `nonvolatile` with `address` 0x30000000: APF writes the file here at boot (the CPU is still in reset: the load finishes before dataslot_allcomplete)
+// and reads it back at Quit (after 0010 Reset Enter). The CPU keeps it current through MMIO 0x1EC-0x1F4. Everything about it, and why the two sides cannot collide:
+// src/fpga/core/tau_save_ram.sv and docs/features/meters/METER_SAVE_FILE_SPEC.md.
+`ifdef TAU_SAVE
+tau_save_ram #(.AW(11), .REGION(4'h3)) u_save_ram (
+    .clk_74a(clk_74a), .bridge_addr(bridge_addr), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data), .bridge_hit(), .bridge_rdata(save_bridge_rd_data),
+    .clk_sys(clk_sys), .rst_sys(cpu_reset), .idx_we(soc_save_idx_we), .idx_wd(soc_save_idx_wd), .data_we(soc_save_data_we), .data_wd(soc_save_data_wd), .data_req(soc_save_data_req),
+    .idx_rd(soc_save_idx_rd), .data_rd(soc_save_data_rd), .status(soc_save_status)
+);
+`else
+assign soc_save_idx_rd = 32'd0, soc_save_data_rd = 32'd0, soc_save_status = 32'd0;
+`endif
 
 // -- 8. Persistent settings, via interact.json -----------------------------------
 // Eight words at 0x20000000. interact.json declares one `persist` variable per

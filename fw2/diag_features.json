@@ -8,7 +8,8 @@
     "fw2/diagnostics/sdram_soak.c",
     "fw2/diagnostics/soak_hot.c",
     "fw2/diagnostics/preset_probe.c",
-    "fw2/diagnostics/name_matrix.c"
+    "fw2/diagnostics/name_matrix.c",
+    "fw2/diagnostics/save_probe.c"
   ],
   "settings_rows_left_out_when_off": [
     "DIAGNOSTICS",
@@ -50,6 +51,16 @@
     "PP READ MAX",
     "PP FILL MIN",
     "PP DRY",
+    "SV PRESENT",
+    "SV LOAD WORDS",
+    "SV TABLE",
+    "SV BOOTS",
+    "SV CRC",
+    "SV PAT BAD",
+    "SV LAST",
+    "SV WRITTEN",
+    "SV PREV EPOCH",
+    "SV MS",
     "NM RES A",
     "NM RES B",
     "NM RES C",
@@ -106,12 +117,13 @@
     "soak_cycle",
     "preset_probe_run",
     "name_matrix_run",
-    "name_matrix_auto"
+    "name_matrix_auto",
+    "save_probe_run"
   ],
   "symbols_present_when_off": [
     "about_page_draw",
     "report_page_draw",
     "counters_refresh"
   ],
-  "counter_rows_note": "SDA <SCAN|ENG|CPU> <REQ|WORDS|BUSY|WAIT|URGENT|BAD>: the per-port SDRAM statistics of tau_sdram_sched_v read through the MMIO window 0x1D4/0x1D8 (docs/MMIO_ALLOCATION.md), inside '#if P2_DIAG' in fw2/diagnostics/info_counters.c (the 54 bytes of shadow values and the refresh are also P2_DIAG only). The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks both lists against the cold image of each build. MTOC / MWIN / MSEL rows (external meters P2.2 and P2.4, fw2/ui/meters.c state in .psram_state): in '#ifdef P2_PACKS' inside the Diagnostic Build's table only; the variables themselves are functional state (the TOC reader and the window loader) and stay in both builds, cold code, no hot RAM."
+  "counter_rows_note": "SDA <SCAN|ENG|CPU> <REQ|WORDS|BUSY|WAIT|URGENT|BAD>: the per-port SDRAM statistics of tau_sdram_sched_v read through the MMIO window 0x1D4/0x1D8 (docs/MMIO_ALLOCATION.md), inside '#if P2_DIAG' in fw2/diagnostics/info_counters.c (the 54 bytes of shadow values and the refresh are also P2_DIAG only). The four wall-clock rows are the support set: the normal build's Report carries the host's boot time and the clock now. sim/test_p2_diag_split.py checks both lists against the cold image of each build. MTOC / MWIN / MSEL rows (external meters P2.2 and P2.4, fw2/ui/meters.c state in .psram_state): in '#ifdef P2_PACKS' inside the Diagnostic Build's table only; the variables themselves are functional state (the TOC reader and the window loader) and stay in both builds, cold code, no hot RAM. SV rows (the save-slot self-test, S1 spike of docs/features/meters/METER_SAVE_FILE_SPEC.md; fw2/diagnostics/save_probe.c): Diagnostic Build only; the state is in the cold image (.cold_data), so it costs no hot RAM; the self-test does nothing on a bitstream without TAU_SAVE."
 }

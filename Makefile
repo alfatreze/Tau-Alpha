@@ -117,6 +117,7 @@ test-host:
 	$(PYTHON) sim/test_p2_aout.py
 	$(PYTHON) sim/test_p2_monoclock.py
 	$(PYTHON) sim/test_p2_rtc.py
+	$(PYTHON) sim/test_p2_save_probe.py
 	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_stream_idle.py
@@ -816,6 +817,36 @@ test-rtl-save-ram: | $(RTL_BUILD_DIR)
 	  $(VVP) $(RTL_BUILD_DIR)/tb_save_ram.vvp | grep -q "^PASSED" || { echo "FAILED: tb_tau_save_ram SYSP=$$1 BRP=$$2"; exit 1; }; done; echo "tb_tau_save_ram: PASSED (4 clock configurations)"
 	@set -e; for b in 1 2 3 4 5 6; do $(IVERILOG) -g2012 -Ptb_tau_save_ram.BUG=$$b -o $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp $(SAVE_RAM_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: tau_save_ram BUG=$$b"; exit 1; else echo "mutant killed: tau_save_ram BUG=$$b"; fi; done
+
+# ---- Meter-settings save RAM, CPU side in tau_soc.v with the real CPU (sim/tb_save_soc.v, firmware sim/fw_save/main.c): MODE 0 raw MMIO (back to back reads and writes, the flush against the model), MODE 1 the self-test of
+# fw2/cores/save_probe_core.h across three boots (zero file, the file the Quit wrote, a file with a lost tail). The mutants (block left out; the RAM's own mutants through the SoC) must FAIL ----
+SAVE_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_save_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_save_ram.sv src/fpga/core/tau_cdc_gray_ctr.sv
+SAVE_GCC = "$(RV_BIN)/riscv-none-elf-gcc" -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_save/main.c
+define save_fw
+	$(SAVE_GCC) -DMODE=$(1) -o $(RTL_BUILD_DIR)/fw_save$(1).elf && "$(RV_BIN)/riscv-none-elf-objcopy" -O binary $(RTL_BUILD_DIR)/fw_save$(1).elf $(RTL_BUILD_DIR)/fw_save$(1).bin
+endef
+define save_run
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=$(1) $(2) -o $(RTL_BUILD_DIR)/tb_save_soc$(1).vvp $(SAVE_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_save_soc$(1).vvp +ROM=$(RTL_BUILD_DIR)/fw_save$(1).bin > $(RTL_BUILD_DIR)/save_soc$(1).log; tail -3 $(RTL_BUILD_DIR)/save_soc$(1).log; grep -q "^PASSED" $(RTL_BUILD_DIR)/save_soc$(1).log
+endef
+define save_mut
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=$(1) $(2) -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save$(1).bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: $(3)"; exit 1; else echo "mutant killed: $(3)"; fi
+endef
+test-rtl-save-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
+	$(call save_fw,0)
+	$(call save_fw,1)
+	$(call save_run,0,)
+	$(call save_run,1,)
+	@$(PYTHON) sim/check_save_soc.py < $(RTL_BUILD_DIR)/save_soc1.log
+	$(call save_mut,0,-Ptb_save_soc.OFF=1,block left out of the SoC (mode 0))
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.OFF=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: block left out of the SoC (mode 1)"; exit 1; else echo "mutant killed: block left out of the SoC (mode 1)"; fi
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.BUG=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: bridge read one stage too slow (mode 1)"; exit 1; else echo "mutant killed: bridge read one stage too slow (mode 1)"; fi
+	$(call save_mut,0,-Ptb_save_soc.BUG=4,reads do not step the index)
+	$(call save_mut,0,-Ptb_save_soc.BUG=6,writes do not step the index)
+	$(call save_mut,0,-Ptb_save_soc.BUG=3,no byte swap on CPU writes)
 
 # ---- Wall clock registers and the SDRAM statistics window in tau_soc.v with the real CPU (sim/tb_wall_soc.v, firmware sim/fw_wall/main.c); the mutants (block left out; the words following the bridge) must FAIL ----
 WALL_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_wall_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_rtc_cdc.sv src/fpga/core/tau_sdr_stat_win.sv
