@@ -28,6 +28,7 @@ Contents: [Repository map](#repository-map) · [Building](#building) · [Testing
 | `release/` | Release zips (local; published through GitHub releases) |
 | `docs/` | All documentation (see [docs/README.md](README.md)) |
 | `assets/` | Branding and UI artwork sources |
+| `sdk/` | The meter SDK for authors: `sdk/sdk/` (header, build driver, conformance suite), `sdk/template/`, `sdk/meters/` (the seven shipped meters as SDK projects), `sdk/docs/`; exported into three public repositories by `tools/export_sdk.py`. Start at [sdk/docs/GETTING_STARTED.md](../sdk/docs/GETTING_STARTED.md); `tools/player2/new_meter.py` stays the scaffolder for meters inside this repository |
 | `archive/` | Retired code kept for reference (the cassette meter) |
 | `toolchain/` | Vendored RISC-V toolchain and isolation experiments (large; not needed to read the code) |
 | `work/` | Local scratch: diagnostics builds, card backups, previews (not part of the release) |
