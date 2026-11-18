@@ -12,7 +12,7 @@ TARGET = "riscv32-unknown-elf"
 CFLAGS = ["--target=" + TARGET, "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-mcmodel=medany", "-Os", "-std=gnu11", "-ffreestanding", "-fno-pic", "-fno-builtin-printf",
           "-fno-stack-protector", "-fno-jump-tables", "-fno-exceptions", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-ffunction-sections", "-fdata-sections",
           "-Wall", "-Wextra", "-Wno-unused-parameter"]
-LDFLAGS = ["-nostdlib", "-nostartfiles", "-static", "-Wl,--gc-sections", "-Wl,--build-id=none", "-Wl,-z,norelro", "-Wl,--no-rosegment", "-Wl,--no-eh-frame-hdr"]
+LDFLAGS = ["-nostdlib", "-nostartfiles", "-static", "-Wl,--gc-sections", "-Wl,--build-id=none", "-Wl,-z,norelro", "-Wl,--no-eh-frame-hdr"]
 
 
 class ToolchainError(RuntimeError):
