@@ -1,4 +1,4 @@
-.PHONY: test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 # Build tools (tools/toolchain.py, B-985): the RISC-V compiler is found the same way for every script (RISCV_TOOLCHAIN_BIN, this tree, the main checkout when this is a git worktree, PATH), and a macOS
@@ -117,6 +117,7 @@ test-host:
 	$(PYTHON) sim/test_p2_aout.py
 	$(PYTHON) sim/test_p2_monoclock.py
 	$(PYTHON) sim/test_p2_rtc.py
+	$(PYTHON) sim/test_p2_save_probe.py
 	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_stream_idle.py
@@ -245,7 +246,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -808,6 +809,45 @@ test-rtl-rtc-cdc: $(RTL_BUILD_DIR)/core_bridge_cmd_sim.v
 	@set -e; for b in 1 2; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_rtc_cdc.BUG=$$b -o $(RTL_BUILD_DIR)/tb_rtc_cdc_mut.vvp $(RTC_CDC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_rtc_cdc_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: BUG=$$b"; exit 1; else echo "mutant killed: BUG=$$b"; fi; done
 
+# ---- Meter-settings save RAM (tau_save_ram.sv, docs/features/meters/METER_SAVE_FILE_SPEC.md): the bridge's LOAD and FLUSH cycles (modelled on io_bridge_peripheral.v) and the CPU's MMIO cycles, four clock ratios; six mutants must FAIL ----
+SAVE_RAM_SRC = sim/tb_tau_save_ram.v src/fpga/core/tau_save_ram.sv src/fpga/core/tau_cdc_gray_ctr.sv
+test-rtl-save-ram: | $(RTL_BUILD_DIR)
+	@set -e; for cfg in "15000 13468" "7500 13468" "11150 9000" "6000 13468"; do set -- $$cfg; \
+	  $(IVERILOG) -g2012 -Ptb_tau_save_ram.SYSP=$$1 -Ptb_tau_save_ram.BRP=$$2 -o $(RTL_BUILD_DIR)/tb_save_ram.vvp $(SAVE_RAM_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_save_ram.vvp | grep -q "^PASSED" || { echo "FAILED: tb_tau_save_ram SYSP=$$1 BRP=$$2"; exit 1; }; done; echo "tb_tau_save_ram: PASSED (4 clock configurations)"
+	@set -e; for b in 1 2 3 4 5 6; do $(IVERILOG) -g2012 -Ptb_tau_save_ram.BUG=$$b -o $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp $(SAVE_RAM_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: tau_save_ram BUG=$$b"; exit 1; else echo "mutant killed: tau_save_ram BUG=$$b"; fi; done
+
+# ---- Meter-settings save RAM, CPU side in tau_soc.v with the real CPU (sim/tb_save_soc.v, firmware sim/fw_save/main.c): MODE 0 raw MMIO (back to back reads and writes, the flush against the model), MODE 1 the self-test of
+# fw2/cores/save_probe_core.h across three boots (zero file, the file the Quit wrote, a file with a lost tail). The mutants (block left out; the RAM's own mutants through the SoC) must FAIL ----
+SAVE_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_save_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_save_ram.sv src/fpga/core/tau_cdc_gray_ctr.sv
+SAVE_GCC = "$(RV_BIN)/riscv-none-elf-gcc" -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_save/main.c
+define save_fw
+	$(SAVE_GCC) -DMODE=$(1) -o $(RTL_BUILD_DIR)/fw_save$(1).elf && "$(RV_BIN)/riscv-none-elf-objcopy" -O binary $(RTL_BUILD_DIR)/fw_save$(1).elf $(RTL_BUILD_DIR)/fw_save$(1).bin
+endef
+define save_run
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=$(1) $(2) -o $(RTL_BUILD_DIR)/tb_save_soc$(1).vvp $(SAVE_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_save_soc$(1).vvp +ROM=$(RTL_BUILD_DIR)/fw_save$(1).bin > $(RTL_BUILD_DIR)/save_soc$(1).log; tail -3 $(RTL_BUILD_DIR)/save_soc$(1).log; grep -q "^PASSED" $(RTL_BUILD_DIR)/save_soc$(1).log
+endef
+define save_mut
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=$(1) $(2) -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save$(1).bin | grep -q "^PASSED"; then echo "MUTANT SURVIVED: $(3)"; exit 1; else echo "mutant killed: $(3)"; fi
+endef
+test-rtl-save-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
+	$(call save_fw,0)
+	$(call save_fw,1)
+	$(call save_run,0,)
+	$(call save_run,1,)
+	@$(PYTHON) sim/check_save_soc.py < $(RTL_BUILD_DIR)/save_soc1.log
+	$(call save_mut,0,-Ptb_save_soc.OFF=1,block left out of the SoC (mode 0))
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.OFF=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: block left out of the SoC (mode 1)"; exit 1; else echo "mutant killed: block left out of the SoC (mode 1)"; fi
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.BUG=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: bridge read one stage too slow (mode 1)"; exit 1; else echo "mutant killed: bridge read one stage too slow (mode 1)"; fi
+	$(call save_mut,0,-Ptb_save_soc.BUG=4,reads do not step the index)
+	$(call save_mut,0,-Ptb_save_soc.BUG=6,writes do not step the index)
+	$(call save_mut,0,-Ptb_save_soc.BUG=3,no byte swap on CPU writes)
+
 # ---- Wall clock registers and the SDRAM statistics window in tau_soc.v with the real CPU (sim/tb_wall_soc.v, firmware sim/fw_wall/main.c); the mutants (block left out; the words following the bridge) must FAIL ----
 WALL_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_wall_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_rtc_cdc.sv src/fpga/core/tau_sdr_stat_win.sv
 WALL_GCC = $(RV_BIN)/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_wall/main.c
@@ -847,6 +887,7 @@ test-rtl-sdr-stat-win: | $(RTL_BUILD_DIR)
 rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_scanout -Isrc/fpga/core src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gfx src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_ctr.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_save_ram -Isrc/fpga/core src/fpga/core/tau_save_ram.sv src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tgt_cmd src/fpga/core/tgt_cmd.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv

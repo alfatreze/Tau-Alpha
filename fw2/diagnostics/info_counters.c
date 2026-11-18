@@ -11,6 +11,7 @@
 #include "check_page.h"
 #if P2_DIAG
 #include "preset_probe.h"
+#include "save_probe.h"
 #include "name_matrix.h"
 #endif
 #ifdef P2_PACKS
@@ -170,6 +171,16 @@ const cnt_t counters_table[] = {
     { "PP READ MAX",  CK_U32, CU_CYC,    &pp_read_max },
     { "PP FILL MIN",  CK_U32, CU_PAIRS,  &pp_fill_min },            /* audio ring fill (pairs) when a probe started; 48,672 pairs = 1.10 s */
     { "PP DRY",       CK_U32, CU_NONE,   &pp_dry },                 /* times the audio fell behind during a probe: must stay 0 */
+    { "SV PRESENT",   CK_U32, CU_NONE,   &sv_state.present },       /* save-slot self-test (S1 spike, docs/features/meters/METER_SAVE_FILE_TEST.md): 1 = the bitstream has the save RAM (TAU_SAVE) */
+    { "SV LOAD WORDS",    CK_U32, CU_NONE,   &sv_state.bridge_words },  /* WORDS the Pocket's bridge wrote into the RAM at the load; 2,048 = the whole 8 KB file arrived, 0 = nothing was loaded (file missing, slot not declared) */
+    { "SV TABLE",     CK_U32, CU_BYTES,  &sv_state.table_bytes },   /* the size APF's slot table holds for the save slot: what the Quit writes back (8,192 expected; 0 = slot not in the table) */
+    { "SV BOOTS",     CK_U32, CU_NONE,   &sv_state.boots },         /* this boot's number from the file: 1 first boot, then +1 per boot whose predecessor's write came back through a Quit */
+    { "SV CRC",       CK_U32, CU_NONE,   &sv_state.crc },           /* the loaded file's CRC-32: 0 not checked (first boot), 1 ok, 2 BAD */
+    { "SV PAT BAD",   CK_U32, CU_NONE,   &sv_state.pat_bad },       /* words of the loaded body that differ from the pattern: 0 = pattern ok */
+    { "SV LAST",      CK_HEX32, CU_NONE, &sv_state.last },          /* the value the PREVIOUS boot wrote, as loaded now: equals the previous boot's SV WRITTEN */
+    { "SV WRITTEN",   CK_HEX32, CU_NONE, &sv_state.written },       /* the value THIS boot wrote */
+    { "SV PREV EPOCH", CK_U32, CU_NONE,  &sv_state.prev_epoch },    /* the wall-clock epoch the previous boot stored (0 = the host's clock had not arrived) */
+    { "SV MS",        CK_U32, CU_MS,     &sv_state.ms },            /* the self-test's own time: read, verify, write */
 #ifdef P2_PACKS
     { "MTOC STATE",   CK_U32, CU_NONE,   &mtoc_state },            /* the meter bin read at boot (external meters P2.2): 0 no bin, 1 sound and in use, 2 every bin tried was refused */
     { "MTOC COUNT",   CK_U32, CU_NONE,   &mtoc_count },            /* rows in its TOC (7 for the shipped bin) */
@@ -494,7 +505,13 @@ const cnt_t counters_table[] = {
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
 
-void counters_init(void) { mc_update(&counters_up_clk, cycles(), CLK_HZ); }
+void counters_init(void)
+{
+    mc_update(&counters_up_clk, cycles(), CLK_HZ);
+#if P2_DIAG
+    save_probe_run();      /* S1 spike of the meter save file (docs/features/meters/METER_SAVE_FILE_SPEC.md): once per boot, here because this file is cold code (the self-test adds nothing to the hot image); does nothing without TAU_SAVE */
+#endif
+}
 
 #if P2_DIAG
 /* The statistics window (MMIO 0x1D4/0x1D8): select, wait for the snapshot (a few clk_sys cycles), read. A bitstream without it leaves the rows at 0. */

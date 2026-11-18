@@ -126,3 +126,26 @@ def add_assets_slot(core_dir: Path) -> None:
         return
     dj["data"]["data_slots"].append(expect)
     save(core_dir / "data.json", dj)
+
+
+SAVE_SLOT_ID = 11
+SAVE_ADDRESS = "0x30000000"      # tau_save_ram.sv's bridge region (core_top.v: bridge_addr[31:28] == 3); the RAM is 8 KB
+SAVE_SIZE = 8192
+
+
+def add_save_probe_slot(core_dir: Path, parameters: str = "0x2") -> None:
+    """Data slot 11: tau-save-probe.bin, the S1 spike of the meter save file (docs/features/meters/METER_SAVE_FILE_SPEC.md): a `nonvolatile` slot (loaded at boot into the save RAM at `address`, read back from it and
+    written over the file at Quit), core-specific (parameter bit 1: Saves/<platform>/<core>/), not deferload, exactly 8,192 bytes (size_exact: a file of any other size is not loaded). The file name is given in the slot
+    (bit 2 clear), never cloned from another slot: the September attempt wrote a slot's contents over the user's music because a nonvolatile slot took the name of the audio slot (docs/A088_UPSTREAM_CHECKS.md).
+    `parameters` is "0x2" for the file that must already exist (the installer creates it zeroed); "0x22" adds bit 5 (the Pocket fills the memory with 0xFF if the file is missing) for the second probe, which tests who may create the first file."""
+    assert parameters in ("0x2", "0x22"), parameters
+    dj = json.loads((core_dir / "data.json").read_text())
+    want = {"name": "Meter save", "id": SAVE_SLOT_ID, "required": False, "nonvolatile": True, "parameters": parameters, "filename": "tau-save-probe.bin",
+            "size_exact": SAVE_SIZE, "size_maximum": SAVE_SIZE, "address": SAVE_ADDRESS}
+    slots = dj["data"]["data_slots"]
+    existing = next((x for x in slots if x["id"] == SAVE_SLOT_ID), None)
+    if existing is not None:
+        assert existing == want, f"data slot {SAVE_SLOT_ID} already declared, and differently: {existing}"
+        return
+    slots.append(want)
+    save(core_dir / "data.json", dj)

@@ -313,6 +313,10 @@ def main():
     if a.carry_from:
         print(f"media:   carry from {a.carry_from}, rebuild the library index for {new_id}")
     print(f"remove:  {a.remove or 'nothing'}")
+    seeds = sorted(f for f in (pkg / "Saves").rglob("*") if f.is_file() and not is_junk(f.name)) if (pkg / "Saves").is_dir() else []
+    for f in seeds:       # the seed file of a nonvolatile data slot (the meter save file, METER_SAVE_FILE_SPEC.md): created when missing, NEVER overwritten (it holds what the Pocket wrote back at Quit)
+        rel = f.relative_to(pkg)
+        print(f"save:    {rel}: " + ("exists on the card, kept as it is" if (card / rel).exists() else "missing, will be created (zeroed seed)"))
     if compat_entry is not None:
         obs = [e["path"] for e in compat_entry["layout"] if e["role"] == "obsolete" and (card / e["path"]).exists()]
         print(f"obsolete: {obs or 'none on the card'}; then check the card against {compat['release']}")
@@ -355,6 +359,7 @@ def main():
     # core folder itself is in the backup above whenever it existed.
     pkg_rel = [str(f.relative_to(pkg)) for f in sorted((pkg / "Assets" / new_plat).rglob("*")) if f.is_file()]
     pkg_rel += [f"Platforms/{new_plat}.json", f"Platforms/_images/{new_plat}.bin"]
+    pkg_rel += [str(f.relative_to(pkg)) for f in seeds]               # a created seed is removed again by a restore; an existing one is snapshotted (and not touched)
     snap = bdir / "_overwritten"
     pre = {}
     for rel in pkg_rel:
@@ -399,6 +404,14 @@ def main():
     (card / "Platforms/_images").mkdir(parents=True, exist_ok=True)
     shutil.copy2(pkg / "Platforms" / f"{new_plat}.json", card / "Platforms" / f"{new_plat}.json")
     shutil.copy2(pkg / "Platforms/_images" / f"{new_plat}.bin", card / "Platforms/_images" / f"{new_plat}.bin")
+    for f in seeds:
+        rel = f.relative_to(pkg); dst = card / rel
+        if dst.exists():
+            print(f"   {rel}: exists, kept (the one writer of this file is the Pocket)")
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(f, dst)
+            if sha(f) != sha(dst): restore(f"{rel} differs after copy")
+            print(f"   {rel}: created ({dst.stat().st_size} bytes, zeroed seed)")
     test_fault("copy")
     for rel in (f"Cores/{new_id}", f"Assets/{new_plat}"):
         want, got = tree(pkg / rel), tree(card / rel)
