@@ -53,6 +53,9 @@ tmpl = ROOT / "sdk" / "template"
 with tempfile.TemporaryDirectory() as td:
     p = Path(td) / "t"; shutil.copytree(tmpl, p, ignore=shutil.ignore_patterns("dist", "build"))
     m = json.loads((p / "meter.json").read_text()); m["id"] = "9f3c1e7a52b84d06a1c9e34b7d20f518"; (p / "meter.json").write_text(json.dumps(m))
+    r0 = build.build(p, Path(td) / "o0", tc=TC); rep0 = suite.run(r0["package"], quick=True, tc=TC)
+    check("the template with its placeholder text gets exactly the PKG-PLACEHOLDER warning and no failure", rep0.ids("warn") == ["PKG-PLACEHOLDER"] and not rep0.ids("fail"), rep0.text())
+    m["author"] = "Test Author"; (p / "meter.json").write_text(json.dumps(m)); (p / "LICENSE").write_text((p / "LICENSE").read_text().replace("Your Name", "Test Author"))
     r = build.build(p, Path(td) / "o", tc=TC)
     rep = suite.run(r["package"], tc=TC)
     check("the template builds into a .tmeter and passes the full suite (%d checks)" % len(rep.results), rep.exit_code() == 0 and not rep.ids("warn"), rep.text())

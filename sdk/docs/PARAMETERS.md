@@ -13,7 +13,7 @@ A meter's **parameters** are what the Configure page lets the user change. You d
 ```
 | `type` | Shows as | Value | Rules |
 |---|---|---|---|
-| `u8`, `u16` | a number | `min` to `max` in `step`s | `min` <= `default` <= `max`, `step` > 0 |
+| `u8`, `u16` | a number | `min` to `max` in `step`s | `min` <= `default` <= `max`, `step` > 0. Both types are carried as 16-bit values (0 to 65535): `u8` is only a label, so a `u8` parameter may go up to 400; `mtr_param(i)` returns a `uint16_t` either way |
 | `enum` | a choice | the index of `values` (0 first) | 2 to 12 values, each at most 23 characters; underscores show as spaces |
 | `bool` | on / off | 0 or 1 | |
 | `u16` with a key starting `custom_` (or `color_green`, `color_yellow`, `color_red`) | a colour picker | a raw RGB565 value | |

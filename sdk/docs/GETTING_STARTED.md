@@ -14,7 +14,7 @@ python3 ../tau-alpha-meter-sdk/tau-meter doctor                  # is the compil
 ```
 tau-meter id new                  # prints 32 hex digits
 ```
-Edit `meter.json`: paste the id into `"id"`, set `"name"` (1 to 23 printable characters), `"author"` (your name), `"licence"` (a name such as `"MIT"`; the text in `LICENSE` is what binds, and it travels in the package), `"homepage"` (a link to your page, or `""` if you have none; it is shown, not followed). Edit `LICENSE`: replace `Your Name` and keep or change the licence text; do not copy code under a licence you cannot meet. Then edit `params` and `presets.json` to your meter's settings ([PARAMETERS.md](PARAMETERS.md)); the template has two parameters and three presets.
+Edit `meter.json`: paste the id into `"id"`, set `"name"` (1 to 23 printable characters), `"author"` (your name), `"licence"` (a name such as `"MIT"`; the text in `LICENSE` is what binds, and it travels in the package), `"homepage"` (a link to your page, or `""` if you have none; it is shown, not followed). Edit `README.md` (describe your meter) and `LICENSE`: replace `Your Name` and keep or change the licence text; do not copy code under a licence you cannot meet. Then edit `params` and `presets.json` to your meter's settings ([PARAMETERS.md](PARAMETERS.md)); the template has two parameters and three presets.
 
 **2. Build and test.**
 ```

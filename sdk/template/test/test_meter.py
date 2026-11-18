@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YOUR meter's own behaviour tests, on top of the conformance suite (`make test` runs both). This file is an EXAMPLE for the template's bars: replace the checks with what YOUR meter must do.
+"""YOUR meter's own behaviour tests, on top of the conformance suite (`make test` runs both). The checks below are generic examples: add checks for what YOUR meter must do and update this comment.
 It shows how to drive the SDK's host runner from Python (docs/TESTING.md, "Driving the runner"): one Runner per run, one .tick() per picture, and each tick returns the host-table calls the meter made.
 Generic checks kept here (true of most meters): the meter reacts to loud music; a forced repaint gives the same picture whatever came before.
 Usage: python3 test/test_meter.py [path to the SDK]"""

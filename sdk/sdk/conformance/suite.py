@@ -448,6 +448,8 @@ def run(path, profile="author", quick=False, preview=None, previous=None, tc=Non
     if groups.get("PKG-ZIP") or groups.get("PKG-PATH") or groups.get("PKG-SIZE"):
         rep.add("RUN", SKIP, "the package was refused before any of its files were read"); return rep
     tau_min_check(rep, man)
+    ph = [n for n in ("LICENSE", "README.md") if n in files and b"Your Name" in files[n]] + (["meter.json author"] if man.get("author") == "Your Name" else [])
+    if ph: rep.add("PKG-PLACEHOLDER", WARN, "the package still carries the template's placeholder text (\"Your Name\") in %s" % ", ".join(ph), "Put your own name in LICENSE and meter.json; edit README.md to describe your meter.")
     h = loader_checks(rep, pack, man)
     if h is None:
         rep.add("RUN", SKIP, "the loader would refuse this pack, so it is never run"); return rep
