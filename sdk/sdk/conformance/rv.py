@@ -82,17 +82,17 @@ def scan(image, entry, scratch_lo, scratch_hi):
             if k in ("compressed", "illegal"): add(pc, "an instruction an RV32IM core does not have (%s)" % d["text"]); break
             if k == "system": add(pc, "%s: a meter may not make system calls or touch processor state" % d["text"]); break
             if k == "fence_i": add(pc, "fence.i: instruction-cache control belongs to the player"); break
-            if k == "lui": regs[d["rd"]] = d["imm"]
-            elif k == "auipc": regs[d["rd"]] = (WIN_CODE + pc + d["imm"]) & 0xFFFFFFFF
-            elif k == "alui" and d["name"] == "addi" and d["rs1"] in regs: regs[d["rd"]] = (regs[d["rs1"]] + d["imm"]) & 0xFFFFFFFF
-            elif k in ("alui", "alu", "load") and d.get("rd"): regs.pop(d["rd"], None)
-            if k == "alui" and d["name"] == "addi" and d["rs1"] == 0: regs[d["rd"]] = d["imm"] & 0xFFFFFFFF
             if k in ("load", "store") and d["rs1"] in regs:
                 a = (regs[d["rs1"]] + d["imm"]) & 0xFFFFFFFF
                 if 0x80000000 <= a < 0x80001000: add(pc, "touches the hardware register 0x%08x: a meter may use only the host table" % a)
                 elif not allowed_data(a, scratch_lo, scratch_hi, d["size"]) and not (WIN_CODE <= a < WIN_CODE + WIN_SIZE and k == "load"):
                     add(pc, "uses the absolute address 0x%08x, which is not the meter's own memory" % a)
                 elif WIN_CODE <= a < WIN_CODE + WIN_SIZE: add(pc, "reads data through the code alias 0x%08x (use the data alias)" % a)
+            if k == "lui": regs[d["rd"]] = d["imm"]
+            elif k == "auipc": regs[d["rd"]] = (WIN_CODE + pc + d["imm"]) & 0xFFFFFFFF
+            elif k == "alui" and d["name"] == "addi" and d["rs1"] in regs: regs[d["rd"]] = (regs[d["rs1"]] + d["imm"]) & 0xFFFFFFFF
+            elif k in ("alui", "alu", "load") and d.get("rd"): regs.pop(d["rd"], None)
+            if k == "alui" and d["name"] == "addi" and d["rs1"] == 0: regs[d["rd"]] = d["imm"] & 0xFFFFFFFF
             if k == "branch":
                 work.append((pc + d["off"], {})); pc += 4; continue
             if k == "jal":

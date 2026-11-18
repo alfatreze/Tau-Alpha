@@ -71,8 +71,10 @@ class Runner:
                 f = ln.split(" ")
                 if f[1] == "bad": raise RunnerError("the runner refused the tick line")
                 t.status = f[1]; t.cycles, t.instr, t.cmds, t.ret, t.stack = (int(v) for v in f[2:7])
-                kv = dict(x.split("=") for x in f[7:])
-                t.wd, t.strikes, t.clean, t.judged, t.struck = int(kv["wd"]), int(kv["strikes"]), int(kv["clean"]), kv["judged"] == "1", kv["struck"] == "1"
+                if len(f) > 7:
+                    kv = dict(x.split("=") for x in f[7:])
+                    t.wd, t.strikes, t.clean, t.judged, t.struck = int(kv["wd"]), int(kv["strikes"]), int(kv["clean"]), kv["judged"] == "1", kv["struck"] == "1"
+                else: t.struck = True                                  # the pack was struck out earlier: the player does not run it again this session
                 return t
 
     def close(self):

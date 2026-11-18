@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "00000000000000000000000000000000",
+  "name": "FIXTURE",
+  "version": "1.0.0",
+  "author": "tau-meter conformance fixtures",
+  "licence": "MIT",
+  "homepage": "",
+  "abi": "1.0",
+  "tau_min": "0.7",
+  "params_rev": 1,
+  "params": [ { "key": "level", "label": "Level", "type": "u8", "min": 0, "max": 100, "step": 5, "default": 50 } ],
+  "p2": { "cmds": 24, "max_cycles": 200000, "compose": false }
+}
