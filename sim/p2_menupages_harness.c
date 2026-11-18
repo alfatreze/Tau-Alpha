@@ -1,4 +1,4 @@
-/* Host harness for fw2/cores/menupages_core.h. Input: key letters (U D L R A B), one per token; "v i n" sets value i to n, "n N" sets the number of METER list rows. After each key prints: depth page sel top and the effect. */
+/* Host harness for fw2/cores/menupages_core.h. Input: "P pg" prints the rows of a page; key letters (U D L R A B), one per token; "v i n" sets value i to n, "n N" sets the number of METER list rows. After each key prints: depth page sel top and the effect. */
 #include <stdio.h>
 #include "menupages_core.h"
 int main(void)
@@ -7,6 +7,7 @@ int main(void)
     printf("open depth=%u page=%u sel=%u\n", m.depth, m.page[m.depth], m.sel[m.depth]);
     while (scanf("%15s", tok) == 1) {
         if (tok[0] == 'n') { unsigned n; if (scanf("%u", &n) == 1) mg_set_choice(V_METER, 0, n); continue; }        /* "n N": the METER list holds N rows (the firmware sets it from the TOC) */
+        if (tok[0] == 'P') { unsigned pg; if (scanf("%u", &pg) == 1 && pg < PG_COUNT) { printf("page %u title %s rows", pg, mg_pages[pg].title); for (uint32_t i = 0; i < mg_pages[pg].n; i++) printf(" %s|%u|%u;", mg_pages[pg].rows[i].label, mg_pages[pg].rows[i].kind, mg_pages[pg].rows[i].arg); printf("\n"); } continue; }       /* "P pg": the labels, kinds and args of a page's rows (a label may contain spaces: they are shown as they are, rows end with ';') */
         if (tok[0] == 'v') { unsigned i, n; if (scanf("%u %u", &i, &n) == 2) vals[i] = n; continue; }
         uint32_t k = tok[0] == 'U' ? 1u << 0 : tok[0] == 'D' ? 1u << 1 : tok[0] == 'L' ? 1u << 2 : tok[0] == 'R' ? 1u << 3 : tok[0] == 'A' ? 1u << 4 : 1u << 5;
         mg_effect_t e = mg_input(&m, k, vals);

@@ -26,7 +26,7 @@
 #define ACC  UI_ACCENT
 #define ROW_H 34u
 #define TOP_Y 34u
-/* The METER list (fw2/ui/meterlist_view.c) is the TOC's visible rows in TOC order, up to 64, scrolling seven at a time: the same list and order Now Playing's X walks (meters_ui_*). */
+/* The METERS page (fw2/ui/meterlist_view.c; Settings > METERS, below APPEARANCE) is the TOC's visible rows in TOC order, up to 64, scrolling seven at a time: the same list and order Now Playing's X walks (meters_ui_*). */
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
@@ -84,7 +84,7 @@ int settings_view_input(uint32_t edge)
     if (menu.page[menu.depth] == PG_CHOICE && menu.choice_val[menu.depth] == V_METER) {          /* the METER list */
         meterlist_msg_clear();                                               /* the refusal line goes with the next key */
         if (edge & (KEY_A | KEY_X)) {
-            const uint32_t g = meterlist_guard(menu.sel[menu.depth], (edge & KEY_X) ? MLG_X : MLG_A);      /* A picks, X selects the row and opens its Configure page; a meter this firmware cannot run is refused (one line) */
+            const uint32_t g = meterlist_guard(menu.sel[menu.depth], (edge & KEY_X) ? MLG_X : MLG_A);      /* A sets the meter; X opens the Configure page of the highlighted one (its pack is loaded for the page, the set meter comes back when it is left); a refusal is one line */
             if (g == MLG_REFUSED) { dirty = 1; return VW_STAY; }
             if (g == MLG_CONFIGURE) { resume = 1; return V_CONFIGURE; }
         }
@@ -106,7 +106,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_A16) mp3play_a16_set(e.value);
         pull();
         break;
-    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : e.id == ACT_CHECK ? V_CHECK : e.id == ACT_CONTROLS ? V_CONTROLS : e.id == ACT_HELP ? V_HELP : e.id == ACT_ABOUT ? V_ABOUT : V_REPORT;
+    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CHECK ? V_CHECK : e.id == ACT_CONTROLS ? V_CONTROLS : e.id == ACT_HELP ? V_HELP : e.id == ACT_ABOUT ? V_ABOUT : V_REPORT;
     case EF_CLOSE: return V_NOWPLAYING;
     default: break;
     }

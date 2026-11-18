@@ -22,4 +22,12 @@ uint32_t    meters_saved_id(void);
 void        meters_keep_preset(uint32_t pos, uint32_t id1);          /* the boot: the saved preset of a saved meter that is not on screen is written back unchanged */
 int         meters_select_hash(uint32_t h31);                        /* the boot restore: 1 = that meter runs */
 const uint16_t *meters_shipped_max_of(uint32_t table_index, uint32_t *np);   /* parameter maxima of a shipped meter by its layout-1 index (settings_init_t) */
+/* Configure of ANY meter (0.7.5): the page works on the meter on screen, so another row is loaded for the page and the set meter comes back when it is left (never touching the saved selection, see meters.c). */
+int         meters_cfg_begin(uint32_t row);                          /* 0 = the page's meter (cur) is `row`; else the refusal code (the set meter is back at once) */
+void        meters_cfg_end(void);                                    /* the page was left: the set meter, its preset and its tuning come back (no effect when nothing is previewed) */
+void        meters_cfg_remember(void);                               /* before the page is left for the Report: the row it showed ... */
+uint32_t    meters_cfg_reopen(void);                                 /* ... returned once when the page comes back (0xFFFFFFFF: none) */
+uint32_t    meters_cfg_active(void);                                 /* 1 while the page shows a meter that is not the set one */
+uint32_t    meters_cfg_set(void);                                    /* the set meter's row (the one the commit rule and the saved word follow) */
+uint32_t    meters_row_configurable(uint32_t row);                   /* selectable and the TOC row has parameters: the rows that get the settings icon */
 #endif

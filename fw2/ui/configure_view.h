@@ -3,6 +3,7 @@
 #define P2_CONFIGURE_VIEW_H
 #include <stdint.h>
 void configure_view_enter(void);
+void configure_view_exit(void);            /* the page is left: the set meter comes back when the page showed another one (meters_cfg_end) */
 void configure_view_redraw(void);          /* the colours changed: repaint in place, keep the selection */
 int  configure_view_input(uint32_t edge);  /* VW_STAY or VW_BACK */
 void configure_view_mark(void);            /* once per pass: the preview animates every pass, the list when something changed */

@@ -13,7 +13,12 @@ void meters_ext_enter(uint32_t m) { (void)m; }
 uint32_t meter_count = 1; const meter_def_t *meters_def(uint32_t m) { (void)m; return &meter_table[0]; }
 const char *meters_param_label(uint32_t m, uint32_t id, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].label; }
 const char *meters_param_choice(uint32_t m, uint32_t id, uint32_t val, char *buf, uint32_t n) { (void)m; (void)buf; (void)n; return pd[id].vals[val]; }
-uint32_t meters_cur(void) { return 0; } uint32_t meters_preset_of(uint32_t m) { (void)m; return cur_pre; }
+static uint32_t curv, ends, begins, begin_arg, remembers, reopen_ret = 0xFFFFFFFFu;          /* the meter on screen; the calls the page makes to leave, remember and reopen a previewed meter */
+int meters_cfg_begin(uint32_t row) { begins++; begin_arg = row; curv = row; return 0; }
+void meters_cfg_end(void) { ends++; }
+void meters_cfg_remember(void) { remembers++; }
+uint32_t meters_cfg_reopen(void) { const uint32_t r = reopen_ret; reopen_ret = 0xFFFFFFFFu; return r; }
+uint32_t meters_cur(void) { return curv; } uint32_t meters_preset_of(uint32_t m) { (void)m; return cur_pre; }
 void meters_preset_select(uint32_t m, uint32_t p) { (void)m; cur_pre = p; custom = 0; mv[0] = 16; mv[1] = 0; mv[2] = 1; mv[3] = 200; }
 uint32_t meters_npre(uint32_t m) { (void)m; return 3; }
 void meters_params_changed(uint32_t m) { (void)m; custom = 1; }
@@ -42,5 +47,10 @@ int main(void)
     configure_view_input(KEY_DOWN); configure_view_input(KEY_RIGHT); show();          /* EASE AA -> BB */
     configure_view_input(KEY_DOWN); configure_view_input(KEY_RIGHT); show();          /* PEAK off: HOLD row disappears */
     configure_view_input(KEY_UP); configure_view_input(KEY_UP); configure_view_input(KEY_UP); configure_view_input(KEY_RIGHT); show();   /* up to PRESET, next preset */
+    printf("exit-before %u\n", ends); configure_view_exit(); printf("exit-after %u\n", ends);                    /* leaving the page asks the registry to bring the set meter back, once */
+    curv = 0; configure_view_enter(); { const int r = configure_view_input(KEY_X); printf("export %d remembers %u\n", r, remembers); }       /* X: the Report; the row is remembered for the way back */
+    reopen_ret = 5; configure_view_enter(); printf("reopen begins %u arg %u cur %u\n", begins, begin_arg, curv);             /* back from the Report: the remembered meter is loaded again */
+    reopen_ret = curv; configure_view_enter(); printf("reopen-same begins %u\n", begins);                                    /* ... unless it is the meter on screen already */
+    configure_view_enter(); show(); curv = 9; configure_view_mark(); show(); { const int r = configure_view_input(KEY_DOWN); printf("lost-key %d\n", r); }      /* the page's meter was struck out: the page says so and any key goes back */
     return 0;
 }

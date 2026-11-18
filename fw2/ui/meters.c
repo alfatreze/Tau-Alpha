@@ -11,6 +11,7 @@
 #include "../generated/meter_registry.h"
 #include "../cores/metr_core.h"
 #include "../cores/tune_core.h"
+#include "meters_settings.h"
 #include "../cores/meter_budget_core.h"
 #include "../cores/pack_strike_core.h"
 #include "../cores/helios_core.h"
@@ -57,6 +58,7 @@ static uint32_t slot_of_hash(uint32_t h) { for (uint32_t i = 0; i < SHIPPED_METE
 static uint32_t mid_of_slot(uint32_t s) { return s < SHIPPED_METERS_N ? shipped_meter_mid[s] : (uint32_t)MTR_NO_MID; }
 /* The commit rule and the saved selection (PSRAM state, word accesses): see meters_select_row. */
 MTR_STATE uint32_t msel_saved;
+MTR_STATE static uint32_t cfv_on, cfv_set, cfv_pre, cfv_id, cfv_pend, cfv_pendh, cfv_re;      /* the Configure page of a row that is not the set meter (meters_cfg_begin): the set meter, its preset, and a selection that was waiting for its clean run */
 MTR_STATE static uint32_t keep_pos, keep_id, pend_on, pend_t0;      /* the 31-bit hash the register file holds; its preset while another meter is shown; a selection waiting for its clean run, and when it started */
 MTR_STATE uint32_t msel_commits, msel_aborts, msel_clean_s, msel_pend_hash, msel_skipped, msel_notune, msel_cur_notune, msel_rows;    /* Info rows MSEL: commits, selections cut before they committed (hang, strike, refusal), seconds the selection has run cleanly, the hash waiting, rows skipped as unavailable, rows without tuning (key collision), whether the meter on screen has none, rows X can reach */
 #ifdef P2_PACKS
@@ -157,7 +159,20 @@ static uint32_t tune_cache[TUNE_SLOTS][TUNE_WORDS];
 static uint32_t tune_k[TUNE_SLOTS] = { TUNE_KEY_NONE, TUNE_KEY_NONE };           /* the key of the tuning in each slot (tune_key: the low 16 bits of the meter's id hash and the low 4 bits of its params_rev): a tuning follows its meter, not a table position */
 static uint8_t tune_newer;
 static void tune_clear_slot(uint32_t s) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = 0; tune_k[s] = TUNE_KEY_NONE; }
-static void tune_drop(uint32_t m) { const uint32_t key = row_key(m); for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_k[s] == key) tune_clear_slot(s); }       /* any tuning of meter m */
+static void tune_drop(uint32_t m) { mset_pool_drop(row_key(m)); }       /* any tuning of meter m */
+/* The pool of two tunings is the BACKEND of the settings interface (ui/meters_settings.h): these four are all the interface sees of it. */
+int mset_pool_find(uint32_t key) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_k[s] == key) return (int)s; return -1; }
+const uint32_t *mset_pool_words(uint32_t s) { return tune_cache[s < TUNE_SLOTS ? s : 0u]; }
+void mset_pool_drop(uint32_t key) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_k[s] == key) tune_clear_slot(s); }
+void mset_pool_store(uint32_t key, const uint32_t *w)
+{
+    uint32_t s = TUNE_SLOTS;                                        /* the slot of this meter, else an empty one, else the one saved least recently */
+    for (uint32_t i = 0; i < TUNE_SLOTS; i++) if (tune_k[i] == key) s = i;
+    for (uint32_t i = 0; i < TUNE_SLOTS && s == TUNE_SLOTS; i++) if (tune_k[i] == TUNE_KEY_NONE) s = i;
+    if (s == TUNE_SLOTS) s = tune_newer ? 0u : 1u;
+    for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
+    tune_k[s] = key; tune_newer = (uint8_t)s;
+}
 uint32_t meters_npre(uint32_t m) { return m != cur ? 1u : act.user_n ? act.user_n : def_npre(); }
 #ifndef P2_PACKS
 #define ext_id1(p) 0u
@@ -192,7 +207,7 @@ void meters_init(void)
 {
     packs_reset();
     tune_clear_slot(0u); tune_clear_slot(1u); tune_newer = 0u;
-    msel_saved = shipped_meter_hash[0] & 0x7FFFFFFFu; keep_pos = keep_id = 0u; pend_on = pend_t0 = 0u; metr_n = 0u;
+    msel_saved = shipped_meter_hash[0] & 0x7FFFFFFFu; keep_pos = keep_id = 0u; pend_on = pend_t0 = 0u; metr_n = 0u; cfv_on = cfv_set = cfv_pre = cfv_id = cfv_pend = cfv_pendh = 0u; cfv_re = 0xFFFFFFFFu;
     msel_commits = msel_aborts = msel_clean_s = msel_pend_hash = msel_skipped = msel_notune = msel_cur_notune = msel_rows = 0u;
     cur = 0; meter_count = METER_N;
     act_builtin(); meter_table[0].set_pre(0u);
@@ -259,16 +274,10 @@ void meters_tune_save(uint32_t m)            /* the parameters of the meter on s
     if (act.user_n) { if (!user_preset(act.pre, base, 0)) { tune_drop(m); return; } } else { def_set_pre(act.pre); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
     for (uint32_t i = 0; i < d->np && i < 40u; i++) d->mv[i] = keep[i];
     def_apply();
-    const uint32_t key = row_key(m); uint32_t np = 0; const uint16_t *mx = tune_max_of(key, &np);
-    uint32_t w[TUNE_WORDS];
-    if (mx && tune_pack(key, anchor_of(), keep, base, mx, np, w)) {
-        uint32_t s = TUNE_SLOTS;                                        /* the slot of this meter, else an empty one, else the one saved least recently */
-        for (uint32_t i = 0; i < TUNE_SLOTS; i++) if (tune_k[i] == key) s = i;
-        for (uint32_t i = 0; i < TUNE_SLOTS && s == TUNE_SLOTS; i++) if (tune_k[i] == TUNE_KEY_NONE) s = i;
-        if (s == TUNE_SLOTS) s = tune_newer ? 0u : 1u;
-        for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
-        tune_k[s] = key; tune_newer = (uint8_t)s;
-    } else tune_drop(m);
+    uint32_t np = 0; const uint16_t *mx = tune_max_of(row_key(m), &np);
+    meter_settings_t st; st.preset = (uint8_t)anchor_of(); st.n = 0;                  /* the sparse record: what differs from the preset (ui/meters_settings.h) */
+    for (uint32_t i = 0; i < np && i < MS_MAX_ENTRIES; i++) if (keep[i] != base[i]) { st.idx[st.n] = (uint8_t)i; st.val[st.n] = keep[i]; st.n++; }
+    if (!mx || !meter_settings_put(act.hash, act.rev, &st, mx, np)) tune_drop(m);
 }
 uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_METERCFG entry: manifest meter id, schema 1, preset (0xFF = tuned), nparams, then the values (two bytes for a wide one) */
 {
@@ -287,24 +296,14 @@ static uint32_t tune_words_key(const uint32_t *w)                    /* the key 
     if (!any) return TUNE_KEY_NONE;
     tune_from_words(w, b); return tune_get(b, &pos, 20u);
 }
-static uint32_t tune_words_anchor(const uint32_t *w)                 /* the preset a persisted tuning started from (the file's id + 1, else the position) */
-{
-    uint8_t b[16]; uint32_t pos = 28u;
-    tune_from_words(w, b); return tune_get(b, &pos, 7u);
-}
-static void tune_reapply(void)                                        /* the meter on screen was just loaded (or the saved words changed): apply the tuning stored for it, when it was made from the preset now selected */
+static void tune_reapply(void)                                        /* the meter on screen was just loaded (or the saved words changed): apply the settings stored for it, when they were made from the preset now selected */
 {
     if (!meters_present(cur) || !row_tunable(cur)) return;
-    const uint32_t key = row_key(cur);
-    for (uint32_t s = 0; s < TUNE_SLOTS; s++) {
-        if (tune_k[s] != key) continue;
-        uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
-        const uint32_t n = tune_unpack(tune_cache[s], tune_max_of, &mt, &pr, ix, vl);
-        if (!n || mt != key || pr != anchor_of()) continue;
-        const meter_def_t *d = mdef(cur);
-        for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
-        act.custom = 1u; def_apply(); force_next = 1;
-    }
+    uint32_t np = 0; const uint16_t *mx = tune_max_of(row_key(cur), &np); meter_settings_t st;
+    if (!mx || !meter_settings_get(act.hash, act.rev, mx, np, &st) || st.preset != anchor_of()) return;
+    const meter_def_t *d = mdef(cur);
+    for (uint32_t k = 0; k < st.n; k++) { uint32_t v = st.val[k]; const mpd_t *p = &d->pd[st.idx[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[st.idx[k]] = (uint16_t)v; }
+    act.custom = 1u; def_apply(); force_next = 1;
 }
 void meters_tune_apply(const uint32_t *wp, uint32_t newer)    /* the persisted words changed (boot): keep them in the pool; the tuning of the meter on screen is applied when it belongs to the preset now selected, the other slot's meter gets its tuning when it is selected */
 {
@@ -808,8 +807,8 @@ uint32_t meters_list_index(uint32_t row) { uint32_t n = 0; for (uint32_t m = 0; 
 static void activate_params(void)                                    /* the meter on screen was just selected: its preset (the one a saved tuning started from, else the first), then its tuning */
 {
     uint32_t p = act.pre;                                            /* the boot preset of its METR entry, else the first */
-    if (row_tunable(cur)) for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_k[s] == row_key(cur)) {
-        const uint32_t pr = tune_words_anchor(tune_cache[s]);        /* a tuned meter comes back on the preset it was tuned from, so its tuning applies */
+    uint32_t pr = 0;
+    if (row_tunable(cur) && meter_settings_preset(act.hash, act.rev, &pr)) {          /* a tuned meter comes back on the preset it was tuned from, so its tuning applies */
 #ifdef P2_PACKS
         if (act.ext) { const int pos = pr ? mph_find(pr) : 0; if (pos >= 0) { p = (uint32_t)pos; act.want_id = (uint8_t)pr; } }
         else
@@ -855,6 +854,43 @@ static void select_row(uint32_t r, uint32_t boot)
 }
 #endif
 void meters_select(uint32_t idx) { select_row(idx, 0u); }
+/* ---- Configure of a meter that is NOT the set one (release 0.7.5, D-M25) ----
+ * The page works on the meter on screen (`cur`), so opening it for another row LOADS that row for the page (the same select_row as everywhere: quiesce, counted card reads, one forced repaint, strikes and refusals as for any
+ * pack) and leaving it loads the set meter back. It goes through select_row's boot path (boot = 1): no commit rule, no pending selection, no abort count, nothing reaches the saved word, so a Configure NEVER changes which
+ * meter the card remembers; only A in the list (meters_select) does. What is saved of the page's meter is its tuning, through the settings interface, like any other. */
+#ifdef P2_PACKS
+int meters_cfg_begin(uint32_t row)                                   /* 0 = cur is now `row` (a preview when it is not the set meter); else the refusal code, and the set meter is back */
+{
+    if (cfv_on) meters_cfg_end();                                    /* never nested */
+    if (row == cur) return 0;                                        /* the set meter: nothing to remember, nothing to restore */
+    if (!meters_present(row)) return 1;
+    cfv_set = cur; cfv_pre = act.pre; cfv_id = act.want_id; cfv_pend = pend_on; cfv_pendh = msel_pend_hash;
+    select_row(row, 1u);
+    cfv_on = 1u;
+    if (cur != row) { const uint32_t code = row < MTR_ROWS && row_code[row] ? row_code[row] : 1u; meters_cfg_end(); return (int)code; }
+    return 0;
+}
+void meters_cfg_end(void)                                            /* the Configure page was left: the set meter comes back with its preset (and its tuning, which activate_params finds in the pool) */
+{
+    if (!cfv_on) return;
+    cfv_on = 0u;
+    select_row(cfv_set, 1u);
+    if (cur == cfv_set && !act.custom) meters_preset_restore(cur, cfv_id, cfv_pre);
+    if (cfv_pend) { if (cur == cfv_set) { pend_on = 1u; pend_t0 = cycles(); msel_pend_hash = cfv_pendh; } else msel_aborts++; }        /* a selection that was waiting for its clean run waits again, from now */
+}
+void meters_cfg_remember(void) { if (cfv_on) cfv_re = cur; }         /* the page is about to be left for the Report: remember which meter it showed */
+uint32_t meters_cfg_reopen(void) { const uint32_t r = cfv_re; cfv_re = 0xFFFFFFFFu; return r; }       /* ... and ask for it when the page comes back (0xFFFFFFFF: none; consumed once) */
+uint32_t meters_cfg_active(void) { return cfv_on; }                  /* 1 while a Configure page shows a meter that is not the set one */
+uint32_t meters_cfg_set(void) { return cfv_on ? cfv_set : cur; }
+#else
+int meters_cfg_begin(uint32_t row) { return row == 0u ? 0 : 1; }       /* no loadable meters: Winamp Bars only */
+void meters_cfg_end(void) { }
+void meters_cfg_remember(void) { }
+uint32_t meters_cfg_reopen(void) { return 0xFFFFFFFFu; }
+uint32_t meters_cfg_active(void) { return 0u; }
+uint32_t meters_cfg_set(void) { return 0u; }
+#endif
+uint32_t meters_row_configurable(uint32_t m) { return (meters_row_flags(m) & MROW_SELECTABLE) && mdef(m)->np > 0u; }       /* the row can run here and its TOC row says it has parameters */
 void meters_next(int dir)
 {
     select_row(meters_ui_step(cur, dir), 0u);                           /* the next row of the one list (the Settings list shows the same rows in the same order) */
@@ -956,3 +992,6 @@ void meters_tick(int allowed)
     if (spent > meter_stats.max_cyc[act.slot]) meter_stats.max_cyc[act.slot] = spent;                         /* the statistics row of a shipped meter (slot 0..6), 7 for any other meter */
     if (pend_on) { const uint32_t el = (cycles() - pend_t0) / CLK_HZ; msel_clean_s = el; if (el >= MTR_COMMIT_SECS) commit_now(); }          /* a drawn tick that ends MTR_COMMIT_SECS after the selection, with nothing cut in between: the meter is clean, the saved selection follows it */
 }
+#ifdef P2_HOST
+#include "meters_settings.c"          /* a host harness is ONE translation unit: the settings interface (a separate cold object in the firmware, fw2/build.sh) is part of it */
+#endif

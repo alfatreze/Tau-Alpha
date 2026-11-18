@@ -10,6 +10,8 @@
 #ifndef BUG
 #define BUG 0
 #endif
+/* 0.7.5 (D-M25): METERS is its own row of Home, directly below APPEARANCE; it is a CHOICE row of the V_METER value, so A or Right opens the METER list on the ACTIVE meter (and even over one row: the only meter must still be configurable). The list is handled by ui/settings_view.c
+ * (A sets the meter, X configures the highlighted one); Appearance no longer has METER or METER: CONFIGURE rows. */
 /* Value ids: 0..6 mirror PREF_* (cores/settings_core.h, asserted in ui/settings_view.c); 7 and up are view-level flags that are not persisted. */
 enum { V_VOLUME = 0, V_RG, V_STRETCH, V_REPEAT, V_SHUFFLE, V_SEEKSTEP, V_SKIPSIL, V_SPEED, V_ART, V_ACCEPT_ALL, V_COLOUR, V_THEME, V_MODE, V_METER, V_BLANK, V_CYMO, V_A16, V_FONT, V_COUNT };
 enum { RK_GROUP = 0, RK_CHOICE, RK_TOGGLE, RK_VOL, RK_ACTION, RK_SOON };
@@ -17,12 +19,12 @@ enum { PG_HOME = 0, PG_APPEAR, PG_AUDIO, PG_PLAY, PG_DIAG, PG_CHOICE, PG_COUNT }
 #ifndef P2_DIAG
 #define P2_DIAG 1       /* 1 = the Diagnostic Build, 0 = the normal build (no DIAGNOSTICS group, no INFO row) */
 #endif
-enum { ACT_INFO = 1, ACT_REPORT = 2, ACT_HALCYON = 3, ACT_CONFIGURE = 4, ACT_CHECK = 5, ACT_CONTROLS = 6, ACT_HELP = 7, ACT_ABOUT = 8 };
+enum { ACT_INFO = 1, ACT_REPORT = 2, ACT_HALCYON = 3, ACT_CONFIGURE = 4 /* no row uses it since 0.7.5: Configure is reached from the METERS list (X) and Start+X */, ACT_CHECK = 5, ACT_CONTROLS = 6, ACT_HELP = 7, ACT_ABOUT = 8 };
 typedef struct { const char *label; uint8_t kind, arg; } mg_row_t;      /* arg: the page (GROUP), the value id (CHOICE/TOGGLE/VOL), the action (ACTION) */
 typedef struct { const char *title; const mg_row_t *rows; uint8_t n; } mg_page_t;
 typedef struct { const char *const *opt; uint8_t n; } mg_choice_t;       /* the options of a choice value, indexed by value */
 
-static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, { "AUDIO", RK_GROUP, PG_AUDIO }, { "PLAYBACK", RK_GROUP, PG_PLAY },
+static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, { "METERS", RK_CHOICE, V_METER }, { "AUDIO", RK_GROUP, PG_AUDIO }, { "PLAYBACK", RK_GROUP, PG_PLAY },
 #if P2_DIAG
                                          { "DIAGNOSTICS", RK_GROUP, PG_DIAG },
 #endif
@@ -32,7 +34,7 @@ static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, 
                                          , { "INFO", RK_ACTION, ACT_INFO }
 #endif
                                          };      /* always the last row, as before */
-static const mg_row_t mg_appear_rows[] = { { "COLOUR", RK_CHOICE, V_COLOUR }, { "THEME", RK_CHOICE, V_THEME }, { "MODE", RK_CHOICE, V_MODE }, { "METER", RK_CHOICE, V_METER }, { "METER: CONFIGURE", RK_ACTION, ACT_CONFIGURE },
+static const mg_row_t mg_appear_rows[] = { { "COLOUR", RK_CHOICE, V_COLOUR }, { "THEME", RK_CHOICE, V_THEME }, { "MODE", RK_CHOICE, V_MODE },
                                            { "ALBUM ART", RK_TOGGLE, V_ART }, { "SCREEN BLANK", RK_CHOICE, V_BLANK }, { "FONT", RK_CHOICE, V_FONT } };
 static const mg_row_t mg_audio_rows[] = { { "VOLUME", RK_VOL, V_VOLUME }, { "REPLAYGAIN", RK_CHOICE, V_RG }, { "HALCYON EQ", RK_ACTION, ACT_HALCYON } };
 static const mg_row_t mg_play_rows[] = { { "REPEAT", RK_CHOICE, V_REPEAT }, { "SHUFFLE", RK_TOGGLE, V_SHUFFLE }, { "TIME STRETCH (MP3)", RK_CHOICE, V_STRETCH }, { "SPEED (MP3)", RK_CHOICE, V_SPEED }, { "SEEK STEP", RK_CHOICE, V_SEEKSTEP },
@@ -130,7 +132,7 @@ static inline mg_effect_t mg_input(mg_t *m, uint32_t edge, const uint32_t *vals)
     }
     switch (r->kind) {
     case RK_GROUP: if (fwd) mg_push(m, r->arg, 0, 0); break;
-    case RK_CHOICE: if (fwd && mg_choices[r->arg].n > 1u) mg_push(m, PG_CHOICE, r->arg, vals[r->arg] < mg_choices[r->arg].n ? vals[r->arg] : 0u); break;
+    case RK_CHOICE: if (fwd && (mg_choices[r->arg].n > 1u || r->arg == V_METER)) mg_push(m, PG_CHOICE, r->arg, vals[r->arg] < mg_choices[r->arg].n ? vals[r->arg] : 0u); break;
     case RK_TOGGLE:
         if (fwd || (edge & LEFT)) { e.kind = EF_SET; e.id = r->arg; e.value = vals[r->arg] ? 0u : 1u; }
         break;
