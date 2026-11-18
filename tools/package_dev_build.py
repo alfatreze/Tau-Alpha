@@ -73,6 +73,7 @@ def main():
     ap.add_argument("--save-probe", action="store_true", help="a TEST package for the meter save file's S1 spike (docs/features/meters/METER_SAVE_FILE_SPEC.md, METER_SAVE_FILE_TEST.md): declares the nonvolatile data slot 11 (tau-save-probe.bin, 8,192 bytes, address "
                     "0x30000000) and ships a ZEROED seed file in Saves/<platform>/<core>/ (the installer creates it when missing and never overwrites it). Needs --variant player2, a Diagnostic Build (DIAG=1) and a bitstream built with TAU_SAVE")
     ap.add_argument("--save-probe-params", choices=("0x2", "0x22"), default="0x2", help="the save slot's parameters: 0x2 (core-specific; the seed file must exist) or 0x22 (adds bit 5, the Pocket fills the memory with 0xFF when the file is missing: the second probe)")
+    ap.add_argument("--save-probe-no-seed", action="store_true", help="with --save-probe: ship NO zeroed seed file (the second probe: the slot has parameters 0x22 and the file is missing, to see whether the Pocket creates it itself)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -156,10 +157,12 @@ def main():
     else:
         rbf, already_reversed = src / "Cores/alfatreze.TAU/bitstream.rbf_r", True
 
+    if args.save_probe_no_seed and not args.save_probe:
+        sys.exit("--save-probe-no-seed needs --save-probe")
     if args.save_probe:
         man_probe = Path(str(rbf) + ".json") if args.rbf else None
-        if args.variant != "player2" or "DIAG=0" in (args.build_flags or "") or args.release_diagnostic or args.diagnostic_core:
-            sys.exit("--save-probe needs --variant player2 and a Diagnostic Build (--build-flags with DIAG=1 or without DIAG=0): the self-test and its SV rows are diagnostic-only (docs/features/meters/METER_SAVE_FILE_TEST.md)")
+        if args.variant != "player2" or "DIAG=1" not in (args.build_flags or "").split(",") or args.release_diagnostic or args.diagnostic_core:
+            sys.exit("--save-probe needs --variant player2 and a Diagnostic Build (--build-flags DIAG=1,PACKS=1: the flag is required so that the firmware built here is the one packaged): the self-test and its SV rows are diagnostic-only (docs/features/meters/METER_SAVE_FILE_TEST.md)")
         if man_probe is None or not man_probe.is_file():
             sys.exit("--save-probe needs --rbf with its fit manifest (<rbf>.json from tools/vm_fit.py collect): a bitstream without the save RAM would run the probe on nothing")
         if "TAU_SAVE" not in json.loads(man_probe.read_text()).get("macros", []):
@@ -250,7 +253,7 @@ def main():
     shutil.copy2(rom, cd / "tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
-    if args.save_probe:                                 # the zeroed seed: the Pocket only writes back a slot it LOADED, so the first file must exist (the installer creates it when missing, never overwrites)
+    if args.save_probe and not args.save_probe_no_seed:   # the zeroed seed: the Pocket only writes back a slot it LOADED, so the first file must exist (the installer creates it when missing, never overwrites)
         sd = out / "Saves" / platform / core_id
         sd.mkdir(parents=True)
         (sd / "tau-save-probe.bin").write_bytes(bytes(slots_lib.SAVE_SIZE))
