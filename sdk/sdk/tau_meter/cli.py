@@ -9,6 +9,7 @@
   tau-meter thumb DIR                   write DIR/thumb.json from a simulated frame
   tau-meter compose OUT.bin PKG...      a user bin (tau-meters.bin) from packages
   tau-meter docs                        regenerate docs/HOST_TABLE.md from include/tau_meter.h
+  tau-meter selftest                    check the conformance suite itself against its broken-meter fixtures
 """
 import argparse, sys
 from pathlib import Path
@@ -27,7 +28,7 @@ def main(argv=None):
     p = sub.add_parser("preview"); p.add_argument("file", type=Path); p.add_argument("out", type=Path); p.add_argument("--profile", choices=["author", "shipped"], default="author")
     p = sub.add_parser("thumb"); p.add_argument("dir", nargs="?", default=".")
     p = sub.add_parser("compose"); p.add_argument("out", type=Path); p.add_argument("packages", nargs="+", type=Path)
-    sub.add_parser("docs")
+    sub.add_parser("docs"); sub.add_parser("selftest")
     a = ap.parse_args(argv)
     if a.cmd == "id":
         from . import project; print(project.new_id()); return 0
@@ -38,6 +39,7 @@ def main(argv=None):
     if a.cmd == "compose": return _compose(a)
     if a.cmd == "doctor": return _doctor(a)
     from . import commands
+    if a.cmd == "selftest": return commands.selftest()
     return commands.run(a)
 
 

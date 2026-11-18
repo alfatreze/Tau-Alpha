@@ -1,0 +1,25 @@
+# CI for a meter: build the package, run the conformance suite, keep the package and the preview.
+# WRITTEN BUT NOT ACTIVE: it runs only when you start it by hand (workflow_dispatch). To run it on every push, add
+#   push: { branches: [main] }   and   pull_request:   under `on:` and commit.
+name: build-and-test
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: alfatreze/tau-alpha-meter-sdk
+          path: ../tau-alpha-meter-sdk
+      - run: sudo apt-get update && sudo apt-get install -y clang lld python3
+      - run: python3 ../tau-alpha-meter-sdk/tau-meter doctor
+      - run: make
+      - run: make test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meter
+          path: |
+            dist/*.tmeter
+            preview.png

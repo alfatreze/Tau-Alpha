@@ -65,3 +65,16 @@ def prove(tc):
         except build.BuildError as e: print("PROOF FAILED: the template did not build: %s" % e); return 1
         rep = suite.run(r["package"], quick=True, tc=tc)
         print(rep.text()); return rep.exit_code()
+
+
+def selftest():
+    """build every negative fixture and check the suite reports exactly what fixtures.json says (the core of the Tau Alpha repository's sim/test_sdk_conformance.py, without the mutants)"""
+    import tempfile
+    from conformance import fixtures, suite
+    tc = toolchain.find(); bad = 0
+    with tempfile.TemporaryDirectory() as td:
+        for name, path in fixtures.build_all(td, tc=tc).items():
+            exp = fixtures.SPEC["fixtures"][name]["expect"]; rep = suite.run(path, quick=True, tc=tc)
+            ok = sorted(rep.ids("fail")) == sorted(exp["fail"]) and sorted(rep.ids("warn")) == sorted(exp["warn"])
+            print("%s %-18s fails %s" % ("ok  " if ok else "FAIL", name, rep.ids("fail"))); bad += 0 if ok else 1
+    print("%d fixture(s) differ from the expectation" % bad); return 1 if bad else 0

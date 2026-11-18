@@ -6,7 +6,7 @@ from . import SDK_ROOT
 
 HEADER = SDK_ROOT / "include" / "tau_meter.h"
 RUNNER = SDK_ROOT / "runner" / "rv32run.c"
-OUT = SDK_ROOT.parent / "docs" / "HOST_TABLE.md"
+OUT = (SDK_ROOT / "docs" if (SDK_ROOT / "docs").is_dir() else SDK_ROOT.parent / "docs") / "HOST_TABLE.md"      # an exported SDK repository keeps docs/ at its root; in the Tau Alpha repository they are sdk/docs
 
 
 def struct_fields(text, name):
