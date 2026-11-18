@@ -11,6 +11,7 @@
 #include "../cores/view_core.h"
 #include "../cores/configure_core.h"
 #include "../cores/colour_core.h"
+#include "meters_toc.h"
 
 #define BG   UI_BG_SCREEN
 #define PREV_X 20u
@@ -22,6 +23,9 @@
 _Static_assert(CF_VIS * ROW_H + LIST_Y <= 330u, "the list must leave the hint lines free");
 
 static cf_t cf; static uint32_t meter, dirty; static cp_t pk; static uint8_t picking, pick_id;
+/* LOST: the meter this page shows is no longer on screen (its pack was struck out by the watchdog while the page was open): the page says so and any key goes back. REOPEN (meters_cfg_remember/reopen): leaving a page brings the set
+ * meter back, so the page remembers its row for the trip to the Report. Neither needs a variable here: hot RAM is at its floor and statics of cold code live in hot RAM. */
+static int lost(void) { return meters_cur() != meter; }
 
 static void put_num(char *o, uint32_t v)
 {
@@ -40,12 +44,14 @@ static void paint_all(void)
 }
 void configure_view_enter(void)
 {
+    { const uint32_t r = meters_cfg_reopen(); if (r != 0xFFFFFFFFu && r != meters_cur()) meters_cfg_begin(r); }      /* back from the Report: the meter that was being configured is loaded again (a refusal leaves the set meter) */
     meter = meters_cur(); cf.n = 0; cf.sel = 0; cf.top = 0; picking = 0;
     meters_ext_enter(meter);                                           /* the preset files of this meter, when selection could not read them (busy governor, a failed card read): asked again when the page opens */
     rebuild(); paint_all();
 }
+void configure_view_exit(void) { meters_cfg_end(); }                  /* a Configure page of a meter that is not the set one: the set meter comes back, whichever way the page is left (B, Start, the Report, Select+B) */
 void configure_view_redraw(void) { paint_all(); }
-void configure_view_mark(void) { helios_dirty(R_CONF_PREV); if (dirty) helios_dirty(R_CONF_LIST); }
+void configure_view_mark(void) { if (lost()) dirty = 1; helios_dirty(R_CONF_PREV); if (dirty) helios_dirty(R_CONF_LIST); }
 void configure_view_draw_preview(void) { meters_tick(mp3play_np()->gov < 1u); }
 
 /* The colour picker takes the list area: the colour as a swatch and its three channels as bars. */
@@ -73,6 +79,13 @@ void configure_view_draw_list(void)
 {
     if (!dirty) return;
     dirty = 0;
+    if (lost()) {                                                     /* the watchdog struck the page's meter out (Winamp Bars is on screen now): nothing to edit here */
+        gfx_rect(0, LIST_Y, GFX_W, 360u - LIST_Y, BG);
+        gfx_text(16, LIST_Y + 4, "THIS METER WAS STOPPED", UI_ACCENT, BG);
+        gfx_text(16, LIST_Y + 28, "IT DID NOT RUN CLEANLY", UI_WHITE, BG);
+        gfx_text(16, 346, "ANY KEY  BACK", UI_DIM, BG);
+        return;
+    }
     if (picking) { draw_picker(); return; }
     const meter_def_t *d = def();
     for (uint32_t k = 0; k < CF_VIS; k++) {
@@ -110,6 +123,7 @@ int configure_view_input(uint32_t edge)
     if (edge & (KEY_B | KEY_START)) k |= CF_B;
     if (edge & KEY_X) k |= CF_X;
     if (!k) return VW_STAY;
+    if (lost()) return VW_BACK;
     const meter_def_t *d = def();
     if (picking) {                                                    /* the picker has the keys; Start closes the page as always */
         if (edge & KEY_START) { picking = 0; return VW_BACK; }
@@ -126,7 +140,7 @@ int configure_view_input(uint32_t edge)
     case CFE_RESET: meters_preset_select(meter, meters_preset_of(meter)); rebuild(); break;
     case CFE_CLOSE: return VW_BACK;
     case CFE_PICK: pick_id = cf.rows[cf.sel]; cp_open(&pk, d->mv[pick_id]); picking = 1; break;
-    case CFE_EXPORT: { uint8_t pl[96]; const uint32_t n = meters_payload(meter, pl); if (n) { views_report_payload(pl, n); return V_REPORT; } break; }
+    case CFE_EXPORT: { uint8_t pl[96]; const uint32_t n = meters_payload(meter, pl); if (n) { views_report_payload(pl, n); meters_cfg_remember(); return V_REPORT; } break; }
     default: break;
     }
     return VW_STAY;

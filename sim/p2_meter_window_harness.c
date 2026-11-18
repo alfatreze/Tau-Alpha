@@ -14,6 +14,7 @@ static uint32_t psram_mem[2048];
 #define P2_PACKS 1
 #define MTR_STATE
 #define MTR_OWN_QUIESCE 1
+#define MPH_REAL 1                                                              /* the preset files are modelled below (fake_n files for every meter), not read from a card */
 static uint32_t toc_mem[(40u + 256u * 64u) / 4u + 4u], pv_mem[0x10000u / 4u + 4u];
 static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000] __attribute__((aligned(4)));
 #define MTR_TOC_BASE ((volatile uint32_t *)toc_mem)
@@ -23,8 +24,20 @@ static uint8_t win_mem[0x10000] __attribute__((aligned(4))), scratch_mem[0x1000]
 #define PACK_CALL(e, in, api) pack_call((e), (in), (api))
 #define MTR_FLUSH() win_flush()
 static uint32_t pack_call(uint32_t e, const void *in, const void *api);
+static uint32_t fake_n;                                                         /* preset files of every meter (not counting DEFAULT); the command `mph N` sets it */
+uint32_t mph_enter(uint32_t hash, uint32_t mid) { (void)hash; (void)mid; return fake_n; }
+void mph_forget(uint32_t hash) { (void)hash; }
+void mph_name(uint32_t pos, char *out) { if (pos) sprintf(out, "FILE %u", pos); else strcpy(out, "DEFAULT"); }
+uint32_t mph_id1(uint32_t pos) { return pos ? 50u + pos : 0u; }
+int mph_find(uint32_t id1) { return id1 > 50u && id1 - 50u <= fake_n ? (int)(id1 - 50u) : -1; }
 static void win_flush(void);
 #include "../fw2/ui/meters.c"
+int mph_values(uint32_t hash, uint32_t pos, const mp_param_t *ps, uint32_t np, uint16_t *vals)            /* DEFAULT = every parameter's default; file n = the default of parameter 1 plus n (cut at its maximum) */
+{
+    (void)hash; for (uint32_t i = 0; i < np; i++) vals[i] = (uint16_t)ps[i].def;
+    if (pos && np > 1u) { uint32_t v = ps[1].def + pos; if (v > ps[1].max) v = ps[1].max; vals[1] = (uint16_t)v; }
+    return 1;
+}
 static uint32_t now, win, spend, flushes, calls;
 uint32_t wd_host_cut = 1u;                                                      /* WD_HOST_CUT builds: 1 = the watchdog cuts every pack tick (a hang), 0 = it runs; the command `cut` flips it */
 static uint32_t fnv(const uint8_t *p, uint32_t n) { uint32_t h = 2166136261u; for (uint32_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; } return h; }
@@ -104,6 +117,11 @@ static void state(void)
     for (uint32_t m = 0; m < meter_count; m++) printf(" %u", meters_pack_state(m));
     printf(" info run %x err %u file %u seen %u\n", r, e, fe, sn);
 }
+static void cstat(void)       /* what a Configure page of another row may and may not change */
+{
+    uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
+    printf("cur %u active %u set %u saved %08x pend %u pendhash %08x commits %u aborts %u loads %u refused %u strikes %u collisions %u preset %u custom %u\n", meters_cur(), meters_cfg_active(), meters_cfg_set(), msel_saved, (unsigned)pend_on, msel_pend_hash, msel_commits, msel_aborts, mwin_loads, mwin_refused, mwin_strikes, collisions, meters_preset_of(meters_cur()), meters_custom(meters_cur()));
+}
 int main(void)
 {
     char line[512]; caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
@@ -112,6 +130,7 @@ int main(void)
         if (!strcmp(a, "user")) setfile(0, b); else if (!strcmp(a, "core")) setfile(1, b);
         else if (!strcmp(a, "nouser")) setfile(0, "/nonexistent"); else if (!strcmp(a, "nocore")) setfile(1, "/nonexistent");
         else if (!strcmp(a, "failread")) fail_in = atoi(b);
+        else if (!strcmp(a, "mph")) fake_n = (uint32_t)atoi(b);
         else if (!strcmp(a, "boot")) { stream_inflight = 1; meters_init(); meters_enter(0, 0, 100, 50); int ok = meters_packs_load_file(rd_user, (void *)1); printf("boot user %d", ok); if (!ok) { ok = meters_packs_load_file(rd_core, (void *)2); printf(" core %d", ok); } printf("\n"); }
         else if (!strcmp(a, "select")) { stream_inflight = 1; meters_select((uint32_t)atoi(b)); printf("cur %u\n", meters_cur()); }
         else if (!strcmp(a, "next")) { stream_inflight = 1; meters_next(1); printf("cur %u\n", meters_cur()); }
@@ -158,6 +177,25 @@ int main(void)
         else if (!strcmp(a, "cfg")) { const uint32_t i = (uint32_t)atoi(b); stream_inflight = 1; const uint32_t g = meterlist_guard(i, MLG_X); printf("cfg %u guard %u cur %u msg %u\n", i, g, meters_cur(), meterlist_msg()); }
         else if (!strcmp(a, "keyclear")) { meterlist_msg_clear(); printf("msg %u\n", meterlist_msg()); }
         else if (!strcmp(a, "curname")) { char nm[32]; meterlist_cur_name(nm, sizeof nm); printf("curname %s\n", nm); }
+        else if (!strcmp(a, "cbegin")) { stream_inflight = 1; const uint32_t r = (uint32_t)atoi(b); const int e = meters_cfg_begin(r); printf("cbegin %u code %d ", r, e); cstat(); }       /* Configure of a row opens: the row is loaded for the page, the set meter is remembered */
+        else if (!strcmp(a, "cend")) { stream_inflight = 1; meters_cfg_end(); printf("cend "); cstat(); }                    /* the Configure page is left: the set meter comes back */
+        else if (!strcmp(a, "cstat")) { printf("cstat "); cstat(); }
+        else if (!strcmp(a, "cable")) { printf("cable"); for (uint32_t m = 0; m < meter_count; m++) if (meters_row_configurable(m)) printf(" %u", m); printf("\n"); }       /* every row that can be configured */
+        else if (!strcmp(a, "pre")) { meters_preset_select(meters_cur(), (uint32_t)atoi(b)); printf("pre cur %u preset %u of %u custom %u\n", meters_cur(), meters_preset_of(meters_cur()), meters_npre(meters_cur()), meters_custom(meters_cur())); }
+        else if (!strcmp(a, "sput")) {                                                          /* sput HASH REV ANCHOR N i v i v ...: the settings interface, max 255 for every parameter, 40 parameters */
+            unsigned h, rv, an, n; char *p = line + 4; h = (unsigned)strtoul(p, &p, 16); rv = (unsigned)strtoul(p, &p, 10); an = (unsigned)strtoul(p, &p, 10); n = (unsigned)strtoul(p, &p, 10);
+            meter_settings_t st; memset(&st, 0, sizeof st); st.preset = (uint8_t)an; st.n = (uint8_t)n;
+            for (unsigned i = 0; i < n && i < MS_MAX_ENTRIES; i++) { st.idx[i] = (uint8_t)strtoul(p, &p, 10); st.val[i] = (uint16_t)strtoul(p, &p, 10); }
+            uint16_t mx[40]; for (int i = 0; i < 40; i++) mx[i] = 255;
+            printf("sput stored %d\n", meter_settings_put(h, rv, &st, mx, 40u));
+        }
+        else if (!strcmp(a, "sget")) {
+            unsigned h, rv; char *p = line + 4; h = (unsigned)strtoul(p, &p, 16); rv = (unsigned)strtoul(p, &p, 10);
+            uint16_t mx[40]; for (int i = 0; i < 40; i++) mx[i] = 255;
+            meter_settings_t st; memset(&st, 0, sizeof st); const int f = meter_settings_get(h, rv, mx, 40u, &st);
+            printf("sget found %d preset %u n %u", f, f ? st.preset : 0u, f ? st.n : 0u); for (unsigned i = 0; f && i < st.n; i++) printf(" %u=%u", st.idx[i], st.val[i]); printf("\n");
+        }
+        else if (!strcmp(a, "sdrop")) { unsigned h, rv; char *p = line + 5; h = (unsigned)strtoul(p, &p, 16); rv = (unsigned)strtoul(p, &p, 10); meter_settings_drop(h, rv); printf("sdrop\n"); }
         else if (!strcmp(a, "state")) state();
     }
     return 0;

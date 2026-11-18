@@ -151,7 +151,7 @@ with tempfile.TemporaryDirectory() as td:
         r = late(leg, openfail=1 if not leg else 2, name="of%d" % leg)
         check("[%s] a transient open failure at selection (the first attempts fail), then Configure opens: the presets ARE listed" % lab, r == [1, nd1], r)
 cv = (ROOT / "fw2/ui/configure_view.c").read_text()
-check("configure_view_enter asks for the meter's preset files (meters_ext_enter) when the page opens (the TAU DEV 222 finding: nothing ever retried)", "meters_ext_enter(meter);" in cv.split("void configure_view_enter(void)")[1].split("}")[0])
+check("configure_view_enter asks for the meter's preset files (meters_ext_enter) when the page opens (the TAU DEV 222 finding: nothing ever retried)", "meters_ext_enter(meter);" in cv.split("void configure_view_enter(void)")[1].split("\n}")[0])
 # a meter that is NOT one of the shipped seven: only the folder named by its id is read, never a decimal one
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); desc = tmp / "lw.desc"; desc.write_bytes(md.build_desc(d, t)); exe = build(td)

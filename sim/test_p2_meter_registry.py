@@ -33,19 +33,31 @@ def build(d, mutant=None):
     if mutant == "collide_ignored": flags = ["-DBUG=9"]
     if mutant == "hidden_listed": sub("if (fb || vis) toc_lst", "if (fb || av) toc_lst")
     if mutant == "step_all": sub("if (r != row && meters_present(r)) return r;", "if (r != row) return r;")
+    if mutant == "cfg_commits": sub("    select_row(row, 1u);\n    cfv_on = 1u;", "    select_row(row, 0u);\n    cfv_on = 1u;")
+    if mutant == "cfg_noend": sub("    cfv_on = 0u;\n    select_row(cfv_set, 1u);", "    cfv_on = 0u;")
+    if mutant == "cfg_nopend": sub("if (cfv_pend) { if (cur == cfv_set)", "if (0) { if (cur == cfv_set)")
+    if mutant == "cfg_nopreset": sub("if (cur == cfv_set && !act.custom) meters_preset_restore(cur, cfv_id, cfv_pre);", "")
+    ms = (ROOT / "fw2/ui/meters_settings.c").read_text()
+    def ssub(a, b):
+        nonlocal ms
+        assert a in ms, a[:60]; ms = ms.replace(a, b, 1)
+    if mutant == "set_rev_ignored": ms = ms.replace("tune_key(id_hash, params_rev)", "tune_key(id_hash, 0)")
+    if mutant == "set_nomax": ssub(" && s->val[k] <= max[s->idx[k]]", "")
     vsrc = (ROOT / "fw2/ui/meterlist_view.c").read_text() if (ROOT / "fw2/ui/meterlist_view.c").exists() else ""
     def vsub(a, b):
         nonlocal vsrc
         assert a in vsrc, a[:60]; vsrc = vsrc.replace(a, b, 1)
     if mutant == "nogap": vsub("gfx_rect(0, ye, GFX_W, GFX_H - ye, BG);", "(void)ye;")
-    if mutant == "unavail_pickable": vsub("if (!(meters_row_flags(row) & MROW_SELECTABLE)) { ml_msg = 1u; return MLG_REFUSED; }", "")
-    if mutant == "x_noselect": vsub("meters_select(row);\n    return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;", "return what == MLG_X ? MLG_CONFIGURE : MLG_PICKED;")
+    if mutant == "unavail_pickable": vsub("if (!(meters_row_flags(row) & MROW_SELECTABLE)) { ml_msg = what == MLG_X ? 2u : 1u; return MLG_REFUSED; }", "")
+    if mutant == "x_nopreview": vsub("if (meters_cfg_begin(row)) { ml_msg = 4u; return MLG_REFUSED; }", "")
+    if mutant == "gear_all": vsub("if (meters_row_configurable(row)) gear_draw", "if (1) gear_draw")
+    if mutant == "x_noparams": vsub("if (!meters_row_configurable(row)) { ml_msg = 3u; return MLG_REFUSED; }", "")
     if mutant == "nofit": vsub("if (n < 2u || gfx_text_width(s) <= maxw) return;", "return;")
     if mutant == "noindicator": vsub("gfx_text(GFX_W - 20 - gfx_text_width(pos), 6, pos, DIM, BG);", "(void)pos;")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub_ in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub_).mkdir()
-    (ui / "meters.c").write_text(src); (ui / "meterlist_view.c").write_text(vsrc)
-    for f in ("ui/meterlist_thumb.c", "ui/meterlist_thumb.h", "ui/meterlist_view.h", "generated/meter_thumbs.h", "ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
+    (ui / "meters.c").write_text(src); (ui / "meterlist_view.c").write_text(vsrc); (ui / "meters_settings.c").write_text(ms)
+    for f in ("ui/meterlist_thumb.c", "ui/meterlist_thumb.h", "ui/meterlist_view.h", "ui/meters_settings.c", "ui/meters_settings.h", "generated/meter_thumbs.h", "ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
               "cores/helios_core.h", "cores/shipped_meter_ids.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/meterbin_core.h", "cores/library_core.h", "cores/audio_stats_core.h",
               "cores/settings_core.h", "generated/meter_presets.h", "generated/meter_registry.h", "cores/gfx_touch_core.h", "cores/ramp_core.h"):
         pth = ROOT / "fw2" / f
@@ -196,9 +208,9 @@ with tempfile.TemporaryDirectory() as td:
     o = run(exe, "user %s\nboot\nselect 5\npick 19\nstate\n" % ONEGO); pk = [l for l in o if l.startswith("pick")][0]
     check("A on the UNAVAILABLE row (TEST 20): nothing changes (the meter on screen stays), one short message is set; any key clears it", pk == "pick 19 guard 1 cur 5 msg 1" and "msg 0" in run(exe, "user %s\nboot\npick 19\nkeyclear\n" % ONEGO)[-1], pk)
     o = run(exe, "user %s\nboot\ncfg 29\n" % ONEGO)
-    check("X on a normal row selects THAT row first (the registry loads only the active meter), then Configure opens for it", [l for l in o if l.startswith("cfg")][0] == "cfg 29 guard 3 cur 30 msg 0", o[-2:])
+    check("X on a normal row loads THAT row for the Configure page (the registry loads only one meter), without selecting it: the set meter is remembered", [l for l in o if l.startswith("cfg")][0] == "cfg 29 guard 3 cur 30 msg 0", o[-2:])
     o = run(exe, "user %s\nboot\nselect 5\ncfg 19\n" % ONEGO)
-    check("X on the unavailable row refuses: the meter on screen stays and no Configure opens", [l for l in o if l.startswith("cfg")][0] == "cfg 19 guard 1 cur 5 msg 1", o[-2:])
+    check("X on the unavailable row refuses with its own short line (msg 2): the meter on screen stays and no Configure opens", [l for l in o if l.startswith("cfg")][0] == "cfg 19 guard 1 cur 5 msg 2", o[-2:])
     o = run(exe, "user %s\nboot\nselect 5\npick 0\n" % ONEGO)
     check("Winamp Bars (list position 0) stays selectable in every bin", [l for l in o if l.startswith("pick")][0] == "pick 0 guard 2 cur 0 msg 0", o[-2:])
     # names, previews, longest name, indicator, markers, coverage
@@ -206,8 +218,8 @@ with tempfile.TemporaryDirectory() as td:
     for fn, adv in FONTS.items():
         o = run(exe, "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, adv)), lng))
         txt = [l.split(" ", 4) for l in o if l.startswith("t ")]; names = [t for t in txt if int(t[1]) == 92 and t[4].startswith("WWW")]
-        ok = len(names) == 1 and 92 + int(names[0][3]) <= 330 and (names[0][4] == longn or (names[0][4].endswith(".") and longn.startswith(names[0][4][:-1])))
-        check("the longest name (23 'W') fits the row next to the preview and the markers in %s: the name ends before x 330; a name that does not fit is cut and ends with a dot" % fn, ok, names)
+        ok = len(names) == 1 and 92 + int(names[0][3]) <= 302 and (names[0][4] == longn or (names[0][4].endswith(".") and longn.startswith(names[0][4][:-1])))
+        check("the longest name (23 'W') fits the row next to the preview and the markers in %s: the name ends before x 302 (the settings icon starts at 304); a name that does not fit is cut and ends with a dot" % fn, ok, names)
         o = run(exe, "adv %s\nuser %s\nboot\ndraw 0 0\n" % (" ".join(map(str, adv)), b64)); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
         nmx = [t[4] for t in txt if int(t[1]) == 92]
         check("short names are drawn whole (%s): the first rows' names come from the TOC (WINAMP BARS, then the TEST rows' own names)" % fn, nmx[:3] == ["WINAMP BARS", "SCOPE", "CHLADNI"] or nmx[0] == "WINAMP BARS", nmx[:4])
@@ -235,6 +247,91 @@ with tempfile.TemporaryDirectory() as td:
     o = run(exe, "user %s\nboot\n" % ONEGO + "".join("draw %d %d\n" % (t, t) for t in range(0, 57)) + "state\n")
     dd = [l.split() for l in o if l.startswith("draw")]
     check("scrolling the whole list (57 window positions) reads nothing from the card: every draw reports 0 reads, previews and names come from the PSRAM copy of the TOC", len(dd) == 57 and all(x[10] == "0" for x in dd), dd[:2])
+    # ---------- W1 of release 0.7.5 (D-M25): METERS entry, the settings icon, Configure of ANY meter (a preview of that meter; the set meter comes back), one settings interface
+    def kvs(o, tag):
+        t = [l for l in o if l.startswith(tag + " ")][-1].split(); i = t.index("cur"); return {k: (int(v, 16) if k in ("saved", "pendhash") else int(v)) for k, v in zip(t[i::2], t[i + 1::2])}
+    toc_one = mb.open_toc(ONEGO.read_bytes())["rows"]
+    def h31(r): return int(toc_one[r]["id"][:8], 16) & 0x7FFFFFFF
+    o = run(exe, "user %s\nboot\nuilist\ncable\n" % ONEGO); n, rows = uilist(o); cable = [int(x) for x in [l for l in o if l.startswith("cable")][0].split()[1:]]
+    want = [r for r, f in rows if f & SEL and (r == 0 or toc_one[r]["nparams"] > 0)]
+    check("configurable = selectable AND the TOC row has parameters: the one-go bin has 62 such rows; the greyed TEST 20 (row 19) and the hidden TEST 21 (row 20) are not among them", cable == want and len(cable) == 62 and 19 not in cable and 20 not in cable and 0 in cable, (len(cable), want[:5]))
+    o = run(exe, "nouser\nnocore\nboot\ncable\n")
+    check("no bin: Winamp Bars (built in, it has parameters) is the one configurable row", [l for l in o if l.startswith("cable")] == ["cable 0"], o[-1])
+    zp = bytearray(b7.read_bytes()); HD = mb.HDR; zp[HD + mb.TOC * 3 + 82:HD + mb.TOC * 3 + 84] = b"\0\0"          # row 3 (Layered Wave) claims no parameters
+    pk_off = mb.u32(zp, 24); struct.pack_into("<I", zp, 32, mb.crc32(bytes(zp[HD:pk_off]))); struct.pack_into("<I", zp, len(zp) - 4, mb.crc32(bytes(zp[HD:len(zp) - 4]))); (tmp / "zp.bin").write_bytes(bytes(zp))
+    o = run(exe, "user %s\nboot\ncable\nselect 2\ncfg 3\ncstat\nstate\n" % (tmp / "zp.bin")); c = kvs(o, "cstat"); s_ = state(o)
+    check("a visible, runnable row whose TOC row says it has NO parameters is not configurable: no icon row, X says so in one line (msg 3), nothing is loaded, the set meter stays", "3" not in [l for l in o if l.startswith("cable")][0].split()[1:] and [l for l in o if l.startswith("cfg")][0] == "cfg 3 guard 1 cur 2 msg 3" and c["active"] == 0 and c["cur"] == 2, (o[-4:], c))
+    # the icon on the right edge of the list rows
+    def icon_rows(o, top):
+        rs = [tuple(map(int, l.split()[1:5])) for l in o if l.startswith("r ")]; got = {}
+        for x, y, w, h, in rs:
+            if 304 <= x < 315 and w <= 11 and h == 1 and y >= 34: got.setdefault((y - 34) // 40, []).append((x, y, w))
+        return got
+    for top, sel in ((14, 19), (0, 0), (57, 63)):
+        o = run(exe, "adv %s\nuser %s\nboot\nuilist\ncable\ndraw %d %d\n" % (" ".join(map(str, FONTS["Bold"])), ONEGO, top, sel)); n, rows = uilist(o); cable = {int(x) for x in [l for l in o if l.startswith("cable")][0].split()[1:]}
+        got = icon_rows(o, top); expect = {k for k in range(7) if top + k < n and rows[top + k][0] in cable}
+        ok = set(got) == expect and all(len({y for _, y, _ in v}) == 11 and min(x for x, _, _ in v) == 304 and max(x + w for x, _, w in v) == 315 and min(y for _, y, _ in v) == 34 + 40 * k + 14 and max(y for _, y, _ in v) == 34 + 40 * k + 24 for k, v in got.items())
+        check("list window at top %d: the settings icon (11 x 11 at x 304, centred on the row) is drawn exactly on the rows that can be configured: %s; none on the greyed row or past the end" % (top, sorted(expect)), ok, (sorted(got), sorted(expect)))
+    for fn, adv in FONTS.items():
+        o = run(exe, "adv %s\nuser %s\nboot\nselect 9\nuser %s\ndraw 5 9\n" % (" ".join(map(str, adv)), lng, lng)); txt = [l.split(" ", 4) for l in o if l.startswith("t ")]
+        names = [t for t in txt if int(t[1]) == 92]; marks = [t for t in txt if int(t[1]) >= 316 and t[4] in ("*", "!", "N/A")]
+        check("%s: no name reaches the icon column (names end before x 304) and no marker (*, !, N/A) starts inside or before it (markers start at x 316 or later)" % fn, all(92 + int(t[3]) <= 302 for t in names) and all(int(t[1]) >= 316 for t in marks), (names[:2], marks))
+    o = run(exe, "adv %s\nuser %s\nboot\nselect 1\nselect 2\n%sdraw 0 1\n" % (" ".join(map(str, FONTS["Tamzen Bold"])), tmp / "crc.bin", CL))
+    txt = [l.split(" ", 4) for l in o if l.startswith("t ")]; mk = [t for t in txt if t[4] in ("!", "*")]
+    check("a refused row ('!') and the current row ('*') are on their own rows, right of the icon column, in the widest-advance font", [t[4] for t in mk].count("!") == 1 and all(int(t[1]) >= 316 for t in mk), mk)
+    # the hint line: A sets, X configures
+    vs = (ROOT / "fw2/ui/meterlist_view.c").read_text()
+    check("the hint line says what the keys do: A SET and X CONFIGURE (not 'A PICK')", "UP DOWN  A SET  X CONFIGURE" in vs and "A PICK" not in vs)
+    # Configure of a row that is not the set one: a preview of THAT meter, the set meter comes back, nothing is committed
+    def sc(*cmds): return "user %s\nboot\nselect 5\n%s" % (ONEGO, CL) + "\n".join(cmds) + "\n"
+    o = run(exe, sc("cstat", "cbegin 12", "advance 6", "tick 0", "save", "cend", "tick 0", "save", "cstat"))
+    c0 = kvs([l for l in o if l.startswith("cstat")][:1], "cstat"); cb = kvs(o, "cbegin"); ce = kvs(o, "cend"); c1 = [kvs([l], "cstat") for l in o if l.startswith("cstat")][-1]; sv = saves(o)
+    check("Configure of TEST 12 while TEST 6 is set and committed: the page's meter is row 12 (one pack load), the SET meter is remembered (row 5), the saved word is untouched, no commit and no abort is counted, the stream never collided",
+          c0["cur"] == 5 and c0["active"] == 0 and cb["cur"] == 12 and cb["active"] == 1 and cb["set"] == 5 and cb["loads"] == c0["loads"] + 1 and cb["saved"] == c0["saved"] == h31(5) and cb["commits"] == c0["commits"] and cb["aborts"] == c0["aborts"] and cb["collisions"] == 0, (c0, cb))
+    check("... while the preview runs, 6 more seconds of clean drawing do NOT commit TEST 12 (the save of the selection never follows a Configure), and Quit would save the SET meter (the register file holds row 5)", sv[0] == h31(5) and cb["saved"] == h31(5), (sv, hex(h31(5))))
+    check("leaving the page brings the set meter back: row 5 runs again (the pack is loaded again, quiesced first: no collision), no longer previewing, the saved word, the commits and the aborts are what they were", ce["cur"] == 5 and ce["active"] == 0 and ce["loads"] == cb["loads"] + 1 and ce["saved"] == h31(5) and ce["commits"] == c0["commits"] and ce["aborts"] == c0["aborts"] and ce["collisions"] == 0 and c1["cur"] == 5 and sv[1] == h31(5), (cb, ce))
+    o = run(exe, sc("cbegin 5", "cend"))
+    c0 = kvs(o, "cbegin"); check("Configure of the set meter itself (Start+X, or X on its row): no preview, no load, nothing to restore", c0["cur"] == 5 and c0["active"] == 0 and c0["loads"] == kvs(run(exe, sc("cstat")), "cstat")["loads"] and kvs(o, "cend")["loads"] == c0["loads"], c0)
+    # a selection still waiting for its clean run is paused by the page and resumes after it
+    o = run(exe, "user %s\nboot\nselect 5\ncbegin 12\nadvance 6\ntick 0\ncstat\nsave\ncend\ncstat\nadvance 6\ntick 0\nsave\n" % ONEGO); cs = [kvs([l], "cstat") for l in o if l.startswith("cstat")]; sv = saves(o)
+    check("a selection of TEST 6 that has not run its 5 clean seconds when Configure of TEST 12 opens: nothing commits during the page (Winamp Bars stays saved), and afterwards the selection is pending again and commits after its own clean run",
+          cs[0]["pend"] == 0 and sv[0] == FB and cs[1]["pend"] == 1 and cs[1]["pendhash"] == h31(5) and sv[1] == h31(5) and cs[0]["commits"] == 0, (cs, [hex(x) for x in sv]))
+    # the set meter's preset and tuning come back (a pack meter: the built-in meter's preset functions are stubs in this harness)
+    o = run(exe, "mph 3\nuser %s\nboot\nselect 2\n%spre 2\nshow\ncbegin 3\ncend\nshow\n" % (b7, CL)); sh = [l for l in o if l.startswith("show")]; pr = [l for l in o if l.startswith("pre ")]
+    check("the set meter's preset (preset FILE 2 of 3) is still the preset after Configure of another meter and back: same preset, same parameter values", "preset 2 of 4" in pr[0] and kvs(o, "cend")["preset"] == 2 and kvs(o, "cend")["custom"] == 0 and sh[0] == sh[1] and kvs(o, "cbegin")["preset"] == 0, (pr, sh, o[-4:]))
+    o = run(exe, "user %s\nboot\nselect 2\n%sedit 1\nshow\ncbegin 3\ncend\nshow\n" % (b7, CL)); sh = [l for l in o if l.startswith("show")]
+    check("an edited (CUSTOM) set meter keeps its edit: the tuning is found again when it comes back", sh[0] == sh[1] and " custom 1 " in sh[1] and kvs(o, "cend")["custom"] == 1, sh)
+    # the pool of two tunings: a third meter configured evicts the oldest (known limit until W2)
+    o = run(exe, "user %s\nboot\nselect 1\n%sedit 1\ncbegin 2\nedit 1\ncend\ncbegin 3\nedit 1\ncend\nshow\ntune\n" % (b7, CL)); sh = [l for l in o if l.startswith("show")]
+    check("KNOWN LIMIT (as built, until the save file of W2): tuning a THIRD meter evicts the oldest tuning, so the set meter (tuned first) is back untuned; the pool still holds exactly two tunings", kvs(o, "cend")["custom"] == 0 and sum(1 for k in range(2) if any(map(int, [l for l in o if l.startswith("tune")][0].split()[1 + 4 * k:5 + 4 * k]))) == 2, (sh, [l for l in o if l.startswith("tune")]))
+    o = run(exe, "user %s\nboot\nselect 1\n%sedit 1\nshow\ncbegin 2\nedit 1\ncend\nadvance 6\ntick 0\nsave\nrestart\nshow\ncbegin 2\n" % (b7, CL)); sh = [l for l in o if l.startswith("show")]; c = kvs(o, "cbegin")
+    check("two configured meters keep their tunings across a restart (the words of the pool are what the register file carries): the set meter comes back edited, and the other meter, when its Configure page opens, is edited too", len(sh) == 2 and sh[0] == sh[1] and " custom 1 " in sh[1] and "cur 1" in sh[1] and c["custom"] == 1 and c["cur"] == 2 and c["active"] == 1, (sh, c))
+    # refusals and strikes
+    o = run(exe, "user %s\nboot\nselect 1\n%scbegin 2\nstate\nflags 2\n" % (tmp / "crc.bin", CL)); c = kvs(o, "cbegin"); fl1 = int([l for l in o if l.startswith("flags")][0].split()[3]); code = int(re.search(r"cbegin 2 code (\d+)", [l for l in o if l.startswith("cbegin")][0]).group(1))
+    check("a pack that is refused (damaged) when its Configure page opens: cbegin reports the refusal code (26, the CRC), the set meter is back at once (not previewing), the row is marked refused", code == 26 and c["cur"] == 1 and c["active"] == 0 and fl1 & 4 and state(o)["err"] == 26, (code, c, fl1))
+    check("... and a refusal touches neither the saved word nor the commit counters (no abort, the stream never collided)", c["saved"] == HS[1] and c["aborts"] == 0 and c["commits"] == 1 and c["collisions"] == 0, c)
+    o = run(exe, "user %s\nboot\nselect 1\n%scfg 2\ncstat\n" % (tmp / "crc.bin", CL))
+    check("X on that row in the list: one short line (msg 4: CANNOT OPEN), the list stays, the set meter runs", [l for l in o if l.startswith("cfg")][0] == "cfg 2 guard 1 cur 1 msg 4", o[-2:])
+    o = run(exe, "user %s\nboot\nselect 2\n%scut 1\ncbegin 1\ntick 0\ncstat\ncut 0\ncend\ncstat\nstate\nsave\n" % (b7, CL)); cs = [kvs([l], "cstat") for l in o if l.startswith("cstat")]; c = kvs(o, "cend")
+    check("the watchdog cuts the pack of the page's meter: Winamp Bars takes over (the machinery is the one of any pack), and leaving the page still brings the SET meter back, with the saved word and the commit counters untouched", cs[0]["cur"] == 0 and state(o)["strikes"] == 1 and c["cur"] == 2 and c["active"] == 0 and c["saved"] == HS[2] and c["aborts"] == cs[0]["aborts"] and saves(o)[-1] == HS[2], (cs, c))
+    o = run(exe, "user %s\nboot\nselect 2\n%scbegin 1\nsave\nrestart\nstate\n" % (b7, CL))
+    check("Quit during a Configure page of another meter: the next boot starts on the SET meter (Chladni), not on the one that was being configured", lastsel(o) == "restarted cur 2", lastsel(o))
+    o = run(exe, "user %s\nboot\n" % ONEGO + "".join("cbegin %d\ncend\n" % r for r in (3, 12, 30, 62, 63, 12, 3)) + "state\n"); s_ = state(o)
+    check("seven Configure visits to rows of the one-go bin (the music stream mid-read at each load): no collision, no refusal, every visit loads twice (the page, then the set meter back) except a visit to the set row", s_["collisions"] == 0 and s_["err"] == 0 and s_["loads"] > 0 and s_["strikes"] == 0, str(s_))
+    # ---------- the settings interface: get and put by id hash and params_rev, sparse, backed by the pool of two tunings
+    A, B, C = "AAAA1111", "BBBB2222", "CCCC3333"
+    o = run(exe, "sput %s 1 3 3 2 10 5 255 9 0\nsget %s 1\nsget %s 2\nsget %s 1\nsget 1111FFFF 1\n" % (A, A, A, B))
+    check("settings round trip: put (hash, params_rev, preset 3, three sparse entries) and get returns exactly them; another params_rev or another meter finds nothing", o[0] == "sput stored 3" and o[1] == "sget found 1 preset 3 n 3 2=10 5=255 9=0" and o[2] == "sget found 0 preset 0 n 0" and o[3] == "sget found 0 preset 0 n 0" and o[4] == "sget found 0 preset 0 n 0", o)
+    o = run(exe, "sput %s 1 3 2 2 10 5 7\nsput %s 1 3 0\nsget %s 1\n" % (A, A, A))
+    check("an empty put (nothing differs from the preset) drops the meter's record: back to the preset's values", o[1] == "sput stored 0" and o[2] == "sget found 0 preset 0 n 0", o)
+    o = run(exe, "sput %s 1 3 2 2 10 5 7\nsput %s 1 4 1 6 1\nsget %s 1\nsget %s 1\n" % (A, A, A, A))
+    check("a second put replaces the first (one record per meter and params_rev)", o[2] == "sget found 1 preset 4 n 1 6=1", o)
+    o = run(exe, "sput %s 1 0 1 0 1\nsput %s 1 0 1 0 2\nsput %s 1 0 1 0 3\nsget %s 1\nsget %s 1\nsget %s 1\ntune\n" % (A, B, C, A, B, C))
+    check("KNOWN LIMIT: the pool holds two meters; the third put evicts the one saved least recently (A), B and C stay", o[3] == "sget found 0 preset 0 n 0" and o[4].startswith("sget found 1") and o[5].startswith("sget found 1"), o)
+    o = run(exe, "sput %s 1 0 3 1 300 2 5 3 6\nsget %s 1\n" % (A, A))
+    check("a value above the parameter's maximum is not stored (the record would be refused when read): entries 2 and 3 are, entry 1 is not", o[0] == "sput stored 2" and o[1] == "sget found 1 preset 0 n 2 2=5 3=6", o)
+    o = run(exe, "sput %s 1 0 20 %s\nsget %s 1\n" % (A, " ".join("%d 1" % i for i in range(20)), A)); got = [l for l in o if l.startswith("sget")][0].split()
+    check("the pool's capacity is what the register file has (85 bits of entries: at 8 bits a value, six parameters): a put with more is cut in index order, and what is stored is what get returns", o[0] == "sput stored 6" and got[:6] == ["sget", "found", "1", "preset", "0", "n"] and got[6] == "6", o)
     # ---------- mutants (each rule's test fails without its line of code)
     for m, label, script, bad in (
         ("commit_at_once", "a selection commits at once (no clean run needed)", "user %s\nboot\nselect 2\ntick 0\nsave\n" % b7, lambda o: saves(o)[-1] != FB),
@@ -247,8 +344,16 @@ with tempfile.TemporaryDirectory() as td:
         ("step_all", "X also visits the unavailable rows (the two screens disagree)", "user %s\nboot\nwalk 25\n" % ONEGO, lambda o: [l for l in o if l.startswith("walk")] != [l for l in run(exe, "user %s\nboot\nwalk 25\n" % ONEGO) if l.startswith("walk")]),
         ("nogap", "the gap under the rows is not cleared (a strip of the old screen)", "user %s\nboot\ndraw 0 0\n" % b7, lambda o: [l for l in o if l.startswith("draw")][0].split()[6] != "0"),
         ("unavail_pickable", "an unavailable row can be picked", "user %s\nboot\nselect 5\npick 19\n" % ONEGO, lambda o: "cur 5" not in [l for l in o if l.startswith("pick")][0]),
-        ("x_noselect", "X does not select the row before Configure", "user %s\nboot\ncfg 29\n" % ONEGO, lambda o: "cur 30" not in [l for l in o if l.startswith("cfg")][0]),
-        ("nofit", "a long name is not cut", "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, FONTS["Bold"])), lng), lambda o: any(l.startswith("t 92 ") and l.split(" ", 4)[4].startswith("WWW") and 92 + int(l.split()[3]) > 330 for l in o)),
+        ("x_nopreview", "X does not load the row for its Configure page", "user %s\nboot\ncfg 29\n" % ONEGO, lambda o: "cur 30" not in [l for l in o if l.startswith("cfg")][0]),
+        ("nofit", "a long name is not cut", "adv %s\nuser %s\nboot\ndraw 5 9\n" % (" ".join(map(str, FONTS["Bold"])), lng), lambda o: any(l.startswith("t 92 ") and l.split(" ", 4)[4].startswith("WWW") and 92 + int(l.split()[3]) > 302 for l in o)),
+        ("cfg_commits", "Configure of another row goes through the commit rule (the saved word follows the page)", "user %s\nboot\nselect 5\n%scbegin 12\nadvance 6\ntick 0\nsave\n" % (ONEGO, CL), lambda o: saves(o)[-1] != h31(5)),
+        ("cfg_noend", "leaving the page does not bring the set meter back", "user %s\nboot\nselect 5\n%scbegin 12\ncend\n" % (ONEGO, CL), lambda o: kvs(o, "cend")["cur"] != 5),
+        ("cfg_nopend", "a selection waiting for its clean run is lost by the page", "user %s\nboot\nselect 5\ncbegin 12\ncend\nadvance 6\ntick 0\nsave\n" % ONEGO, lambda o: saves(o)[-1] != h31(5)),
+        ("cfg_nopreset", "the set meter's preset is not restored after the page", "mph 3\nuser %s\nboot\nselect 2\n%spre 2\ncbegin 3\ncend\n" % (b7, CL), lambda o: kvs(o, "cend")["preset"] != 2),
+        ("set_rev_ignored", "a record is found whatever the params_rev", "sput AAAA1111 1 3 3 2 10 5 255 9 0\nsget AAAA1111 2\n", lambda o: o[1] != "sget found 0 preset 0 n 0"),
+        ("set_nomax", "a value above the maximum is stored", "sput AAAA1111 1 0 3 1 300 2 5 3 6\nsget AAAA1111 1\n", lambda o: o[0] != "sput stored 2"),
+        ("gear_all", "the settings icon is drawn on a greyed row too", "adv %s\nuser %s\nboot\ndraw 14 19\n" % (" ".join(map(str, FONTS["Bold"])), ONEGO), lambda o: 5 in icon_rows(o, 14)),
+        ("x_noparams", "X on a meter without parameters tries to open it", "user %s\nboot\nselect 2\ncfg 3\n" % (tmp / "zp.bin"), lambda o: [l for l in o if l.startswith("cfg")][0] != "cfg 3 guard 1 cur 2 msg 3"),
         ("noindicator", "no position indicator", "user %s\nboot\ndraw 11 11\n" % b64, lambda o: not any(l.endswith(" 12 / 64") for l in o))):
         with tempfile.TemporaryDirectory() as t2:
             mexe = build(Path(t2), m)
