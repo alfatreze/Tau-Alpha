@@ -1,0 +1,400 @@
+{
+ "about": "Each fixture: how it is made and the exact set of failing check ids (and the warning ids that must be present) the suite must report. `msg` is a plain-words fragment the failing check must contain.",
+ "fixtures": {
+  "good": {
+   "src": "good",
+   "expect": {
+    "fail": [],
+    "warn": [],
+    "msg": {}
+   }
+  },
+  "write_input": {
+   "src": "write_input",
+   "expect": {
+    "fail": [
+     "RUN-INPUT-WRITE"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-INPUT-WRITE": "inputs the player passed"
+    }
+   }
+  },
+  "wild_write": {
+   "src": "wild_write",
+   "expect": {
+    "fail": [
+     "STATIC-ADDR",
+     "RUN-MEM-WRITE"
+    ],
+    "warn": [],
+    "msg": {
+     "STATIC-ADDR": "address",
+     "RUN-MEM-WRITE": "writes"
+    }
+   }
+  },
+  "forbidden_call": {
+   "src": "forbidden_call",
+   "expect": {
+    "fail": [
+     "STATIC-INSN",
+     "RUN-INSN"
+    ],
+    "warn": [],
+    "msg": {
+     "STATIC-INSN": "may not",
+     "RUN-INSN": "system call"
+    }
+   }
+  },
+  "hw_register": {
+   "src": "hw_register",
+   "expect": {
+    "fail": [
+     "STATIC-ADDR",
+     "RUN-HW"
+    ],
+    "warn": [],
+    "msg": {
+     "STATIC-ADDR": "address",
+     "RUN-HW": "hardware register"
+    }
+   }
+  },
+  "wild_jump": {
+   "src": "wild_jump",
+   "expect": {
+    "fail": [
+     "RUN-JUMP"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-JUMP": "outside its own code"
+    }
+   }
+  },
+  "hang": {
+   "src": "hang",
+   "expect": {
+    "fail": [
+     "RUN-HANG"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-HANG": "did not return"
+    }
+   }
+  },
+  "overrun": {
+   "src": "overrun",
+   "expect": {
+    "fail": [
+     "RUN-OVERRUN",
+     "RUN-STRIKES"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-OVERRUN": "over its declared limit",
+     "RUN-STRIKES": "STRUCK OUT"
+    }
+   }
+  },
+  "box_left": {
+   "src": "box_left",
+   "expect": {
+    "fail": [
+     "RUN-BOX"
+    ],
+    "warn": [
+     "RUN-BOX-SMALL"
+    ],
+    "msg": {
+     "RUN-BOX": "outside the rectangle",
+     "RUN-BOX-SMALL": "smaller"
+    }
+   }
+  },
+  "box_bottom": {
+   "src": "box_bottom",
+   "expect": {
+    "fail": [
+     "RUN-BOX"
+    ],
+    "warn": [
+     "RUN-BOX-SMALL"
+    ],
+    "msg": {
+     "RUN-BOX": "outside the rectangle",
+     "RUN-BOX-SMALL": "smaller"
+    }
+   }
+  },
+  "too_many_cmds": {
+   "src": "too_many_cmds",
+   "expect": {
+    "fail": [
+     "RUN-CMDS"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-CMDS": "over its declared ceiling"
+    }
+   }
+  },
+  "nondeterministic": {
+   "src": "nondeterministic",
+   "expect": {
+    "fail": [
+     "RUN-DETERMINISM"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-DETERMINISM": "different draw-call trace"
+    }
+   }
+  },
+  "abi_fields": {
+   "src": "abi_fields",
+   "expect": {
+    "fail": [
+     "RUN-ABI-FIELDS"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-ABI-FIELDS": "ABI 1.1"
+    }
+   }
+  },
+  "abi_call": {
+   "src": "abi_call",
+   "expect": {
+    "fail": [
+     "RUN-ABI-CALL"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-ABI-CALL": "scroll_left"
+    }
+   }
+  },
+  "stack_hog": {
+   "src": "stack_hog",
+   "expect": {
+    "fail": [
+     "RUN-STACK"
+    ],
+    "warn": [],
+    "msg": {
+     "RUN-STACK": "bytes of stack"
+    }
+   }
+  },
+  "pstate_byte": {
+   "src": "pstate_byte",
+   "expect": {
+    "fail": [],
+    "warn": [
+     "RUN-PSTATE-WORD"
+    ],
+    "msg": {
+     "RUN-PSTATE-WORD": "PSRAM state"
+    }
+   }
+  },
+  "oversized_pstate": {
+   "src": "oversized_pstate",
+   "unchecked": true,
+   "expect": {
+    "fail": [
+     "PKG-PACK",
+     "LOAD-E25"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PACK": "meter.bin",
+     "LOAD-E25": "E25"
+    }
+   }
+  },
+  "oversized_scratch": {
+   "src": "oversized_scratch",
+   "unchecked": true,
+   "expect": {
+    "fail": [
+     "LOAD-E29"
+    ],
+    "warn": [],
+    "msg": {
+     "LOAD-E29": "E29"
+    }
+   }
+  },
+  "bad_params": {
+   "src": "bad_params",
+   "meter": {
+    "params": [
+     {
+      "key": "level",
+      "label": "Level",
+      "type": "u8",
+      "min": 10,
+      "max": 5,
+      "step": 5,
+      "default": 50
+     }
+    ]
+   },
+   "expect": {
+    "fail": [
+     "DESC-PARAMS"
+    ],
+    "warn": [],
+    "msg": {
+     "DESC-PARAMS": "parameter"
+    }
+   }
+  },
+  "not_a_zip": {
+   "tamper": "not_a_zip",
+   "expect": {
+    "fail": [
+     "PKG-ZIP"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-ZIP": "not a readable zip"
+    }
+   }
+  },
+  "bad_hash": {
+   "tamper": "bad_hash",
+   "expect": {
+    "fail": [
+     "PKG-PACK",
+     "PKG-PIN",
+     "LOAD-E26"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PACK": "meter.bin",
+     "PKG-PIN": "SHA-256",
+     "LOAD-E26": "E26"
+    }
+   }
+  },
+  "tampered_file": {
+   "tamper": "tampered_file",
+   "expect": {
+    "fail": [
+     "PKG-PIN"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PIN": "SHA-256"
+    }
+   }
+  },
+  "path_escape": {
+   "tamper": "path_escape",
+   "expect": {
+    "fail": [
+     "PKG-PATH"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PATH": "path"
+    }
+   }
+  },
+  "extra_file": {
+   "tamper": "extra_file",
+   "expect": {
+    "fail": [
+     "PKG-FILES"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-FILES": "files"
+    }
+   }
+  },
+  "oversize": {
+   "tamper": "oversize",
+   "expect": {
+    "fail": [
+     "PKG-SIZE"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-SIZE": "size cap"
+    }
+   }
+  },
+  "bad_id": {
+   "tamper": "bad_id",
+   "expect": {
+    "fail": [
+     "PKG-MANIFEST"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-MANIFEST": "meter.json"
+    }
+   }
+  },
+  "bad_abi_major": {
+   "tamper": "bad_abi_major",
+   "expect": {
+    "fail": [
+     "LOAD-E22"
+    ],
+    "warn": [],
+    "msg": {
+     "LOAD-E22": "E22"
+    }
+   }
+  },
+  "bad_abi_minor": {
+   "tamper": "bad_abi_minor",
+   "expect": {
+    "fail": [
+     "LOAD-E22"
+    ],
+    "warn": [],
+    "msg": {
+     "LOAD-E22": "E22"
+    }
+   }
+  },
+  "bad_origin": {
+   "tamper": "bad_origin",
+   "expect": {
+    "fail": [
+     "PKG-PACK",
+     "LOAD-E24"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PACK": "meter.bin",
+     "LOAD-E24": "E24"
+    }
+   }
+  },
+  "bad_crc_repinned": {
+   "tamper": "bad_crc_repinned",
+   "expect": {
+    "fail": [
+     "PKG-PACK",
+     "LOAD-E26"
+    ],
+    "warn": [],
+    "msg": {
+     "PKG-PACK": "meter.bin",
+     "LOAD-E26": "E26"
+    }
+   }
+  }
+ }
+}

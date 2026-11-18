@@ -115,6 +115,8 @@ Winamp Bars must be among them: it is the fallback). The player prefers this fil
 in `tau-packs.bin`. **To remove it:** delete `Assets/tau/common/tau-meters.bin` from the card; the next start uses the seven shipped meters
 again. Format: [EXTERNAL_METERS_SPEC.md](../features/meters/EXTERNAL_METERS_SPEC.md).
 
+**Writing your own meter:** the meter SDK (`sdk/` in this repository, published as `tau-alpha-meter-sdk`, `tau-alpha-meter-template` and `tau-alpha-meters`) builds a meter from a few lines of C into a `.tmeter`, tests it on your computer against every rule the player enforces, and composes the bin: start with [sdk/docs/GETTING_STARTED.md](../../sdk/docs/GETTING_STARTED.md). A meter runs with full access to the player ([sdk/docs/TRUST.md](../../sdk/docs/TRUST.md)).
+
 ## The theme and meter file (tau-assets.bin)
 
 An optional `tau-assets.bin` in `Assets/tau/common/` (data slot 8) can add themes and replace meter presets. Container `TAUA`

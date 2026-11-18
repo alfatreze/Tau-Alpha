@@ -1,0 +1,703 @@
+{
+  "key": "layered_wave",
+  "id": "5812803445b81ffae735527099ef6793",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
+  "enum": "VIZ_LAYERED_WAVE",
+  "index": 16,
+  "name": "LAYERED WAVE",
+  "selectable": true,
+  "cold_tables": true,
+  "needs_hw_spec": true,
+  "caps": [
+    "rect",
+    "hw_spectrum",
+    "hw_wave"
+  ],
+  "cost_class": 2,
+  "considered": "Nested mirrored envelope layers need one rect per layer per column run, so cost scales with layers x width. The meter keeps itself near 300 commands per frame with a self-scaling cell width (graceful degradation, never audio jitter); equal neighbouring cells merge into one run. SPECTRUM view (no scrolling) redraws the same way. A scroll-by-copy mode (blit_shift: shift the picture with one engine copy, draw only new columns, about 45 commands) was prototyped in the lab (commit 419fea5) and parked until the overlapping copy is simulated and measured. 34 parameters (the CUSTOM split's five boundaries are visible only for that split; eleven more are the experimental group, present only in the Diagnostic Build), hence MTR_MAX_PARAMS raised from 12 to 40; parameters carry a `group` (general, source, display, dynamics) that the lab and Omega fold into collapsible sections. docs/features/meters/LAYERED_WAVE_METER_SPEC.md.",
+  "params": [
+    {
+      "key": "view",
+      "label": "View",
+      "type": "enum",
+      "values": [
+        "HISTORY",
+        "SPECTRUM",
+        "SCROLL"
+      ],
+      "default": 0,
+      "help": "Scrolling or fixed picture.",
+      "value_help": [
+        "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
+        "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored.",
+        "SCROLL: the picture itself scrolls left by the engine's copy and only the new columns on the right are drawn (newest on the right): a few dozen drawing commands a picture at any resolution, so the motion is smooth at full width. Scroll speed sets the speed and Tail taper (with its curve) narrows the tail end by covering it with the background, about 100 more commands a picture, no ramp at the head; Resolution, Draw style, anti-aliasing, blending and the cost guard do not apply (one flat colour per layer)."
+      ],
+      "group": "general"
+    },
+    {
+      "key": "layers",
+      "label": "Layers",
+      "type": "u8",
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "default": 3,
+      "help": "How many nested waves are drawn, from 1 to 6. More layers cost one drawing command per layer per column run.",
+      "group": "general"
+    },
+    {
+      "key": "split",
+      "label": "Layer split",
+      "type": "enum",
+      "values": [
+        "OCTAVES",
+        "BASS_FINE",
+        "ENERGY",
+        "DYNAMICS",
+        "CUSTOM"
+      ],
+      "default": 0,
+      "help": "What each layer listens to.",
+      "value_help": [
+        "OCTAVES: equal groups of the 16 spectrum bands.",
+        "BASS_FINE: bass gets the finest layers, treble one wide layer.",
+        "ENERGY: boundaries adapt so every layer carries about the same energy, whatever the track.",
+        "DYNAMICS: no frequency split; every layer follows the overall peak with its own time constant (the echo look).",
+        "CUSTOM: you place the boundaries. In the lab drag the handles under the meter (double-click the strip to add a layer, double-click a handle to remove one); on the Pocket use the Split 1-5 settings."
+      ],
+      "group": "source"
+    },
+    {
+      "key": "outer",
+      "label": "Outer layer",
+      "type": "enum",
+      "values": [
+        "BASS",
+        "TREBLE"
+      ],
+      "default": 0,
+      "help": "Which end of the spectrum is the big outer wave: BASS or TREBLE.",
+      "group": "source"
+    },
+    {
+      "key": "nest",
+      "label": "Layer mode",
+      "type": "enum",
+      "values": [
+        "NESTED",
+        "OVERLAP"
+      ],
+      "default": 0,
+      "help": "NESTED: each layer also hears everything inside it, so inner waves can never poke out of outer ones. OVERLAP: each layer hears only its own frequencies and layers may cross.",
+      "group": "source"
+    },
+    {
+      "key": "xo1",
+      "label": "Split 1",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 3,
+      "when": {
+        "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 1 and layer 2, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 1. In the lab, drag the handles under the meter instead."
+    },
+    {
+      "key": "xo2",
+      "label": "Split 2",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 5,
+      "when": {
+        "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 2 and layer 3, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 2. In the lab, drag the handles under the meter instead."
+    },
+    {
+      "key": "xo3",
+      "label": "Split 3",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 8,
+      "when": {
+        "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 3 and layer 4, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 3. In the lab, drag the handles under the meter instead."
+    },
+    {
+      "key": "xo4",
+      "label": "Split 4",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 11,
+      "when": {
+        "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 4 and layer 5, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 4. In the lab, drag the handles under the meter instead."
+    },
+    {
+      "key": "xo5",
+      "label": "Split 5",
+      "type": "u8",
+      "min": 1,
+      "max": 15,
+      "step": 1,
+      "default": 13,
+      "when": {
+        "split": 4
+      },
+      "group": "source",
+      "help": "Band boundary (1-15) between layer 5 and layer 6, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 5. In the lab, drag the handles under the meter instead."
+    },
+    {
+      "key": "draw",
+      "label": "Draw",
+      "type": "enum",
+      "values": [
+        "BLOCKS",
+        "SMOOTH"
+      ],
+      "default": 1,
+      "help": "How the picture is built each frame.",
+      "value_help": [
+        "BLOCKS: flat chunky columns, redrawn only when a new column arrives.",
+        "SMOOTH: a curved outline evaluated across the width with sub-column motion; the best look. Both modes self-scale: if a frame needs more than about 300 drawing commands the meter widens its drawing cells (coarser, never slower)."
+      ],
+      "group": "display"
+    },
+    {
+      "key": "res",
+      "label": "Resolution",
+      "type": "u16",
+      "min": 16,
+      "max": 400,
+      "step": 8,
+      "default": 200,
+      "unit": "cols",
+      "help": "Resolution: how many columns span the width, up to 400 (one per pixel). In HISTORY view it is the number of history columns; in SPECTRUM view the spectrum has only 16 hardware bands, so it sets how finely the interpolated outline is drawn (lower = chunkier and cheaper). The meter widens its drawing cells automatically if the setting would need too many commands.",
+      "group": "display"
+    },
+    {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u8",
+      "min": 20,
+      "max": 240,
+      "step": 10,
+      "default": 100,
+      "unit": "px/s",
+      "help": "How fast the wave scrolls, in pixels per second. HISTORY view only.",
+      "when": {
+        "view": 0
+      },
+      "group": "dynamics"
+    },
+    {
+      "key": "response",
+      "label": "Response",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 45,
+      "help": "How quickly layers follow the music. Low = slow, lingering; high = snappy. Attack is always about 4 times faster than release.",
+      "group": "dynamics"
+    },
+    {
+      "key": "taper",
+      "label": "Tail taper",
+      "type": "u8",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 70,
+      "unit": "%",
+      "help": "Roll-off toward the tail: the wave narrows (its colour no longer fades) and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed. The Taper curve sets the profile of the narrowing.",
+      "group": "display"
+    },
+    {
+      "key": "color_mode",
+      "label": "Colour source",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "THEME",
+        "CUSTOM"
+      ],
+      "default": 1,
+      "help": "Where the layer colours come from.",
+      "value_help": [
+        "ACCENT: derived from your accent colour, with the gradation chosen below. Follows the accent, theme and Dark/Light.",
+        "THEME: pick theme colours (roles) for outer layer, inner layer and background. Follows the theme and Dark/Light.",
+        "CUSTOM: your own colours, entered as hex in Omega or the lab (colour picker) and stored in the Pocket's 16-bit format."
+      ],
+      "group": "display"
+    },
+    {
+      "key": "grad",
+      "label": "Accent gradation",
+      "type": "enum",
+      "values": [
+        "TINTS",
+        "SHADES",
+        "ANALOGOUS",
+        "COMPLEMENT"
+      ],
+      "default": 0,
+      "when": {
+        "color_mode": 0
+      },
+      "help": "How the layers step away from the accent, outer to inner (ACCENT source only). The background is a dark tint of the accent.",
+      "value_help": [
+        "TINTS: outer = accent, inner layers lighten toward white.",
+        "SHADES: inner = accent, outer layers darken.",
+        "ANALOGOUS: neighbouring hues, 30 degrees either side of the accent (pink to violet from a pink accent).",
+        "COMPLEMENT: outer = accent, inner = the opposite hue."
+      ],
+      "group": "display"
+    },
+    {
+      "key": "color_outer",
+      "label": "Outer colour",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 5,
+      "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light.",
+      "when": {
+        "color_mode": 1
+      },
+      "group": "display"
+    },
+    {
+      "key": "color_inner",
+      "label": "Inner colour",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 0,
+      "help": "Theme role for the innermost layer; layers in between blend from outer to inner.",
+      "when": {
+        "color_mode": 1
+      },
+      "group": "display"
+    },
+    {
+      "key": "color_bg",
+      "label": "Background",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 10,
+      "help": "Theme role for the solid background of the meter box (one fill command).",
+      "when": {
+        "color_mode": 1
+      },
+      "group": "display"
+    },
+    {
+      "key": "custom_outer",
+      "label": "Custom outer",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 57905,
+      "kind": "rgb565",
+      "when": {
+        "color_mode": 2
+      },
+      "help": "RGB565 colour for the outer layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+    },
+    {
+      "key": "custom_inner",
+      "label": "Custom inner",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 41662,
+      "kind": "rgb565",
+      "when": {
+        "color_mode": 2
+      },
+      "help": "RGB565 colour for the inner layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+    },
+    {
+      "key": "custom_bg",
+      "label": "Custom background",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 6277,
+      "kind": "rgb565",
+      "when": {
+        "color_mode": 2
+      },
+      "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+      "group": "display"
+    },
+    {
+      "key": "taper_curve",
+      "label": "Taper curve",
+      "type": "enum",
+      "values": [
+        "NORMAL",
+        "SHORT",
+        "SHORTER",
+        "SHARP"
+      ],
+      "default": 0,
+      "help": "The profile of the tail taper: how the wave narrows towards the tail. Applies when Tail taper is above 0.",
+      "value_help": [
+        "NORMAL: the original roll-off; a thin sliver trails out to the edge.",
+        "SHORT: the faintest fifth of the tail is cut, so the wave ends a little sooner.",
+        "SHORTER: the faintest third is cut: a clearly shorter tail.",
+        "SHARP: the roll-off is squared: the wave narrows faster and its tail stays thin."
+      ],
+      "group": "display"
+    },
+    {
+      "key": "direction",
+      "label": "Direction",
+      "type": "enum",
+      "values": [
+        "RIGHT",
+        "LEFT"
+      ],
+      "default": 0,
+      "help": "Which way the picture flows (HISTORY and SCROLL). The head (the pointed start, Head length) is where the newest sound enters and the tail (Tail length, the three dots in HISTORY) is where it leaves, so the two swap sides with the direction.",
+      "value_help": [
+        "RIGHT: the newest sample enters at the left and the wave flows right: head on the left, tail on the right (the original).",
+        "LEFT: the exact mirror: the newest enters at the right and the wave flows left: head on the right, tail and its dots on the left."
+      ],
+      "group": "display"
+    },
+    {
+      "key": "taper_head",
+      "label": "Head length",
+      "type": "u8",
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "default": 0,
+      "unit": "%",
+      "help": "How much of the width the pointed head takes to rise to full height. HISTORY only: SCROLL moves what was already drawn, so the wave enters at full height. 0 = the original, very short ramp.",
+      "group": "display"
+    },
+    {
+      "key": "taper_tail",
+      "label": "Tail length",
+      "type": "u8",
+      "min": 10,
+      "max": 100,
+      "step": 5,
+      "default": 100,
+      "unit": "%",
+      "help": "How much of the remaining width the tail takes to narrow to nothing (HISTORY and SCROLL). 100 = the original, which narrows all the way across; lower values keep full height longer and taper over the last part only.",
+      "group": "display"
+    },
+    {
+      "key": "hstyle",
+      "label": "Spectrum style",
+      "type": "enum",
+      "values": [
+        "BLOCKS",
+        "EQ BELLS",
+        "CURVE"
+      ],
+      "default": 0,
+      "when": {
+        "view": 1
+      },
+      "help": "How the layers share the frequency axis in SPECTRUM view (experimental).",
+      "value_help": [
+        "BLOCKS: hard blocks, each layer draws only its own frequency range.",
+        "EQ BELLS: the same ranges with soft shoulders that taper into the neighbours, like the bell curves of a parametric EQ.",
+        "CURVE: one continuous gradient-coloured outline across the whole axis; the layer colours become colour stops and the layer gains a smooth gain curve."
+      ],
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "aa",
+      "label": "Antialiasing",
+      "type": "enum",
+      "values": [
+        "OFF",
+        "EDGE 2",
+        "EDGE 4",
+        "EDGE 8"
+      ],
+      "default": 0,
+      "help": "Soften the stair-steps along each layer edge with partly covered pixels (experimental, software). The number is how many coverage levels are used: more levels look smoother but merge less, so they need more drawing commands (see the Info cost table in the lab).",
+      "value_help": [
+        "OFF: whole pixels only.",
+        "EDGE 2: one extra pixel row per edge, half or no coverage.",
+        "EDGE 4: four coverage levels.",
+        "EDGE 8: eight levels, the smoothest and the most commands."
+      ],
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "bmode",
+      "label": "Layer blending",
+      "type": "enum",
+      "values": [
+        "OFF",
+        "ALPHA",
+        "AVERAGE",
+        "ADD",
+        "SUBTRACT",
+        "ADD QUARTER"
+      ],
+      "default": 0,
+      "help": "Composite the layers with the blend modes of the drawing engine's blend unit, computed in software on the colours the CPU already knows (experimental). Each layer is blended over the one outside it, so layers are clamped to nest. Costs no extra drawing commands.",
+      "value_help": [
+        "OFF: opaque layers.",
+        "ALPHA: ordinary translucency, 0-255 alpha.",
+        "AVERAGE: half of each, B/2 + F/2.",
+        "ADD: layer added to what is underneath, clamped (glow, light on dark).",
+        "SUBTRACT: layer subtracted from what is underneath, clamped to black.",
+        "ADD QUARTER: a quarter of the layer added, clamped (a faint glow)."
+      ],
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "balpha",
+      "label": "Blend alpha",
+      "type": "u8",
+      "min": 5,
+      "max": 100,
+      "step": 5,
+      "default": 60,
+      "unit": "%",
+      "when": {
+        "bmode": 1
+      },
+      "help": "Opacity of each layer in ALPHA blending.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "guard",
+      "label": "Cost guard",
+      "type": "enum",
+      "values": [
+        "ON",
+        "RELAXED",
+        "OFF"
+      ],
+      "default": 0,
+      "help": "The self-scaling guard keeps a picture inside a time budget by widening the drawing cells (on the Pocket it counts CPU time; the host simulation counts commands).",
+      "value_help": [
+        "ON: budget about 9 ms of CPU per picture. With several layers at high Resolution the cells are widened, so edges and the taper step at that width; they narrow again only after a calm stretch, so the width does not flicker.",
+        "RELAXED: budget about 18 ms; finer cells, about twice the drawing work (a full-screen picture may then exceed the meter's command ceiling and be drawn only every other time).",
+        "OFF: never widen; the full Resolution you asked for, at whatever it costs (measured: about 18 ms a picture full-screen, choppy, and it can starve the audio loop)."
+      ],
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g1",
+      "label": "Gain, layer 1",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 1 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g2",
+      "label": "Gain, layer 2",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 2 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g3",
+      "label": "Gain, layer 3",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 3 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g4",
+      "label": "Gain, layer 4",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 4 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g5",
+      "label": "Gain, layer 5",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 5 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    },
+    {
+      "key": "g6",
+      "label": "Gain, layer 6",
+      "type": "u8",
+      "min": 0,
+      "max": 36,
+      "step": 1,
+      "default": 18,
+      "offset": -18,
+      "unit": "dB",
+      "help": "Gain of layer 6 in dB, -18 to +18 (experimental). In the lab also set by dragging the bead on the frequency strip up or down; double-click the bead to reset. The stored number is the dB plus 18.",
+      "group": "experimental",
+      "experimental": true
+    }
+  ],
+  "p2": {
+    "pack_only": true,
+    "cmds": 640,
+    "max_cycles": 15000000,
+    "slot": 3,
+    "tag": "LW",
+    "compose": {
+      "param": "view",
+      "in": [
+        0,
+        1
+      ]
+    },
+    "budget": {
+      "cold": 16384,
+      "hot_ram": 2816,
+      "psram_state": 2432
+    }
+  },
+  "default_preset": 0,
+  "sel_index": 12,
+  "groups": [
+    {
+      "key": "general",
+      "label": "General"
+    },
+    {
+      "key": "source",
+      "label": "Source"
+    },
+    {
+      "key": "display",
+      "label": "Display & Theme"
+    },
+    {
+      "key": "dynamics",
+      "label": "Dynamics"
+    },
+    {
+      "key": "experimental",
+      "label": "Experimental"
+    }
+  ],
+  "abi": "1.2",
+  "sources": [
+    "src/fw2/ui/meter_pack_layered_wave.c"
+  ],
+  "build": {
+    "include": [
+      "src/fw2/ui",
+      "src/fw2/cores",
+      "src/fw"
+    ],
+    "descriptor": "source",
+    "cflags": [
+      "-w"
+    ]
+  }
+}
