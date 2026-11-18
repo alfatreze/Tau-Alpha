@@ -41,7 +41,7 @@ static uint8_t win[WIN_SIZE], scr[SCR_SIZE], stk[STK_SIZE], host[HOST_SIZE];
 static uint16_t plane[512 * 1024];                    /* the engine's memory, only for the mailbox read-back path */
 static uint32_t reg[32], pc;
 static struct { uint32_t size, entry, data_off, data_size, scr_org, bss, ps_off, ps_size; } hdr;
-static int loaded, profile_shipped, abi_minor = 2, blend_ready_v = 1, soft_limit;
+static int stackfill_v, loaded, profile_shipped, abi_minor = 2, blend_ready_v = 1, soft_limit;
 static ps_t ps; static int struck;
 /* per tick */
 static uint64_t instr, cyc_extra; static uint32_t calls, cmds, stack_lo; static int faulted; static char fault_msg[200]; static uint32_t fault_pc, fault_addr;
@@ -95,7 +95,7 @@ static uint32_t load_mem(uint32_t a, int n, int host_side)
     }
     if (a >= WIN_ORG && a - WIN_ORG < WIN_SIZE) { fault("a data read through the instruction alias (the window's code alias can be fetched from, not read)", a); return 0; }
     if (a >= SCR_ORG && a - SCR_ORG + n <= SCR_SIZE) {
-        if (!host_side && (a < hdr.scr_org || a + n > hdr.scr_org + hdr.data_size + hdr.bss)) { fault("reads scratch memory that is not its own .data or .bss", a); return 0; }
+        if (!host_side && (a < hdr.scr_org || a + n > hdr.scr_org + ((hdr.data_size + 3u) & ~3u) + hdr.bss)) { fault("reads scratch memory that is not its own .data or .bss", a); return 0; }
         return rd_le(scr + (a - SCR_ORG), n);
     }
     if (a >= STK_TOP - STK_SIZE && a + n <= STK_TOP) { if (a < stack_lo) stack_lo = a; return rd_le(stk + (a - (STK_TOP - STK_SIZE)), n); }
@@ -118,7 +118,7 @@ static void store_mem(uint32_t a, int n, uint32_t v)
     }
     if (a >= WIN_ORG && a - WIN_ORG < WIN_SIZE) { fault("writes through the instruction alias (its code is read-only)", a); return; }
     if (a >= SCR_ORG && a - SCR_ORG + n <= SCR_SIZE) {
-        if (a < hdr.scr_org || a + n > hdr.scr_org + hdr.data_size + hdr.bss) { fault("writes scratch memory that is not its own .data or .bss", a); return; }
+        if (a < hdr.scr_org || a + n > hdr.scr_org + ((hdr.data_size + 3u) & ~3u) + hdr.bss) { fault("writes scratch memory that is not its own .data or .bss", a); return; }
         wr_le(scr + (a - SCR_ORG), n, v); return;
     }
     if (a >= STK_TOP - STK_SIZE && a + n <= STK_TOP) { if (a < stack_lo) stack_lo = a; wr_le(stk + (a - (STK_TOP - STK_SIZE)), n, v); return; }
@@ -259,10 +259,10 @@ static int do_load(const char *file)
     hdr.size = rd_le(buf + 8, 4); hdr.entry = rd_le(buf + 16, 4); hdr.data_off = rd_le(buf + 24, 4); hdr.data_size = rd_le(buf + 28, 4);
     hdr.scr_org = rd_le(buf + 32, 4); hdr.bss = rd_le(buf + 36, 4); hdr.ps_off = rd_le(buf + 40, 4); hdr.ps_size = rd_le(buf + 44, 4);
     if (!hdr.size || hdr.size > WIN_SIZE || 48u + hdr.size > n || hdr.ps_off < hdr.size || hdr.ps_off > WIN_SIZE || hdr.ps_size > WIN_SIZE - hdr.ps_off || hdr.data_off > hdr.size || hdr.data_size > hdr.size - hdr.data_off ||
-        hdr.entry >= hdr.size || hdr.scr_org < SCR_ORG || hdr.scr_org + hdr.data_size + hdr.bss > SCR_ORG + SCR_SIZE) { printf("L err header fields outside the window or scratch\n"); fflush(stdout); return 0; }
+        hdr.entry >= hdr.size || hdr.scr_org < SCR_ORG || hdr.scr_org + ((hdr.data_size + 3u) & ~3u) + hdr.bss > SCR_ORG + SCR_SIZE) { printf("L err header fields outside the window or scratch\n"); fflush(stdout); return 0; }
     memset(win, 0, sizeof win); memcpy(win, buf + 48, hdr.size);
     memset(scr, 0, sizeof scr); memcpy(scr + (hdr.scr_org - SCR_ORG), win + hdr.data_off, hdr.data_size);
-    memset(plane, 0, sizeof plane); ps_reset(&ps); struck = 0; dev_arms = dev_idx = 0; loaded = 1;
+    memset(stk, stackfill_v, sizeof stk); memset(plane, 0, sizeof plane); ps_reset(&ps); struck = 0; dev_arms = dev_idx = 0; loaded = 1;
     printf("L ok\n"); fflush(stdout); return 1;
 }
 
@@ -278,6 +278,7 @@ int main(void)
         else if (!strcmp(cmd, "profile")) { char w[16]; sscanf(line, "%*s %15s", w); profile_shipped = !strcmp(w, "shipped"); }
         else if (!strcmp(cmd, "abi")) { sscanf(line, "%*s %d", &abi_minor); }
         else if (!strcmp(cmd, "blend")) { sscanf(line, "%*s %d", &blend_ready_v); }
+        else if (!strcmp(cmd, "stackfill")) { sscanf(line, "%*s %d", &stackfill_v); }
         else if (!strcmp(cmd, "limit")) { sscanf(line, "%*s %d", &soft_limit); }
         else if (!strcmp(cmd, "params")) { char *p = line + 6; int n = (int)strtol(p, &p, 10); for (int i = 0; i < n && i < 48; i++) wr_le(host + O_PARAMS + 2 * i, 2, (uint32_t)strtol(p, &p, 10)); }
         else if (!strcmp(cmd, "roles")) { char *p = line + 5; for (int i = 0; i < 21; i++) wr_le(host + O_ROLE + 2 * i, 2, (uint32_t)strtol(p, &p, 10)); }

@@ -37,10 +37,10 @@ class Tick:
 
 
 class Runner:
-    def __init__(self, pack_path, profile="author", abi_minor=2, limit=0, blend=1, params=(), roles=None, tc=None):
+    def __init__(self, pack_path, profile="author", abi_minor=2, limit=0, blend=1, params=(), roles=None, stackfill=0, tc=None):
         exe = build_runner(tc)
         self.p = subprocess.Popen([str(exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
-        self._send("profile %s" % profile); self._send("abi %d" % abi_minor); self._send("blend %d" % blend); self._send("limit %d" % limit)
+        self._send("profile %s" % profile); self._send("abi %d" % abi_minor); self._send("blend %d" % blend); self._send("limit %d" % limit); self._send("stackfill %d" % stackfill)
         self._send("params %d %s" % (len(params), " ".join(str(int(v)) for v in params)))
         self._send("roles " + " ".join(str(int(v)) for v in (roles or [0x1234 + i * 0x421 for i in range(21)])))
         self._send("load %s" % pack_path)
