@@ -45,7 +45,11 @@ def thumb(project_dir):
         dd = s.descriptor(binf.read_bytes()); params = [p.get("def", p["min"]) for p in dd["params"]]
         res = s.run_scenario(str(binf), None, s.scenario("music")[:1] + s.scenario("music")[1:13], params, dd["max_cycles"], 0 if d.get("abi", "1.0") == "1.0" else int(d["abi"].split(".")[1]), "author", want_frames={12})
         box, rgb = res["frames"][12]
-    t = th.from_rgb(rgb, box[2], box[3])
+    import meter_desc
+    t = th.from_rgb(rgb, box[2], box[3], s.ROLES_DARK, meter_desc.ROLES)
+    print("preview palette (entry: colour, theme role if it matches the reference theme):")
+    for i, c in enumerate(t["palette"][:8]):
+        if i < len(t.get("palette_roles") or [None] * 8) or c: print("  %d: 0x%04X %s" % (i, c, (t.get("palette_roles") or [None] * 8)[i] or ""))
     (Path(project_dir) / "thumb.json").write_text(json.dumps(t, indent=1) + "\n")
     print("wrote %s/thumb.json (%d bytes of stream)" % (project_dir, len(t["rle"]) // 2)); return 0
 

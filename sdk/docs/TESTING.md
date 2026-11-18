@@ -42,7 +42,7 @@ It reads the package without trusting it, checks it against the rules the player
 | `RUN-HANG` | a tick did not return: the watchdog would cut it off (4 x `max_cycles`, 2 M to 20 M cycles) and strike the meter out at once | find the endless loop |
 | `RUN-OVERRUN` | a drawn tick (not a forced repaint) used more estimated cycles than `max_cycles` | cheaper tick or a higher, honest limit |
 | `RUN-STRIKES` | the player's strike model would switch the meter off in the 'music' scenario | as above |
-| `RUN-CMDS` | a drawn tick issued more draw commands than `cmds` | fewer, bigger commands |
+| `RUN-CMDS` | a drawn tick issued more draw commands than `cmds` | fewer, bigger commands. Forced repaints are not judged by the player or the check; they are printed so you can see them: the `cmds` ceiling is for an ordinary picture, and a forced picture may use more |
 | `RUN-BOX` | a draw call landed outside the meter's rectangle (the player's three boxes) | clip to `in->x, y, w, h` |
 | `RUN-BOX-SMALL` | (warning) the same, in a 120 x 40 or 16 x 8 box | size from `in->w`, `in->h` |
 | `RUN-STACK` | stack use above 3,584 bytes (warning above 2,048) | smaller locals |
@@ -53,10 +53,22 @@ It reads the package without trusting it, checks it against the rules the player
 | `PREVIEW` | the preview image was made (or could not be) | |
 | `INPUT`, `RUN` | the file is missing (exit 2) / a run step was skipped or the runner failed | |
 
+## Driving the runner from Python (your own tests)
+```python
+sys.path.insert(0, SDK); from tau_meter import runner; from conformance import suite
+with runner.Runner("meter.bin", params=[100, 1], limit=400000, roles=suite.ROLES_DARK) as r:     # meter.bin is inside the .tmeter zip; params in meter.json order
+    t = r.tick(frame, dt_ms, (x, y, w, h), bg, force, paused, peak_l, peak_r, degrade, spec16bytes)
+```
+`t.status` is `"ok"`, `"cut"` (the watchdog would cut it) or `"fault"` (`t.fault["msg"]`); `t.calls` is the list of host-table calls in order, each a tuple of strings: `('rect', x, y, w, h, colour)`, `('bar', x, y, w, h, lit, fg, bg)`, `('text', x, y, hex-of-the-characters-plus-'.', fg, bg)`, `('scroll_left', ...)` and so on (arguments as in [HOST_TABLE.md](HOST_TABLE.md); pointers are left out); `('rect_stash', x, y, w, h, colour)`, `('blit', sx, sy, dx, dy, w, h)`, `('scroll_down' / 'scroll_left', x, y, w, h, d)` (every call lists its arguments in the order of its signature in HOST_TABLE.md, all as decimal strings); `t.cmds`, `t.cycles` (estimate), `t.instr`, `t.stack`. State persists from tick to tick like in the player. The suite uses the reference theme `suite.ROLES_DARK` (accent `0xFD20`, `MTR_ROLE_BASE` `0x0841`) and `suite.BG = 0x0841` as `in->bg`; pass `roles=suite.ROLES_DARK` or the runner uses arbitrary colours. `dt_ms` is 26 in the suite. `suite.BOXES` holds the boxes. `suite.descriptor(open('meter.bin','rb').read())` returns the descriptor: `d['params']` is a list of dicts with `label`, `type`, `min`, `max`, `step`, `vals`, `def` (the default) and `key` (the key hash); `d['cmds']`, `d['max_cycles']`, `d['name']`. To see pixels, replay `t.calls` on `conformance.canvas.Canvas` (`cv.apply(call)`, `cv.crop_rgb(x, y, w, h)`).
+
 ## Scenarios
 `music` (a forced first picture, loud music, silence, a forced repaint), `pause`, `move` (Now Playing box, Configure box, fullscreen box, back), `loud` (every band at 255), `degrade` (levels 1 and 2), `tiny` (the robustness boxes). The spectrum is a fixed integer pattern, so a run is repeatable. Statistics inputs (`rms`, `corr`, ...) are set when you declare ABI 1.1 or later.
 
+## The preview image
+`--preview` writes a 2 x 2 grid of the Now Playing box (368 x 122, shown at 2x) after pictures 1, 10, 20 and 40 of the `music` scenario, in that order: picture 1 and 10 are loud music, picture 20 is in the four silent pictures (so a held peak or a fading trail shows), picture 40 is music again. Text is drawn as blocks.
+
 ## What the checks are not
+- **They do not know what your meter is meant to look like.** A pass says the meter obeys the rules and does not crash or overrun; whether it holds a peak for a second or draws the right colour is yours to test (`test/test_meter.py`, above).
 - **Cycles are an estimate** ([PERFORMANCE.md](PERFORMANCE.md)); a meter that passes can still be slow on the Pocket.
 - **The static check is a recursive descent** from the entry point; code reachable only through a jump through a register is covered by the run, on the paths the scenarios take.
 - A passing meter **follows the rules**; it is not proven **safe** ([TRUST.md](TRUST.md)).

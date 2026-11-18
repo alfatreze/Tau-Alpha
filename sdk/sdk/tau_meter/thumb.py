@@ -56,9 +56,22 @@ def from_indices(indices, palette565, roles=None):
     return d
 
 
-def from_rgb(rgb, w, h):
+def from_rgb(rgb, w, h, theme_roles=None, role_names=None):
+    """theme_roles: RGB565 values of the reference theme and role_names their names: a palette entry that equals one becomes `palette_roles` (so the preview follows the user's theme)"""
     pix = downscale(rgb, w, h); pal = quantize(pix)
-    return from_indices([nearest(pal, p) for p in pix], [rgb565(*c) for c in pal])
+    idx = [nearest(pal, p) for p in pix]
+    exact = []                                              # each palette entry becomes the most frequent real colour of its pixels (solid areas keep their exact colour)
+    for i in range(len(pal)):
+        cnt = {}
+        for p, k in zip(pix, idx):
+            if k == i: cnt[p] = cnt.get(p, 0) + 1
+        exact.append(max(cnt, key=cnt.get) if cnt else pal[i])
+    p565 = [rgb565(*c) for c in exact]
+    roles = None
+    if theme_roles:
+        roles = [role_names[theme_roles.index(v)] if v in theme_roles else None for v in p565] + [None] * (8 - len(p565))
+        if not any(roles): roles = None
+    return from_indices(idx, p565, roles)
 
 
 def decode(thumb):

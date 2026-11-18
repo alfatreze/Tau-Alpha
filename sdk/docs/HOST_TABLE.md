@@ -52,7 +52,7 @@ Draw commands (counted against the meter's `cmds` ceiling, one each): `bar`, `bl
 | `scroll_down` | `void scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)` | 1.0 | the box moves down d rows (a few copies, not a redraw) **(draw command)** |
 | `clut_load` | `void clut_load(uint32_t start, const uint16_t *colors, uint32_t n)` | 1.0 | palette entries start..: load yours before your cblit calls (other users overwrite it) |
 | `cblit` | `void cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h)` | 1.0 | palette indices from the stash at (sx, sy) through the palette to the drawing buffer; w <= 127 **(draw command)** |
-| `scroll_left` | `void scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)` | 1.2 | the box moves left d columns **(draw command)** |
+| `scroll_left` | `void scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)` | 1.2 | the box moves left d columns; the d columns it vacates at the right keep their old pixels (paint them yourself) **(draw command)** |
 
 ## Theme roles (`api->role[MTR_ROLE_*]`)
 

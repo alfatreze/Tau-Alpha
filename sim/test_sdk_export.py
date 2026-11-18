@@ -64,6 +64,10 @@ check("`tau-meter thumb` writes a 56 x 32 thumb.json from a frame of the meter",
 r = run(scratch / "tau-alpha-meter-sdk" / "tau-meter", "build")
 check("the meter still builds with the generated thumbnail", r.returncode == 0, r.stdout + r.stderr)
 
+check("no file of the template is empty (a 0-byte Makefile once shipped)", all(f.stat().st_size > 0 for f in tpl.rglob("*") if f.is_file()), [str(f) for f in tpl.rglob("*") if f.is_file() and f.stat().st_size == 0])
+r = subprocess.run(["make", "SDK=" + str(scratch / "tau-alpha-meter-sdk"), "test"], capture_output=True, text=True, cwd=scratch / "my-meter", env=env)
+check("`make test` in the exported template builds, runs the suite and the meter's own test", r.returncode == 0 and "conformant" in r.stdout and "a forced repaint is the same picture" in r.stdout, r.stdout[-300:] + r.stderr[-300:])
+
 # ---- 4. the collection and the pocket-test bin -----------------------------------------------------------------------------------------------------------
 dist = sorted((col / "dist").glob("*.tmeter"))
 check("the collection has 7 packages in dist/", len(dist) == 7, len(dist))
