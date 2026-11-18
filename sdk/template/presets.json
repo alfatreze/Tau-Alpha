@@ -1,0 +1,7 @@
+{
+  "presets": [
+    { "name": "NORMAL", "values": { "gain": 100, "gap": 1 } },
+    { "name": "TIGHT", "values": { "gain": 100, "gap": 0 } },
+    { "name": "LOUD", "values": { "gain": 220, "gap": 2 } }
+  ]
+}

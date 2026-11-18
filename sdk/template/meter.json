@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "REPLACE_WITH_tau-meter_id_new",
+  "name": "MY BARS",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "licence": "MIT",
+  "homepage": "https://github.com/you/my-bars",
+  "abi": "1.0",
+  "tau_min": "0.7",
+  "params_rev": 1,
+  "params": [
+    { "key": "gain", "label": "Gain", "type": "u8", "min": 25, "max": 400, "step": 5, "default": 100, "unit": "%" },
+    { "key": "gap", "label": "Bar gap", "type": "u8", "min": 0, "max": 4, "step": 1, "default": 1, "unit": "px" }
+  ],
+  "p2": { "cmds": 24, "max_cycles": 400000, "compose": false }
+}
