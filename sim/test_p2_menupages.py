@@ -9,9 +9,9 @@ def check(name, ok, extra=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else "  " + str(extra)))
     if not ok: fails += 1
-def build(td, bug):
-    exe = Path(td) / f"m{bug}"
-    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", f"-DBUG={bug}", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_menupages_harness.c")], capture_output=True, text=True)
+def build(td, bug, diag=1):
+    exe = Path(td) / f"m{bug}_{diag}"
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", f"-DBUG={bug}", f"-DP2_DIAG={diag}", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_menupages_harness.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return exe
 def rows(exe, pg):
@@ -71,6 +71,16 @@ with tempfile.TemporaryDirectory() as td:
     _, r = run(g, to("PLAYBACK") + " D A")
     nk = 1 + HOME.index("PLAYBACK")
     check("Playback: SHUFFLE (second row) toggles", r[nk + 1][5:] == (1, 4, 1), r)
+    # ---------- Home grew by one row: it must still fit or scroll correctly
+    check("Diagnostic Build: Home has %d rows (more than the 8 visible): Up from the top wraps to the last row and scrolls so it is visible; Down walks every row in order, the selection always inside the window, and wraps" % nh, nh == 9, nh)
+    _, r = run(g, "U " + " ".join(["D"] * (nh + 1)))
+    check("... (top and selection)", r[0][3] == nh - 1 and r[0][4] == nh - 8 and [x[3] for x in r[1:]] == [(i) % nh for i in range(nh + 1)] and all(x[4] <= x[3] < x[4] + 8 for x in r), r[:3])
+    gn = build(td, 0, 0); HN = [r[0] for r in rows(gn, 0)]
+    check("normal build: Home has %d rows (APPEARANCE, METERS, AUDIO, PLAYBACK, CONTROLS, HELP, ABOUT), no DIAGNOSTICS and no INFO, all visible without scrolling" % len(HN), HN == ["APPEARANCE", "METERS", "AUDIO", "PLAYBACK", "CONTROLS", "HELP", "ABOUT"], HN)
+    _, r = run(gn, "U " + " ".join(["D"] * 8))
+    check("... Up wraps to ABOUT (the last row), top stays 0, Down wraps back", r[0][3] == 6 and r[0][4] == 0 and [x[3] for x in r[1:]] == [0, 1, 2, 3, 4, 5, 6, 0] and all(x[4] == 0 for x in r), r)
+    _, r = run(gn, "n 5 v 13 3 D R")
+    check("normal build: METERS (second row) opens the list on the active meter", r[-1][1:4] == (1, 5, 3), r[-1])
     # ---------- METERS (the METER list as its own entry of Home)
     NK = HOME.index("METERS") + 1                                                          # keys that open the list: Down to METERS, Right
     for n1 in (1, 2):

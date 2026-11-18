@@ -38,13 +38,13 @@ The controls (checked against the firmware input handling in `fw/player.c`):
 |---|---|
 | **A** | *Tap*: play / pause |
 | **Start** | Open the settings menu (colour, theme, meter, Halcyon EQ, repeat, speed and more) -- it opens when you let go of the button, and not at all if you pressed another button while holding it. In any menu or the library, Start closes it from any depth |
-| **Start + Y** | Jump straight to Settings > Meter > Configure |
+| **Start + X** | Configure the meter on screen (its presets and parameters). To configure another meter, use **Settings > METERS** and press **X** on it |
 | **Left** / **Right** | *Tap*: previous / next track (library queue) |
 | **Left** / **Right** | *Hold*: seek, faster the longer you hold (5 s, then 10 s, then 30 s per step) |
 | **Select** + **Left** / **Right** | Seek one second |
 | **Up** / **Down** | Volume: 100 positions over a 60 dB range (each position 0.6 dB, so every step sounds like the same change), 3 positions a press, hold to repeat |
 | **B** | Restart the current track from the beginning |
-| **X** | Cycle the meter (eleven styles) |
+| **X** | Cycle the meter (the order of Settings > METERS) |
 | **Y** | Step the Halcyon EQ preset |
 | **Select** | *Tap*: open the library |
 | **Select** + **X** | Next preset of the current meter (Chladni presets; Bars switches between its normal and mirrored layout) |
@@ -119,7 +119,7 @@ the list is freshly shuffled.
 
 ## Themes and colours
 
-**Settings > Appearance** (Start opens Settings) has the rows COLOUR, THEME, MODE, METER, ALBUM ART and SCREEN BLANK.
+**Settings > Appearance** (Start opens Settings) has the rows COLOUR, THEME, MODE, ALBUM ART, SCREEN BLANK and FONT. The meters have their own entry, **Settings > METERS**, right below APPEARANCE.
 
 - **THEME** picks one of the built-in themes, **TAU** or **OCEAN**, plus up to four more from a `tau-assets.bin` file if you
   have one (see [Media and tools](MEDIA_AND_TOOLS.md#the-theme-and-meter-file-tau-assetsbin)). Info shows THEME FILE.
@@ -133,7 +133,7 @@ The chosen theme, mode and accent colour are all remembered across a restart.
 
 ## Meters
 
-Cycle with **X**, or choose one in Settings > Appearance > METER (the list order below is the firmware's order):
+Cycle with **X**, or choose one in **Settings > METERS** (the list order below is the firmware's order):
 
 | Meter | What it shows |
 |---|---|
@@ -152,17 +152,21 @@ Cycle with **X**, or choose one in Settings > Appearance > METER (the list order
 Sources: `meters/*/meter.json` and `fw/meter_gen_order.h`. The Magic Eye, L/R Levels, Mirrored Bars (now a layout of Bars)
 and cassette meters no longer exist as separate choices.
 
-**Configure.** Settings > Appearance > METER > CONFIGURE opens a page for the current meter's parameters: presets, band
-count, easing, attack and release, peak cap and fall (Winamp Bars), scope smoothing and trail (Winamp Scope), and the
-Chladni parameters. Use Up/Down to pick a row and Left/Right to change it; the live meter stays on screen above. These settings
-are **session-only** (not remembered across a restart yet). In the Diagnostic Build the page can also show the configuration
-as a QR code.
+**Configure.** Every meter that has parameters (all the shipped ones) can be configured: presets, band count, easing, attack and release,
+peak cap and fall (Winamp Bars), scope smoothing and trail (Winamp Scope), the Chladni parameters and so on. Two ways in:
+**Start + X** on Now Playing configures the meter on screen; in **Settings > METERS**, **X** configures the highlighted meter, which need
+not be the one on screen. The page shows that meter live above its parameter list: Up/Down pick a row, Left/Right change it. Leaving the
+page (B, or Start) puts back the meter you had set, so configuring never changes which meter plays; only **A** in the METERS list sets the
+meter. In the Diagnostic Build the page can also show the configuration as a QR code. Today the settings of the **two meters you changed most
+recently** are remembered across a restart; configuring a third replaces the oldest (a save file for every meter is in development).
 
 Meter drawing waits for the display beam, so it does not tear.
 
-**The METER list scrolls.** Settings > Appearance > METER shows seven meters at a time and scrolls (Up/Down, wrapping at the ends); a small
-"12 / 64" in the corner says where you are. It lists the same meters, in the same order, as **X** on Now Playing. A meter that needs a newer TAU
-than the one you have is shown greyed (N/A) and cannot be picked.
+**The METERS list.** Settings > METERS shows seven meters at a time and scrolls (Up/Down, wrapping at the ends); a small "12 / 64" in
+the corner says where you are, and it opens on the meter that is on screen (marked with a star). It lists the same meters, in the same order,
+as **X** on Now Playing. **A** sets the meter, **X** configures it; a meter that has parameters shows a small gear at the right of its row.
+A meter that needs a newer TAU than the one you have is shown greyed (N/A) and can be neither set nor configured. If a meter cannot be
+opened for its Configure page (a damaged file), the list says so and stays where it is.
 
 **More than the shipped meters.** TAU ships its own meters and does not need anything else. The player can also read **one optional file of
 extra meters**, `Assets/tau/common/tau-meters.bin`: up to 64 meters in all, the order of the list being the order in the file. Tau Omega is the

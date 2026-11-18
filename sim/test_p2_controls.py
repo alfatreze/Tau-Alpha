@@ -41,4 +41,8 @@ for key, pat in (("A play/pause", "KEY_A) mp3play_act(MPA_PLAYPAUSE"), ("B resta
                  ("L accent", "KEY_L1) theme_pick_step"), ("Select+L repeat", "KEY_L1) mp3play_act(MPA_REPEAT"), ("Select+X preset", "KEY_X) meters_preset_next"), ("Select+Y fullscreen", "KEY_Y) views_switch(cur == V_FULLSCREEN"),
                  ("Select+Up album", "KEY_UP) mp3play_act(MPA_ALBUM"), ("Select+Left seek 1 s", "KEY_LEFT) mp3play_act(MPA_SEEK, -1)")):
     check(f"the firmware handles: {key}", pat in src, pat)
+core = (ROOT / "fw2/cores/controls_core.h").read_text()
+check("W1: the list says what the METERS page keys do (MENU > METERS: A SET, X CONFIGURE) and what Start+X does, and no longer lists a stale Start+Y", '{ "MENU > METERS",   "A SET  X CONFIGURE"' in core and '"START + X",        "METER CONFIGURE"' in core and "START + Y" not in core)
+check("W1: the text fits the columns in the widest font (Space Grotesk): the key in 136 px (132), the action in 224 px (161)", len("MENU > METERS") <= 13 and len("A SET  X CONFIGURE") <= 18)
+check("the firmware really opens Configure on Start+X (main_player.c)", "(keys & KEY_START) && (edge & KEY_X)) views_switch(V_CONFIGURE)" in src)
 print("FAILED" if fails else "PASSED"); sys.exit(1 if fails else 0)
