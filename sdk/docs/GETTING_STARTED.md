@@ -3,8 +3,8 @@
 You need a computer with Python 3.9 or newer (tested on 3.11) and the LLVM compiler ([TOOLCHAIN.md](TOOLCHAIN.md): one install command on macOS and Linux). No Pocket is needed until the last step.
 
 ```
-git clone https://github.com/alfatreze/tau-alpha-meter-sdk      # the SDK: tau-meter, the header, the test suite
-git clone https://github.com/alfatreze/tau-alpha-meter-template my-meter
+git clone https://github.com/alfatreze/tau-alpha-meter-sdk      # the SDK (tau-meter, the header, the test suite) and template/, a working meter
+cp -r tau-alpha-meter-sdk/template my-meter                      # your meter starts as a copy of the template, next to the SDK
 cd my-meter
 python3 ../tau-alpha-meter-sdk/tau-meter doctor                  # is the compiler found? (prints what to install if not)
 ```

@@ -51,7 +51,7 @@ def collect(out):
         (dst / "LICENSE").write_text(lic)
         (dst / "README.md").write_text("# %s\n\nOne of the meters that ship with Tau Alpha (id `%s`, version %s, MIT).\n\nThis folder is a meter project for the SDK: `tau-meter build .` makes `dist/%s.tmeter`.\n"
                                        "The source is the player's own: `src/fw2/ui/meter_pack_%s.c` redirects the player's drawing calls to the host table, and `meter_%s.c` is the drawing. The player headers it includes are copied under `src/` "
-                                       "in the player's folder layout. **To write a new meter, start from the template (`tau-alpha-meter-template`) and `tau_meter.h`, not from these.**\n"
+                                       "in the player's folder layout. **To write a new meter, start from the template (`template/` in `tau-alpha-meter-sdk`) and `tau_meter.h`, not from these.**\n"
                                        % (man["name"], man["id"], man["version"], man["id"], key, key))
     return KEYS
 

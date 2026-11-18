@@ -5,7 +5,7 @@ The SDK for writing **meters** for Tau, the music player of the Analogue Pocket:
 ```
 python3 tau-meter doctor            # is LLVM installed? (macOS: brew install llvm lld; Linux: apt install clang lld)
 python3 tau-meter id new            # a new meter id
-python3 tau-meter build  DIR        # DIR/dist/<id>.tmeter       (start from tau-alpha-meter-template)
+python3 tau-meter build  DIR        # DIR/dist/<id>.tmeter       (start from a copy of template/)
 python3 tau-meter test   X.tmeter --preview preview.png
 python3 tau-meter compose tau-meters.bin X.tmeter share/*.tmeter
 python3 tau-meter selftest          # the suite against its own broken-meter fixtures

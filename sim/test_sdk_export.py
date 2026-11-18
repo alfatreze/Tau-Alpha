@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""tools/export_sdk.py: the three repository trees are SELF-CONTAINED.
-  1. the export is made (no network, no git); it holds the three trees and the pocket-test bin;
+"""tools/export_sdk.py: the two repository trees (the SDK with its template/ folder, and the collection) are SELF-CONTAINED.
+  1. the export is made (no network, no git); it holds the SDK (with template/ inside), the collection and the pocket-test bin;
   2. the template is built into a .tmeter and passes the full suite using the EXPORTED trees alone, run from a scratch folder outside this repository with a scrubbed environment (no PYTHONPATH, no repo on any path);
      every Python module the SDK loads comes from the exported tree or the standard library;
   3. `tau-meter selftest` (the suite against its broken-meter fixtures) passes in the exported SDK; `tau-meter compose` adds the shipped Winamp Bars from share/ and the bin passes the bin checker;
@@ -23,8 +23,8 @@ except toolchain.ToolchainError as e:
 import export_sdk
 TMP = Path(tempfile.mkdtemp())
 out = export_sdk.export(TMP / "export")
-sdk, tpl, col, pt = out / "tau-alpha-meter-sdk", out / "tau-alpha-meter-template", out / "tau-alpha-meters", out / "pocket-test"
-check("the export holds the three trees and the pocket-test folder", all(p.is_dir() for p in (sdk, tpl, col, pt)))
+sdk, col, pt = out / "tau-alpha-meter-sdk", out / "tau-alpha-meters", out / "pocket-test"; tpl = sdk / "template"
+check("the export holds the SDK with template/ inside, the collection and the pocket-test folder (and no separate template repository)", all(p.is_dir() for p in (sdk, tpl, col, pt)) and not (out / "tau-alpha-meter-template").exists())
 
 # ---- 2. self-contained: copy the template and the SDK to a scratch folder and build with a scrubbed environment ---------------------------------------
 scratch = Path(tempfile.mkdtemp(prefix="sdk-scratch-"))
@@ -69,6 +69,9 @@ check("no file of the template is empty (a 0-byte Makefile once shipped)", all(f
 r = subprocess.run(["make", "SDK=" + str(scratch / "tau-alpha-meter-sdk"), "test"], capture_output=True, text=True, cwd=scratch / "my-meter", env=env)
 check("`make test` in the exported template builds, runs the suite and the meter's own test", r.returncode == 0 and "conformant" in r.stdout and "a forced repaint is the same picture" in r.stdout, r.stdout[-300:] + r.stderr[-300:])
 
+r = subprocess.run(["make", "-n", "all"], capture_output=True, text=True, cwd=tpl, env=env)
+check("the template finds the SDK above it when built in place (sdk/template/), without any path given", r.returncode == 0 and "python3 ../tau-meter build" in r.stdout, r.stdout + r.stderr)
+
 # ---- 4. the collection and the pocket-test bin -----------------------------------------------------------------------------------------------------------
 dist = sorted((col / "dist").glob("*.tmeter"))
 check("the collection has 7 packages in dist/", len(dist) == 7, len(dist))
@@ -85,7 +88,7 @@ check("the pocket-test bin has 8 rows, Winamp Bars first", len(info.get("rows", 
 
 # ---- 5. hygiene ------------------------------------------------------------------------------------------------------------------------------------------
 bad = []
-for tree in (sdk, tpl, col):
+for tree in (sdk, col):
     for f in tree.rglob("*"):
         if not f.is_file(): continue
         if f.suffix in (".tmeter", ".png", ".bin"): continue

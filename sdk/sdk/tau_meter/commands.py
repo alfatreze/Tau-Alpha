@@ -59,9 +59,10 @@ def prove(tc):
     import shutil
     from . import build
     from conformance import suite
-    src = SDK_ROOT.parent / "template"
+    src = SDK_ROOT / "template"                                  # the exported SDK repository holds it
+    if not src.is_dir(): src = SDK_ROOT.parent / "template"       # inside the Tau Alpha repository (sdk/sdk and sdk/template)
     if not src.is_dir():
-        print("the template folder is not next to the SDK (clone tau-alpha-meter-template beside it); skipping the proof"); return 0
+        print("the template folder was not found (it is template/ in the SDK repository); skipping the proof"); return 0
     with tempfile.TemporaryDirectory() as td:
         dst = Path(td) / "t"; shutil.copytree(src, dst, ignore=shutil.ignore_patterns("dist", "build", ".git"))
         m = json.loads((dst / "meter.json").read_text()); m["id"] = "0123456789abcdef0123456789abcdef"; (dst / "meter.json").write_text(json.dumps(m))
