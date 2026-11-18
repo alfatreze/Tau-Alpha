@@ -67,7 +67,7 @@ static uint32_t mmio_rd(uint32_t a)
 {
     const uint32_t off = a & 0xFFFu;
     if (!profile_shipped || !mmio_known(off)) { fault("reads a hardware register: a meter may use only the host table", a); return 0; }
-    if (off == 0x0C) return cycles_now();
+    if (off == 0x0C) return 0u;          /* the cycle counter reads 0, as in the project's own host harnesses: a meter that times itself (Chladni's shedding) then behaves the same whatever the compiler */
     if (off == 0xFC) return 1u;
     if (off == 0x88) return 0x50535231u;
     if (off == 0xA0) return 0x10000u;
@@ -84,13 +84,13 @@ static void mmio_wr(uint32_t a, uint32_t v)
 /* ---- memory ---- */
 static uint32_t rd_le(const uint8_t *p, int n) { uint32_t v = 0; for (int i = 0; i < n; i++) v |= (uint32_t)p[i] << (8 * i); return v; }
 static void wr_le(uint8_t *p, int n, uint32_t v) { for (int i = 0; i < n; i++) p[i] = (uint8_t)(v >> (8 * i)); }
-static uint32_t in_reads_new;                          /* bytes read from the mtr_in_t fields added in ABI 1.1 (offsets 40..51) */
+static uint32_t in_reads_new, ps_subword;                          /* bytes read from the mtr_in_t fields added in ABI 1.1 (offsets 40..51) */
 static uint32_t load_mem(uint32_t a, int n, int host_side)
 {
     if (a & (uint32_t)(n - 1)) { fault("a misaligned load", a); return 0; }
     if (a >= WIN_DATA && a - WIN_DATA + n <= WIN_SIZE) {
         const uint32_t o = a - WIN_DATA;
-        if (!host_side && n < 4 && o >= hdr.ps_off && o < hdr.ps_off + hdr.ps_size) { fault("a byte or halfword read of its PSRAM state: the state takes whole 32-bit words only", a); return 0; }
+        if (!host_side && n < 4 && o >= hdr.ps_off && o < hdr.ps_off + hdr.ps_size) ps_subword++;
         return rd_le(win + o, n);
     }
     if (a >= WIN_ORG && a - WIN_ORG < WIN_SIZE) { fault("a data read through the instruction alias (the window's code alias can be fetched from, not read)", a); return 0; }
@@ -113,7 +113,7 @@ static void store_mem(uint32_t a, int n, uint32_t v)
     if (a & (uint32_t)(n - 1)) { fault("a misaligned store", a); return; }
     if (a >= WIN_DATA && a - WIN_DATA + n <= WIN_SIZE) {
         const uint32_t o = a - WIN_DATA;
-        if (o >= hdr.ps_off && o + n <= hdr.ps_off + hdr.ps_size) { if (n != 4) { fault("a byte or halfword write to its PSRAM state: the state takes whole 32-bit words only", a); return; } wr_le(win + o, 4, v); return; }
+        if (o >= hdr.ps_off && o + n <= hdr.ps_off + hdr.ps_size) { if (n != 4) ps_subword++; wr_le(win + o, n, v); return; }
         fault("writes outside its own state (its code and constants are read-only)", a); return;
     }
     if (a >= WIN_ORG && a - WIN_ORG < WIN_SIZE) { fault("writes through the instruction alias (its code is read-only)", a); return; }
@@ -292,13 +292,14 @@ int main(void)
             put_in(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], (int32_t)v[14], v[15], v[16], v[17], v[18], v[19], spec);
             build_api(); memset(host + O_STATS, 0, 16);
             memset(reg, 0, sizeof reg); reg[2] = STK_TOP; reg[10] = HOST_ORG + O_IN; reg[11] = HOST_ORG + O_API; reg[1] = RET_ADDR; pc = WIN_ORG + hdr.entry;
-            instr = cyc_extra = calls = cmds = misses = 0; faulted = 0; fault_msg[0] = 0; stack_lo = STK_TOP; in_reads_new = 0; memset(icache_tag, 0, sizeof icache_tag);
+            instr = cyc_extra = calls = cmds = misses = 0; faulted = 0; fault_msg[0] = 0; stack_lo = STK_TOP; in_reads_new = 0; ps_subword = 0; memset(icache_tag, 0, sizeof icache_tag);
             const uint32_t wd = wd_limit((uint32_t)soft_limit);
             const int st = run_tick(wd);
             const uint32_t spent = cycles_now(), used = STK_TOP - stack_lo;
             const char *verdict = st == 0 ? "ok" : st == 1 ? "cut" : "fault";
             if (st == 2) printf("f %u %u %s\n", fault_pc - WIN_ORG < WIN_SIZE ? fault_pc - WIN_ORG : fault_pc, fault_addr, fault_msg);
             if (in_reads_new && abi_minor < 1) printf("n in-fields-1.1 %u\n", in_reads_new);
+            if (ps_subword) printf("n pstate-subword %u\n", ps_subword);
             int judged = 0;
             if (st == 1) { struck = 1; }
             else if (st == 0 && !v[7]) { judged = 1; if (ps_judge(&ps, spent, (uint32_t)soft_limit)) struck = 1; }

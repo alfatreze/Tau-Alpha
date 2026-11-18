@@ -1,0 +1,133 @@
+{
+  "key": "winamp_bars",
+  "id": "7dddfe63121e904843088c075cc28ce9",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
+  "enum": "VIZ_WINAMP_BARS",
+  "index": 12,
+  "name": "WINAMP BARS",
+  "selectable": true,
+  "sel_index": 1,
+  "caps": [
+    "bar"
+  ],
+  "cost_class": 1,
+  "considered": "Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each.",
+  "params": [
+    {
+      "key": "bands",
+      "label": "Bands",
+      "type": "u8",
+      "min": 4,
+      "max": 16,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "ease",
+      "label": "Easing",
+      "type": "enum",
+      "values": [
+        "INSTANT",
+        "LINEAR",
+        "EXPONENTIAL",
+        "SPRING"
+      ],
+      "default": 2
+    },
+    {
+      "key": "attack",
+      "label": "Attack",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 55
+    },
+    {
+      "key": "release",
+      "label": "Release",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 22
+    },
+    {
+      "key": "peak_on",
+      "label": "Peak cap",
+      "type": "bool",
+      "default": 1
+    },
+    {
+      "key": "peak_gravity",
+      "label": "Peak fall style",
+      "type": "enum",
+      "values": [
+        "LINEAR",
+        "GRAVITY"
+      ],
+      "default": 1,
+      "when": {
+        "peak_on": 1
+      }
+    },
+    {
+      "key": "peak_hold_ms",
+      "label": "Peak hold",
+      "type": "u16",
+      "min": 0,
+      "max": 800,
+      "step": 20,
+      "default": 200,
+      "unit": "ms",
+      "when": {
+        "peak_on": 1
+      }
+    },
+    {
+      "key": "peak_fall",
+      "label": "Peak fall speed",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 35,
+      "when": {
+        "peak_on": 1
+      }
+    }
+  ],
+  "p2": {
+    "cmds": 64,
+    "max_cycles": 200000,
+    "slot": 0,
+    "tag": "BARS",
+    "compose": false,
+    "budget": {
+      "cold": 1600,
+      "hot_ram": 192
+    }
+  },
+  "default_preset": 0,
+  "abi": "1.0",
+  "sources": [
+    "src/fw2/ui/meter_pack_winamp_bars.c"
+  ],
+  "build": {
+    "include": [
+      "src/fw2/ui",
+      "src/fw2/cores",
+      "src/fw"
+    ],
+    "descriptor": "source",
+    "cflags": [
+      "-w"
+    ]
+  }
+}

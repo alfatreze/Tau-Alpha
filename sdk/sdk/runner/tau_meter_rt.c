@@ -17,6 +17,10 @@ W int memcmp(const void *a, const void *b, size_t n)
     for (; n; n--, p++, q++) if (*p != *q) return *p < *q ? -1 : 1;
     return 0;
 }
+/* 64-bit shifts by a variable amount (the compiler calls these at -Oz); built from 32-bit halves so they do not call themselves. */
+W uint64_t __ashldi3(uint64_t v, int n) { uint32_t lo = (uint32_t)v, hi = (uint32_t)(v >> 32); n &= 63; if (!n) return v; if (n >= 32) { hi = lo << (n - 32); lo = 0; } else { hi = (hi << n) | (lo >> (32 - n)); lo <<= n; } return ((uint64_t)hi << 32) | lo; }
+W uint64_t __lshrdi3(uint64_t v, int n) { uint32_t lo = (uint32_t)v, hi = (uint32_t)(v >> 32); n &= 63; if (!n) return v; if (n >= 32) { lo = hi >> (n - 32); hi = 0; } else { lo = (lo >> n) | (hi << (32 - n)); hi >>= n; } return ((uint64_t)hi << 32) | lo; }
+W int64_t __ashrdi3(int64_t v, int n) { uint32_t lo = (uint32_t)v; int32_t hi = (int32_t)(v >> 32); n &= 63; if (!n) return v; if (n >= 32) { lo = (uint32_t)(hi >> (n - 32)); hi >>= 31; } else { lo = (lo >> n) | ((uint32_t)hi << (32 - n)); hi >>= n; } return (int64_t)(((uint64_t)(uint32_t)hi << 32) | lo); }
 /* 64-bit division: a shift and subtract loop (a meter that needs it is slow: prefer 32-bit math). */
 static uint64_t udivmod64(uint64_t n, uint64_t d, uint64_t *rem)
 {

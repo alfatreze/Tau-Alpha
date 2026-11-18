@@ -1,0 +1,70 @@
+{
+  "key": "winamp_scope",
+  "id": "143acb80cbcd1b08b84c2661eeab3414",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 1,
+  "tau_min": "0.0",
+  "enum": "VIZ_WINAMP_SCOPE",
+  "index": 13,
+  "name": "WINAMP SCOPE",
+  "selectable": true,
+  "sel_index": 0,
+  "caps": [],
+  "cost_class": 2,
+  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. The trail (B-334) blends the background strip over the box with the pipelined hardware blend.",
+  "params": [
+    {
+      "key": "scope_smooth",
+      "label": "Scope smooth",
+      "type": "u8",
+      "min": 0,
+      "max": 90,
+      "step": 5,
+      "default": 35,
+      "unit": "%"
+    },
+    {
+      "key": "scope_trail",
+      "label": "Scope trail",
+      "type": "u8",
+      "min": 0,
+      "max": 80,
+      "step": 5,
+      "default": 30,
+      "unit": "%",
+      "note": "percent of the old trace kept each frame (needs the alpha-blend bitstream; without it the trace is erased as before)"
+    }
+  ],
+  "p2": {
+    "pack_only": true,
+    "cmds": 128,
+    "max_cycles": 1200000,
+    "slot": 1,
+    "tag": "SCOPE",
+    "compose": false,
+    "budget": {
+      "cold": 1300,
+      "hot_ram": 160
+    }
+  },
+  "default_preset": 0,
+  "abi": "1.0",
+  "sources": [
+    "src/fw2/ui/meter_pack_winamp_scope.c"
+  ],
+  "build": {
+    "include": [
+      "src/fw2/ui",
+      "src/fw2/cores",
+      "src/fw"
+    ],
+    "descriptor": "source",
+    "cflags": [
+      "-w"
+    ]
+  }
+}

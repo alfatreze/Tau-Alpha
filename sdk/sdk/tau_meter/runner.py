@@ -33,7 +33,7 @@ def build_runner(tc=None):
 class Tick:
     def __init__(self):
         self.calls = []; self.status = "ok"; self.cycles = 0; self.instr = 0; self.cmds = 0; self.ret = 0; self.stack = 0; self.fault = None; self.wd = 0; self.strikes = 0; self.clean = 0; self.judged = False; self.struck = False
-        self.palettes = []; self.in_fields_new = 0
+        self.palettes = []; self.in_fields_new = 0; self.pstate_subword = 0
 
 
 class Runner:
@@ -66,6 +66,7 @@ class Runner:
             elif ln.startswith("f "):
                 parts = ln.split(" ", 3); t.fault = {"pc": int(parts[1]), "addr": int(parts[2]), "msg": parts[3]}
             elif ln.startswith("n in-fields-1.1"): t.in_fields_new = int(ln.split()[2])
+            elif ln.startswith("n pstate-subword"): t.pstate_subword = int(ln.split()[2])
             elif ln.startswith("r "):
                 f = ln.split(" ")
                 if f[1] == "bad": raise RunnerError("the runner refused the tick line")

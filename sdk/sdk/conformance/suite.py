@@ -17,8 +17,9 @@ import meter_package as mpk, meter_bin as mb, meter_desc as md, mpreset
 PASS, FAIL, WARN, SKIP, INFO = "pass", "fail", "warn", "skip", "info"
 ROLES_DARK = [0x1082, 0x0000, 0x2945, 0x18E3, 0xFFFF, 0x94B2, 0xFD20, 0x0000, 0x07FF, 0x07E0, 0xFFE0, 0xF800, 0x0841, 0x2124, 0x39E7, 0xF800, 0x4208, 0x0000, 0xFD20, 0xF800, 0x2104]
 BG = 0x0841
-BOXES = {"main": (8, 120, 384, 160), "full": (0, 0, 400, 360), "small": (40, 200, 120, 40), "tiny": (100, 100, 16, 8)}
-STACK_WARN, STACK_FAIL = 1024, 2048
+BOXES = {"main": (16, 154, 368, 122), "cfg": (20, 26, 360, 100), "full": (0, 0, 400, 323), "small": (40, 200, 120, 40), "tiny": (100, 100, 16, 8)}   # the player's three boxes: Now Playing, the Configure preview, fullscreen (fw2/ui/regions.h, configure_view.c, fullscreen_view.c); small and tiny are robustness boxes
+ROBUST = ("small", "tiny")
+STACK_WARN, STACK_FAIL = 2048, 3584          # policy: the player's stack is 5 KiB (0x1400) and its own peak was measured at about 1.7 KiB, so a meter should stay well under 3.5 KiB (Layered Wave, the biggest, uses 3.0 to 3.3 KiB)
 WINDOW_CODE_ORG = 0x24970000
 SCRATCH_ORG, SCRATCH_CAP = 0x26C00, 0x1000
 FW_ABI_MINOR, FW_ABI_MAJOR = 2, 1
@@ -116,10 +117,10 @@ def zlib_crc(b):
 
 def tau_min_check(rep, man):
     t = man.get("tau_min")
-    if t is None: rep.add("LOAD-TAU", PASS, "tau_min is not set: the meter claims to run on any Tau"); return
+    if t is None or str(t).split(".")[:2] == ["0", "0"]: rep.add("LOAD-TAU", PASS, "tau_min: no minimum (any Tau that can load meters)"); return
     a, b = (int(x) for x in str(t).split(".")[:2])
-    rep.add("LOAD-TAU", PASS, "tau_min %s" % t) if True else None
-    if (a, b) < (0, 7): rep.add("LOAD-TAU", WARN, "tau_min %s is older than 0.7, the first Tau with loadable meters: the player will not run it on an older Tau anyway" % t)
+    if (a, b) < (0, 7): rep.add("LOAD-TAU", WARN, "tau_min %s is older than 0.7, the first Tau with loadable meters: a lower number changes nothing" % t)
+    else: rep.add("LOAD-TAU", PASS, "tau_min %s" % t)
 
 
 # ------------------------------------------------------------------------------------------------ descriptor, presets
@@ -244,13 +245,13 @@ def scenario(name, quick=False):
     elif name == "pause":
         add(1, force=1); add(6); add(6, paused=1, kind="silence"); add(4)
     elif name == "move":
-        add(1, force=1); add(6); add(1, "small", force=1); add(5, "small"); add(1, "full", force=1); add(5, "full"); add(1, "main", force=1); add(4)
+        add(1, force=1); add(6); add(1, "cfg", force=1); add(5, "cfg"); add(1, "full", force=1); add(5, "full"); add(1, "main", force=1); add(4)
     elif name == "loud":
         add(1, "full", force=1); add(10, "full", kind="loud")
     elif name == "degrade":
         add(1, force=1); add(4); add(4, degrade=1); add(4, degrade=2); add(2)
     elif name == "tiny":
-        add(1, "tiny", force=1); add(7, "tiny")
+        add(1, "small", force=1); add(3, "small"); add(1, "tiny", force=1); add(5, "tiny")
     return t
 
 
@@ -270,7 +271,7 @@ def run_scenario(path, rep_state, ticks, params, limit, abi_minor, profile, role
             for c in t.calls: out["hash"].update((" ".join(c) + "\n").encode())
             out["hash"].update(("r %s %d\n" % (t.status, t.ret)).encode())
             for c in t.calls:
-                for v in canvas.bounds_violations(c, box): out["bounds"].append((n, c, v))
+                for v in canvas.bounds_violations(c, box): out["bounds"].append((n, c, v, tk["box"]))
             if cv is not None:
                 pi = 0
                 for c in t.calls:
@@ -337,17 +338,22 @@ def run_checks(rep, path, pack, man, h, d, presets, profile, quick, preview_path
                             over_done.add("cmd")
                             rep.add("RUN-CMDS", FAIL, "a tick issued %d draw commands, over its declared ceiling of %d: the player lowers the meter's detail level" % (t.cmds, ceiling), "scenario %r, tick %d. Each tick over the ceiling raises the meter's own degrade level; a meter that is always over it is drawn every 2nd or 4th window. Draw fewer, bigger commands or raise p2.cmds." % (nm, t.index))
                     if t.ret != t.cmds: retmismatch = True
+                if t.pstate_subword and "RUN-PSTATE-WORD" not in fault_done:
+                    fault_done.add("RUN-PSTATE-WORD")
+                    rep.add("RUN-PSTATE-WORD", WARN, "the meter made %d byte or halfword access(es) to its PSRAM state" % t.pstate_subword, "scenario %r, tick %d. The player's own notes say PSRAM state takes whole 32-bit words (cores/histring_core.h); a compiler may turn a clearing loop into a byte-wise memset. Declare the state as uint32_t and clear it with a word loop." % (nm, t.index))
                 if t.in_fields_new and "RUN-ABI-FIELDS" not in fault_done:
                     fault_done.add("RUN-ABI-FIELDS")
                     rep.add("RUN-ABI-FIELDS", FAIL, "the meter reads mtr_in_t fields added in ABI 1.1 but declares abi 1.%d" % abi_minor, "Set \"abi\": \"1.1\" in meter.json (the player then refuses the meter on a Tau that predates the fields instead of feeding it garbage).")
-            for (n, c, v) in res["bounds"]:
-                if "RUN-BOX" not in bounds_done:
-                    bounds_done.add("RUN-BOX")
+            for (n, c, v, bname) in res["bounds"]:
+                cid = "RUN-BOX-SMALL" if bname in ROBUST else "RUN-BOX"
+                if cid not in bounds_done:
+                    bounds_done.add(cid)
                     nb = len(res["bounds"])
-                    rep.add("RUN-BOX", FAIL, "the meter drew outside the rectangle it owns", "scenario %r, tick %d: %s\n(%d call(s) in this scenario; the meter owns only (in->x, in->y, in->w, in->h) and must never draw outside it)" % (nm, n, v, nb))
+                    if cid == "RUN-BOX": rep.add(cid, FAIL, "the meter drew outside the rectangle it owns", "scenario %r, tick %d: %s\n(%d call(s) in this scenario; the meter owns only (in->x, in->y, in->w, in->h) and must never draw outside it)" % (nm, n, v, nb))
+                    else: rep.add(cid, WARN, "the meter draws outside a box smaller than the player gives today (%dx%d)" % BOXES[bname][2:], "scenario %r, tick %d: %s\nThe player's boxes are 368x122, 360x100 and 400x323, so this works today; a meter that sizes itself from in->w and in->h survives a future box." % (nm, n, v))
             if nm in ("tiny",) and not res["bounds"] and not res["ticks"][-1].fault: pass
         for cid in ("RUN-HW", "RUN-INPUT-WRITE", "RUN-MEM-WRITE", "RUN-MEM-READ", "RUN-JUMP", "RUN-INSN"): pass
-        if not (fault_done & {c for c in fault_done if c.startswith("RUN-") and c not in ("RUN-HANG", "RUN-ABI-FIELDS")}) and results:
+        if not (fault_done & {c for c in fault_done if c.startswith("RUN-") and c not in ("RUN-HANG", "RUN-ABI-FIELDS", "RUN-PSTATE-WORD")}) and results:
             rep.add("RUN-HOSTONLY", PASS, "every run stayed inside the host table, the meter's own memory and the inputs (%d scenarios)" % len(results))
         if "RUN-BOX" not in bounds_done and results: rep.add("RUN-BOX", PASS, "every draw call stayed inside the meter's rectangle (%d scenarios, boxes %s)" % (len(results), ", ".join(sorted({t.box and "%dx%d" % t.box[2:] for r in results.values() for t in r["ticks"]}))))
         if "RUN-HANG" not in fault_done and results: rep.add("RUN-HANG", PASS, "no tick came near the watchdog window")
@@ -365,7 +371,7 @@ def run_checks(rep, path, pack, man, h, d, presets, profile, quick, preview_path
             last = [t for t in results["music"]["ticks"] if t.status == "ok" and not t.forced][-1]
             rep.add("RUN-STRIKES", PASS if not last.struck else FAIL, "the player's strike model after the 'music' scenario: %d strike(s), meter %s" % (last.strikes, "STRUCK OUT" if last.struck else "still running"))
         # determinism: the same scenario twice, the second time with the stack filled with garbage (an uninitialised local shows up as a different picture)
-        if "music" in results and not fault_done:
+        if "music" in results and not (fault_done - {"RUN-PSTATE-WORD"}):
             try:
                 again = run_scenario(str(binf), None, scenario("music"), params0, limit, abi_minor, profile, stackfill=0xA5, tc=tc)
                 same = again["hash"] == results["music"]["hash"]

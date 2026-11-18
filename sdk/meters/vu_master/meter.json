@@ -1,0 +1,101 @@
+{
+  "key": "vu_master",
+  "id": "0d8c03d3a2770c1aac2dc6abbc222afd",
+  "version": "1.0.0",
+  "author": "alfatreze",
+  "licence": "MIT",
+  "homepage": "https://github.com/alfatreze/Tau-Alpha",
+  "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
+  "params_rev": 3,
+  "tau_min": "0.0",
+  "enum": "VIZ_VU_MASTER",
+  "index": 15,
+  "name": "MASTER VU",
+  "selectable": true,
+  "sel_index": 11,
+  "cost_class": 0,
+  "considered": "Discrete segments with a gap need one background rect plus up to 3 coalesced zone rects per channel per frame (docs/METER_VU_MASTERING_SPEC.md section 4.2) -- cheaper than OP_BAR's own vertical bar meters, and OP_BAR's shape (vertical, one fg colour) does not fit a horizontal 3-colour ladder anyway (section 4.1).",
+  "params": [
+    {
+      "key": "info",
+      "label": "Tech info",
+      "type": "bool",
+      "default": 1
+    },
+    {
+      "key": "color_mode",
+      "label": "Segment colour",
+      "type": "enum",
+      "values": [
+        "THEME",
+        "CUSTOM"
+      ],
+      "default": 0
+    },
+    {
+      "key": "color_green",
+      "label": "Green",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+        "color_mode": 1
+      }
+    },
+    {
+      "key": "color_yellow",
+      "label": "Yellow",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+        "color_mode": 1
+      }
+    },
+    {
+      "key": "color_red",
+      "label": "Red",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": {
+        "color_mode": 1
+      }
+    }
+  ],
+  "p2": {
+    "pack_only": true,
+    "cmds": 32,
+    "max_cycles": 200000,
+    "slot": 4,
+    "tag": "VU",
+    "compose": false,
+    "label": "VU MASTER",
+    "budget": {
+      "cold": 2400,
+      "hot_ram": 48
+    }
+  },
+  "default_preset": 0,
+  "abi": "1.0",
+  "sources": [
+    "src/fw2/ui/meter_pack_vu_master.c"
+  ],
+  "build": {
+    "include": [
+      "src/fw2/ui",
+      "src/fw2/cores",
+      "src/fw"
+    ],
+    "descriptor": "source",
+    "cflags": [
+      "-w"
+    ]
+  }
+}

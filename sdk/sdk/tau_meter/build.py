@@ -26,7 +26,7 @@ def compile_and_link(root, d, work, tc, log):
     root, work = Path(root), Path(work); work.mkdir(parents=True, exist_ok=True)
     b = d.get("build", {})
     incs = ["-I", str(SDK_ROOT / "include"), "-I", str(root / "src")] + sum((["-I", str(root / i)] for i in b.get("include", [])), [])
-    defs = ["-D" + x for x in b.get("defines", [])]
+    defs = ["-D" + x for x in b.get("defines", [])] + list(b.get("cflags", []))
     objs = []
     srcs = [root / s for s in project.sources(root, d)]
     if b.get("descriptor", "generate") == "generate":
