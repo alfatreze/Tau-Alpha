@@ -137,10 +137,15 @@ static void host_call(uint32_t k)
 {
     uint32_t a[8]; for (int i = 0; i < 8; i++) a[i] = reg[10 + i];
     calls++; cyc_extra += DRAWS[k] ? 60u : 12u; if (DRAWS[k]) cmds++;
+    /* the trace holds what a call MEANS, never a pointer into the meter's own memory (a local's address depends on the compiler): text is its characters, clut_load its start and count (the colours follow on a "p" line),
+     * mb_read its address and the value it returned */
+    uint32_t mbv = 0;
+    if (k == 12) mbv = (uint32_t)plane[a[0] < 512u * 1024u ? a[0] : 0] | ((uint32_t)plane[a[0] + 1u < 512u * 1024u ? a[0] + 1u : 0] << 16);
     printf("c %s", NAMES[k]);
     for (int i = 0; i < NARGS[k]; i++) {
         if (k == 5 && i == 2) { printf(" "); for (uint32_t s = a[2], n = 0; n < 200; s++, n++) { uint32_t c = load_mem(s, 1, 1); if (faulted || !c) break; printf("%02x", c); } printf("."); }
-        else if (k == 19 && i == 1) printf(" %u", a[1]);
+        else if (k == 19 && i == 1) continue;
+        else if (k == 12 && i == 1) printf(" %u", mbv);
         else printf(" %u", a[i]);
     }
     printf("\n");
@@ -150,7 +155,7 @@ static void host_call(uint32_t k)
     case 5: ret = a[0]; break;
     case 7: ret = (uint32_t)blend_ready_v; break;
     case 11: put_plane(a[0], (uint16_t)a[1]); put_plane(a[0] + 1u, (uint16_t)(a[1] >> 16)); break;
-    case 12: { uint32_t v = (uint32_t)plane[a[0] < 512u * 1024u ? a[0] : 0] | ((uint32_t)plane[a[0] + 1u < 512u * 1024u ? a[0] + 1u : 0] << 16); store_mem(a[1], 4, v); break; }
+    case 12: store_mem(a[1], 4, mbv); break;
     case 15: for (uint32_t y = 0; y < a[5] && y < 1024u; y++) for (uint32_t x = 0; x < a[4]; x++) { const uint32_t s = (a[1] + y) * 512u + a[0] + x, d = (a[3] + y) * 512u + a[2] + x; if (s < 512u * 1024u && d < 512u * 1024u) plane[d] = plane[s]; } break;
     case 19: { uint32_t n = a[2] > 256u ? 256u : a[2]; printf("p"); for (uint32_t i = 0; i < n; i++) printf(" %u", load_mem(a[1] + 2u * i, 2, 1)); printf("\n"); break; }
     default: break;
