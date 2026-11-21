@@ -18,7 +18,7 @@ Current version **v0.7.1** (11 November 2026). See [CHANGELOG.md](CHANGELOG.md).
 
 ## Companion app
 
-**[Tau Omega](../Tau%20Omega/)** is th desktop companion (macOS and Windows) for building and syncing the
+**[Tau Omega](https://github.com/alfatreze/Tau-Omega/releases)** is th desktop companion (macOS and Windows) for building and syncing the
 Tau media library onto the Pocket's SD card and for managing Tau (and other openFPGA) cores and their media.
 It is a separate project and repository, built as the product version of `tools/tau_library.py` and
 `tools/sync_media.py`.
