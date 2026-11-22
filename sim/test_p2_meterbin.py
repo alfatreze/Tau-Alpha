@@ -202,8 +202,19 @@ with tempfile.TemporaryDirectory() as td:
         r = mb.report(data, 0x0102, 0x0008).splitlines()[0].split()
         if int(r[1]) != v["code"] or (v["code"] == 0 and int(r[2]) != v["count"]) or v["code_name"] != mb.CODE_NAMES[v["code"]]: good = False; msgs.append("read " + v["file"])
         if v["file"].startswith("v1_"): continue
-        if int(mb.report(data, mode="toc").split()[1]) != v["boot_code"] or not both(exe, td, [data]): good = False; msgs.append("boot/C " + v["file"])
+        if int(mb.report(data, mode="toc").split()[1]) != v.get("reader_boot_code", v["boot_code"]) or mb.firmware_boot_code(data, 0x0102, 0x0008) != v["boot_code"] or not both(exe, td, [data]): good = False; msgs.append("boot/C " + v["file"])
     check("the %d golden vectors: SHA-256 and size as filed, the full-check code, the boot code and the row count as expected.json says, C equal to Python (v1 ones: Python only)" % len(exp["vectors"]), good and len(exp["vectors"]) >= 10, msgs)
+    # B-1133: Omega found that no vector carried the fallback bit (the vectors were composed with a stale, synthetic fallback id)
+    fl = lambda f: [(w["name"], bool(w["flags"] & mb.FLAG_FALLBACK)) for w in mb.open_toc((vd / f).read_bytes())["rows"]]
+    seven_fb = [n for n, f in fl("v2_seven.bin") if f]
+    check("v2_seven.bin: exactly one row carries the fallback flag, it is Winamp Bars, and expected.json's fallback_id is Winamp Bars's permanent id (B-1133)", seven_fb == ["WINAMP BARS"] and exp["fallback_id"] == json.loads((ROOT / "meters/winamp_bars/meter.json").read_text())["id"], (seven_fb, exp["fallback_id"]))
+    check("every vector the firmware is meant to ACCEPT carries a fallback row; the two it must refuse (v2_empty, v2_no_fallback) answer 20 NOFALLBACK at boot while the reader says 0",
+          all(mb.firmware_boot_code((vd / v["file"]).read_bytes(), 0x0102, 0x0008) == 0 for v in exp["vectors"] if v["code"] == 0 and v["boot_code"] == 0 and not v["file"].startswith("v1_"))
+          and {v["file"]: (v["boot_code"], v.get("reader_boot_code")) for v in exp["vectors"] if v["boot_code"] == 20 and v["code"] == 0} == {"v2_empty.bin": (20, 0), "v2_no_fallback.bin": (20, 0)}
+          and all(sum(bool(w["flags"] & mb.FLAG_FALLBACK) for w in mb.open_toc((vd / v["file"]).read_bytes())["rows"]) == 1 for v in exp["vectors"] if v["code"] == 0 and v["boot_code"] == 0 and not v["file"].startswith("v1_")))
+    try: mb.compose_from_dirs([vd / "packages" / n for n in exp["package_order"]], fallback="0" * 32); silent = True
+    except ValueError: silent = False
+    check("compose --fallback with an id that matches no package is an error (it used to be a silent no-op that produced a bin the firmware refuses)", not silent)
     import meter_bin_vectors as mbv
     v1v = (vd / "v1_seven.bin").read_bytes(); slot1 = v1v[8 + 48 + struct.unpack_from("<I", v1v, 16)[0]:]; slot1 = slot1[:48 + struct.unpack_from("<I", slot1, 8)[0]]
     regen = mbv.damaged((vd / "v2_seven.bin").read_bytes(), v1v, slot1, (vd / "packages/winamp_bars/meter.bin").read_bytes())

@@ -11,7 +11,7 @@ Made by `tools/meter_bin_vectors.py` (which also writes this file), read by the 
 Header **40 B** `{'TPKB', u16 2, u16 count, u32 toc_off = 40, toc_len, pv_off, pv_len, packs_off, total, toc_crc, 0}`, TOC rows of 256 B in display order, preview blocks (64-byte palette + run-length stream, padded to 4), packs (`TMPK`, padded to 4), u32 CRC-32 of bytes 40.. at the very end. `toc_crc` = CRC-32 of bytes `toc_off .. packs_off` (the TOC and the previews). `id_hash` = the id's first 8 hex digits read as a number, stored little endian. `pack_off`/`pack_size` = the whole `TMPK` (header included), `pack_crc` = the pack header's image CRC, `preview_off`/`preview_len` = absolute file offsets.
 **Two checks, two codes.** The firmware at BOOT reads bytes `0 .. packs_off` only (header, TOC, previews) and checks `toc_crc` and the rows: `boot_code` in `expected.json`. The FULL check (tools, Omega after a write) adds the whole-file CRC and every pack's header against its row: `code`. A pack problem the boot path cannot see is found when the meter is SELECTED (the pack header against its row, then the image against `pack_crc`).
 A refused bin gets ONE code (the first failing check) plus the row it was about:
-`1 SIZE  2 MAGIC  3 VERSION  4 CRC (toc_crc)  5 COUNT  6 LAYOUT  7 ID  8 HASH  9 DUP  10 NAME  11 PACK  12 WINDOW  13 PREVIEW  14 RESERVED  15 ORIGIN  16 PARAMS  17 READ  19 FILECRC` (18 was the v1 descriptor, gone).
+`1 SIZE  2 MAGIC  3 VERSION  4 CRC (toc_crc)  5 COUNT  6 LAYOUT  7 ID  8 HASH  9 DUP  10 NAME  11 PACK  12 WINDOW  13 PREVIEW  14 RESERVED  15 ORIGIN  16 PARAMS  17 READ  19 FILECRC` (18 was the v1 descriptor, gone). **20 NOFALLBACK is a firmware rule, not a reader code:** the boot check above accepts the bin, then the firmware (`fw2/ui/meters.c`) refuses it whole because no row carries the fallback flag (bit 1 of the row flags, set on Winamp Bars by `compose --fallback`). `boot_code` in `expected.json` is the firmware's answer; `reader_boot_code` appears where the reader alone says something else (`v2_empty.bin`, `v2_no_fallback.bin`: 0). A v1 bundle is not read by the firmware at all (3 VERSION); an empty bin has no fallback row, so it is refused with 20 and the core keeps its own `tau-packs.bin`.
 A sound bin may still have UNAVAILABLE rows: ABI major other than the firmware's or minor above it, or `tau_min` above the TAU version (`v2_unavailable_rows.bin` with a firmware at ABI 1.2, TAU 0.8: rows 1 and 2). And **tuning collisions**: rows sharing the low 16 bits of `id_hash` (`v2_tuning_collision.bin`: rows 0 and 1) get no tuning in the firmware.
 
 ## Files
@@ -19,35 +19,36 @@ A sound bin may still have UNAVAILABLE rows: ABI major other than the firmware's
 
 | file | bytes | SHA-256 | full check | boot | what |
 |---|---|---|---|---|---|
-| `v2_seven.bin` | 63604 | `dc6f78ef1ed5059b1fc017c3c6d698c032027c4794f9fc188e0b84433e5f5fd4` | OK, 7 rows | OK | the seven shipped meters in display order, Winamp Bars flagged as the fallback |
-| `v2_reordered_hidden.bin` | 63604 | `27f6549d8faaff4e5992265e24a4d3abce72d79a7b4d05bbd9b865210112960d` | OK, 7 rows | OK | the same seven in reverse order, VU Master hidden (visible flag clear): the TOC is the order |
-| `v2_unavailable_rows.bin` | 14228 | `e32be301026d15be57568929eed6302c4dc187db32815359396af6f1ffa7ef1e` | OK, 3 rows | OK | three meters: Winamp Bars, one needing ABI 1.3, one needing TAU 0.9 (a firmware at ABI 1.2, TAU 0.8 lists the last two as unavailable) |
-| `v2_empty.bin` | 44 | `df65fa6afb26564eea54f4f159d8d054ddb2c840027b1bbd30af60096f24631d` | OK, 0 rows | OK | a sound bin with no meters (the player keeps Winamp Bars) |
+| `v2_seven.bin` | 63604 | `96a095e57b2e2b76f7de37b64710ffdb919085e8a6644aea0cf69f977aa0637b` | OK, 7 rows | OK | the seven shipped meters in display order, Winamp Bars flagged as the fallback |
+| `v2_reordered_hidden.bin` | 63604 | `2b6f13cb2456a71c484c6ba68e72e33f2643de77b80a737a47b0d509e8d0b33f` | OK, 7 rows | OK | the same seven in reverse order, VU Master hidden (visible flag clear): the TOC is the order |
+| `v2_unavailable_rows.bin` | 14228 | `e0a3c312b26d8506426a9b4138d2465db9bb2f188eb0363c19be7d1c10e7e86a` | OK, 3 rows | OK | three meters: Winamp Bars, one needing ABI 1.3, one needing TAU 0.9 (a firmware at ABI 1.2, TAU 0.8 lists the last two as unavailable) |
+| `v2_empty.bin` | 44 | `df65fa6afb26564eea54f4f159d8d054ddb2c840027b1bbd30af60096f24631d` | OK, 0 rows | 20 NOFALLBACK | a bin with no meters: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK: no fallback row) and keeps the core's own packs |
+| `v2_no_fallback.bin` | 63604 | `dc6f78ef1ed5059b1fc017c3c6d698c032027c4794f9fc188e0b84433e5f5fd4` | OK, 7 rows | 20 NOFALLBACK | the seven meters with the fallback flag CLEAR on every row: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK) |
 | `v1_seven.bin` | 58468 | `5e4d112cff110b45c837341d43a42b28826660f4c80020cab50732a0ff7ec69d` | OK, 7 rows | - | the v1 bundle (tau-packs.bin as the firmware ships it today, packs linked for their slots) of the same seven meters |
-| `bad_magic.bin` | 63604 | `1fcb001dc001b147af801798f5be48559b4ea681f167a2cd42d90a50b118200d` | 2 MAGIC | 2 MAGIC | the magic is not TPKB |
-| `bad_version.bin` | 63604 | `62a8226bad2e4a6f65c2548401535f8dc75acdf7ce369586e9a6749d3c1ade51` | 3 VERSION | 3 VERSION | version 3 (this reader knows 1 and 2) |
-| `truncated.bin` | 63603 | `4c3caaae0c1d79d0bf053e07582065d7112fa854ceb3db64ca3d9d08350d9c70` | 1 SIZE | 1 SIZE | one byte cut from the end |
-| `trailing_byte.bin` | 63605 | `3f982e5fe103485badb70738ffeeb7bd944f1d20754874ea924322d43081d757` | 1 SIZE | 1 SIZE | one byte after the end (total size says otherwise) |
-| `bad_toc_crc.bin` | 63604 | `d36313b64fe195c2c8113b9ef80f2088067a25215d71d14280eac31b6ebc796e` | 4 CRC | 4 CRC | toc_crc (the CRC of the TOC and the previews) is wrong |
-| `flipped_toc_byte.bin` | 63604 | `a9e9e0c590ac6c80f3ea5c4a04125b6174ca930404d83d89aa7f000e8e20fbbb` | 4 CRC | 4 CRC | one byte of row 3 changed, toc_crc no longer matches |
-| `bad_file_crc.bin` | 63604 | `2c649cf00ddcb6448b65d10642a7cd3a481bd196f99cf95aeea6f227f45df3b8` | 19 FILECRC | OK | the whole-file CRC at the end is wrong (the firmware never reads it: boot code 0) |
-| `flipped_pack_byte.bin` | 63604 | `f86c6bdbcc735c73a392ffe2db2a02dc5eb32fe8ea5d73737f4a04c4e4e9f8b2` | 19 FILECRC | OK | one byte of a pack's image flipped: the whole-file CRC no longer matches (boot code 0; the loader's pack_crc check catches it at selection) |
-| `header_reserved.bin` | 63604 | `0cb84d69e63133ff6c583cfbf1dadc1d90389a6f1673ddc7cbacbaf72cf19119` | 14 RESERVED | 14 RESERVED | the reserved u32 at offset 36 is not zero |
-| `count_65.bin` | 63604 | `5251b630b9730b83cc345fe9c95a98dc51a10b2192510ab4113aa9b779267be8` | 5 COUNT | 5 COUNT | the header says 65 meters (the limit is 64) |
-| `layout_toc_moved.bin` | 63604 | `ba93ec333c61e226262ed1624afea4e7501115a40ecf9a31e16a4309b603ea8e` | 6 LAYOUT | 6 LAYOUT | toc_off is not 32 (CRC and total fixed up) |
-| `duplicate_hash.bin` | 63604 | `f70076b34c955d020dde1cf4be99c55f61fdf22f544a42f744ecceb86c2cb67e` | 9 DUP (row 1) | 9 DUP | row 1 has the id_hash and first 8 digits of row 0 |
-| `bad_id_uppercase.bin` | 63604 | `b8a71a2d24c239c5e13d22947437a3a5ad3ae683a2f877f4f58ba5f86c52a9ac` | 7 ID (row 2) | 7 ID | an upper-case hex digit in row 2's id |
-| `bad_hash.bin` | 63604 | `3f65b32327c3fdb54a871f738582aba15321192e093d1fad1f12789314f246ee` | 8 HASH (row 1) | 8 HASH | row 1's id_hash is not its id's first 8 digits |
-| `bad_name_empty.bin` | 63604 | `5f5c6c4088727928c2ad671e1f8ab091f9b651dce778150f2ee97efd7b3040c2` | 10 NAME (row 0) | 10 NAME | row 0's name is empty |
-| `bad_name_24.bin` | 63604 | `9a58ad16e34641eff5426af3be08325cb4fc382848b78540a57d4345f8729dd4` | 10 NAME (row 0) | 10 NAME | row 0's name has 24 characters and no NUL |
-| `reserved_byte.bin` | 63604 | `d039fbad7496e25594f74bcb9c6a8f4430be9de0f7b8ded98c76e1d1abb30c4c` | 14 RESERVED (row 1) | 14 RESERVED | a reserved byte of row 1 is not zero |
-| `params_49.bin` | 63604 | `0a41add2e4141248e260856c3b1814168bb0eda6c3cdef9b402733531aab460d` | 16 PARAMS (row 1) | 16 PARAMS | row 1 claims 49 parameters (the limit is 48) |
-| `pack_out_of_range.bin` | 63604 | `b56ca85eb9a1d60a77f310d6c52382a98b34ba5283edbb9c20aed6f2ca9ae331` | 11 PACK (row 1) | 11 PACK | row 1's pack_size runs past the end of the file |
-| `pack_crc_mismatch.bin` | 63604 | `de4647b3a34e682e671096486b117c33fe2495528e9d6b78e8327e4a9a26abc9` | 11 PACK (row 1) | OK | row 1's pack_crc is not the pack header's (boot code 0: found when the meter is selected) |
-| `pack_window.bin` | 63604 | `3bddcee6167d73d908b801887962183aed5ee92c8f2344df2ac27bd63cb81b67` | 12 WINDOW (row 1) | 12 WINDOW | row 1's pstate (70,000 bytes, TOC and pack header agree) does not fit the 64 KiB window |
-| `pack_origin_slot.bin` | 2284 | `e9f54beaa10429e52927c704f80d74f203560dc725b526de615dacb06db0b675` | 15 ORIGIN (row 0) | OK | a pack linked for a slot, not for the window (boot code 0: found when the meter is selected) |
-| `preview_not_56x32.bin` | 63604 | `b62a796562b21eed04e4abb44b37c222f8c1cd2041ac394ffec604a0bdc4ec5c` | 13 PREVIEW (row 1) | 13 PREVIEW | row 1's run-length stream no longer covers 56 x 32 pixels |
-| `v2_tuning_collision.bin` | 8804 | `97c8a36fa28fe4b6812db4343da977081fa37ac2aab725121b39c71f6d3884db` | OK, 3 rows | OK | a SOUND bin whose rows 0 and 1 share the low 16 bits of id_hash (1234): the firmware refuses tuning for those two rows (flags 1 1 0), nothing else changes |
+| `bad_magic.bin` | 63604 | `477dc568f6998ffcc36c85387dff878604a7f9d7160cee3179acce289759ec66` | 2 MAGIC | 2 MAGIC | the magic is not TPKB |
+| `bad_version.bin` | 63604 | `cf470845f770b2d0c6895879ed42e56a588aadcbfc99ca5d05d456b759923296` | 3 VERSION | 3 VERSION | version 3 (this reader knows 1 and 2) |
+| `truncated.bin` | 63603 | `35431f75fde69c7810f6f1b35b051346064613d9fce06cc4fa59bec585b3c211` | 1 SIZE | 1 SIZE | one byte cut from the end |
+| `trailing_byte.bin` | 63605 | `09a532d383109ceb09f5d133c6f1f5675ee90a4d4d0682afd2333c3828da828e` | 1 SIZE | 1 SIZE | one byte after the end (total size says otherwise) |
+| `bad_toc_crc.bin` | 63604 | `d241ff74b45a8d6f4bd7b3dbcb81d6f4a156d3ddd645e8a9e26a2c00d6e17d28` | 4 CRC | 4 CRC | toc_crc (the CRC of the TOC and the previews) is wrong |
+| `flipped_toc_byte.bin` | 63604 | `e36a7a83b2a557496759f498dd218722102e42dd9a71ce822d6bdb043694fa18` | 4 CRC | 4 CRC | one byte of row 3 changed, toc_crc no longer matches |
+| `bad_file_crc.bin` | 63604 | `0fa55993998f8382f0401b06e7cbea3a37f7bbd5885e4b82471f40d812635912` | 19 FILECRC | OK | the whole-file CRC at the end is wrong (the firmware never reads it: boot code 0) |
+| `flipped_pack_byte.bin` | 63604 | `0b5388bcdb816e94098e64927fdb68abeebc4a7a4ac730340d5e9d91b379a4c2` | 19 FILECRC | OK | one byte of a pack's image flipped: the whole-file CRC no longer matches (boot code 0; the loader's pack_crc check catches it at selection) |
+| `header_reserved.bin` | 63604 | `360ae311b50b068977a42664a0a8cd1aaba0cf8b02d72bef6fe62e0116218ed2` | 14 RESERVED | 14 RESERVED | the reserved u32 at offset 36 is not zero |
+| `count_65.bin` | 63604 | `6ae4bc7f7ae270a1585a0dba80b09e36f95638d198d6c878f22d8494ecf65bdb` | 5 COUNT | 5 COUNT | the header says 65 meters (the limit is 64) |
+| `layout_toc_moved.bin` | 63604 | `ecfe0bba463bfd0da113685574d5c0991f9f34fd8a65a3a926df75dac6f7b73a` | 6 LAYOUT | 6 LAYOUT | toc_off is not 32 (CRC and total fixed up) |
+| `duplicate_hash.bin` | 63604 | `01d2d27c8fbf2546c99f8b8f802690df5d5dbbb33cd2914b43b2fbef567b671f` | 9 DUP (row 1) | 9 DUP | row 1 has the id_hash and first 8 digits of row 0 |
+| `bad_id_uppercase.bin` | 63604 | `2510251a1e606bf48e8a35f9be880b0bcfb753c46e0ddf49545c2e46f4d4cf7f` | 7 ID (row 2) | 7 ID | an upper-case hex digit in row 2's id |
+| `bad_hash.bin` | 63604 | `04ba3c8c733406512cec7b320e6b0cdee01fafa20c75acdb9cff578c6f8496b9` | 8 HASH (row 1) | 8 HASH | row 1's id_hash is not its id's first 8 digits |
+| `bad_name_empty.bin` | 63604 | `0e3bbf4a64b04fcc3d16522411bc2c2b12bdc50e3aa3210c5a0684a338861eb9` | 10 NAME (row 0) | 10 NAME | row 0's name is empty |
+| `bad_name_24.bin` | 63604 | `c93f47cc79702bff07cf4c6ec557ece12063c778979d0ac146d2f9874343ef57` | 10 NAME (row 0) | 10 NAME | row 0's name has 24 characters and no NUL |
+| `reserved_byte.bin` | 63604 | `f82ba12bdfb4c44f6b234d0562e133498226ca2ce371f09647bf942e4b7252f9` | 14 RESERVED (row 1) | 14 RESERVED | a reserved byte of row 1 is not zero |
+| `params_49.bin` | 63604 | `d7c77f9097680518e93361481edce275d815770c009f9f96eaaa7fe685e44253` | 16 PARAMS (row 1) | 16 PARAMS | row 1 claims 49 parameters (the limit is 48) |
+| `pack_out_of_range.bin` | 63604 | `95a5d65b6ce71f67d1e807eab78f2c050c2bb1fb238f90417717de3d6b457211` | 11 PACK (row 1) | 11 PACK | row 1's pack_size runs past the end of the file |
+| `pack_crc_mismatch.bin` | 63604 | `17f93bcdc8352fa80e5958637008dafd0e29b8df2ccfb13f76a6b8838d2aa837` | 11 PACK (row 1) | OK | row 1's pack_crc is not the pack header's (boot code 0: found when the meter is selected) |
+| `pack_window.bin` | 63604 | `c5c0504df38ae291c3a9b2cc4daea09b570c1d72e729495ceaf5f467d7b77f49` | 12 WINDOW (row 1) | 12 WINDOW | row 1's pstate (70,000 bytes, TOC and pack header agree) does not fit the 64 KiB window |
+| `pack_origin_slot.bin` | 2284 | `e0c179b4e101f1f3c96cb1ddac9e0bd637f050975682b503a823aadd2862a8e5` | 15 ORIGIN (row 0) | OK | a pack linked for a slot, not for the window (boot code 0: found when the meter is selected) |
+| `preview_not_56x32.bin` | 63604 | `0f2d902cdf570d167e6b9bd648760ba5e2d27712eaf7db61d8f6800538067790` | 13 PREVIEW (row 1) | 13 PREVIEW | row 1's run-length stream no longer covers 56 x 32 pixels |
+| `v2_tuning_collision.bin` | 8804 | `f0fd8457dc9841c14828ba32f02cef56271094bd55792993de780ad640485013` | OK, 3 rows | OK | a SOUND bin whose rows 0 and 1 share the low 16 bits of id_hash (1234): the firmware refuses tuning for those two rows (flags 1 1 0), nothing else changes |
 | `v1_zeroed_descriptor.bin` | 58468 | `2d91c17bbb77f2c88eca3dfb7b9a7d83907fbf6b89a67df20b0541984f4732f0` | 18 DESC (row 1) | - | a v1 bundle whose second pack's image (descriptor too) is zero |
 | `v1_duplicate_meter.bin` | 4448 | `f48a117924c9c8d29a252b0d4e1cac52a8dade0900aa1e454a4241c87df79b36` | 9 DUP (row 1) | - | a v1 bundle with the first pack twice (one meter id twice) |
 | `v1_truncated.bin` | 58465 | `7e25235eeba18753b07d66483db8cd51e589d85a4dd504dccfe367541ee9722c` | 1 SIZE (row 6) | - | a v1 bundle cut short |

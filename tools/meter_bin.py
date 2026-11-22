@@ -21,7 +21,8 @@ FLAG_VISIBLE, FLAG_FALLBACK, FLAG_BINARY_ONLY, FLAG_V1 = 1, 2, 4, 8       # bit 
 ABI = 0x0102                                    # the host table this tree builds (fw2/cores/meter_pack_core.h MTR_PACK_ABI)
 # refusal codes: the whole bin is refused (the Info row `MTOC ERR n`, then the player runs on Winamp Bars)
 E_OK, E_SIZE, E_MAGIC, E_VERSION, E_CRC, E_COUNT, E_LAYOUT, E_ID, E_HASH, E_DUP, E_NAME, E_PACK, E_WINDOW, E_PREVIEW, E_RESERVED, E_ORIGIN, E_PARAMS, E_READ, E_DESC, E_FILECRC = range(20)
-CODE_NAMES = ["OK", "SIZE", "MAGIC", "VERSION", "CRC", "COUNT", "LAYOUT", "ID", "HASH", "DUP", "NAME", "PACK", "WINDOW", "PREVIEW", "RESERVED", "ORIGIN", "PARAMS", "READ", "DESC", "FILECRC"]
+E_NOFALLBACK = 20      # a FIRMWARE rule on top of the reader (fw2/ui/meters.c MTOC_E_NOFALLBACK): a bin whose boot check is sound must still carry the built-in fallback row (flag bit 1). The reader itself accepts such a bin.
+CODE_NAMES = ["OK", "SIZE", "MAGIC", "VERSION", "CRC", "COUNT", "LAYOUT", "ID", "HASH", "DUP", "NAME", "PACK", "WINDOW", "PREVIEW", "RESERVED", "ORIGIN", "PARAMS", "READ", "DESC", "FILECRC", "NOFALLBACK"]
 # availability of a row of a sound bin (the list greys it; the bin is not refused)
 U_OK, U_ABI, U_TAU = 0, 1, 2
 
@@ -161,6 +162,8 @@ def load_package(d):
 
 def compose_from_dirs(dirs, fallback=None, hide=(), strict=True):
     es = [load_package(d) for d in dirs]
+    if fallback is not None and not any(e.id == fallback for e in es):
+        raise ValueError("--fallback %s matches no package: the bin would have no fallback row and the firmware would refuse it (code 20)" % fallback)      # B-1133: this used to be a silent no-op (the golden vectors were made with a stale id)
     for e in es:
         if e.id == fallback: e.flags |= FLAG_FALLBACK
         if e.id in hide: e.flags &= ~FLAG_VISIBLE
@@ -304,6 +307,13 @@ def report(b, fw_abi=ABI, fw_tau=0, mode="file"):
     for i, w in enumerate(r["rows"]): out.append("avail %d %d" % (i, avail(w, fw_abi, fw_tau)))
     out.append("coll" + "".join(" %d" % c for c in tuning_collisions(r["rows"])))
     return "\n".join(out) + "\n"
+
+
+def firmware_boot_code(b, fw_abi=ABI, fw_tau=0):
+    """What the FIRMWARE answers at boot for these bytes: the reader's boot check (mode "toc"), then its own rule that the bin must carry the fallback row (flag bit 1): 20 NOFALLBACK. An empty bin has no fallback row either."""
+    code = int(report(b, fw_abi, fw_tau, mode="toc").split()[1])
+    if code: return code
+    return E_OK if any(w["flags"] & FLAG_FALLBACK for w in open_toc(b)["rows"]) else E_NOFALLBACK
 
 
 def _ver(s): a, b = (int(x) for x in s.split(".")[:2]); return a << 8 | b

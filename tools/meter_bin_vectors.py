@@ -83,11 +83,11 @@ def damaged(v2, v1, slot_pack, slot_pack_w):
     add("pack_out_of_range.bin", _refix(_patch(v2, toc(1, 96), struct.pack("<I", 1 << 20))), "row 1's pack_size runs past the end of the file", mb.E_PACK)
     add("pack_crc_mismatch.bin", _refix(_patch(v2, toc(1, 100), b"\1\1\1\1")), "row 1's pack_crc is not the pack header's (boot code 0: found when the meter is selected)", mb.E_PACK)
     add("pack_window.bin", _refix(_patch(_patch(v2, toc(1, 104), struct.pack("<I", 70000)), pk1 + 44, struct.pack("<I", 70000))), "row 1's pstate (70,000 bytes, TOC and pack header agree) does not fit the 64 KiB window", mb.E_WINDOW)
-    add("pack_origin_slot.bin", mb.compose([mb.Entry(id=synth_id("origin_test"), name="Slot linked", version=(0, 7, 0), pack=slot_pack)], strict=False), "a pack linked for a slot, not for the window (boot code 0: found when the meter is selected)", mb.E_ORIGIN)
+    add("pack_origin_slot.bin", mb.compose([mb.Entry(id=synth_id("origin_test"), name="Slot linked", version=(0, 7, 0), pack=slot_pack, flags=mb.FLAG_VISIBLE | mb.FLAG_FALLBACK)], strict=False), "a pack linked for a slot, not for the window (boot code 0: found when the meter is selected)", mb.E_ORIGIN)
     pv = struct.unpack_from("<I", v2, toc(1, 112))[0]
     add("preview_not_56x32.bin", _refix(_patch(v2, pv + 64, bytes([v2[pv + 64] ^ 1]))), "row 1's run-length stream no longer covers 56 x 32 pixels", mb.E_PREVIEW)
     cu = [mb.Entry(id="aaaa1234" + synth_id("collide_a")[8:], name="Collide A", version=(0, 7, 0), pack=slot_pack_w), mb.Entry(id="bbbb1234" + synth_id("collide_b")[8:], name="Collide B", version=(0, 7, 0), pack=slot_pack_w),
-          mb.Entry(id="cccc0001" + synth_id("collide_c")[8:], name="Alone", version=(0, 7, 0), pack=slot_pack_w)]
+          mb.Entry(id="cccc0001" + synth_id("collide_c")[8:], name="Alone", version=(0, 7, 0), pack=slot_pack_w, flags=mb.FLAG_VISIBLE | mb.FLAG_FALLBACK)]       # B-1133: the third row is the fallback, so the firmware accepts the bin and the collision is all it reports
     out["v2_tuning_collision.bin"] = (mb.compose(cu), "a SOUND bin whose rows 0 and 1 share the low 16 bits of id_hash (1234): the firmware refuses tuning for those two rows (flags 1 1 0), nothing else changes", mb.E_OK)
     # v1
     n0 = struct.unpack_from("<I", v1, 8 + 8)[0]; second = 8 + 48 + n0
@@ -111,7 +111,7 @@ Made by `tools/meter_bin_vectors.py` (which also writes this file), read by the 
 Header **40 B** `{'TPKB', u16 2, u16 count, u32 toc_off = 40, toc_len, pv_off, pv_len, packs_off, total, toc_crc, 0}`, TOC rows of 256 B in display order, preview blocks (64-byte palette + run-length stream, padded to 4), packs (`TMPK`, padded to 4), u32 CRC-32 of bytes 40.. at the very end. `toc_crc` = CRC-32 of bytes `toc_off .. packs_off` (the TOC and the previews). `id_hash` = the id's first 8 hex digits read as a number, stored little endian. `pack_off`/`pack_size` = the whole `TMPK` (header included), `pack_crc` = the pack header's image CRC, `preview_off`/`preview_len` = absolute file offsets.
 **Two checks, two codes.** The firmware at BOOT reads bytes `0 .. packs_off` only (header, TOC, previews) and checks `toc_crc` and the rows: `boot_code` in `expected.json`. The FULL check (tools, Omega after a write) adds the whole-file CRC and every pack's header against its row: `code`. A pack problem the boot path cannot see is found when the meter is SELECTED (the pack header against its row, then the image against `pack_crc`).
 A refused bin gets ONE code (the first failing check) plus the row it was about:
-`1 SIZE  2 MAGIC  3 VERSION  4 CRC (toc_crc)  5 COUNT  6 LAYOUT  7 ID  8 HASH  9 DUP  10 NAME  11 PACK  12 WINDOW  13 PREVIEW  14 RESERVED  15 ORIGIN  16 PARAMS  17 READ  19 FILECRC` (18 was the v1 descriptor, gone).
+`1 SIZE  2 MAGIC  3 VERSION  4 CRC (toc_crc)  5 COUNT  6 LAYOUT  7 ID  8 HASH  9 DUP  10 NAME  11 PACK  12 WINDOW  13 PREVIEW  14 RESERVED  15 ORIGIN  16 PARAMS  17 READ  19 FILECRC` (18 was the v1 descriptor, gone). **20 NOFALLBACK is a firmware rule, not a reader code:** the boot check above accepts the bin, then the firmware (`fw2/ui/meters.c`) refuses it whole because no row carries the fallback flag (bit 1 of the row flags, set on Winamp Bars by `compose --fallback`). `boot_code` in `expected.json` is the firmware's answer; `reader_boot_code` appears where the reader alone says something else (`v2_empty.bin`, `v2_no_fallback.bin`: 0). A v1 bundle is not read by the firmware at all (3 VERSION); an empty bin has no fallback row, so it is refused with 20 and the core keeps its own `tau-packs.bin`.
 A sound bin may still have UNAVAILABLE rows: ABI major other than the firmware's or minor above it, or `tau_min` above the TAU version (`v2_unavailable_rows.bin` with a firmware at ABI 1.2, TAU 0.8: rows 1 and 2). And **tuning collisions**: rows sharing the low 16 bits of `id_hash` (`v2_tuning_collision.bin`: rows 0 and 1) get no tuning in the firmware.
 
 ## Files
@@ -143,9 +143,15 @@ def write_readme(out, exp):
 def main():
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else OUT
     out.mkdir(parents=True, exist_ok=True)
-    win, v1 = build_packs()
+    if "--from-existing" in sys.argv:                 # keep the packs and the v1 bundle of the filed vectors (no toolchain): only what is derived from them is rewritten
+        sys.argv.remove("--from-existing"); out = Path(sys.argv[1]) if len(sys.argv) > 1 else OUT
+        win = {d.name: (d / "meter.bin").read_bytes() for d in sorted((out / "packages").iterdir()) if d.is_dir()}
+        order = json.loads((out / "expected.json").read_text())["package_order"]; win = {k: win[k] for k in order}
+        v1 = (out / "v1_seven.bin").read_bytes()
+    else:
+        win, v1 = build_packs()
     dirs = write_packages(win, out)
-    fb = synth_id("winamp_bars")
+    fb = real_id("winamp_bars")                  # B-1133: the packages carry the PERMANENT ids; this was synth_id, which matched no row, so no vector had the fallback bit
     seven = mb.compose_from_dirs(dirs, fallback=fb)
     # valid variants
     es = [mb.load_package(d) for d in dirs]
@@ -159,7 +165,8 @@ def main():
     vs = {"v2_seven.bin": (seven, "the seven shipped meters in display order, Winamp Bars flagged as the fallback", mb.E_OK),
           "v2_reordered_hidden.bin": (mb.compose(rev), "the same seven in reverse order, VU Master hidden (visible flag clear): the TOC is the order", mb.E_OK),
           "v2_unavailable_rows.bin": (mb.compose(fut), "three meters: Winamp Bars, one needing ABI 1.3, one needing TAU 0.9 (a firmware at ABI 1.2, TAU 0.8 lists the last two as unavailable)", mb.E_OK),
-          "v2_empty.bin": (mb.compose([]), "a sound bin with no meters (the player keeps Winamp Bars)", mb.E_OK),
+          "v2_empty.bin": (mb.compose([]), "a bin with no meters: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK: no fallback row) and keeps the core's own packs", mb.E_OK),
+          "v2_no_fallback.bin": (mb.compose([mb.Entry(**{**vars(e), "flags": e.flags & ~mb.FLAG_FALLBACK}) for e in es]), "the seven meters with the fallback flag CLEAR on every row: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK)", mb.E_OK),
           "v1_seven.bin": (v1, "the v1 bundle (tau-packs.bin as the firmware ships it today, packs linked for their slots) of the same seven meters", mb.E_OK)}
     slot_pack = [b for b in (v1[8 + 48 + struct.unpack_from("<I", v1, 16)[0]:],)][0]
     slot_pack = slot_pack[:48 + struct.unpack_from("<I", slot_pack, 8)[0]]
@@ -170,10 +177,12 @@ def main():
         v1only = name.startswith("v1_")
         r = mb.report(b, 0x0102, 0x0008).splitlines()[0].split()
         assert int(r[1]) == code, (name, r, code)
-        boot = int(mb.report(b, 0x0102, 0x0008, mode="toc").split()[1]) if not v1only else None
+        boot = mb.firmware_boot_code(b, 0x0102, 0x0008) if not v1only else None          # the firmware's answer (reader's boot check, then the fallback-row rule)
+        rboot = int(mb.report(b, 0x0102, 0x0008, mode="toc").split()[1]) if not v1only else None   # the reader's boot check alone
         vectors.append({"file": name, "bytes": len(b), "sha256": sha(b), "code": code, "code_name": mb.CODE_NAMES[code], "boot_code": boot, "boot_code_name": mb.CODE_NAMES[boot] if boot is not None else None,
+                        **({"reader_boot_code": rboot} if rboot != boot else {}),
                         "count": int(r[2]) if code == 0 else None, "bad_row": int(r[3]) if code else None, "readers": "python only (the firmware reads v2 alone)" if v1only else "python and C", "what": why})
-    exp = {"about": "expected result of reading each file with a firmware at ABI 1.2 (0x0102) and TAU 0.8 (0x0008); `code` = the FULL check (whole-file CRC, every pack header: tools), `boot_code` = what the firmware finds at boot (header, TOC, previews only); codes are the table in fw2/cores/meterbin_core.h and tools/meter_bin.py", "fw_abi": "1.2", "fw_tau": "0.8",
+    exp = {"about": "expected result of reading each file with a firmware at ABI 1.2 (0x0102) and TAU 0.8 (0x0008); `code` = the FULL check (whole-file CRC, every pack header: tools), `boot_code` = what the firmware finds at boot (header, TOC, previews only, then its rule that a fallback row must exist: 20 NOFALLBACK; `reader_boot_code` is given where the reader's own boot check says something else); codes are the table in fw2/cores/meterbin_core.h and tools/meter_bin.py", "fw_abi": "1.2", "fw_tau": "0.8",
            "v2_main": "v2_seven.bin", "package_order": [d.name for d in dirs], "fallback_id": fb, "synthetic_ids": "only the two Collide rows of v2_tuning_collision.bin", "vectors": vectors}
     (out / "expected.json").write_text(json.dumps(exp, indent=1) + "\n")
     write_readme(out, exp)

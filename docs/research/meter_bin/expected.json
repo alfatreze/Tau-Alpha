@@ -1,5 +1,5 @@
 {
- "about": "expected result of reading each file with a firmware at ABI 1.2 (0x0102) and TAU 0.8 (0x0008); `code` = the FULL check (whole-file CRC, every pack header: tools), `boot_code` = what the firmware finds at boot (header, TOC, previews only); codes are the table in fw2/cores/meterbin_core.h and tools/meter_bin.py",
+ "about": "expected result of reading each file with a firmware at ABI 1.2 (0x0102) and TAU 0.8 (0x0008); `code` = the FULL check (whole-file CRC, every pack header: tools), `boot_code` = what the firmware finds at boot (header, TOC, previews only, then its rule that a fallback row must exist: 20 NOFALLBACK; `reader_boot_code` is given where the reader's own boot check says something else); codes are the table in fw2/cores/meterbin_core.h and tools/meter_bin.py",
  "fw_abi": "1.2",
  "fw_tau": "0.8",
  "v2_main": "v2_seven.bin",
@@ -12,13 +12,13 @@
   "waterfall_grid",
   "sound_map"
  ],
- "fallback_id": "102d4d21726303d2f1c571f55e7e71c0",
+ "fallback_id": "7dddfe63121e904843088c075cc28ce9",
  "synthetic_ids": "only the two Collide rows of v2_tuning_collision.bin",
  "vectors": [
   {
    "file": "v2_seven.bin",
    "bytes": 63604,
-   "sha256": "dc6f78ef1ed5059b1fc017c3c6d698c032027c4794f9fc188e0b84433e5f5fd4",
+   "sha256": "96a095e57b2e2b76f7de37b64710ffdb919085e8a6644aea0cf69f977aa0637b",
    "code": 0,
    "code_name": "OK",
    "boot_code": 0,
@@ -31,7 +31,7 @@
   {
    "file": "v2_reordered_hidden.bin",
    "bytes": 63604,
-   "sha256": "27f6549d8faaff4e5992265e24a4d3abce72d79a7b4d05bbd9b865210112960d",
+   "sha256": "2b6f13cb2456a71c484c6ba68e72e33f2643de77b80a737a47b0d509e8d0b33f",
    "code": 0,
    "code_name": "OK",
    "boot_code": 0,
@@ -44,7 +44,7 @@
   {
    "file": "v2_unavailable_rows.bin",
    "bytes": 14228,
-   "sha256": "e32be301026d15be57568929eed6302c4dc187db32815359396af6f1ffa7ef1e",
+   "sha256": "e0a3c312b26d8506426a9b4138d2465db9bb2f188eb0363c19be7d1c10e7e86a",
    "code": 0,
    "code_name": "OK",
    "boot_code": 0,
@@ -60,12 +60,27 @@
    "sha256": "df65fa6afb26564eea54f4f159d8d054ddb2c840027b1bbd30af60096f24631d",
    "code": 0,
    "code_name": "OK",
-   "boot_code": 0,
-   "boot_code_name": "OK",
+   "boot_code": 20,
+   "boot_code_name": "NOFALLBACK",
+   "reader_boot_code": 0,
    "count": 0,
    "bad_row": null,
    "readers": "python and C",
-   "what": "a sound bin with no meters (the player keeps Winamp Bars)"
+   "what": "a bin with no meters: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK: no fallback row) and keeps the core's own packs"
+  },
+  {
+   "file": "v2_no_fallback.bin",
+   "bytes": 63604,
+   "sha256": "dc6f78ef1ed5059b1fc017c3c6d698c032027c4794f9fc188e0b84433e5f5fd4",
+   "code": 0,
+   "code_name": "OK",
+   "boot_code": 20,
+   "boot_code_name": "NOFALLBACK",
+   "reader_boot_code": 0,
+   "count": 7,
+   "bad_row": null,
+   "readers": "python and C",
+   "what": "the seven meters with the fallback flag CLEAR on every row: the reader accepts it, the firmware REFUSES it at boot (20 NOFALLBACK)"
   },
   {
    "file": "v1_seven.bin",
@@ -83,7 +98,7 @@
   {
    "file": "bad_magic.bin",
    "bytes": 63604,
-   "sha256": "1fcb001dc001b147af801798f5be48559b4ea681f167a2cd42d90a50b118200d",
+   "sha256": "477dc568f6998ffcc36c85387dff878604a7f9d7160cee3179acce289759ec66",
    "code": 2,
    "code_name": "MAGIC",
    "boot_code": 2,
@@ -96,7 +111,7 @@
   {
    "file": "bad_version.bin",
    "bytes": 63604,
-   "sha256": "62a8226bad2e4a6f65c2548401535f8dc75acdf7ce369586e9a6749d3c1ade51",
+   "sha256": "cf470845f770b2d0c6895879ed42e56a588aadcbfc99ca5d05d456b759923296",
    "code": 3,
    "code_name": "VERSION",
    "boot_code": 3,
@@ -109,7 +124,7 @@
   {
    "file": "truncated.bin",
    "bytes": 63603,
-   "sha256": "4c3caaae0c1d79d0bf053e07582065d7112fa854ceb3db64ca3d9d08350d9c70",
+   "sha256": "35431f75fde69c7810f6f1b35b051346064613d9fce06cc4fa59bec585b3c211",
    "code": 1,
    "code_name": "SIZE",
    "boot_code": 1,
@@ -122,7 +137,7 @@
   {
    "file": "trailing_byte.bin",
    "bytes": 63605,
-   "sha256": "3f982e5fe103485badb70738ffeeb7bd944f1d20754874ea924322d43081d757",
+   "sha256": "09a532d383109ceb09f5d133c6f1f5675ee90a4d4d0682afd2333c3828da828e",
    "code": 1,
    "code_name": "SIZE",
    "boot_code": 1,
@@ -135,7 +150,7 @@
   {
    "file": "bad_toc_crc.bin",
    "bytes": 63604,
-   "sha256": "d36313b64fe195c2c8113b9ef80f2088067a25215d71d14280eac31b6ebc796e",
+   "sha256": "d241ff74b45a8d6f4bd7b3dbcb81d6f4a156d3ddd645e8a9e26a2c00d6e17d28",
    "code": 4,
    "code_name": "CRC",
    "boot_code": 4,
@@ -148,7 +163,7 @@
   {
    "file": "flipped_toc_byte.bin",
    "bytes": 63604,
-   "sha256": "a9e9e0c590ac6c80f3ea5c4a04125b6174ca930404d83d89aa7f000e8e20fbbb",
+   "sha256": "e36a7a83b2a557496759f498dd218722102e42dd9a71ce822d6bdb043694fa18",
    "code": 4,
    "code_name": "CRC",
    "boot_code": 4,
@@ -161,7 +176,7 @@
   {
    "file": "bad_file_crc.bin",
    "bytes": 63604,
-   "sha256": "2c649cf00ddcb6448b65d10642a7cd3a481bd196f99cf95aeea6f227f45df3b8",
+   "sha256": "0fa55993998f8382f0401b06e7cbea3a37f7bbd5885e4b82471f40d812635912",
    "code": 19,
    "code_name": "FILECRC",
    "boot_code": 0,
@@ -174,7 +189,7 @@
   {
    "file": "flipped_pack_byte.bin",
    "bytes": 63604,
-   "sha256": "f86c6bdbcc735c73a392ffe2db2a02dc5eb32fe8ea5d73737f4a04c4e4e9f8b2",
+   "sha256": "0b5388bcdb816e94098e64927fdb68abeebc4a7a4ac730340d5e9d91b379a4c2",
    "code": 19,
    "code_name": "FILECRC",
    "boot_code": 0,
@@ -187,7 +202,7 @@
   {
    "file": "header_reserved.bin",
    "bytes": 63604,
-   "sha256": "0cb84d69e63133ff6c583cfbf1dadc1d90389a6f1673ddc7cbacbaf72cf19119",
+   "sha256": "360ae311b50b068977a42664a0a8cd1aaba0cf8b02d72bef6fe62e0116218ed2",
    "code": 14,
    "code_name": "RESERVED",
    "boot_code": 14,
@@ -200,7 +215,7 @@
   {
    "file": "count_65.bin",
    "bytes": 63604,
-   "sha256": "5251b630b9730b83cc345fe9c95a98dc51a10b2192510ab4113aa9b779267be8",
+   "sha256": "6ae4bc7f7ae270a1585a0dba80b09e36f95638d198d6c878f22d8494ecf65bdb",
    "code": 5,
    "code_name": "COUNT",
    "boot_code": 5,
@@ -213,7 +228,7 @@
   {
    "file": "layout_toc_moved.bin",
    "bytes": 63604,
-   "sha256": "ba93ec333c61e226262ed1624afea4e7501115a40ecf9a31e16a4309b603ea8e",
+   "sha256": "ecfe0bba463bfd0da113685574d5c0991f9f34fd8a65a3a926df75dac6f7b73a",
    "code": 6,
    "code_name": "LAYOUT",
    "boot_code": 6,
@@ -226,7 +241,7 @@
   {
    "file": "duplicate_hash.bin",
    "bytes": 63604,
-   "sha256": "f70076b34c955d020dde1cf4be99c55f61fdf22f544a42f744ecceb86c2cb67e",
+   "sha256": "01d2d27c8fbf2546c99f8b8f802690df5d5dbbb33cd2914b43b2fbef567b671f",
    "code": 9,
    "code_name": "DUP",
    "boot_code": 9,
@@ -239,7 +254,7 @@
   {
    "file": "bad_id_uppercase.bin",
    "bytes": 63604,
-   "sha256": "b8a71a2d24c239c5e13d22947437a3a5ad3ae683a2f877f4f58ba5f86c52a9ac",
+   "sha256": "2510251a1e606bf48e8a35f9be880b0bcfb753c46e0ddf49545c2e46f4d4cf7f",
    "code": 7,
    "code_name": "ID",
    "boot_code": 7,
@@ -252,7 +267,7 @@
   {
    "file": "bad_hash.bin",
    "bytes": 63604,
-   "sha256": "3f65b32327c3fdb54a871f738582aba15321192e093d1fad1f12789314f246ee",
+   "sha256": "04ba3c8c733406512cec7b320e6b0cdee01fafa20c75acdb9cff578c6f8496b9",
    "code": 8,
    "code_name": "HASH",
    "boot_code": 8,
@@ -265,7 +280,7 @@
   {
    "file": "bad_name_empty.bin",
    "bytes": 63604,
-   "sha256": "5f5c6c4088727928c2ad671e1f8ab091f9b651dce778150f2ee97efd7b3040c2",
+   "sha256": "0e3bbf4a64b04fcc3d16522411bc2c2b12bdc50e3aa3210c5a0684a338861eb9",
    "code": 10,
    "code_name": "NAME",
    "boot_code": 10,
@@ -278,7 +293,7 @@
   {
    "file": "bad_name_24.bin",
    "bytes": 63604,
-   "sha256": "9a58ad16e34641eff5426af3be08325cb4fc382848b78540a57d4345f8729dd4",
+   "sha256": "c93f47cc79702bff07cf4c6ec557ece12063c778979d0ac146d2f9874343ef57",
    "code": 10,
    "code_name": "NAME",
    "boot_code": 10,
@@ -291,7 +306,7 @@
   {
    "file": "reserved_byte.bin",
    "bytes": 63604,
-   "sha256": "d039fbad7496e25594f74bcb9c6a8f4430be9de0f7b8ded98c76e1d1abb30c4c",
+   "sha256": "f82ba12bdfb4c44f6b234d0562e133498226ca2ce371f09647bf942e4b7252f9",
    "code": 14,
    "code_name": "RESERVED",
    "boot_code": 14,
@@ -304,7 +319,7 @@
   {
    "file": "params_49.bin",
    "bytes": 63604,
-   "sha256": "0a41add2e4141248e260856c3b1814168bb0eda6c3cdef9b402733531aab460d",
+   "sha256": "d7c77f9097680518e93361481edce275d815770c009f9f96eaaa7fe685e44253",
    "code": 16,
    "code_name": "PARAMS",
    "boot_code": 16,
@@ -317,7 +332,7 @@
   {
    "file": "pack_out_of_range.bin",
    "bytes": 63604,
-   "sha256": "b56ca85eb9a1d60a77f310d6c52382a98b34ba5283edbb9c20aed6f2ca9ae331",
+   "sha256": "95a5d65b6ce71f67d1e807eab78f2c050c2bb1fb238f90417717de3d6b457211",
    "code": 11,
    "code_name": "PACK",
    "boot_code": 11,
@@ -330,7 +345,7 @@
   {
    "file": "pack_crc_mismatch.bin",
    "bytes": 63604,
-   "sha256": "de4647b3a34e682e671096486b117c33fe2495528e9d6b78e8327e4a9a26abc9",
+   "sha256": "17f93bcdc8352fa80e5958637008dafd0e29b8df2ccfb13f76a6b8838d2aa837",
    "code": 11,
    "code_name": "PACK",
    "boot_code": 0,
@@ -343,7 +358,7 @@
   {
    "file": "pack_window.bin",
    "bytes": 63604,
-   "sha256": "3bddcee6167d73d908b801887962183aed5ee92c8f2344df2ac27bd63cb81b67",
+   "sha256": "c5c0504df38ae291c3a9b2cc4daea09b570c1d72e729495ceaf5f467d7b77f49",
    "code": 12,
    "code_name": "WINDOW",
    "boot_code": 12,
@@ -356,7 +371,7 @@
   {
    "file": "pack_origin_slot.bin",
    "bytes": 2284,
-   "sha256": "e9f54beaa10429e52927c704f80d74f203560dc725b526de615dacb06db0b675",
+   "sha256": "e0c179b4e101f1f3c96cb1ddac9e0bd637f050975682b503a823aadd2862a8e5",
    "code": 15,
    "code_name": "ORIGIN",
    "boot_code": 0,
@@ -369,7 +384,7 @@
   {
    "file": "preview_not_56x32.bin",
    "bytes": 63604,
-   "sha256": "b62a796562b21eed04e4abb44b37c222f8c1cd2041ac394ffec604a0bdc4ec5c",
+   "sha256": "0f2d902cdf570d167e6b9bd648760ba5e2d27712eaf7db61d8f6800538067790",
    "code": 13,
    "code_name": "PREVIEW",
    "boot_code": 13,
@@ -382,7 +397,7 @@
   {
    "file": "v2_tuning_collision.bin",
    "bytes": 8804,
-   "sha256": "97c8a36fa28fe4b6812db4343da977081fa37ac2aab725121b39c71f6d3884db",
+   "sha256": "f0fd8457dc9841c14828ba32f02cef56271094bd55792993de780ad640485013",
    "code": 0,
    "code_name": "OK",
    "boot_code": 0,
