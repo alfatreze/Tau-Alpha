@@ -15,7 +15,7 @@ The save file is the user's state (the Pocket rewrites it at every Quit). If the
 - **B. Ship the seed in the zip** and tell users, in the README and in the release notes, to extract with "skip existing files" or to use Omega. A hand update then resets settings once if they overwrite. Acceptable only as a fallback (the owner's rule: "at worst its settings are lost").
 **Step P0 below measures A before anything else is decided.**
 
-> **P0 DONE 2026-11-22 (B-1135, D-M27): option A failed.** The Pocket does not create the file (DEV 231: no file, no settings kept). **Option B stands: the release ships the seed, parameters `0x2`, never bit 5.** P2 below ships the seed for both cores; P5 carries the README warning (extract with "skip existing" or use Omega); P7 adds "delete the file, boot" (expected: old pool serves) to the Pocket test. Q3 is closed.
+> **P0 DONE 2026-11-22 (B-1135, B-1136, D-M27 corrected): bit 5 alone does not make the Pocket write a missing file.** DEV 231 kept no settings and left no file; the core had not set the size-table entry, which the docs and KB-001 make the source of the flush size, so "the Pocket cannot create the file" is **not proven**. **Probe 2b** (DEV 232: the firmware writes 8,192 into slot 11's size entry when the RAM is full and the entry is 0; no refit) is the one remaining way to drop the seed; it is optional. **Meanwhile option B stands: ship the seed, parameters `0x2`, no bit 5.** P2 ships the seed for both cores; P5 carries the README warning (extract with "skip existing" or use Omega); P7 adds "delete the file, boot" (expected: old pool serves). Q3 is replaced by Q6 below.
 
 ## 3. Steps, in order (host work can run in parallel where marked)
 | # | Step | Needs | Result |
@@ -47,3 +47,5 @@ P0 first (an hour of the owner's Pocket time, one card write). P1 is a decision,
 - **Q3.** Run P0 (probe 2, DEV 231) now?
 - **Q4.** Keep `params_rev` 1 for all seven shipped meters?
 - **Q5.** Is the About-page "SETTINGS FILE" row in 0.7.5 (a small firmware change, host-tested, needs a new test core)?
+- **Q6.** Run probe 2b (DEV 232) before the release, to find out whether the seed can be dropped? Cost: a small firmware change (cold code in `meters_settings.c`, host test), one package, one Pocket session; benefit: no overwrite-on-hand-update risk. If skipped, the seed ships and the README carries the warning.
+
