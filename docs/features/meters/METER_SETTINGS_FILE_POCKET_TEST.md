@@ -4,7 +4,8 @@ DEV 230 is a normal build (DIAG=0) with the save-file backend of `meter_settings
 
 | Step | Do | Passes when |
 |---|---|---|
-| 1 | Boot DEV 230. METERS page: open Configure (X) of **four different meters**, one of them not the set meter, change at least one parameter of each (a colour or a switch is enough). Write down what you set. | the Configure pages work as in DEV 226 |
+| 0 | The install also places the **LISSAJOUS LOCAL** test meter (`--stage work/omega-test-meters/card-stage` in the main checkout): the card's `tau-meters.bin` is replaced by the 8-row bin (the old one is backed up) and its 10 presets go to `tau-presets/30245146/`. | the METERS page lists 8 meters, LISSAJOUS LOCAL last, with a thumbnail or placeholder and no error row |
+| 1 | Boot DEV 230. METERS page: open Configure (X) of **four different meters** (LISSAJOUS LOCAL should be one of them: it is the first SDK-built meter on a Pocket, so also note whether it draws and its presets switch), one of them not the set meter, change at least one parameter of each (a colour or a switch is enough). Write down what you set. | the Configure pages work as in DEV 226 |
 | 2 | Quit from the root menu. Mount the card and tell me. | |
 | 3 | (Mac) I run `python3 tools/meter_settings.py` on the file. | `status ok`, one record per meter you changed, `seq` 4 or more |
 | 4 | Boot DEV 230 again. Open each of the four meters. | all four show the values you set (the third and fourth are the new thing: the old pool kept only two) |
