@@ -72,6 +72,8 @@ def main():
     ap.add_argument("--preset-probe", action="store_true", help="a TEST package for the preset-read measurement (docs/features/METER_PRESETS_EXTERNAL.md step 0b, B-963): writes preset-probe.bin (200 bytes: \"TPRB\" then byte i = (i*37+11) & 255) into the core's Assets folder, which the Diagnostic Build of this firmware opens and reads on every new track (Report rows PP ...)")
     ap.add_argument("--save-probe", action="store_true", help="a TEST package for the meter save file's S1 spike (docs/features/meters/METER_SAVE_FILE_SPEC.md, METER_SAVE_FILE_TEST.md): declares the nonvolatile data slot 11 (tau-save-probe.bin, 8,192 bytes, address "
                     "0x30000000) and ships a ZEROED seed file in Saves/<platform>/<core>/ (the installer creates it when missing and never overwrites it). Needs --variant player2, a Diagnostic Build (DIAG=1) and a bitstream built with TAU_SAVE")
+    ap.add_argument("--save-file", action="store_true", help="declare the REAL meter-settings save slot (data slot 11, tau-meter-settings.bin, 8,192 bytes, address 0x30000000) and ship a ZEROED seed in Saves/<platform>/<core>/ (never overwritten by the installer). "
+                    "Needs --variant player2, --rbf with a fit manifest that lists TAU_SAVE, and NO SAVE_PROBE=1 in --build-flags (the probe would overwrite the settings). Works for the normal build (DIAG=0) and the Diagnostic Build")
     ap.add_argument("--save-probe-params", choices=("0x2", "0x22"), default="0x2", help="the save slot's parameters: 0x2 (core-specific; the seed file must exist) or 0x22 (adds bit 5, the Pocket fills the memory with 0xFF when the file is missing: the second probe)")
     ap.add_argument("--save-probe-no-seed", action="store_true", help="with --save-probe: ship NO zeroed seed file (the second probe: the slot has parameters 0x22 and the file is missing, to see whether the Pocket creates it itself)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
@@ -159,6 +161,19 @@ def main():
 
     if args.save_probe_no_seed and not args.save_probe:
         sys.exit("--save-probe-no-seed needs --save-probe")
+    flags_list = (args.build_flags or "").split(",")
+    if args.save_probe and args.save_file:
+        sys.exit("--save-probe and --save-file are two different uses of data slot 11: pick one")
+    if args.save_probe and "SAVE_PROBE=1" not in flags_list:
+        sys.exit("--save-probe needs SAVE_PROBE=1 in --build-flags (the boot self-test is off by default since W2 S2: it overwrites the save RAM)")
+    if args.save_file:
+        man_file = Path(str(rbf) + ".json") if args.rbf else None
+        if args.variant != "player2" or args.release_diagnostic or args.diagnostic_core:
+            sys.exit("--save-file needs --variant player2 (not a release or diagnostic-core package)")
+        if "SAVE_PROBE=1" in flags_list:
+            sys.exit("--save-file: SAVE_PROBE=1 would make the firmware overwrite the settings file with the probe pattern at every boot")
+        if man_file is None or not man_file.is_file() or "TAU_SAVE" not in json.loads(man_file.read_text()).get("macros", []):
+            sys.exit("--save-file needs --rbf with its fit manifest (<rbf>.json from tools/vm_fit.py collect) that lists TAU_SAVE: a bitstream without the save RAM would silently keep the settings in the old two-tuning pool")
     if args.save_probe:
         man_probe = Path(str(rbf) + ".json") if args.rbf else None
         if args.variant != "player2" or "DIAG=1" not in (args.build_flags or "").split(",") or args.release_diagnostic or args.diagnostic_core:
@@ -241,6 +256,8 @@ def main():
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     with_packs = wants_packs(args.variant, args.build_flags)
     if with_packs: declare_packs_slots(c)               # data slots 9 and 10; the bin itself is built below, once the asset folder exists
+    if args.save_file:
+        slots_lib.add_save_slot(c)                                   # data slot 11 = tau-meter-settings.bin (the real file); its seed is written below
     if args.save_probe:
         slots_lib.add_save_probe_slot(c, args.save_probe_params)     # data slot 11 = tau-save-probe.bin (nonvolatile, 8 KB at 0x30000000); its seed file is written below
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
@@ -257,6 +274,10 @@ def main():
         sd = out / "Saves" / platform / core_id
         sd.mkdir(parents=True)
         (sd / "tau-save-probe.bin").write_bytes(bytes(slots_lib.SAVE_SIZE))
+    if args.save_file:
+        sd = out / "Saves" / platform / core_id
+        sd.mkdir(parents=True)
+        (sd / "tau-meter-settings.bin").write_bytes(bytes(slots_lib.SAVE_SIZE))
     if args.preset_probe:
         (cd / "preset-probe.bin").write_bytes(b"TPRB" + bytes((i * 37 + 11) & 255 for i in range(4, 200)))
     if with_packs: build_packs_bin(cd, args.hang_pack)     # every pack, from this tree, in slot order

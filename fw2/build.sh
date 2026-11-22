@@ -35,6 +35,8 @@ if [ "$DIAG" = "0" ]; then
     FILTERED=(); for s in "${SRCS[@]}"; do case "$s" in */diagnostics/check_page.c|*/diagnostics/blit_check.c|*/diagnostics/info_page.c|*/diagnostics/sdram_soak.c|*/diagnostics/soak_hot.c|*/diagnostics/preset_probe.c|*/diagnostics/save_probe.c|*/diagnostics/name_matrix.c) ;; *) FILTERED+=("$s");; esac; done
     SRCS=("${FILTERED[@]}"); DEFS+=(-DP2_DIAG=0)
 else DEFS+=(-DP2_DIAG=1); fi
+# SAVE_PROBE=1 (default 0): the S1 spike's boot self-test of the save slot (fw2/diagnostics/save_probe.c). It overwrites the whole save RAM, so it must NEVER run in a package whose slot 11 is the real settings file (W2 S2).
+SAVE_PROBE="${SAVE_PROBE:-0}"; DEFS+=(-DP2_SAVE_PROBE="$SAVE_PROBE")
 # Every source is compiled to its own object (OUT/obj/<name>.o): fw2/platform/link.ld puts the cold objects (UI, diagnostics, art, library, settings) in the PSRAM cold image BY FILE NAME.
 OBJ="$OUT/obj"; rm -rf "$OBJ"; mkdir -p "$OBJ"; : > "$OUT/build.log"; OBJS=()
 CFLAGS=(-march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostartfiles -nostdlib -ffunction-sections -fdata-sections -Wall -Wextra -Wno-unused-parameter)

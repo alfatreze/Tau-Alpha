@@ -4,6 +4,9 @@
 #include "../platform/platform.h"
 #define SVP_FN P2_COLD_TEXT static                   /* the pure core's functions go to the cold image too: the self-test adds nothing to the hot code */
 #include "../cores/save_probe_core.h"
+#ifndef P2_SAVE_PROBE
+#define P2_SAVE_PROBE 0      /* the self-test overwrites the save RAM: it runs only in a build made for it (fw2/build.sh SAVE_PROBE=1, tools/package_dev_build.py --save-probe); the settings backend owns the RAM otherwise */
+#endif
 /* The registers (docs/MMIO_ALLOCATION.md): defined HERE, not in fw2/platform/mmio.h, because the committed WebAssembly meter modules hash that header (a change would make every one of them stale), and no meter uses these. */
 #define R_SAVE_ST    0x800001ECu        /* tau_save_ram.sv (TAU_SAVE): read [31] built in, [30] the bridge has written it, [28:24] log2(words), [15:0] words the bridge wrote at the load */
 #define R_SAVE_IDX   0x800001F0u        /* word index (R/W); DATA steps it */
@@ -38,6 +41,7 @@ P2_COLD_TEXT void save_probe_run(void)           /* cold code: it runs from the 
     const uint32_t st = REG_RD(R_SAVE_ST);
     sv_state.present = st >> 31;
     if (!sv_state.present) return;                                   /* a bitstream without TAU_SAVE: nothing to do */
+    if (!P2_SAVE_PROBE) return;                                      /* the RAM belongs to the meter settings (ui/meters_settings.c): never write the probe pattern into it */
     sv_state.bridge_words = st & 0xFFFFu;
     sv_state.table_bytes = table_size();
     const uint32_t t0 = cycles();
