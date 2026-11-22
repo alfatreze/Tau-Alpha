@@ -45,5 +45,6 @@ P2_COLD_TEXT void save_probe_run(void)           /* cold code: it runs from the 
     svp_io_t io; svp_res_t r; io.seek = io_seek; io.rd = io_rd; io.wr = io_wr;      /* built at run time: a const initialiser would put 12 bytes of .rodata in the HOT image */
     svp_run(&io, epoch, &r);
     sv_state.boots = r.boots; sv_state.crc = r.crc_state; sv_state.pat_bad = r.pat_bad; sv_state.last = r.last_value_loaded; sv_state.written = r.last_value_written; sv_state.prev_epoch = r.prev_epoch;
+    sv_state.w0 = r.w0; sv_state.w1 = r.w1; sv_state.align = r.align; sv_state.align_hits = r.align_hits;
     sv_state.ms = (cycles() - t0) / (CLK_HZ / 1000u);
 }

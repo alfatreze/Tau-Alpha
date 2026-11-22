@@ -180,6 +180,10 @@ const cnt_t counters_table[] = {
     { "SV LAST",      CK_HEX32, CU_NONE, &sv_state.last },          /* the value the PREVIOUS boot wrote, as loaded now: equals the previous boot's SV WRITTEN */
     { "SV WRITTEN",   CK_HEX32, CU_NONE, &sv_state.written },       /* the value THIS boot wrote */
     { "SV PREV EPOCH", CK_U32, CU_NONE,  &sv_state.prev_epoch },    /* the wall-clock epoch the previous boot stored (0 = the host's clock had not arrived) */
+    { "SV LOAD W0",   CK_HEX32, CU_NONE, &sv_state.w0 },            /* RAM word 0 exactly as the Pocket loaded it: 56415354 for a sound file, else what the file's first word was (B-1125) */
+    { "SV LOAD W1",   CK_HEX32, CU_NONE, &sv_state.w1 },            /* RAM word 1 as loaded: 1 (the version) for a sound file */
+    { "SV ALIGN",     CK_U32, CU_NONE,   &sv_state.align },         /* where the loaded pattern sits: 0 at its own word (the load is aligned with a sound file), 1 one word EARLY, 2 one word LATE, 3 nowhere (zero or unknown file) */
+    { "SV ALIGN HITS", CK_U32, CU_NONE,  &sv_state.align_hits },    /* pattern words found at that place: 2,040 for a whole file, 0 when nothing fits */
     { "SV MS",        CK_U32, CU_MS,     &sv_state.ms },            /* the self-test's own time: read, verify, write */
 #ifdef P2_PACKS
     { "MTOC STATE",   CK_U32, CU_NONE,   &mtoc_state },            /* the meter bin read at boot (external meters P2.2): 0 no bin, 1 sound and in use, 2 every bin tried was refused */

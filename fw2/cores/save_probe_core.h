@@ -43,6 +43,9 @@ typedef struct {
     uint32_t prev_epoch;                /* w6 as loaded */
     uint32_t seed;                      /* the seed written now */
     uint32_t crc_written;
+    uint32_t w0, w1;                    /* the RAM words 0 and 1 exactly as LOADED (a sound file has the magic and the version) */
+    uint32_t align;                     /* where the loaded pattern sits: 0 at its own index (aligned), 1 one word EARLY (RAM[i-1] holds word i), 2 one word LATE, 3 nowhere (a zero or unknown file) */
+    uint32_t align_hits;                /* the pattern words found at that place (2,040 / 2,040 / 2,039 for a whole file) */
 } svp_res_t;
 
 SVP_FN uint32_t svp_crc_word(uint32_t crc, uint32_t w)       /* zlib CRC-32 (reflected 0xEDB88320), the four bytes of the word in file order (little-endian) */
@@ -73,6 +76,26 @@ SVP_FN void svp_run(const svp_io_t *io, uint32_t epoch, svp_res_t *r)
     for (uint32_t i = 0; i < SVP_HDR; i++) h[i] = io->rd();
     const uint32_t valid = (h[0] == SVP_MAGIC && h[1] == SVP_VERSION);
     r->first = !valid; r->crc_state = SVP_CRC_NA; r->pat_bad = 0; r->prev_epoch = 0; r->last_value_loaded = 0;
+    r->w0 = h[0]; r->w1 = h[1];
+    {   /* B-1125: where did the Pocket's boot WRITE put the file? The DEV 227 file came back from a Quit one word early and the magic check hid what the load did. Each place has its own seed word (header word 3, 4 or 5) and is judged on the words it should hold. */
+        uint32_t hitE = h[7] == svp_pat(h[3], 8u), hitA = 0, hitL = 0;                  /* EARLY: RAM[j] holds word j+1, from j = 7 (word 8) to the last RAM word 2,046 (word 2,047) */
+        io->seek(SVP_HDR);
+        for (uint32_t j = SVP_HDR; j < SVP_WORDS; j++) {
+            const uint32_t w = io->rd();
+#if BUG == 3
+            if (j + 1u < SVP_WORDS && w == svp_pat(h[3], j)) hitE++;                    /* mutant: the early test compares word j, not j+1 */
+#else
+            if (j + 1u < SVP_WORDS && w == svp_pat(h[3], j + 1u)) hitE++;
+#endif
+            if (w == svp_pat(h[4], j)) hitA++;                                           /* ALIGNED: RAM[j] holds word j */
+            if (j >= SVP_HDR + 1u && w == svp_pat(h[5], j - 1u)) hitL++;                  /* LATE: RAM[j] holds word j-1, from j = 9 */
+        }
+        uint32_t best = hitA, a = 0;
+        if (hitE > best) { best = hitE; a = 1; }
+        if (hitL > best) { best = hitL; a = 2; }
+        if (best < 1000u) { best = 0; a = 3; }
+        r->align = a; r->align_hits = best;
+    }
     uint32_t boots = 1, seed = 1, last = 0;
     if (valid) {
         uint32_t crc = 0xFFFFFFFFu, bad = 0;

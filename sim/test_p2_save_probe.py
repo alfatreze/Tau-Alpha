@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The save-slot self-test (fw2/cores/save_probe_core.h, S1 spike of docs/features/meters/METER_SAVE_FILE_SPEC.md) on the host: the firmware's own code against a RAM model (sim/p2_save_probe_harness.c),
 chained like boots, with the file decoded by tools/decode_save_probe.py (the Mac side) after each one; a damaged body, a damaged header and a Quit in the middle of the self-test; the zlib CRC and the
-pattern agree between C and Python; two mutants of the firmware core must FAIL (the CRC in the wrong byte order; the seed never advancing). The installer's zeroed file is checked in test_install_dev_core."""
+pattern agree between C and Python; three mutants of the firmware core must FAIL (the CRC in the wrong byte order; the seed never advancing; the one-word-early test comparing the wrong word). The installer's zeroed file is checked in test_install_dev_core."""
 import re, struct, subprocess, sys, tempfile, zlib
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,12 +54,22 @@ with tempfile.TemporaryDirectory() as td:
     r = run(exe, str(td / "ff.bin"), td / "ff2.bin", 1)
     check("an all-0xFF file (the initialisation by the Pocket) is a first boot", (r["first"], r["boots"]) == ("1", "1"), r)
     check("the decoder: a zero file is reported as 'nothing came back'", dec.decode(bytes(8192))["status"] == "zero" and dec.decode(b"\0" * 100)["status"] == "bad")
+    # ---- B-1125: what the LOAD put in the RAM, even when the magic is not there (the DEV 227 hardware files were shifted by one word) ----
+    check("a zero file: nothing fits (align 3, 0 hits), raw words 0", (r1["align"], r1["align_hits"], r1["w0"], r1["w1"]) == ("3", "0", "00000000", "00000000"), r1)
+    check("a sound file loads aligned: align 0 and all 2,040 pattern words", (r2["align"], r2["align_hits"]) == ("0", "2040"), r2)
+    hw = ROOT / "docs/research/p2_reports/dev227_save_probe_after_second_quit.bin"             # the file the Pocket wrote at Quit on 2026-11-22 (one word early)
+    rh = run(exe, str(hw), td / "hw_out.bin", 1)
+    check("the REAL Pocket file (one word early) is recognised: align 1, 2,040 hits, raw words 1 and 1, and it is treated as a first boot as on the hardware", (rh["align"], rh["align_hits"], rh["w0"], rh["w1"], rh["first"], rh["boots"]) == ("1", "2040", "00000001", "00000001", "1", "1"), rh)
+    b0 = f[2].read_bytes(); (td / "late.bin").write_bytes(bytes(4) + b0[:-4])                      # every word one place later
+    rl = run(exe, str(td / "late.bin"), td / "late_out.bin", 1)
+    check("a file one word LATE is recognised: align 2, 2,039 hits", (rl["align"], rl["align_hits"]) == ("2", "2039"), rl)
+    check("a damaged body with an intact magic still reads as aligned (align 0)", run(exe, str(f[3]), td / "dmg.bin", 1)["align"] == "0")
     # mutants
-    for bug, what in ((1, "the seed never advances"), (2, "the CRC in big-endian byte order")):
+    for bug, what in ((1, "the seed never advances"), (2, "the CRC in big-endian byte order"), (3, "the early-shift test compares the wrong word")):
         m = build(td, bug)
         x1 = run(m, "-", td / "m1.bin", 5); x2 = run(m, str(td / "m1.bin"), td / "m2.bin", 6)
         d1 = dec.decode((td / "m1.bin").read_bytes())
-        killed = ((bug == 1 and x2["seed"] == x1["seed"]) or (bug == 2 and d1["status"] != "ok"))
+        killed = ((bug == 1 and x2["seed"] == x1["seed"]) or (bug == 2 and d1["status"] != "ok") or (bug == 3 and run(m, str(hw), td / "m3.bin", 1)["align"] != "1"))
         check(f"mutant {bug} ({what}) is caught", killed, (x1, x2))
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
