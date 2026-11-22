@@ -133,11 +133,13 @@ SAVE_ADDRESS = "0x30000000"      # tau_save_ram.sv's bridge region (core_top.v: 
 SAVE_SIZE = 8192
 
 
-def add_save_slot(core_dir: Path) -> None:
+def add_save_slot(core_dir: Path, parameters: str = "0x2") -> None:
     """Data slot 11 for the REAL meter-settings file (W2 S2): the same slot as the S1 probe's (id, address, size, parameters 0x2: core-specific, nonvolatile, not deferload, size_exact 8,192, the file name in the slot)
-    but named "Meter settings" and pointing at tau-meter-settings.bin. The seed must exist (the installer creates it zeroed, never overwrites)."""
+    but named "Meter settings" and pointing at tau-meter-settings.bin. With "0x2" the seed must exist (the installer creates it zeroed, never overwrites); "0x22" adds bit 5 (the Pocket fills the memory with 0xFF when the
+    file is missing): probe 2 of the release plumbing plan (P0), to see whether the Pocket creates the file itself."""
+    assert parameters in ("0x2", "0x22"), parameters
     dj = json.loads((core_dir / "data.json").read_text())
-    want = {"name": "Meter settings", "id": SAVE_SLOT_ID, "required": False, "nonvolatile": True, "parameters": "0x2", "filename": "tau-meter-settings.bin",
+    want = {"name": "Meter settings", "id": SAVE_SLOT_ID, "required": False, "nonvolatile": True, "parameters": parameters, "filename": "tau-meter-settings.bin",
             "size_exact": SAVE_SIZE, "size_maximum": SAVE_SIZE, "address": SAVE_ADDRESS}
     slots = dj["data"]["data_slots"]
     existing = next((x for x in slots if x["id"] == SAVE_SLOT_ID), None)

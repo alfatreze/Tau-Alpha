@@ -362,6 +362,18 @@ check("media extensions recognised, everything else kept",
       and not idc.is_media("common/tau-library.tdb") and not idc.is_media("common/playlist.m3u") and not idc.is_media("common/tau.rom")
       and not idc.is_media("Album/01.mp3"))
 
+# probe 2 of the release plumbing plan: the real settings slot with parameters 0x22 (bit 5: the Pocket fills a missing file with 0xFF)
+with tempfile.TemporaryDirectory() as td6:
+    td6 = Path(td6); sys.path.insert(0, str(ROOT / "tools"))
+    import tau_data_slots as tds6
+    c6 = td6 / "core"; shutil.copytree(ROOT / "dist/Cores/alfatreze.TAU", c6)
+    tds6.add_save_slot(c6, "0x22")
+    sl = next(x for x in json.loads((c6 / "data.json").read_text())["data"]["data_slots"] if x["id"] == 11)
+    check("add_save_slot('0x22') declares slot 11 as tau-meter-settings.bin, nonvolatile, 8,192 bytes, parameters 0x22", sl["filename"] == "tau-meter-settings.bin" and sl["nonvolatile"] and sl["parameters"] == "0x22" and sl["size_exact"] == 8192 and sl["address"] == "0x30000000", sl)
+    try: tds6.add_save_slot(c6, "0x2"); again = True
+    except AssertionError: again = False
+    check("declaring the same slot again with other parameters is refused (never two meanings of slot 11)", not again)
+
 # --stage: extra files placed on the card (a test meter's bin and presets): a dry run names each, a replaced file is backed up first, every copy is verified, Cores/ and Platforms/ are refused.
 with tempfile.TemporaryDirectory() as td4:
     td4 = Path(td4); card4 = td4 / "card"
