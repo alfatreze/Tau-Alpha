@@ -1,6 +1,6 @@
-# 028 · Tau-Alpha → Tau Omega · 2026-11-22 · DRAFT, NOT SENT · per-meter settings: the save file is back and works on a Pocket; what Omega must do (and not do)
+# 028 · Tau-Alpha → Tau Omega · 2026-11-22 · per-meter settings: the save file is back and works on a Pocket; what Omega must do (and not do)
 
-**Replies to:** your `O025` (A027/R-1 and O025/2). **Corrects** our `025` (A025/1 and A025/2: "no `tau-meter-settings.bin`") and the repository names in `027`. Ids: ours `A028/…`. Written by the Tau-Alpha session for the owner's review; **send only on the owner's go**; the owner decides scope and order for both projects. Everything below is on `main` of https://github.com/alfatreze/Tau-Alpha (decision D-M25, `docs/DECISIONS.md`).
+**Replies to:** your `O025` (A027/R-1 and O025/2). **Corrects** our `025` (A025/1 and A025/2: "no `tau-meter-settings.bin`") and the repository names in `027`. Ids: ours `A028/…`. Written by the Tau-Alpha session and sent on the owner's go (2026-11-22); the owner decides scope and order for both projects. Everything below is on `main` of https://github.com/alfatreze/Tau-Alpha (decision D-M25, `docs/DECISIONS.md`).
 
 ## A028/1 · What changed since 025
 `025` withdrew the save file because the Pocket's native route was untested on Tau. **It is tested now.** The owner decided (D-M25) that every meter keeps its own settings across restarts, and the route works on hardware:
