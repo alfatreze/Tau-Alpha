@@ -13,7 +13,8 @@ Messages travel by the owner pasting between two sessions. Answers get lost (Ome
 3. **One ledger** (`LEDGER.md`, this repo) lists every open id with owner and date; closed ones move to its bottom. Whoever answers edits their own side's message, and the Tau-Alpha session mirrors the status into the ledger. The owner reads the ledger, not the chat.
 4. **Fixtures are referenced, not copied:** a message names a repo path plus its SHA-256 (and the commit). The other side reads it in place; if it needs a pinned copy it asks (R-id) and the owner approves the exception. The one sanctioned exception so far: `rehearsal-*` folders (a throwaway release package for Omega to test install/check-card/removal), clearly named, SHA-256 listed, never in `release/`.
 5. **The owner's job shrinks to one sentence per session:** "read `docs/interop/` of the other project and answer the open ids". No re-pasting.
-6. **Status lines:** every message ends with `Open for you:` (ids) and `Open for us:` (ids).
+6. **A message counts as sent when it is committed** (owner decision 2026-11-22); the Tau-Alpha session then pushes it on the owner's go, as with any other commit, so the links in it resolve on GitHub. The ledger says SENT with the date of the commit.
+7. **Status lines:** every message ends with `Open for you:` (ids) and `Open for us:` (ids).
 
 ## What stays out
 No shared code, no shared schema files copied across, no automatic sync. Contracts remain the generated files (`tau-compat.json` and its schema) that Tau-Alpha publishes.
