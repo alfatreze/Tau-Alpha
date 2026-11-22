@@ -86,7 +86,7 @@ MF_FN void mf_scan(const mf_io_t *io, mf_scan_t *s)
 {
     mf_check(io, 0, &s->g[0]); mf_check(io, 1, &s->g[1]);
     s->locked = s->g[0].newer || s->g[1].newer;
-    if (s->g[0].valid && s->g[1].valid) s->active = ((int32_t)(s->g[1].seq - s->g[0].seq) > 0) ? 1 : 0;
+    if (s->g[0].valid && s->g[1].valid) s->active = ((BUG == 5) ? (s->g[1].seq > s->g[0].seq) : ((int32_t)(s->g[1].seq - s->g[0].seq) > 0)) ? 1 : 0;
     else s->active = s->g[0].valid ? 0 : (s->g[1].valid ? 1 : -1);
 }
 /* The record of id_hash in the active generation: 1 = found (out filled, *rev_ok = whether its params_rev equals `rev`), 0 = none. A record of another revision is reported with rev_ok 0 and is not used. */

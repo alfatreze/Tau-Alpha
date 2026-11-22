@@ -3,7 +3,7 @@
  *   harness <file.bin|-> <out.bin> -1 find <id_hash> <rev>                                                        prints "found=<0|1> rev_ok=<0|1> preset= n= idx:val,..."
  *   harness <file.bin|-> <out.bin> -1 scan                                                                        prints "active= locked= valid0= valid1= seq0= seq1= count0= count1="
  * tear_after_writes models a Quit in the middle of the update: later writes are dropped. A word read is checked: the index must stay inside the RAM. sim/test_p2_mset_file.py drives it.
- * -DBUG=n (fw2/cores/mset_file_core.h): 1 = the tail of the bank is not zero-filled, 2 = the CRC is not inverted, 3 = the valid generation is written in place (same bank), 4 = no eviction. */
+ * -DBUG=n (fw2/cores/mset_file_core.h): 1 = the tail of the bank is not zero-filled, 2 = the CRC is not inverted, 3 = the valid generation is written in place (same bank), 4 = no eviction, 5 = seq compared as a plain number (no serial arithmetic). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
