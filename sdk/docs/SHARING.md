@@ -3,7 +3,7 @@
 A meter is independent: **nobody's approval is needed.** Build the package, put it anywhere, tell people.
 
 ## What to publish
-`dist/<id>.tmeter` is the whole thing (the package already contains your `README.md`, `LICENSE`, factory presets and the `source/` copy). A GitHub release layout that works:
+`dist/<id>.tmeter` is the whole thing (the package already contains your `README.md`, `LICENSE`, factory presets and the `source/` copy). Say in your README that the presets are only offered once their folder is on the card (a composing tool such as Tau Omega copies it; by hand: [ON_A_POCKET.md](ON_A_POCKET.md) step 3b). A GitHub release layout that works:
 ```
 release v1.2.0                       tag = the "version" in meter.json
   <id>.tmeter                        the package, exactly as tau-meter build made it

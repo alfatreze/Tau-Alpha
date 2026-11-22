@@ -70,3 +70,10 @@ Codes 30 and 31 belong to the old bundle format and are not raised by a v2 bin.
 | it starts wrong after a switch | static state is not re-initialised: it restarts from initial values each selection and gets `force = 1` | repaint everything when `in->force` |
 | the player resets or hangs | a wild pointer: after a reset the next boot starts on Winamp Bars | `RUN-MEM-WRITE`, `RUN-JUMP`, `RUN-DETERMINISM` |
 | the music stutters | the tick is slow | `RUN-OVERRUN`, `PERFORMANCE.md` |
+
+### 4. Things that surprise a first meter
+| You see | Likely cause | Check |
+|---|---|---|
+| Configure lists only DEFAULT on the Pocket although `presets.json` has ten | the factory presets are not on the card: `compose` writes the bin only | [ON_A_POCKET.md](ON_A_POCKET.md) step 3b (copy `presets/` into `tau-presets/<first 8 hex digits of the id>/`) |
+| `tau-meter thumb` fails with "has no thumb.json" (and a traceback) | the thumbnail command builds first, and a build needs a `thumb.json` | copy `template/thumb.json` into your project, then run `thumb` ([GETTING_STARTED.md](GETTING_STARTED.md) step 4) |
+| `in->wave` is NULL | the player does not provide a waveform today | [LIMITS.md](LIMITS.md): build the picture from the levels, the correlation and the bands |

@@ -9,6 +9,8 @@ Read in this order the first time, **[GETTING_STARTED.md](GETTING_STARTED.md)** 
 | [GETTING_STARTED.md](GETTING_STARTED.md) | install, make a meter, build, test, see it |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | the pinned compiler (LLVM), install steps for macOS, Linux, Windows, what is not supported |
 | [METER_MODEL.md](METER_MODEL.md) | what a meter is, when it loads, its memory, repaint and degrade |
+| [LIMITS.md](LIMITS.md) | what a meter can know and cannot (no waveform today): read before designing |
+| [SNIPPETS.md](SNIPPETS.md) | tested helpers: clamp, integer sine, RGB565 mix, a line from rectangles |
 | [HOST_TABLE.md](HOST_TABLE.md) | every host-table call and every input field (generated from the header) |
 | [MANIFEST.md](MANIFEST.md) | `meter.json`, the package, its rules and limits |
 | [PARAMETERS.md](PARAMETERS.md) | parameters, descriptors, presets (`.tpi` / `.tpr`), the preview image |

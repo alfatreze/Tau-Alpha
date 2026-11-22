@@ -14,7 +14,7 @@ python3 ../tau-alpha-meter-sdk/tau-meter doctor                  # is the compil
 ```
 tau-meter id new                  # prints 32 hex digits
 ```
-Edit `meter.json`: paste the id into `"id"`, set `"name"` (1 to 23 printable characters), `"author"` (your name), `"licence"` (a name such as `"MIT"`; the text in `LICENSE` is what binds, and it travels in the package), `"homepage"` (a link to your page, or `""` if you have none; it is shown, not followed). Edit `README.md` (describe your meter) and `LICENSE`: replace `Your Name` and keep or change the licence text; do not copy code under a licence you cannot meet. Then edit `params` and `presets.json` to your meter's settings ([PARAMETERS.md](PARAMETERS.md)); the template has two parameters and three presets.
+Edit `meter.json`: paste the id into `"id"`, set `"name"` (1 to 23 printable characters), `"author"` (your own name or handle: the player and the installing tool show it beside "independent: not reviewed", so do not use the project's names, "Tau Alpha" or "Tau Alpha Meters", or anyone else's: it would look official), `"licence"` (a name such as `"MIT"`; the text in `LICENSE` is what binds, and it travels in the package), `"homepage"` (a link to your page, or `""` if you have none; it is shown, not followed). Edit `README.md` (describe your meter) and `LICENSE`: replace `Your Name` and keep or change the licence text; do not copy code under a licence you cannot meet. Then edit `params` and `presets.json` to your meter's settings ([PARAMETERS.md](PARAMETERS.md)); the template has two parameters and three presets.
 
 **2. Build and test.**
 ```
@@ -23,9 +23,13 @@ tau-meter test dist/*.tmeter --preview preview.png
 ```
 The test prints one line per check (PASS / FAIL / warn) in plain words, and the exit code is 0 only when nothing failed. `preview.png` shows four frames of your meter in a simulated player. Open it.
 
+**2b. Read [LIMITS.md](LIMITS.md) before you design:** what the player tells a meter and what it cannot (there is no waveform today), and [SNIPPETS.md](SNIPPETS.md) for the integer sine, clamp and colour mix everyone needs.
+
 **3. Change the drawing.** `src/meter.c` is the whole meter: one function `draw(const mtr_in_t *in)` called about 38 times a second, and the line `TAU_METER(draw)`. Draw only inside the rectangle `in->x, in->y, in->w, in->h`, with the calls in [HOST_TABLE.md](HOST_TABLE.md) (`mtr_rect`, `mtr_bar`, `mtr_text`, ...). The 16 numbers `in->spec[0..15]` are the spectrum (0 to 255); `mtr_param(i)` reads your parameters; `mtr_role(MTR_ROLE_ACCENT)` is the theme's colour. Rebuild and retest after every change; the test runs in a few seconds.
 
 **4. Make the list preview** (after the drawing is done; the template ships a thumbnail of its own bars). The METERS list shows a 56 x 32 picture before your meter loads: `tau-meter thumb [DIR]` (default: the current folder) renders a frame of your meter and writes `thumb.json`, with `palette_roles` filled in for the colours that are theme colours ([PARAMETERS.md](PARAMETERS.md)). Rebuild afterwards.
+
+**Known catch:** `tau-meter thumb` builds your meter first, and a build needs a `thumb.json`. A project that came from the template already has one: do not delete it. A project made any other way must **copy `template/thumb.json` into it first**, then run `thumb`; without it you get a plain "has no thumb.json" error (and today a Python traceback after it).
 
 **4b. Test what your meter is for.** The suite checks the rules, not your design. `test/test_meter.py` is an example of testing behaviour with the host runner: replace its checks with yours (for example "silence draws no lit bar", "the marker falls after a second"; [TESTING.md](TESTING.md), "Driving the runner").
 

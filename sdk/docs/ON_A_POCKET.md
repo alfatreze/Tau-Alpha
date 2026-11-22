@@ -10,8 +10,14 @@
    ```
    The shipped Winamp Bars is the player's fallback and must be in every bin; `tau-meter compose` adds it for you from the SDK's `share/` folder if you did not list it. Rows keep the order you give (Winamp Bars first). `compose` refuses what the player would refuse, in plain words: more than 64 meters, two ids with the same id hash, a package that fails `verify`, a bin over 4,456,448 bytes. It warns when two ids share their low 16 bits (those two never save tuning).
 3. **Copy it to the SD card** as `Assets/tau/common/tau-meters.bin` (data slot 10; every Tau core on the card shares it). Keep a copy of the card's files first. **Deleting this file brings back the core's own seven meters.**
+3b. **Put the factory presets on the card (a step `compose` does NOT do).** The bin holds the meters only. A meter's factory presets live inside its `.tmeter` (the `presets/` folder of the zip) and the player reads them from `Assets/tau/common/tau-presets/<the first 8 hex digits of the meter's id>/`. Tau Omega does this copy when it composes; by hand:
+   ```
+   mkdir -p "<card>/Assets/tau/common/tau-presets/<first 8 hex digits of yourid>"
+   unzip -j dist/<yourid>.tmeter 'presets/*' -d "<card>/Assets/tau/common/tau-presets/<first 8 hex digits of yourid>"
+   ```
+   The folder then holds `index.tpi` and `p0.tpr`, `p1.tpr`, ... Without it, **Configure lists only DEFAULT** for your meter. Same card-write care as the bin: keep a copy of the card's files first.
 4. **Start Tau.** Pick your meter: press **X** on Now Playing to walk the list, or the METER list in Settings (Settings > Appearance > METER today; the 0.7.5 release plan moves it to a METERS entry). **A new meter is never selected automatically.**
-5. **Look.** The picture draws inside its box and moves with the music; Configure shows your parameters and presets; the list shows your 56 x 32 preview. Play loud music for a minute, switch meters quickly ten times, quit and restart: the player should come back on your meter once it ran for a few seconds.
+5. **Look.** The picture draws inside its box and moves with the music; Configure shows your parameters, and your presets once step 3b is done; the list shows your 56 x 32 preview. Play loud music for a minute, switch meters quickly ten times, quit and restart: the player should come back on your meter once it ran for a few seconds.
 
 ## What the player tells you
 | Where | Row | Healthy |

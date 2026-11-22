@@ -144,6 +144,7 @@ test-host:
 	$(PYTHON) sim/test_make_synthetic_meter_bin.py
 	$(PYTHON) sim/test_meter_package.py
 	$(PYTHON) sim/test_sdk_sync.py
+	$(PYTHON) sim/test_sdk_snippets.py
 	$(PYTHON) sim/test_sdk_conformance.py
 	$(PYTHON) sim/test_sdk_toolchain.py
 	$(PYTHON) sim/test_sdk_export.py
