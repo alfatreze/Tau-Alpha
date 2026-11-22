@@ -62,5 +62,14 @@ for k in range(45):
 lines += ["get 70000000 1", "get 7000002C 1", "dump d7.bin"]
 out = run(lines)
 check("45 meters x 40 changes: the file equals the reference byte for byte, the oldest meter went back to defaults, the newest is intact", (td / "d7.bin").read_bytes() == ref and out[-2] == "get 0" and out[-1].startswith("get 1"), out[-3:])
+# 8 the size-table entry of slot 11 (probe 2b, DEV 232): set to 8,192 by a put only when the RAM looks loaded and the entry is still 0
+out = run([f"st {LOADED}", "ram zero", "dt 5 11 0", "dt 6 12 77", "put AAAA0001 1 0 1:1", "dtget 5", "dtget 6"])
+check("the slot's size entry is 0 (no file existed) and the RAM looks loaded: the first put sets it to 8,192 and leaves other slots alone", out[1] == "dt 11 8192" and out[2] == "dt 12 77", out)
+out = run([f"st {LOADED}", "ram zero", "dt 5 11 8192", "dt 7 11 4096", "put AAAA0001 1 0 1:1", "dtget 5", "dtget 7"])
+check("an entry APF filled (8,192) or any nonzero size is never changed", out[1] == "dt 11 8192" and out[2] == "dt 11 4096", out)
+out = run([f"st {LOADED}", "ram zero", "dt 5 12 0", "put AAAA0001 1 0 1:1", "dtget 5"])
+check("no entry for slot 11 in the table: nothing is written", out[1] == "dt 12 0", out)
+out = run(["st 0", "ram zero", "dt 5 11 0", "put AAAA0001 1 0 1:1", "dtget 5"])
+check("the file backend off (no RAM, or no file loaded): the table is left alone", out[1] == "dt 11 0", out)
 print("FAILED" if fails else "all ok")
 sys.exit(1 if fails else 0)

@@ -31,7 +31,7 @@ P2_COLD_TEXT static uint32_t table_size(void)
         const uint32_t id = REG_RD(R_DT_DATA);
         if (id == SV_SLOT_ID) { REG_WR(R_DT_ADDR, 2u * i + 1u); (void)REG_RD(R_STAT0); return REG_RD(R_DT_DATA); }
     }
-    return 0;
+    return 0xFFFFFFFFu;                                              /* no entry for the slot at all (probe 2b: APF may not list a slot it never loaded) */
 }
 
 P2_COLD_TEXT void save_probe_run(void)           /* cold code: it runs from the PSRAM image, so it costs no hot RAM */
@@ -41,9 +41,9 @@ P2_COLD_TEXT void save_probe_run(void)           /* cold code: it runs from the 
     const uint32_t st = REG_RD(R_SAVE_ST);
     sv_state.present = st >> 31;
     if (!sv_state.present) return;                                   /* a bitstream without TAU_SAVE: nothing to do */
-    if (!P2_SAVE_PROBE) return;                                      /* the RAM belongs to the meter settings (ui/meters_settings.c): never write the probe pattern into it */
     sv_state.bridge_words = st & 0xFFFFu;
-    sv_state.table_bytes = table_size();
+    sv_state.table_bytes = table_size();                              /* recorded even when the self-test is off: the Report shows what APF loaded and what the size entry says at boot (before the settings backend may set it) */
+    if (!P2_SAVE_PROBE) return;                                      /* the RAM belongs to the meter settings (ui/meters_settings.c): never write the probe pattern into it */
     const uint32_t t0 = cycles();
     const uint32_t epoch = (REG_RD(R_RTC_ST) & 1u) ? REG_RD(R_RTC_EPOCH) : 0u;
     svp_io_t io; svp_res_t r; io.seek = io_seek; io.rd = io_rd; io.wr = io_wr;      /* built at run time: a const initialiser would put 12 bytes of .rodata in the HOT image */

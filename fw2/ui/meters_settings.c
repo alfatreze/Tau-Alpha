@@ -12,6 +12,8 @@
 #define R_SAVE_ST    0x800001ECu
 #define R_SAVE_IDX   0x800001F0u
 #define R_SAVE_DATA  0x800001F4u
+#define MS_SLOT_ID   11u                  /* the save slot's id in data.json (tools/tau_data_slots.py) */
+#define MS_FILE_BYTES 8192u
 #ifdef P2_HOST
 uint32_t ms_host_save_st; uint32_t ms_host_save_ram[2048]; static uint32_t ms_host_idx;        /* the tests' model of the save RAM (ms_host_save_st 0 = not built in) */
 P2_COLD_TEXT static uint32_t sv_status(void) { return ms_host_save_st; }
@@ -24,6 +26,25 @@ P2_COLD_TEXT static void sv_seek(uint32_t w) { REG_WR(R_SAVE_IDX, w); (void)REG_
 P2_COLD_TEXT static uint32_t sv_rd(void) { return REG_RD(R_SAVE_DATA); }
 P2_COLD_TEXT static void sv_wr(uint32_t v) { REG_WR(R_SAVE_DATA, v); }
 #endif
+/* The slot's entry in APF's Dataslot ID/Size Table (words: id, size, id, size, ...): the Pocket writes a nonvolatile slot back with the SIZE in this entry (docs core-boot-process "Shutdown", KB-001). APF fills it when it loads a
+ * file, so with the seed on the card it already reads 8,192 and this does nothing. If the RAM looks loaded but the entry is still 0 (a file that does not exist: data-slot parameter bit 5 fills the RAM with 0xFF), set it to
+ * 8,192 so the Pocket has something to write back: probe 2b of docs/features/meters/RELEASE_075_PLUMBING_PLAN.md (DEV 232). Done after boot, never while APF delivers slots (KB-002). */
+#ifdef P2_HOST
+uint32_t ms_host_dt[64];
+P2_COLD_TEXT static uint32_t dt_rd(uint32_t a) { return ms_host_dt[a & 63u]; }
+P2_COLD_TEXT static void dt_wr(uint32_t a, uint32_t v) { ms_host_dt[a & 63u] = v; }
+#else
+P2_COLD_TEXT static uint32_t dt_rd(uint32_t a) { REG_WR(R_DT_ADDR, a); (void)REG_RD(R_STAT0); return REG_RD(R_DT_DATA); }
+P2_COLD_TEXT static void dt_wr(uint32_t a, uint32_t v) { REG_WR(R_DT_ADDR, a); REG_WR(R_DT_DATA, v); }
+#endif
+P2_COLD_TEXT static void size_entry(void)
+{
+    for (uint32_t i = 0; i < 32u; i++) {
+        if (dt_rd(2u * i) != MS_SLOT_ID) continue;
+        if (dt_rd(2u * i + 1u) == 0u) dt_wr(2u * i + 1u, MS_FILE_BYTES);
+        return;
+    }
+}
 P2_COLD_TEXT static int file_on(mf_io_t *io)           /* 1 = the file backend serves this call (io is filled) */
 {
     const uint32_t st = sv_status();
@@ -82,6 +103,7 @@ uint32_t meter_settings_put(uint32_t id_hash, uint32_t params_rev, const meter_s
     uint8_t idx[MS_MAX_ENTRIES]; uint16_t val[MS_MAX_ENTRIES]; uint32_t n = 0;
     for (uint32_t k = 0; k < s->n && k < MS_MAX_ENTRIES; k++) if (s->idx[k] < np && s->val[k] <= max[s->idx[k]]) { idx[n] = s->idx[k]; val[n] = s->val[k]; n++; }
     pool_drop(id_hash, params_rev);                                    /* the file wins from now on: an old pool record must not come back after a removal */
+    size_entry();
     mf_put(&io, id_hash, params_rev, s->preset, n, idx, val);          /* n = 0 removes the meter's record */
     return n;
 }
