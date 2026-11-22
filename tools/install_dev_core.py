@@ -230,6 +230,8 @@ def main():
     ap.add_argument("--card", type=Path, default=Path(os.environ.get("TAU_CARD", "/Volumes/CARDWRITE")), help="card root (default: $TAU_CARD, else /Volumes/CARDWRITE)")
     ap.add_argument("--carry-from", metavar="CORE_ID", help="copy this core's media to the new core and rebuild the library index")
     ap.add_argument("--assets", type=Path, metavar="FILE", help="tau-assets.bin (themes/meter presets) to install; default: <package>/../tau-assets.bin, else the --carry-from core's copy")
+    ap.add_argument("--stage", type=Path, metavar="DIR", help="extra files to place on the card: every file under DIR is copied to the same relative path on the card (e.g. Assets/tau/common/tau-meters.bin and tau-presets/ of a test meter). "
+                    "A file it replaces is first copied to <backup>/_stage_replaced and every copy is verified by SHA-256; nothing under Cores/ or Platforms/ may be staged")
     ap.add_argument("--remove", action="append", default=[], metavar="CORE_ID", help="core to remove after a verified install (repeatable)")
     ap.add_argument("--replace", action="store_true", help="the new core already exists on the card: back it up and refresh its core files (its media stays)")
     ap.add_argument("--allow-release", action="store_true", help="permit touching the release cores (TAU, TAU Diagnostics, TAU Preview, TAU Preview Diagnostics, and the old TAU_DIAGNOSTIC)")
@@ -320,6 +322,15 @@ def main():
     if compat_entry is not None:
         obs = [e["path"] for e in compat_entry["layout"] if e["role"] == "obsolete" and (card / e["path"]).exists()]
         print(f"obsolete: {obs or 'none on the card'}; then check the card against {compat['release']}")
+    stage_files = []
+    if a.stage is not None:
+        if not a.stage.is_dir(): die(f"--stage {a.stage}: not a folder")
+        stage_files = [f.relative_to(a.stage) for f in sorted(a.stage.rglob("*")) if f.is_file() and not is_junk(f.name)]
+        if not stage_files: die(f"--stage {a.stage}: no files")
+        bad = [str(r) for r in stage_files if r.parts[0] not in ("Assets", "Saves")]
+        if bad: die("--stage may only place files under Assets/ or Saves/: " + ", ".join(bad[:3]))
+        for r in stage_files:
+            print(f"stage:   {r}: " + ("replaces the card's file (the old one is backed up)" if (card / r).is_file() else "new"))
     print("then:    delete catalog caches, clean junk files, " + ("(no eject)" if a.no_eject else "eject"))
 
     # Pre-write checks (review M3): everything that can be judged before writing is judged now, so a card the install could not leave
@@ -488,6 +499,20 @@ def main():
         print(f"\n[3b] tau-assets.bin installed ({sha(dst)[:16]}, from {ab})")
     elif not dst.is_file():
         print("\n[3b] tau-assets.bin: none found (Info shows THEME FILE / METER FILE NONE)")
+
+    # 3b2. --stage: extra files (a test meter's bin and presets). A replaced file is in <backup>/_stage_replaced first; every copy is verified.
+    if stage_files:
+        print("\n[3b2] staged files")
+        for r in stage_files:
+            src, dstf = a.stage / r, card / r
+            if dstf.is_file():
+                (bdir / "_stage_replaced" / r).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(dstf, bdir / "_stage_replaced" / r)
+                if sha(dstf) != sha(bdir / "_stage_replaced" / r): die(f"backup of {r} does not match the card")
+            dstf.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dstf)
+            if sha(src) != sha(dstf): die(f"{r} differs after copy")
+        print(f"   {len(stage_files)} file(s) placed and verified")
 
     # 3c. release manifest: remove obsolete files (already in the backup when the core was replaced), then check the card
     if compat_entry is not None:

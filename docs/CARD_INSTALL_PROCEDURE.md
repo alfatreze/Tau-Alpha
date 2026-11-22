@@ -164,6 +164,10 @@ When a release manifest `tau-compat.json` (schema 2) describes **exactly** the p
 - **On an error:** the script stops with the core installed but the catalog caches **not** deleted. The Pocket keeps showing the old catalog until the problem is fixed and the script is re-run.
 - **By hand:** `python3 tools/tau_compat.py check-card release/tau-compat.json /Volumes/Pock --core alfatreze.TAU`.
 
+### Extra files: `--stage DIR` (2026-11-22, W2 S2)
+
+`--stage DIR` places every file under DIR at the same relative path on the card (only under `Assets/` or `Saves/`; `Cores/` and `Platforms/` are refused). It exists for **user-data files that no package contains**, chiefly a test meter's `Assets/tau/common/tau-meters.bin` and `tau-presets/<id8>/` (`work/omega-test-meters/card-stage/`). The dry run says for each file whether it replaces the card's file or is new; a replaced file is first copied to `<backup>/_stage_replaced/` and every copy is verified by SHA-256 (step 3b2, after `tau-assets.bin`). Tested in `sim/test_install_dev_core.py`.
+
 ### Before writing, restore on failure, and tau-assets.bin (2026-10-08, review M3/H1)
 
 - **Before anything is written**, the installer checks that the release can read the card's own files and the `--assets` file:

@@ -133,6 +133,21 @@ SAVE_ADDRESS = "0x30000000"      # tau_save_ram.sv's bridge region (core_top.v: 
 SAVE_SIZE = 8192
 
 
+def add_save_slot(core_dir: Path) -> None:
+    """Data slot 11 for the REAL meter-settings file (W2 S2): the same slot as the S1 probe's (id, address, size, parameters 0x2: core-specific, nonvolatile, not deferload, size_exact 8,192, the file name in the slot)
+    but named "Meter settings" and pointing at tau-meter-settings.bin. The seed must exist (the installer creates it zeroed, never overwrites)."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    want = {"name": "Meter settings", "id": SAVE_SLOT_ID, "required": False, "nonvolatile": True, "parameters": "0x2", "filename": "tau-meter-settings.bin",
+            "size_exact": SAVE_SIZE, "size_maximum": SAVE_SIZE, "address": SAVE_ADDRESS}
+    slots = dj["data"]["data_slots"]
+    existing = next((x for x in slots if x["id"] == SAVE_SLOT_ID), None)
+    if existing is not None:
+        assert existing == want, f"data slot {SAVE_SLOT_ID} already declared, and differently: {existing}"
+        return
+    slots.append(want)
+    save(core_dir / "data.json", dj)
+
+
 def add_save_probe_slot(core_dir: Path, parameters: str = "0x2") -> None:
     """Data slot 11: tau-save-probe.bin, the S1 spike of the meter save file (docs/features/meters/METER_SAVE_FILE_SPEC.md): a `nonvolatile` slot (loaded at boot into the save RAM at `address`, read back from it and
     written over the file at Quit), core-specific (parameter bit 1: Saves/<platform>/<core>/), not deferload, exactly 8,192 bytes (size_exact: a file of any other size is not loaded). The file name is given in the slot

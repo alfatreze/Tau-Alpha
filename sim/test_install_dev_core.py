@@ -362,5 +362,25 @@ check("media extensions recognised, everything else kept",
       and not idc.is_media("common/tau-library.tdb") and not idc.is_media("common/playlist.m3u") and not idc.is_media("common/tau.rom")
       and not idc.is_media("Album/01.mp3"))
 
+# --stage: extra files placed on the card (a test meter's bin and presets): a dry run names each, a replaced file is backed up first, every copy is verified, Cores/ and Platforms/ are refused.
+with tempfile.TemporaryDirectory() as td4:
+    td4 = Path(td4); card4 = td4 / "card"
+    for d in ("Cores", "Assets", "Platforms/_images", "System"):
+        (card4 / d).mkdir(parents=True)
+    pk4 = td4 / "pkg"; shutil.copytree(ROOT / "dist", pk4)
+    st = td4 / "stage"; (st / "Assets/tau/common/tau-presets/30245146").mkdir(parents=True)
+    (st / "Assets/tau/common/tau-meters.bin").write_bytes(b"NEWBIN" * 100); (st / "Assets/tau/common/tau-presets/30245146/index.tpi").write_bytes(b"IDX")
+    old = card4 / "Assets/tau/common/tau-meters.bin"; old.parent.mkdir(parents=True); old.write_bytes(b"OLDBIN")
+    rc, out = run(pk4, "--card", card4, "--stage", st)
+    check("stage dry run names each file (one replaces, one is new) and writes nothing", rc == 0 and "tau-meters.bin: replaces" in out and "index.tpi: new" in out and old.read_bytes() == b"OLDBIN", out[-500:])
+    rc, out = run(pk4, "--card", card4, "--stage", st, "--backup-dir", td4 / "bk", "--no-eject", "--yes")
+    check("stage install places both files byte-identically and backs the replaced one up", rc == 0 and old.read_bytes() == b"NEWBIN" * 100 and (card4 / "Assets/tau/common/tau-presets/30245146/index.tpi").read_bytes() == b"IDX" and (td4 / "bk/_stage_replaced/Assets/tau/common/tau-meters.bin").read_bytes() == b"OLDBIN", out[-500:])
+    bad = td4 / "badstage"; (bad / "Cores").mkdir(parents=True); (bad / "Cores/x.json").write_text("{}")
+    card5 = td4 / "card5"
+    for d in ("Cores", "Assets", "Platforms/_images", "System"):
+        (card5 / d).mkdir(parents=True)
+    rc, out = run(pk4, "--card", card5, "--stage", bad)
+    check("a stage folder with a file outside Assets/ and Saves/ is refused", rc != 0 and "only place files under" in out, out[-300:])
+
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
