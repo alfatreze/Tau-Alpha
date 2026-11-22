@@ -57,7 +57,7 @@ def build(d, mutant=None):
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub_ in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub_).mkdir()
     (ui / "meters.c").write_text(src); (ui / "meterlist_view.c").write_text(vsrc); (ui / "meters_settings.c").write_text(ms)
-    for f in ("ui/meterlist_thumb.c", "ui/meterlist_thumb.h", "ui/meterlist_view.h", "ui/meters_settings.c", "ui/meters_settings.h", "generated/meter_thumbs.h", "ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
+    for f in ("ui/meterlist_thumb.c", "ui/meterlist_thumb.h", "ui/meterlist_view.h", "ui/meters_settings.c", "ui/meters_settings.h", "cores/mset_file_core.h", "generated/meter_thumbs.h", "ui/meter.h", "ui/meters_toc.h", "ui/theme.h", "ui/meter_pack.h", "ui/appearance.h", "ui/appearance.c", "gfx/gfx.h", "gfx/font.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h",
               "cores/helios_core.h", "cores/shipped_meter_ids.h", "cores/meter_desc_core.h", "cores/mpreset_core.h", "cores/mpreset_host.h", "cores/meter_pack_core.h", "cores/meterbin_core.h", "cores/library_core.h", "cores/audio_stats_core.h",
               "cores/settings_core.h", "generated/meter_presets.h", "generated/meter_registry.h", "cores/gfx_touch_core.h", "cores/ramp_core.h"):
         pth = ROOT / "fw2" / f

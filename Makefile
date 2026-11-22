@@ -118,6 +118,8 @@ test-host:
 	$(PYTHON) sim/test_p2_monoclock.py
 	$(PYTHON) sim/test_p2_rtc.py
 	$(PYTHON) sim/test_p2_save_probe.py
+	$(PYTHON) sim/test_p2_mset_file.py
+	$(PYTHON) sim/test_p2_mset_backend.py
 	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_stream_idle.py
