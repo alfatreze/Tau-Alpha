@@ -1,0 +1,47 @@
+# 0.7.5 release plumbing: what is left between "the features work" and a published release
+
+Written 2026-11-22 after B-1132 (per-meter settings on a Pocket) and the Omega exchange (messages 028, 029; O025, O026). Companion to `RELEASE_075_PLAN.md` section 4 (the gates). Nothing here is built yet; the owner decides the numbered questions at the end.
+
+## 1. Facts this plan rests on (checked 2026-11-22)
+- **RTL delta since v0.7.1 is only the save RAM:** `git diff v0.7.1 HEAD -- src/fpga` = `tau_save_ram.sv`, three small edits in `core_game.vh`, `core_top.v`, `tau_soc.v`, one `ap_core.qsf` line. `CORE_VERSION` is still `4D50331B` (no interlock; the firmware picks the backend at run time).
+- **A fitted bitstream with exactly that RTL already exists and has run on a Pocket:** `save-s3-b1129` (the shipped stats bundle + `TAU_SAVE`, one seed, all corners positive: worst setup +0.655 ns, worst hold +0.115 ns, RAM blocks 281/308), SHA-256 `2fc79baf…cd72a`, used by DEV 229 and DEV 230 (B-1130, B-1132). The default tree does **not** define `TAU_SAVE` (it comes from `tools/save_probe_qsf_append.txt`).
+- **The release flow** (`tools/make_release.py --player2`) builds two cores (normal `DIAG=0`, Diagnostic `DIAG=1`) with one `--rbf`, declares data slots 9 and 10 (`PACKS=1`), but **not slot 11 and no seed**. `tools/tau_compat.py` already accepts a `Saves/` seed for `tau-meter-settings.bin` (role `user`, `seed: true`) and `SAVE_FILES` lists it.
+- **The persist registry has 23 entries with `since: v0.8.0`** (the plan's placeholder); the shipped meters' `params_rev` is 1 in every package manifest.
+- **Omega:** reader for the meter bin agrees with all 33 vectors (O026); it agrees with the four seed rules (A028/3); the save-file vectors are with it (A029/R-1). Its seed creation and installer guard are not built yet.
+
+## 2. The one real open risk: a manual update can wipe the settings
+The save file is the user's state (the Pocket rewrites it at every Quit). If the **release zip ships a seed** (as `tau-compat` allows) then a user who extracts the zip over the card by hand **overwrites their settings with zeros on every update**. Omega and `install_dev_core.py` create it only when missing, but the zip itself cannot say "only if missing". Two ways out:
+- **A. The Pocket creates the file itself** (data slot parameter bit 5, `0x22`: "if the file is missing, fill the memory with 0xFF" and write it back at Quit). Then the zip ships **no** seed, nothing is ever overwritten, and Omega's seed becomes a nicety. **Never measured** (S1 probe 2; KB-074 says the exit flush cannot create a file, community-reported, one source). It is a `data.json`-only change: no refit.
+- **B. Ship the seed in the zip** and tell users, in the README and in the release notes, to extract with "skip existing files" or to use Omega. A hand update then resets settings once if they overwrite. Acceptable only as a fallback (the owner's rule: "at worst its settings are lost").
+**Step P0 below measures A before anything else is decided.**
+
+## 3. Steps, in order (host work can run in parallel where marked)
+| # | Step | Needs | Result |
+|---|---|---|---|
+| **P0** | **Probe 2 on a Pocket (DEV 231):** `--save-file` gets `--save-file-params 0x22` and `--save-file-no-seed` (small packager change, test); install with no seed file on the card (also delete DEV 230's file for a clean read); boot, change settings, Quit, mount; boot, Quit | owner on the Pocket, one card write | Answers A or B. Records the all-0xFF case too: what the backend does with a file the Pocket filled (`SAVE_ST` words, status), which the 0xFF vector already pins on the host |
+| P1 | **Release bitstream:** reuse `save-s3-b1129` (no new fit) **if no RTL change lands before release**; record it in the release bundle: copy the append file to `tools/release_075_qsf_append.txt` (the shipped bundle + `TAU_SAVE=1`) so a later refit reproduces it, and note the fit manifest hash | owner's yes (Q2) | The shipped family's Quartus run stays the reference; saves about 2 h of VM time and keeps the hardware-tested file |
+| P2 | `make_release.py --player2`: add slot 11 and (if B) the seed for **both** cores (each core has its own `Saves/tau/<core>/` file, parameter bit 1); verify step in `make_release.verify` that slot 11, `size_exact` 8192, `nonvolatile`, parameters and the seed (or its absence under A) are what the manifest says; test in `sim/` (a release-shaped package, mutants: seed overwritten, slot 11 missing, seed not zero) | P0 | The release packages carry the slot |
+| P3 | **`tau-compat.json`:** `requires_omega` gains the save file's format version (`meter_settings_version: 1`, read from `MF_VERSION` in `fw2/cores/mset_file_core.h`, schema + `tau_compat.py` + test), the `- Omega:` lines in the CHANGELOG for the file (path, size, seed rules, never overwrite, vectors folder), `min_omega` decided with Omega | parallel with P2 | Omega can refuse or warn about a core whose file format it does not know |
+| P4 | **Persist registry:** the 23 `since: v0.8.0` entries become `v0.7.5`; confirm `persist_layout` stays 2 and the pool words are migration-only (`meters_settings.c`); **decide `params_rev` for the seven shipped meters now** (all 1 today; a later change invalidates every user's saved settings for that meter, so it is a one-way door: keep 1 unless a meter's parameter list changes before release) | owner (Q4) | No surprises in `tau_compat` change detection |
+| P5 | **User-facing text:** CHANGELOG `Unreleased` becomes 0.7.5 (new: METERS menu, per-meter Configure, every meter keeps its settings, external meters, the save file and what an update does to it); README and user guide (where the file lives, "never delete or overwrite it", how to reset it); About page row "SETTINGS FILE" (spec 1.4, not built) so a missing/short/newer file is visible without the Diagnostic Build; version bumps | owner's go | Release notes and screens agree with the behaviour |
+| P6 | **Rehearsal build** (nothing published): `make_release.py --player2 --channel preview` for 0.7.5, then `docs/interop/rehearsal-v0.7.5/` for Omega (as `rehearsal-v0.7.0`) with a card that already holds a settings file: its update flow must leave the file alone; our installer's `--replace` already does (tested) | P1 to P5 | The exact assets the release would ship |
+| P7 | **Final Pocket test** on the rehearsal build, **both cores** (`RELEASE_075_PLAN` gate; `METER_SAVE_FILE_SPEC` 7.3): settings of at least eight meters incl. one set from another meter's Configure; Quit, direct power-off, **sleep** (never run), restart; damage each generation on the Mac then boot; delete the file then boot (A: the Pocket recreates it; B: the old pool serves, nothing lost); file of 0xFF; a newer-version file (ignored); install over it with `--replace` and with Omega; the 20-row bin (DEV 226 step 9, still untested); hostile pack and larger-library leftovers from P2.7 | owner on the Pocket | The gate "normal build Pocket-tested for every user-visible feature" |
+| P8 | **Publish:** tag, `gh release create --repo alfatreze/Tau-Alpha` (rule 8), compare the assets with `release/SHA256SUMS.txt`, `tau-compat.json` inside each zip, Omega message (committed = sent) with the release and the final vectors; then the public knowledge-base entries (nonvolatile slot flush of bridge-addressed RAM, the one-word read buffering of the bridge: evidence B-1123 to B-1126, B-1130, B-1132) with `kb.py new` and `promote` only after the release ran; update the SDK docs line "no SDK-built meter has run on a Pocket" (one has: B-1132) and republish the SDK repo | owner's go | 0.7.5 out |
+
+## 4. Order and cost
+P0 first (an hour of the owner's Pocket time, one card write). P1 is a decision, not work. P2, P3, P4 are host work, one session, parallel after P0. P5 waits for the owner's go on text and version. P6 then P7 (two owner Pocket sessions), P8 last. **No VM time is needed** unless RTL changes (then one single-seed fit, about 2 hours, with the finish time stated at launch). Critical path: P0, P2, P6, P7, P8.
+
+## 5. Risks
+1. **A manual update wipes settings** (section 2): measured by P0, otherwise documented loudly.
+2. **Hold slack +0.115 ns on one seed** (same family as before: +0.103 last time): acceptable, fitted and hardware-run; a second seed only if RTL changes.
+3. **Omega is not ready to create the seed or guard updates** (it reads only): with A it does not need to; with B the zip carries the seed and the README covers hand updates until Omega ships its part.
+4. **Sleep behaviour never observed:** P7 records it; the format already survives a Quit that stops no CPU (spec 4.5).
+5. **`params_rev` is a one-way door** (P4).
+6. **Two cores, two files:** normal and Diagnostic each keep their own settings (parameter bit 1); say so in the README so nobody thinks the diagnostic core lost their meters.
+
+## 6. Questions for the owner
+- **Q1.** Version and channel: 0.7.5 straight to Stable, or a Preview first (rehearsal build published as `0.7.5-preview.1`)?
+- **Q2.** Reuse `save-s3-b1129` as the release bitstream (recommended), or refit from the release commit?
+- **Q3.** Run P0 (probe 2, DEV 231) now?
+- **Q4.** Keep `params_rev` 1 for all seven shipped meters?
+- **Q5.** Is the About-page "SETTINGS FILE" row in 0.7.5 (a small firmware change, host-tested, needs a new test core)?
