@@ -73,16 +73,19 @@ module tau_save_ram #(
     reg           brd_d = 1'b0;
     reg  [AW-1:0] r_idx = {AW{1'b0}};
     reg           r_inside = 1'b0;                                                                // the latched address is inside the RAM (past the end: the word is zero)
-    reg  [31:0]   a_q, a_live_q;
+    reg  [31:0]   a_q;
     wire          rd_strobe = bridge_rd & ~brd_d;
+    // ONE address per port, or Quartus cannot map the array to an M10K (the first version of this fix gave port A a write address AND a separate read address: synthesis failed with
+    // "multiple constant drivers", B-1129). A bridge write and a bridge read never overlap (the load is before dataslot_allcomplete, the flush after Reset Enter), so the port's address
+    // is the write address during a write and the latched read address otherwise.
+    wire [AW-1:0] a_addr = a_we ? a_idx : r_idx;
     always @(posedge clk_74a) begin
-        if (a_we) mem[a_idx] <= bridge_wr_data;
+        if (a_we) mem[a_addr] <= bridge_wr_data;
+        a_q <= mem[a_addr];                                                                       // the word of the latched address, one stage after the latch; the next transaction is at least four cycles away
         brd_d <= bridge_rd;
-        if (rd_strobe && ((BUG == 7) ? 1'b1 : a_region)) begin r_idx <= a_idx; r_inside <= a_inside; end     // BUG 7: a strobe in ANY region latches
-        a_q      <= mem[r_idx];                                                                   // the word of the latched address, one stage after the latch; the next transaction is at least four cycles away
-        a_live_q <= mem[a_idx];                                                                   // BUG 1 only: the old answer for the live address
+        if ((BUG == 1) ? 1'b1 : (rd_strobe && ((BUG == 7) ? 1'b1 : a_region))) begin r_idx <= a_idx; r_inside <= a_inside; end   // BUG 1: the address follows the live bus (the old answer); BUG 7: a strobe in ANY region latches
     end
-    assign bridge_rdata = (BUG == 1) ? (bridge_hit ? a_live_q : 32'd0) : ((a_region && r_inside) ? a_q : 32'd0);        // the live region only selects whether this RAM answers (core_top's mux does the same on the top nibble)
+    assign bridge_rdata = (a_region && r_inside) ? a_q : 32'd0;                                   // the live region only selects whether this RAM answers (core_top's mux does the same on the top nibble)
 
     // ---- bridge-side evidence for the CPU: how many words the bridge wrote, and a sticky 'written' flag ----
     wire        a_wr_count = a_we & a_region;
