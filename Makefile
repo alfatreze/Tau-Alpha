@@ -813,13 +813,13 @@ test-rtl-rtc-cdc: $(RTL_BUILD_DIR)/core_bridge_cmd_sim.v
 	@set -e; for b in 1 2; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_rtc_cdc.BUG=$$b -o $(RTL_BUILD_DIR)/tb_rtc_cdc_mut.vvp $(RTC_CDC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_rtc_cdc_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: BUG=$$b"; exit 1; else echo "mutant killed: BUG=$$b"; fi; done
 
-# ---- Meter-settings save RAM (tau_save_ram.sv, docs/features/meters/METER_SAVE_FILE_SPEC.md): the bridge's LOAD and FLUSH cycles (modelled on io_bridge_peripheral.v) and the CPU's MMIO cycles, four clock ratios; six mutants must FAIL ----
+# ---- Meter-settings save RAM (tau_save_ram.sv, docs/features/meters/METER_SAVE_FILE_SPEC.md): the bridge's LOAD and FLUSH cycles (modelled on io_bridge_peripheral.v, reads buffered by one word: B-1126) and the CPU's MMIO cycles, four clock ratios; seven mutants must FAIL ----
 SAVE_RAM_SRC = sim/tb_tau_save_ram.v src/fpga/core/tau_save_ram.sv src/fpga/core/tau_cdc_gray_ctr.sv
 test-rtl-save-ram: | $(RTL_BUILD_DIR)
 	@set -e; for cfg in "15000 13468" "7500 13468" "11150 9000" "6000 13468"; do set -- $$cfg; \
 	  $(IVERILOG) -g2012 -Ptb_tau_save_ram.SYSP=$$1 -Ptb_tau_save_ram.BRP=$$2 -o $(RTL_BUILD_DIR)/tb_save_ram.vvp $(SAVE_RAM_SRC); \
 	  $(VVP) $(RTL_BUILD_DIR)/tb_save_ram.vvp | grep -q "^PASSED" || { echo "FAILED: tb_tau_save_ram SYSP=$$1 BRP=$$2"; exit 1; }; done; echo "tb_tau_save_ram: PASSED (4 clock configurations)"
-	@set -e; for b in 1 2 3 4 5 6; do $(IVERILOG) -g2012 -Ptb_tau_save_ram.BUG=$$b -o $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp $(SAVE_RAM_SRC); \
+	@set -e; for b in 1 2 3 4 5 6 7; do $(IVERILOG) -g2012 -Ptb_tau_save_ram.BUG=$$b -o $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp $(SAVE_RAM_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_ram_mut.vvp | grep -q "^PASSED"; then echo "MUTANT SURVIVED: tau_save_ram BUG=$$b"; exit 1; else echo "mutant killed: tau_save_ram BUG=$$b"; fi; done
 
 # ---- Meter-settings save RAM, CPU side in tau_soc.v with the real CPU (sim/tb_save_soc.v, firmware sim/fw_save/main.c): MODE 0 raw MMIO (back to back reads and writes, the flush against the model), MODE 1 the self-test of
@@ -847,7 +847,7 @@ test-rtl-save-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.OFF=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: block left out of the SoC (mode 1)"; exit 1; else echo "mutant killed: block left out of the SoC (mode 1)"; fi
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_save_soc.MODE=1 -Ptb_save_soc.BUG=1 -o $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp $(SAVE_SOC_SRC); \
-	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: bridge read one stage too slow (mode 1)"; exit 1; else echo "mutant killed: bridge read one stage too slow (mode 1)"; fi
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_save_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_save1.bin | $(PYTHON) sim/check_save_soc.py > /dev/null; then echo "MUTANT SURVIVED: bridge read answers for the live address (mode 1)"; exit 1; else echo "mutant killed: bridge read answers for the live address (mode 1)"; fi
 	$(call save_mut,0,-Ptb_save_soc.BUG=4,reads do not step the index)
 	$(call save_mut,0,-Ptb_save_soc.BUG=6,writes do not step the index)
 	$(call save_mut,0,-Ptb_save_soc.BUG=3,no byte swap on CPU writes)

@@ -12,8 +12,7 @@
 //
 // BRIDGE SIDE (the read path is the first thing that could have killed the design): core_top.v owns the bridge_rd_data mux (it already serves
 // the interact persist words at 0x2xxxxxxx from a register file in clk_74a). The shell latches the address, waits four clk_74a cycles, then samples
-// bridge_rd_data (src/fpga/apf/io_bridge_peripheral.v, ST_READ_0). So the read here is one registered stage: the address goes into the M10K,
-// the word is on q one cycle later, three cycles of margin (LATENCY 4 would be too late: BUG 1 of the testbench).
+// bridge_rd_data (src/fpga/apf/io_bridge_peripheral.v, ST_READ_0). So the sampling itself is not the issue; the PROTOCOL is: reads are buffered by one word, see READ below.
 //   bridge_hit   = the address is in this module's region and inside the RAM (above it: reads return 0, writes are dropped)
 //   bridge_rdata = the word (valid when bridge_hit, otherwise 0)
 // File byte order: bridge_endian_little = 0, so the first file byte is bits [31:24] of the bridge word. The RAM keeps the bridge words as they come;
@@ -35,6 +34,7 @@ module tau_save_ram #(
     // ---- APF bridge, clk_74a ----
     input  wire        clk_74a,
     input  wire [31:0] bridge_addr,
+    input  wire        bridge_rd,
     input  wire        bridge_wr,
     input  wire [31:0] bridge_wr_data,
     output wire        bridge_hit,
@@ -65,13 +65,24 @@ module tau_save_ram #(
     wire [AW-1:0] a_idx  = bridge_addr[AW+1:2];
     assign      bridge_hit = a_region & a_inside;
     wire        a_we     = bridge_wr & ((BUG == 2) ? 1'b1 : a_region) & a_inside;                // BUG 2: no region check (any bridge write lands here)
-    reg  [31:0] a_q, a_q2, a_q3, a_q4;
+    // READ: buffered by ONE word, as the APF shell defines it (src/fpga/apf/io_bridge_peripheral.v header, docs "Bus Communication", agg23's data_unloader): in a read
+    // transaction the shell hands the host the value bridge_rd_data holds AFTER four clk_74a cycles, then pulses bridge_rd (the strobe) with the address still on the bus;
+    // the strobe is the request for THAT address, and the core has until the next transaction to drive the word. So the word returned in a transaction is the one of the
+    // PREVIOUS strobe's address, and the Pocket reads a file with one extra, discarded transaction. This module latches the address at the strobe (only a strobe in its own
+    // region) and returns that word. Answering for the LIVE address instead delivered file word j = RAM word j+1 on a Pocket (TAU DEV 227, B-1123 to B-1125; BUG 1 below).
+    reg           brd_d = 1'b0;
+    reg  [AW-1:0] r_idx = {AW{1'b0}};
+    reg           r_inside = 1'b0;                                                                // the latched address is inside the RAM (past the end: the word is zero)
+    reg  [31:0]   a_q, a_live_q;
+    wire          rd_strobe = bridge_rd & ~brd_d;
     always @(posedge clk_74a) begin
         if (a_we) mem[a_idx] <= bridge_wr_data;
-        a_q  <= mem[a_idx];
-        a_q2 <= a_q; a_q3 <= a_q2; a_q4 <= a_q3;                                                  // only BUG 1 uses them
+        brd_d <= bridge_rd;
+        if (rd_strobe && ((BUG == 7) ? 1'b1 : a_region)) begin r_idx <= a_idx; r_inside <= a_inside; end     // BUG 7: a strobe in ANY region latches
+        a_q      <= mem[r_idx];                                                                   // the word of the latched address, one stage after the latch; the next transaction is at least four cycles away
+        a_live_q <= mem[a_idx];                                                                   // BUG 1 only: the old answer for the live address
     end
-    assign bridge_rdata = bridge_hit ? ((BUG == 1) ? a_q4 : a_q) : 32'd0;                        // BUG 1: four stages: the word arrives on the very edge the shell samples, too late (up to THREE stages are in time)
+    assign bridge_rdata = (BUG == 1) ? (bridge_hit ? a_live_q : 32'd0) : ((a_region && r_inside) ? a_q : 32'd0);        // the live region only selects whether this RAM answers (core_top's mux does the same on the top nibble)
 
     // ---- bridge-side evidence for the CPU: how many words the bridge wrote, and a sticky 'written' flag ----
     wire        a_wr_count = a_we & a_region;

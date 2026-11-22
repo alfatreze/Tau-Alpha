@@ -20,10 +20,10 @@ module tb_save_soc;
     reg  [1023:0] romfile;
     wire [4:0]  set_idx; wire set_wr; wire [31:0] set_wdata; wire [15:0] audio_l, audio_r;
     // ---- the bridge as the shell drives it ----
-    reg  [31:0] bridge_addr = 0, bridge_wr_data = 0; reg bridge_wr = 0;
+    reg  [31:0] bridge_addr = 0, bridge_wr_data = 0; reg bridge_wr = 0, bridge_rd = 0;
     wire        bridge_hit; wire [31:0] save_rd;
     wire        s_idx_we, s_data_we, s_data_req; wire [31:0] s_idx_wd, s_data_wd, s_idx_rd, s_data_rd, s_status;
-    tau_save_ram #(.AW(11), .BUG(BUG)) u_save (.clk_74a(clk74), .bridge_addr(bridge_addr), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data), .bridge_hit(bridge_hit), .bridge_rdata(save_rd),
+    tau_save_ram #(.AW(11), .BUG(BUG)) u_save (.clk_74a(clk74), .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data), .bridge_hit(bridge_hit), .bridge_rdata(save_rd),
         .clk_sys(clk), .rst_sys(rst), .idx_we(s_idx_we), .idx_wd(s_idx_wd), .data_we(s_data_we), .data_wd(s_data_wd), .data_req(s_data_req), .idx_rd(s_idx_rd), .data_rd(s_data_rd), .status(s_status));
     tau_soc #(.SAVE_ENABLE(OFF == 0)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
@@ -46,9 +46,9 @@ module tb_save_soc;
     function [31:0] bswap(input [31:0] v); bswap = {v[7:0], v[15:8], v[23:16], v[31:24]}; endfunction
     task b_write(input [31:0] a, input [31:0] d); begin @(posedge clk74); bridge_addr <= a; bridge_wr_data <= d; repeat (2) @(posedge clk74); bridge_wr <= 1; @(posedge clk74); bridge_wr <= 0; repeat (3) @(posedge clk74); end endtask
     reg [31:0] b_got;
-    task b_read(input [31:0] a); begin @(posedge clk74); bridge_addr <= a; repeat (4) @(posedge clk74); b_got = save_rd; end endtask
+    task b_read(input [31:0] a); begin @(posedge clk74); bridge_addr <= a; repeat (4) @(posedge clk74); b_got = save_rd; bridge_rd <= 1; @(posedge clk74); bridge_rd <= 0; repeat (2) @(posedge clk74); end endtask      // one shell transaction: the value sampled at edge 4 is the word of the PREVIOUS strobe, then the strobe (reads are buffered by one word)
     task load_all; integer k; begin for (k = 0; k < WORDS; k = k + 1) b_write(32'h3000_0000 + 4*k, bus[k]); end endtask
-    task flush_all; integer k; begin for (k = 0; k < WORDS; k = k + 1) begin b_read(32'h3000_0000 + 4*k); got[k] = b_got; end end endtask
+    task flush_all; integer k; begin b_read(32'h3000_0000); for (k = 0; k < WORDS; k = k + 1) begin b_read(32'h3000_0000 + 4*(k + 1)); got[k] = b_got; end end endtask      // the Pocket's way: one priming transaction (its return is thrown away), word k is the return of transaction k+1 (hardware B-1123 to B-1125)
     // ---- the firmware's console ----
     reg [8*80-1:0] line; reg [31:0] last4 = 0; reg done = 0; integer ndone = 0;
     always @(posedge clk) if (u_soc.con_wr) begin

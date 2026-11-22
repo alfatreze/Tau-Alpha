@@ -1010,7 +1010,7 @@ sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
 // src/fpga/core/tau_save_ram.sv and docs/features/meters/METER_SAVE_FILE_SPEC.md.
 `ifdef TAU_SAVE
 tau_save_ram #(.AW(11), .REGION(4'h3)) u_save_ram (
-    .clk_74a(clk_74a), .bridge_addr(bridge_addr), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data), .bridge_hit(), .bridge_rdata(save_bridge_rd_data),
+    .clk_74a(clk_74a), .bridge_addr(bridge_addr), .bridge_rd(bridge_rd), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data), .bridge_hit(), .bridge_rdata(save_bridge_rd_data),
     .clk_sys(clk_sys), .rst_sys(cpu_reset), .idx_we(soc_save_idx_we), .idx_wd(soc_save_idx_wd), .data_we(soc_save_data_we), .data_wd(soc_save_data_wd), .data_req(soc_save_data_req),
     .idx_rd(soc_save_idx_rd), .data_rd(soc_save_data_rd), .status(soc_save_status)
 );
