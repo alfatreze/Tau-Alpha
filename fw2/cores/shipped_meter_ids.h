@@ -11,11 +11,11 @@
 #define SHIPPED_METER_LIST(X) \
     X(0, 0x7DDDFE63u, 1u)  /* winamp_bars    */ \
     X(1, 0x143ACB80u, 1u)  /* winamp_scope   */ \
-    X(2, 0x7471CC21u, 2u)  /* chladni        */ \
+    X(2, 0x7471CC21u, 1u)  /* chladni        */ \
     X(3, 0x58128034u, 1u)  /* layered_wave   */ \
-    X(4, 0x0D8C03D3u, 3u)  /* vu_master      */ \
+    X(4, 0x0D8C03D3u, 1u)  /* vu_master      */ \
     X(5, 0x17E60776u, 1u)  /* waterfall_grid */ \
-    X(6, 0x0C82D9F0u, 17u) /* sound_map      */
+    X(6, 0x0C82D9F0u, 1u)  /* sound_map      */
 /* The manifest index (meters/<key>/meter.json "index") of each shipped meter, in the same order: the id the METR section of tau-assets.bin is keyed by (12 ... 18) and the folder name of tau-presets/ on cards made before external
  * meters (the firmware still reads those folders when the hash folder is absent). sim/test_p2_meter_window.py checks this list against the manifests. */
 #define SHIPPED_MID_LIST(X) X(12) X(13) X(14) X(16) X(15) X(17) X(18)

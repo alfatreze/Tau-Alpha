@@ -65,4 +65,5 @@
 | A029/R-1 | Omega: run the reader against the 18 save-file vectors (`docs/research/meter_settings/`, incl. wrong sizes and the seq wrap) and report any file that differs from `expected.json` (O026/3 answered) | Omega | **ASKED 2026-11-22** (message 029, committed = sent) |
 | A030/C-1 | Correction of A028/3 item 1: the settings file needs NO seed (the Pocket creates it; D-M27, B-1135 to B-1140); Omega must not create one; the other three rules stand. `tau-compat.json` gains the TMSF format, `seed: false`, `requires_omega.meter_settings_version` | Omega (information) | **SENT 2026-11-23** (message 030, committed = sent) |
 | A030/R-1 | Omega: the platform category is `Media` (was `Media Players`) in our `dist/`: update `tau_source_real.rs` and accept both in matching tools | Omega | **ASKED 2026-11-23** (message 030) |
+| A031/R-1 | Omega: the persist-layout golden vectors were regenerated (shipped meters' `params_rev` all 1, D-M28): recopy `docs/research/persist_layout/golden_vectors.json` and report any case where your mirror differs | Omega | **ASKED 2026-11-23** (message 031, committed = sent) |
 

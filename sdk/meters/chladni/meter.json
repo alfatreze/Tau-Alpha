@@ -6,7 +6,7 @@
   "licence": "MIT",
   "homepage": "https://github.com/alfatreze/Tau-Alpha",
   "source": "https://github.com/alfatreze/Tau-Alpha/tree/main/fw2/ui",
-  "params_rev": 2,
+  "params_rev": 1,
   "tau_min": "0.0",
   "enum": "VIZ_CHLADNI",
   "index": 14,
