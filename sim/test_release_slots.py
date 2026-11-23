@@ -28,7 +28,7 @@ RAW = (DIST / "Cores/alfatreze.TAU/bitstream.rbf_r").read_bytes().translate(REV)
 SEVEN = ["WINAMP BARS", "WINAMP SCOPE", "CHLADNI", "LAYERED WAVE", "VU MASTER", "WATERFALL", "SOUND MAP"]
 
 
-def stage(root, core_id, channel, slot10=True):
+def stage(root, core_id, channel, slot10=True, slot11=True):
     """a package directory the way package_dev_build.py main() makes one for a Player 2 release core; returns (package dir, rom path)"""
     ch = tau_layout.CHANNELS[channel]; platform, platforms = ch["platform"], list(ch["platforms"]); short = core_id.split(".", 1)[1]
     pkg = root / "pkg"; c = pkg / "Cores" / core_id
@@ -38,6 +38,7 @@ def stage(root, core_id, channel, slot10=True):
     sl.add_library_slot(c, persist_words=False); sl.add_cold_slot(c)
     if slot10: pdb.declare_packs_slots(c)
     else: sl.add_packs_slot(c)                                                              # the v0.7.1 release: slot 9 only
+    if slot11: sl.add_save_slot(c, "0x22")                                                  # the meter-settings file: parameters 0x22, no seed (D-M27)
     sl.add_assets_slot(c); sl.add_cover_slot(c)
     if len(platforms) > 1: (c / "data.json").write_text(json.dumps(tau_layout.read_shared_media(json.loads((c / "data.json").read_text())), indent=4) + "\n")
     cd = tau_layout.core_dir(pkg, platform, core_id); cd.mkdir(parents=True)
@@ -51,10 +52,10 @@ def stage(root, core_id, channel, slot10=True):
     return pkg, cd / "tau.rom"
 
 
-def zipped(pkg, core_id, rom, media):
+def zipped(pkg, core_id, rom, media, save_slot=None):
     mr.OUT = Path(tempfile.mkdtemp())
     z = mr.make_zip(pkg, "t.zip")
-    n = mr.verify(z, core_id, json.loads((pkg / "Cores" / core_id / "core.json").read_text())["core"]["metadata"]["version"], RAW, rom, True, media)
+    n = mr.verify(z, core_id, json.loads((pkg / "Cores" / core_id / "core.json").read_text())["core"]["metadata"]["version"], RAW, rom, True, media, save_slot)
     return z, n
 
 
@@ -84,6 +85,19 @@ for label, core_id, channel in (("normal core (alfatreze.TAU)", "alfatreze.TAU",
         check("%s: tools/check_tau_package.check_meter_slots accepts the slots" % label, ctp.check_meter_slots(data, [n for n in names]) is None)
         r = os.popen("cd '%s' && python3 tools/check_fw_bitstream_pair.py '%s' 2>&1; echo rc=$?" % (ROOT, pkg)).read()
         check("%s: tools/check_fw_bitstream_pair.py passes on the staged package" % label, r.strip().endswith("rc=0"), r[-300:])
+        s11 = next((s for s in data if s["id"] == 11), None)
+        check("%s: data slot 11 is tau-meter-settings.bin, nonvolatile, core-specific, parameters exactly 0x22, not deferload, 8,192 bytes at 0x30000000" % label, s11 and s11["filename"] == "tau-meter-settings.bin" and s11["nonvolatile"] and s11["parameters"] == "0x22" and int(s11["parameters"], 16) & 2 and not s11.get("deferload") and not s11["required"] and s11["size_exact"] == 8192 and s11["address"] == "0x30000000", s11)
+        check("%s: the zip has no Saves/ file (no seed: the Pocket creates the settings file, D-M27)" % label, not any(n.startswith("Saves/") for n in names), [n for n in names if n.startswith("Saves/")])
+        e11 = [e for e in lay if e["path"].endswith("tau-meter-settings.bin")]
+        check("%s: tau-compat layout lists Saves/<platform>/%s/tau-meter-settings.bin as role user, slot 11, seed false" % (label, core_id), len(e11) == 1 and e11[0]["path"].startswith("Saves/") and core_id in e11[0]["path"] and e11[0]["role"] == "user" and e11[0]["slot"] == 11 and e11[0].get("seed") is False, e11)
+        for what, edit in (("slot 11 missing", lambda sl_: [x for x in sl_ if x["id"] != 11]), ("parameters 0x2 (no bit 5)", lambda sl_: [dict(x, parameters="0x2") if x["id"] == 11 else x for x in sl_]), ("deferload", lambda sl_: [dict(x, deferload=True) if x["id"] == 11 else x for x in sl_])):
+            dj = json.loads(zf.read("Cores/%s/data.json" % core_id)); dj["data"]["data_slots"] = edit(dj["data"]["data_slots"])
+            try: mr.check_save_slot(names, lambda n, dj=dj: json.dumps(dj).encode(), core_id); caught = False
+            except AssertionError: caught = True
+            check("%s: mutant: make_release.check_save_slot refuses %s" % (label, what), caught)
+        try: mr.check_save_slot(names + ["Saves/tau/%s/tau-meter-settings.bin" % core_id], zf.read, core_id); caught = False
+        except AssertionError: caught = True
+        check("%s: mutant: make_release.check_save_slot refuses a zip that ships a Saves/ seed" % label, caught)
         # a zip that ships the user's bin is refused
         extra = Path(td) / "pkg" / "Assets" / "tau" / "common"; extra.mkdir(parents=True, exist_ok=True); (extra / "tau-meters.bin").write_bytes(b"x")
         mr.OUT = Path(tempfile.mkdtemp()); z2 = mr.make_zip(pkg, "bad.zip")
@@ -96,8 +110,8 @@ for label, core_id, channel in (("normal core (alfatreze.TAU)", "alfatreze.TAU",
 
 # ---- the v0.7.1 shape: no slot 10 (the negative case) ----
 with tempfile.TemporaryDirectory() as td:
-    pkg, rom = stage(Path(td), "alfatreze.TAU", "stable", slot10=False)
-    z, _ = zipped(pkg, "alfatreze.TAU", rom, "tau")
+    pkg, rom = stage(Path(td), "alfatreze.TAU", "stable", slot10=False, slot11=False)
+    z, _ = zipped(pkg, "alfatreze.TAU", rom, "tau", save_slot=False)
     data = json.loads(zipfile.ZipFile(z).read("Cores/alfatreze.TAU/data.json"))["data"]["data_slots"]
     lay = tau_compat.layout(tau_compat.read_zip(z))
     check("v0.7.1 shape: no data slot 10", not any(s["id"] == 10 for s in data))
@@ -118,4 +132,5 @@ check("check_meter_slots accepts a core without slot 10 (v0.7.1)", ctp.check_met
 check("wants_packs: a PACKS=1 Player 2 build, and only that", pdb.wants_packs("player2", "PLAYER2=1,PACKS=1,DIAG=0") and not pdb.wants_packs("player2", "PLAYER2=1") and not pdb.wants_packs("diagnostic", "PACKS=1") and not pdb.wants_packs("player2", None))
 mk = (ROOT / "tools/make_release.py").read_text()
 check("make_release.py --player2 builds both release cores with PACKS=1 (slots 9 and 10 come with it)", mk.count('PACKS=1,DIAG=0') == 1 and mk.count('PACKS=1,DIAG=1') == 1)
+check("make_release.py --player2 gives both cores slot 11: --save-file with parameters 0x22 and no seed, in the arguments both packager calls share", mk.count('"--save-file", "--save-file-params", "0x22", "--save-file-no-seed"') == 1 and mk.index('"--save-file", "--save-file-params"') < mk.index('sh(base_args + ["--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=0"])'))
 print("FAILED" if fails else "PASSED"); sys.exit(1 if fails else 0)

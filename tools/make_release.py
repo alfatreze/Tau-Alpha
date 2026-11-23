@@ -94,7 +94,20 @@ def check_factory_presets(names, read, media_platform: str):
     return len(want)
 
 
-def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path, player2: bool = False, media_platform: str = "tau"):
+def check_save_slot(names, read, core_id):
+    """The meter-settings save slot (release 0.7.5, D-M25, D-M27, B-1137/B-1140): data slot 11 is `tau-meter-settings.bin`, nonvolatile, core-specific (bit 1), parameters EXACTLY 0x22 (bit 5: the Pocket fills a missing file
+    with 0xFF; the firmware then sets the slot's size entry and the Pocket creates the file), not deferload, not required, 8,192 bytes, address 0x30000000, and the zip carries NO Saves/ file at all (the user's file is the one thing an
+    update must never overwrite, and none is needed). Parameters 0x2 would silently lose every setting when no file exists; any other value changes who may overwrite the file."""
+    slots = json.loads(read(f"Cores/{core_id}/data.json"))["data"]["data_slots"]
+    s = next((x for x in slots if x["id"] == 11), None)
+    want = {"filename": "tau-meter-settings.bin", "nonvolatile": True, "parameters": "0x22", "size_exact": 8192, "size_maximum": 8192, "address": "0x30000000", "required": False}
+    assert s is not None, "data slot 11 (the meter-settings save slot) is missing"
+    for k, v in want.items(): assert s.get(k) == v, f"data slot 11: {k} is {s.get(k)!r}, must be {v!r}"
+    assert not s.get("deferload"), "data slot 11 must not be deferload (the Pocket loads it by itself)"
+    assert not any(n.startswith("Saves/") for n in names), "the zip ships a Saves/ file: a hand update would overwrite the user's settings"
+
+
+def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path, player2: bool = False, media_platform: str = "tau", save_slot=None):
     rev = raw_rbf.translate(bytes(int(f"{x:08b}"[::-1], 2) for x in range(256)))
     with zipfile.ZipFile(z) as f:
         names = f.namelist()
@@ -108,6 +121,8 @@ def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path, playe
         roms = [n for n in names if n.endswith(f"/{core_id}/tau.rom")]                # H4: core-specific
         assert len(roms) == 1 and f.read(roms[0]) == rom.read_bytes(), "tau.rom is not the freshly built ROM"
         if player2: check_factory_presets(names, f.read, media_platform)
+        if save_slot is None: save_slot = player2
+        if save_slot: check_save_slot(names, f.read, core_id)
         plat = core["platform_ids"][0]
         assert len(plat) <= 15 and f"Platforms/{plat}.json" in names and f"Platforms/_images/{plat}.bin" in names
         return len(names)
@@ -167,7 +182,8 @@ def main():
         full = args.release[1:]
         # TWO cores, as the standing rule says (docs/DECISIONS.md D-U01/D-U02): the normal build (DIAG=0: About, the support Report, no Check) and the Diagnostic Build (DIAG=1: everything).
         # PACKS=1: the loadable meters; the packager then builds tau-packs.bin (data slot 9) next to tau.rom. Each is built and packaged in turn (both write work/diagnostics/player2/).
-        base_args = [sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256]
+        base_args = [sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256,
+                     "--save-file", "--save-file-params", "0x22", "--save-file-no-seed"]          # data slot 11, the meter-settings file: no seed (the Pocket creates it, D-M27); the rbf's fit manifest must list TAU_SAVE
         sh(base_args + ["--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=0"])
         sh(base_args + ["--diagnostic-core", "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=1"])
         normal_src = ROOT / f"work/diagnostics/tau-{channel}-{full}/pocket"

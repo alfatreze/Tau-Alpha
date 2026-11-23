@@ -172,8 +172,8 @@ def main():
         sys.exit("--save-probe needs SAVE_PROBE=1 in --build-flags (the boot self-test is off by default since W2 S2: it overwrites the save RAM)")
     if args.save_file:
         man_file = Path(str(rbf) + ".json") if args.rbf else None
-        if args.variant != "player2" or args.release_diagnostic or args.diagnostic_core:
-            sys.exit("--save-file needs --variant player2 (not a release or diagnostic-core package)")
+        if args.variant != "player2" or args.release_diagnostic:
+            sys.exit("--save-file needs --variant player2 (the Diagnostic Build core of a release, --diagnostic-core, is allowed: make_release.py --player2 gives both release cores the slot)")
         if "SAVE_PROBE=1" in flags_list:
             sys.exit("--save-file: SAVE_PROBE=1 would make the firmware overwrite the settings file with the probe pattern at every boot")
         if man_file is None or not man_file.is_file() or "TAU_SAVE" not in json.loads(man_file.read_text()).get("macros", []):
