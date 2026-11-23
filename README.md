@@ -1,6 +1,8 @@
 
 # TAUᵅ — Analogue Pocket Music Player
 
+<p align="center"><img src="docs/images/tau-alpha-0.7.5-banner.png" alt="Tau Alpha Music Player 0.7.5: a music player for the Analogue Pocket" width="100%"></p>
+
 A music player for the Analogue Pocket. It plays MP3 and FLAC straight off the SD card, with a browsable
 library, album art, tags, themes, an equalizer and a set of live meters.
 
