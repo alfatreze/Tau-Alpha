@@ -50,3 +50,5 @@ P0 first (an hour of the owner's Pocket time, one card write). P1 is a decision,
 - **Q6.** Run probe 2b (DEV 232) before the release, to find out whether the seed can be dropped? Cost: a small firmware change (cold code in `meters_settings.c`, host test), one package, one Pocket session; benefit: no overwrite-on-hand-update risk. If skipped, the seed ships and the README carries the warning.
 
 **Status 2026-11-23 (B-1145): P0 to P6 done.** The rehearsal build exists in `work/rehearsal-0.7.5/`. Left: P7 (Pocket test of the rehearsal, both cores, the About row included), P8 (publish: date, tag, `gh release create`, rule 8 asset check, republish the SDK and collection repos, Omega message, public KB entries, SDK docs line).
+
+**Sleep is not applicable (owner, 2026-11-23):** TAU does not support the Pocket's Sleep (it needs savestate support, KB-017), so every "sleep" item in this plan and in `METER_SAVE_FILE_SPEC.md` (7.2 step 7, 7.3) is dropped. The settings reach the card at Quit and at a direct power-off, both measured (B-1137, B-1146, B-1151). **P7 is complete** apart from the optional 20-row bin and the Omega update check (B-1146 to B-1151).
