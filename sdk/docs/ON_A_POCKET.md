@@ -1,6 +1,6 @@
 # Trying a meter on a Pocket
 
-**Status, honestly:** the loader, the user bin and the window were proven on a Pocket with the project's own test cores (the window P0 spike, B-1045; the loader, B-1057), and the host side of this SDK is tested hard. **A meter built with this SDK has not yet been run on a Pocket by the project.** The test is prepared (a sheet and a ready-made bin in the Tau Alpha repository: `docs/features/meters/SDK_POCKET_TEST.md`, `work/sdk-export/pocket-test/`); run it yourself and look at the things listed below.
+**Status, honestly:** the loader, the user bin and the window were proven on a Pocket with the project's own test cores (the window P0 spike, B-1045; the loader, B-1057), and the host side of this SDK is tested hard. **One meter built with this SDK has been run on a Pocket:** a Lissajous meter written by another agent from these documents alone drew correctly on TAU DEV 230 (22 November 2026), its presets switched and its settings were kept in the settings file. That is one meter on one Pocket; the full test is still worth running for your own meter. The test is prepared (a sheet and a ready-made bin in the Tau Alpha repository: `docs/features/meters/SDK_POCKET_TEST.md`, `work/sdk-export/pocket-test/`); run it yourself and look at the things listed below.
 
 ## Steps
 1. **Build and test** your meter ([GETTING_STARTED.md](GETTING_STARTED.md)).
