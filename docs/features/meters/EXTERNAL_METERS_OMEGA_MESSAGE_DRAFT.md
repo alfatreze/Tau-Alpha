@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-11-23):** this early draft was replaced by the real messages in `docs/interop/to-omega/` (018 onward; the decisions it asks about were made: the feature was kept, a settings file exists after all, A028 to A033) and by `docs/interop/LEDGER.md`. Kept for history only.
+
 # DRAFT, not sent: Tau-Alpha -> Tau Omega, external meters (to become `docs/interop/to-omega/018-...` on main if the owner keeps this branch)
 
 **Status:** the branch `external-meters` is an experiment the owner may drop. Send this only after the owner decides to continue; until then Omega needs to do nothing.
