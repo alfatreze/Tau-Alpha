@@ -49,3 +49,4 @@ P0 first (an hour of the owner's Pocket time, one card write). P1 is a decision,
 - **Q5.** ~~About-page SETTINGS FILE row~~ DECIDED: yes (built, B-1144; DEV 233 tests it on a Pocket).
 - **Q6.** Run probe 2b (DEV 232) before the release, to find out whether the seed can be dropped? Cost: a small firmware change (cold code in `meters_settings.c`, host test), one package, one Pocket session; benefit: no overwrite-on-hand-update risk. If skipped, the seed ships and the README carries the warning.
 
+**Status 2026-11-23 (B-1145): P0 to P6 done.** The rehearsal build exists in `work/rehearsal-0.7.5/`. Left: P7 (Pocket test of the rehearsal, both cores, the About row included), P8 (publish: date, tag, `gh release create`, rule 8 asset check, republish the SDK and collection repos, Omega message, public KB entries, SDK docs line).
