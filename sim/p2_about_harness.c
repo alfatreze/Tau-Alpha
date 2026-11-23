@@ -20,6 +20,9 @@ int main(int argc, char **argv)
     else if (!strcmp(s, "g")) { strcpy(in.version, "0.7.1"); in.packs_seen = 0; in.meter_file = 4; }                               /* every bin refused (toc_crc) */
     else if (!strcmp(s, "h")) { strcpy(in.version, "0.7.1"); in.packs_seen = 64; in.meter_file = 0; in.meter_failed = 1; }       /* a sound bin, a meter refused or struck */
     else if (!strcmp(s, "i")) { strcpy(in.version, "0.7.1"); in.packs_seen = 1; in.meter_file = 0; }                               /* a bin with only the fallback row */
+    else if (!strcmp(s, "j")) { strcpy(in.version, "0.7.5"); in.settings_file = 1; }                                               /* a settings file of a newer version */
+    else if (!strcmp(s, "k")) { strcpy(in.version, "0.7.5"); in.settings_file = 2; }                                               /* the Pocket did not load a whole file */
+    else if (!strcmp(s, "l")) { strcpy(in.version, "0.7.5"); in.settings_file = 3; }                                               /* a bitstream without the save RAM */
     const uint32_t n = about_count(&in);
     printf("count %u\n", n);
     about_row_t r;

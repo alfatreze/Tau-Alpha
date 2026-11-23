@@ -20,6 +20,7 @@ typedef struct {
     uint32_t themes, eq_user, packs_seen;                      /* packs_seen: rows in the meter table (0 with no bin) */
     uint32_t meter_file; uint8_t meter_failed;                 /* the bin: 0 sound, 0xFF none, else why it was refused; a meter was refused or struck since start */
     uint8_t  migrated;                                         /* this boot carried the settings over from an older version */
+    uint8_t  settings_file;                                    /* the meter-settings file: 0 in use, 1 a newer file version (ignored), 2 not loaded (the old two-tuning pool serves), 3 no save RAM in this bitstream */
     uint32_t dropouts, read_errors, uptime_s;
 } about_in_t;
 
@@ -38,7 +39,7 @@ enum { AR_TAU_H, AR_VERSION, AR_BUILD, AR_CHANNEL, AR_HW, AR_MADE, AR_WEB, AR_LI
        AR_NOW_H, AR_FORMAT, AR_GAIN, AR_EQ, AR_SPEED, AR_VOLUME,
        AR_LIB_H, AR_LIBRARY, AR_ALBUMS, AR_ARTISTS,
        AR_LOOK_H, AR_THEME, AR_MODE, AR_COLOUR, AR_FONT, AR_METER, AR_ART,
-       AR_CARD_H, AR_THEMES, AR_EQPRE, AR_METERS, AR_SETTINGS,
+       AR_CARD_H, AR_THEMES, AR_EQPRE, AR_METERS, AR_SETTINGS, AR_SETFILE,
        AR_HEALTH_H, AR_AUDIO, AR_READS, AR_UPTIME,
        AR_CRED_H, AR_C1, AR_C2, AR_C3, AR_C4,
        AR_HELP_H, AR_H1, AR_H2, AR_H3,
@@ -97,6 +98,13 @@ static inline void ab_fill(const about_in_t *in, uint32_t r, about_row_t *o)
         else { n = ab_num(v, 0, C, in->packs_seen); n = ab_str(v, n, C, in->packs_seen == 1u ? " METER" : " METERS"); if (in->meter_failed) ab_str(v, n, C, " (A METER FAILED)"); }
         break;
     case AR_SETTINGS: LBL("SETTINGS"); ab_str(v, 0, C, in->migrated ? "CARRIED OVER FROM AN OLDER VERSION" : "OK"); break;
+    case AR_SETFILE: LBL("SETTINGS FILE");                    /* where every meter's own settings are kept (spec METER_SAVE_FILE_SPEC.md): "2 METERS ONLY" is the old pool, the fallback */
+#if BUG == 2
+        ab_str(v, 0, C, "ON: SAVED WHEN YOU QUIT");                                  /* mutant: the state is never shown */
+#else
+        ab_str(v, 0, C, in->settings_file == 1u ? "NEWER VERSION: NOT USED" : in->settings_file == 2u ? "NOT LOADED: 2 METERS ONLY" : in->settings_file == 3u ? "NOT AVAILABLE: 2 METERS ONLY" : "ON: SAVED WHEN YOU QUIT");
+#endif
+        break;
     case AR_HEALTH_H: HEAD("HEALTH"); break;
     case AR_AUDIO: LBL("AUDIO");
         if (in->dropouts == 0u) ab_str(v, 0, C, "NO DROPOUTS");

@@ -71,5 +71,10 @@ out = run([f"st {LOADED}", "ram zero", "dt 5 12 0", "put AAAA0001 1 0 1:1", "dtg
 check("no entry for slot 11 in the table: nothing is written", out[1] == "dt 12 0", out)
 out = run(["st 0", "ram zero", "dt 5 11 0", "put AAAA0001 1 0 1:1", "dtget 5"])
 check("the file backend off (no RAM, or no file loaded): the table is left alone", out[1] == "dt 11 0", out)
+newer_f = bytearray(d2); newer_f[4:6] = (2).to_bytes(2, "little"); open(td / "newerst.bin", "wb").write(bytes(newer_f))
+for lines, want, what in ((["st 0", "state"], "state 3", "no save RAM in the bitstream"), (["st 80000000", "state"], "state 2", "the RAM built in but no file loaded"), (["st 800003FF", "state"], "state 2", "a file of another size loaded"),
+                          ([f"st {LOADED}", "ram zero", "state"], "state 0", "a loaded zero file"), ([f"st {LOADED}", f"ram {td / 'newerst.bin'}", "state"], "state 1", "a loaded file of a newer version")):
+    out = run(lines)
+    check("About state (meter_settings_state): %s -> %s" % (what, want), out[-1] == want, out)
 print("FAILED" if fails else "all ok")
 sys.exit(1 if fails else 0)

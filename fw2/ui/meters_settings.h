@@ -38,6 +38,8 @@ int      meter_settings_get(uint32_t id_hash, uint32_t params_rev, const uint16_
 /* The preset a stored record started from, without checking its entries: 1 = a record exists (*preset is its anchor). The registry selects that preset FIRST, because the entries only apply to it. */
 int      meter_settings_preset(uint32_t id_hash, uint32_t params_rev, uint32_t *preset);
 void     meter_settings_drop(uint32_t id_hash, uint32_t params_rev);
+/* Where settings are kept right now, for the About page: 0 = the settings file (in use), 1 = a file of a NEWER version is present (ignored, nothing written), 2 = the RAM is there but the Pocket did not load a whole file (the old two-tuning pool serves), 3 = this bitstream has no save RAM (same). */
+uint32_t meter_settings_state(void);
 /* ---- the pool backend (ui/meters.c): the persisted tuning words ---- */
 int             mset_pool_find(uint32_t key);                         /* the slot (0 or 1) of the record with this tune_key, -1 when there is none */
 const uint32_t *mset_pool_words(uint32_t slot);                       /* the four words of a slot */

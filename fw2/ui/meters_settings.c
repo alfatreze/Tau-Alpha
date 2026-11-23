@@ -90,6 +90,15 @@ static int pool_preset(uint32_t id_hash, uint32_t params_rev, uint32_t *preset)
 }
 static void pool_drop(uint32_t id_hash, uint32_t params_rev) { mset_pool_drop(tune_key(id_hash, params_rev)); }
 
+uint32_t meter_settings_state(void)
+{
+    const uint32_t st = sv_status();
+    if (!(st >> 31)) return 3u;
+    if ((st & 0xFFFFu) != 2048u) return 2u;
+    mf_io_t io; io.seek = sv_seek; io.rd = sv_rd; io.wr = sv_wr;
+    mf_scan_t sc; mf_scan(&io, &sc);
+    return sc.locked ? 1u : 0u;
+}
 /* ---- the public interface: the file when it serves, else the pool ---- */
 static int fits(const meter_settings_t *r, const uint16_t *max, uint32_t np)
 {

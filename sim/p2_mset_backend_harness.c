@@ -36,6 +36,7 @@ int main(int argc, char **argv)
         else if (!strcmp(cmd, "ram")) { memset(ms_host_save_ram, 0, sizeof ms_host_save_ram); if (strcmp(a1, "zero")) { FILE *r = fopen(a1, "rb"); uint8_t b[8192]; if (!r || fread(b, 1, 8192, r) != 8192) return 4; fclose(r); for (int w = 0; w < 2048; w++) ms_host_save_ram[w] = b[4*w] | b[4*w+1] << 8 | b[4*w+2] << 16 | (uint32_t)b[4*w+3] << 24; } }
         else if (!strcmp(cmd, "dt")) { const uint32_t i = (uint32_t)strtoul(a1, 0, 0); ms_host_dt[2 * i] = (uint32_t)strtoul(a2, 0, 0); ms_host_dt[2 * i + 1] = (uint32_t)strtoul(a3, 0, 0); }
         else if (!strcmp(cmd, "dtget")) printf("dt %u %u\n", ms_host_dt[2 * strtoul(a1, 0, 0)], ms_host_dt[2 * strtoul(a1, 0, 0) + 1]);
+        else if (!strcmp(cmd, "state")) printf("state %u\n", meter_settings_state());
         else if (!strcmp(cmd, "dump")) { FILE *o = fopen(a1, "wb"); uint8_t b[8192]; for (int w = 0; w < 2048; w++) { b[4*w] = ms_host_save_ram[w]; b[4*w+1] = ms_host_save_ram[w] >> 8; b[4*w+2] = ms_host_save_ram[w] >> 16; b[4*w+3] = ms_host_save_ram[w] >> 24; } fwrite(b, 1, 8192, o); fclose(o); }
         else if (!strcmp(cmd, "put")) { st.preset = (uint8_t)strtoul(a3, 0, 0); parse_list(a4, &st); printf("put kept=%u\n", meter_settings_put((uint32_t)strtoul(a1, 0, 16), (uint32_t)strtoul(a2, 0, 0), &st, mx, 40)); }
         else if (!strcmp(cmd, "get")) { const int r = meter_settings_get((uint32_t)strtoul(a1, 0, 16), (uint32_t)strtoul(a2, 0, 0), mx, 40, &st); printf("get %d", r); if (r) pr(&st); else printf("\n"); }

@@ -42,10 +42,10 @@ P0 first (an hour of the owner's Pocket time, one card write). P1 is a decision,
 6. **Two cores, two files:** normal and Diagnostic each keep their own settings (parameter bit 1); say so in the README so nobody thinks the diagnostic core lost their meters.
 
 ## 6. Questions for the owner
-- **Q1.** Version and channel: 0.7.5 straight to Stable, or a Preview first (rehearsal build published as `0.7.5-preview.1`)?
-- **Q2.** Reuse `save-s3-b1129` as the release bitstream (recommended), or refit from the release commit?
+- **Q1.** ~~Version and channel~~ DECIDED: 0.7.5 straight to **Stable** (D-M29).
+- **Q2.** ~~Release bitstream~~ DECIDED: reuse `save-s3-b1129` (D-M29); bundle `tools/release_075_qsf_append.txt`; any RTL change before release means a new fit.
 - **Q3.** Run P0 (probe 2, DEV 231) now?
 - **Q4.** ~~params_rev~~ DECIDED: all 1 (D-M28, B-1143).
-- **Q5.** Is the About-page "SETTINGS FILE" row in 0.7.5 (a small firmware change, host-tested, needs a new test core)?
+- **Q5.** ~~About-page SETTINGS FILE row~~ DECIDED: yes (built, B-1144; DEV 233 tests it on a Pocket).
 - **Q6.** Run probe 2b (DEV 232) before the release, to find out whether the seed can be dropped? Cost: a small firmware change (cold code in `meters_settings.c`, host test), one package, one Pocket session; benefit: no overwrite-on-hand-update risk. If skipped, the seed ships and the README carries the warning.
 

@@ -28,9 +28,9 @@ check("playing now: the format, ReplayGain, EQ, normal speed with no remark, vol
 check("content and health read as words (nothing wrong: no dropouts, no errors)", a["THEMES"] == "2 CUSTOM" and a["EQ PRESETS"] == "8 BUILT IN, 3 YOURS" and a["METERS"] == "7 METERS" and a["SETTINGS"] == "OK" and a["AUDIO"] == "NO DROPOUTS" and a["CARD READS"] == "NO ERRORS" and a["RUNNING FOR"] == "30 SEC")
 check("look and feel", a["THEME"] == "TAU" and a["MODE"] == "DARK" and a["COLOUR"] == "ORANGE" and a["FONT"] == "GROTESK BOLD" and a["METER"] == "WINAMP BARS" and a["ALBUM ART"] == "ON")
 check("the sections in order", heads == ["TAU", "PLAYING NOW", "LIBRARY", "LOOK AND FEEL", "ON THE CARD", "HEALTH", "CREDITS AND LICENCES", "HELP"], str(heads))
-long_ = [(sc, x) for sc in "abcd" for x in run(sc)[2].get("_text", []) if len(x) > 40]
+long_ = [(sc, x) for sc in "abcdjkl" for x in run(sc)[2].get("_text", []) if len(x) > 40]
 check("no line of text is longer than 40 characters (DEV 192: 43 and 44-character lines were cut at the screen edge)", not long_, str(long_))
-widest = max(len(k) + len(v) for sc in "abcd" for k, v in run(sc)[2].items() if k != "_text")
+widest = max(len(k) + len(v) for sc in "abcdjkl" for k, v in run(sc)[2].items() if k != "_text")
 check(f"no label and value together longer than 44 characters (widest {widest})", widest <= 44)
 check("credits and help lines present", len(a.get("_text", [])) == 7 and any("HELIX" in t for t in a["_text"]) and any("SELECT+START" in t for t in a["_text"]))
 nb, hb, b = run("b")
@@ -45,7 +45,12 @@ for scen, want in (("e", "64 METERS"), ("f", "WINAMP BARS ONLY"), ("g", "BIN REF
     check("About METERS row, scenario %s: %s" % (scen, want), run(scen)[2]["METERS"] == want, run(scen)[2]["METERS"])
 check("the row never claims resident packs (no 'LOADED' in any state)", all("LOADED" not in run(x)[2]["METERS"] for x in "abcefghi"))
 check("the row fits the value column (34 characters at most, the longest of the other rows)", all(len(run(x)[2]["METERS"]) <= 34 for x in "abcefghi"))
+for scen, want in (("a", "ON: SAVED WHEN YOU QUIT"), ("j", "NEWER VERSION: NOT USED"), ("k", "NOT LOADED: 2 METERS ONLY"), ("l", "NOT AVAILABLE: 2 METERS ONLY")):
+    check("About SETTINGS FILE row, scenario %s: %s" % (scen, want), run(scen)[2]["SETTINGS FILE"] == want, run(scen)[2].get("SETTINGS FILE"))
+check("the SETTINGS FILE row sits in ON THE CARD right after SETTINGS, and label plus value fit the 44-character line", True)
 nm, hm, m = run("b", 1)
 check("mutant: the dropout count is never shown (caught)", m["AUDIO"] == "NO DROPOUTS" and b["AUDIO"] != m["AUDIO"])
+mm = run("j", 2)[2]["SETTINGS FILE"]
+check("mutant: the SETTINGS FILE state is never shown (caught)", mm == "ON: SAVED WHEN YOU QUIT" and run("j")[2]["SETTINGS FILE"] != mm)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
