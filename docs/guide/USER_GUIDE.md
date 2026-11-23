@@ -221,6 +221,7 @@ from a handheld it isn't a difference you're going to hear. (The hardware window
 
 ## Known limitations
 
+- **"Error in framework file id [11] size bad" when TAU starts.** The settings file `Saves/tau/alfatreze.TAU/tau-meter-settings.bin` must be exactly 8,192 bytes; if it was cut or changed to another size, the Pocket refuses it and returns to the core list. Delete that one file (with a computer, Pocket Sync or Tau Omega): TAU starts again, your meters are back at their defaults, and the Pocket makes a new file at your next change. (TAU Diagnostics has its own file under `Saves/tau/alfatreze.TAU Diagnostics/`.)
 - **A settings file from a newer TAU is not used.** If `tau-meter-settings.bin` was written by a newer TAU than yours, Settings > About says
   SETTINGS FILE: NEWER VERSION: NOT USED, the file is left as it is, and only two meters keep their tuning. Deleting the file loses the saved tunings, nothing else.
 - **FLAC up to 48 kHz.** Hi-res files are turned away with the reason on screen; see [FLAC](#flac).
