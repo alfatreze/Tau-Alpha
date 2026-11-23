@@ -1,5 +1,5 @@
 {
- "commit": "902f35b17c25f7b512513887571840ea9a9bd7c7",
+ "commit": "bdf2586feeb289389c57c013406f818916d890d4",
  "dirty": false,
  "files": {
   "dist/Assets/tau/alfatreze.TAU/tau-cold.bin": {
@@ -24,7 +24,7 @@
   },
   "dist/Cores/alfatreze.TAU/core.json": {
    "bytes": 995,
-   "sha256": "6b14ab845ebd018fc270f8a385c5fd6fc179140f436c4bcf449e4ac8e398cc4e"
+   "sha256": "58b422845d310daf05608d0f23a2dfbbbccae52d97f6f2c201fd6e213ac4cb6d"
   },
   "dist/Cores/alfatreze.TAU/data.json": {
    "bytes": 1899,
@@ -59,8 +59,8 @@
    "sha256": "f686014bb95aa2b57a26035bd2ed74529cedd3eb0a4f77e1ddda582d010e2fe7"
   },
   "dist/Platforms/tau.json": {
-   "bytes": 146,
-   "sha256": "7220f696ede0d71229b18aebc09b100dd4bfd8383f5e0e7b752bf732fdd68cb1"
+   "bytes": 138,
+   "sha256": "09aa4280ae1351e6d43c1c23d2ac7340dbcdadaa2ac5e7a7d8373c6a28fddccd"
   }
  },
  "ram_snapshots": {
