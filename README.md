@@ -9,7 +9,7 @@ of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and si
 for FLAC's LPC/FIXED reconstruction; the screen is drawn by a small 2D drawing engine ("Talos") rather than
 pixel by pixel from the CPU.
 
-Current version **v0.7.1** (11 November 2026). See [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.7.5** (23 November 2026). See [CHANGELOG.md](CHANGELOG.md).
 
 <img width="400" height="360" alt="20261017_125518" src="https://github.com/user-attachments/assets/a31940d5-2a70-4af5-9c25-884f2e197ff2" />
 <img width="400" height="360" alt="20261017_125559" src="https://github.com/user-attachments/assets/38fba9de-5f2e-4739-947a-53c656a5609f" />
@@ -37,9 +37,9 @@ It is a separate project and repository, built as the product version of `tools/
 - **Themes.** Two built-in themes (TAU and OCEAN), each in Dark and Light, a 19-colour accent palette, and
   optional extra themes from a `tau-assets.bin` file. Theme and Dark/Light mode are remembered across a
   restart.
-- **Eleven meters.** Winamp Scope, Winamp Bars (with a Configure page: presets, band count, easing, peak
-  caps), a Chladni-pattern meter (with a fullscreen view), Bars, Waterfall, Phase Scope, Oscilloscope, VU,
-  Waveform, Peak Dots and a 16-band Spectrum. Level and spectrum measurement run in hardware.
+- **Seven meters, up to 64.** The seven that ship are Winamp Bars (the fallback), Winamp Scope, Chladni, Layered Wave,
+  VU Master, Waterfall and Sound Map; add your own with the public meter SDK. Every meter has a Configure page with
+  presets and keeps its own tuned settings. Level and spectrum measurement run in hardware.
 - **Fast covers.** A pre-scaled cover file shows an album's art in about 90 ms instead of decoding the
   embedded JPEG (2.6 to 15.8 s).
 - **Hardware decode assist.** MP3's synthesis filterbank and FLAC's LPC/FIXED reconstruction both run in the
@@ -80,6 +80,8 @@ sources and the honest limits, is [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 2. Put your `.mp3` / `.flac` files in `/Assets/tau/common/` (subfolders such as `Artist/Album` are fine). `tau.rom` must stay there.
 3. Build a library: `python3 tools/sync_media.py /path/to/music --all-tau --library`. This is required -- there is no other way to browse or queue more than one file.
 4. Start the core from the Pocket menu. Press **Select** for the library, **Start** for Settings.
+
+**Updating by hand is safe for your settings.** The release zip contains no `Saves/` folder, so copying `Cores`, `Platforms` and `Assets` over the card never touches `Saves/tau/alfatreze.TAU/tau-meter-settings.bin`, where the Pocket keeps every meter's settings.
 
 **Updating with Pocket Sync.** Its install dialog ticks only the folders that changed (`Assets/tau/` and `Cores/alfatreze.TAU/`) and leaves `Platforms/` unticked when it is the same as the one on your card. That is fine: leave it unticked. Tick `Platforms/` only if the release notes say the platform name or icon changed. Your music, library index and covers in `Assets/tau/common/` are not in the release and are not touched. If "Remove duplicate existing files" worries you, untick it for the first update and check that `Assets/tau/common/` is intact.
 

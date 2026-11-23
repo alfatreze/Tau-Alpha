@@ -60,8 +60,9 @@ In every menu and list, **Right** goes forward (opens or selects, like **A**) an
 switch or the volume, Left and Right change the value instead.
 
 Volume, accent colour, repeat, the meter and the Halcyon EQ preset carry over between sessions, in step with **Core
-Settings** in the Analogue menu. The **theme and mode** (Dark / Light) and the **meter Configure settings** are *not*
-remembered yet: they return to their defaults each launch.
+Settings** in the Analogue menu. The **theme and mode** (Dark / Light) are *not*
+remembered yet: they return to their defaults each launch. Every meter's Configure settings **are** kept, in `Saves/tau/alfatreze.TAU/tau-meter-settings.bin`
+(TAU Diagnostics keeps its own file): the Pocket creates and writes it by itself, at Quit and at power-off. Leave it alone.
 
 The album art panel and screen-blank timeout reset each launch. Everything saved lives in `/Settings/alfatreze.TAU/`;
 delete that folder to reset. Nothing is written to your music folder.
@@ -157,8 +158,9 @@ peak cap and fall (Winamp Bars), scope smoothing and trail (Winamp Scope), the C
 **Start + X** on Now Playing configures the meter on screen; in **Settings > METERS**, **X** configures the highlighted meter, which need
 not be the one on screen. The page shows that meter live above its parameter list: Up/Down pick a row, Left/Right change it. Leaving the
 page (B, or Start) puts back the meter you had set, so configuring never changes which meter plays; only **A** in the METERS list sets the
-meter. In the Diagnostic Build the page can also show the configuration as a QR code. Today the settings of the **two meters you changed most
-recently** are remembered across a restart; configuring a third replaces the oldest (a save file for every meter is in development).
+meter. In the Diagnostic Build the page can also show the configuration as a QR code. Every meter you tune keeps its settings across a restart (up to 64
+meters, in one small file, see above); to put one meter back to its defaults pick its default preset in Configure, to forget all of them delete `Saves/tau/alfatreze.TAU/tau-meter-settings.bin`
+(the Pocket makes a new one when you next change something).
 
 Meter drawing waits for the display beam, so it does not tear.
 
@@ -219,6 +221,8 @@ from a handheld it isn't a difference you're going to hear. (The hardware window
 
 ## Known limitations
 
+- **A settings file from a newer TAU is not used.** If `tau-meter-settings.bin` was written by a newer TAU than yours, Settings > About says
+  SETTINGS FILE: NEWER VERSION: NOT USED, the file is left as it is, and only two meters keep their tuning. Deleting the file loses the saved tunings, nothing else.
 - **FLAC up to 48 kHz.** Hi-res files are turned away with the reason on screen; see [FLAC](#flac).
 - **Baseline JPEG album art only** for embedded covers, and a cover that can't be shown says so rather than silently going
   missing. A progressive JPEG shows **PROG. JPEG** in the art panel; anything else that won't decode (a PNG cover, a damaged
