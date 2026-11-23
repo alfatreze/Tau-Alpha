@@ -4,6 +4,8 @@
 before work starts. This is the only document that says what comes next. Every other plan or spec is a design reference for one item here
 and must not carry its own "next" list (see section 6).
 
+> **2026-11-23 status (Claude; the order is the owner's): v0.7.5 is published** (per-meter settings file, METERS menu, external meters, SDK, B-1154). Nothing from this roadmap is in flight. **Candidates for what comes next, none started, the owner orders them:** (a) install the published 0.7.5 zips on the Pocket card and tidy the card; (b) the 20-row user-bin check on the release core; (c) hand the SDK to a fresh outside agent for a new meter candidate (the Codex re-check of the updated docs is pending, owner out of tokens there); (d) the SDK code defects left on purpose (thumb catch-22, `compose --card` presets, utility header, author-name warning) and the waveform source for ABI 1.2; (e) robust handling of a wrong-size settings file (D-M30's parked alternative) only if a user reports the error; (f) a stronger Layered Wave Now Playing screenshot for the banner; (g) Omega-side follow-ups are Omega's (A029, A030, A031, A034); (h) the ideas already in the table below (rows 1 to 4 and the rest are history or superseded, see their tags).
+
 Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History and evidence: `docs/AUDIT_TRAIL.md`.
 
 ## 1. Now (ready, no owner decision needed)
