@@ -22,7 +22,7 @@ Analogue's field list (docs-verified, `core-definition-files__data-json.txt`):
 * `nonvolatile: boolean`: "If true, slot will be both loaded and unloaded on core exit."
 * `deferload: boolean`: "If true, slot will not be loaded, but its size and ID will still be communicated to the core, and the core may read/write it with Target commands." **Must be false for this slot**: the whole point is that APF loads it by itself.
 * `address`: "Load address. 32-bit unsigned." The bridge writes the file at `address + offset`.
-* `size_exact`: "the filesize will be checked and only loaded if the size matches": a file of another size is **not loaded** (we use it as a guard: a truncated or foreign file reads as "no file", never as data).
+* `size_exact`: "the filesize will be checked and only loaded if the size matches": a file of another size is **refused by the Pocket with an error screen** (CORRECTED 2026-11-23, B-1149: the first version of this line said "not loaded, reads as no file"; the Pocket shows `Error in framework file id [11] size bad` instead, owner-observed on the release core; whether the core starts after it is to confirm) (we use it as a guard: a truncated or foreign file reads as "no file", never as data).
 * `size_maximum`: "the file will not load unless it is equal or smaller" (and the fill size of bit 5).
 
 The slot (as `tools/tau_data_slots.py add_save_probe_slot` writes it for the spike; the release slot differs only in name and file):
@@ -71,7 +71,7 @@ KB-074 (community-reported, medium, one source): "The Pocket only writes back a 
 | File state at boot | How the firmware sees it | What it does |
 |---|---|---|
 | missing, slot not loaded | `SAVE_ST` bits `[15:0]` (words the bridge wrote) = 0 | start from defaults; row "SETTINGS FILE: MISSING" (S2: About page); settings are kept in RAM and the old two-tuning pool for the session; **nothing is written back by the Pocket** |
-| wrong size | not loaded (`size_exact`), same as missing | as missing |
+| wrong size | **the Pocket refuses it at load: `Error in framework file id [11] size bad`** (B-1149; NOT "same as missing" as first written): the core never sees it | the user must delete the file (the Pocket recreates it); Omega must never leave a file of another size |
 | all zero (the seed) | no valid generation (magic is zero) | defaults, silently; the first edit writes generation A with seq 1 |
 | all 0xFF (bit 5 fill) | no valid generation | same |
 | one generation damaged (CRC) | the other is valid | use the other; the first write repairs |

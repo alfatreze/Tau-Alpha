@@ -6033,7 +6033,7 @@
    "count": 0,
    "records": [],
    "lookups": [],
-   "what": "three_records.bin cut by one byte: not an 8,192-byte file, so the Pocket does not load it (size_exact) and a reader says size"
+   "what": "three_records.bin cut by one byte: not an 8,192-byte file: the Pocket refuses it at load with its own error screen (\"Error in framework file id [11] size bad\", owner-observed 2026-11-23, size_exact) and a reader says size"
   },
   {
    "file": "wrong_size_8193.bin",

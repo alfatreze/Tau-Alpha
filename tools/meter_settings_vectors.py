@@ -57,7 +57,7 @@ def vectors():
     v["damaged_both.bin"] = (bytes(d), "one bit flipped inside a record of each generation: no valid generation, defaults", [(A, 1)])
     n = bytearray(good); n[act * ms.BANK + 4:act * ms.BANK + 6] = (2).to_bytes(2, "little")
     v["newer_version.bin"] = (bytes(n), "three_records.bin with version 2 in the newest generation's header (a file from a future Tau): the whole file is ignored (status locked): no record of either generation is used and nothing is written", [(A, 1)])
-    v["wrong_size_8191.bin"] = (good[:-1], "three_records.bin cut by one byte: not an 8,192-byte file, so the Pocket does not load it (size_exact) and a reader says size", [])
+    v["wrong_size_8191.bin"] = (good[:-1], "three_records.bin cut by one byte: not an 8,192-byte file: the Pocket refuses it at load with its own error screen (\"Error in framework file id [11] size bad\", owner-observed 2026-11-23, size_exact) and a reader says size", [])
     v["wrong_size_8193.bin"] = (good + b"\0", "three_records.bin with one byte appended: size", [])
     # seq across the wrap: serial arithmetic ((a - b) as a signed 32-bit number); a plain comparison picks the wrong bank in the first three
     g_old = ms._build(0xFFFFFFFF, [{"id_hash": A, "params_rev": 1, "preset": 0, "entries": [(0, 1)]}])

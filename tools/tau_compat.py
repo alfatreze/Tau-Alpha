@@ -517,7 +517,7 @@ def _format_ok(path, fmt):
     elif n == "TMSF":                                  # the meter-settings file (data slot 11): exactly 8,192 bytes; a file of a NEWER version is refused (its records would be ignored and never written); a zero, 0xFF or damaged file is fine (defaults)
         import meter_settings
         if len(b) != fmt["bytes"]:
-            return f"{len(b)} bytes, the settings file is exactly {fmt['bytes']} (the Pocket loads no other size)"
+            return f"{len(b)} bytes, the settings file is exactly {fmt['bytes']} (the Pocket stops at load with an error screen for any other size: \"Error in framework file id [11] size bad\")"
         if meter_settings.parse(b)["locked"]:
             return f"settings file of a newer version than {fmt['version']}: this release would ignore it and never write it"
     elif n == "tau-names":
