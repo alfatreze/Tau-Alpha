@@ -111,6 +111,8 @@ def suite(h, quick=False):
     newer = bytearray(two); newer[0:4] = b"TMSF"; newer[4:6] = (2).to_bytes(2, "little")
     out, so = h.put(bytes(newer), ids[0], 1, 0, [(2, 9)])
     check("a file of a NEWER version is never overwritten (put refused, 8,192 bytes unchanged)", so == "ok=0" and out == bytes(newer) and ms.apply_change(bytes(newer), ids[0], 1, 0, [(2, 9)]) is None and h.scan(bytes(newer))["locked"] == "1", so)
+    pn = ms.parse(bytes(newer))
+    check("a file of a NEWER version, as the reference parser reads it: status locked and NO active bank, seq or records (O027/3: expected.json says none, the other generation is not used)", pn["status"] == "locked" and pn["locked"] and pn["active"] is None and pn["seq"] == 0 and pn["records"] == [], (pn["status"], pn["active"], pn["seq"], len(pn["records"])))
     # removal
     some = ms.parse(cur_c)["records"][-1]
     gone, _ = h.put(cur_c, some["id_hash"], some["params_rev"], 0, [])

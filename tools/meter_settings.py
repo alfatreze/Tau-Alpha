@@ -57,6 +57,8 @@ def parse(b: bytes):
         active = 1 if ((ok[1]["seq"] - ok[0]["seq"] + 2**31) % 2**32) - 2**31 > 0 else 0
     else:
         active = 0 if ok[0] else (1 if ok[1] else None)
+    if locked:   # a version above 1 anywhere: the whole file is ignored, the other generation is not used either (expected.json: no active bank, no records)
+        active = None
     g = ok[active] if active is not None else None
     return {"status": "locked" if locked else ("ok" if g else "none"), "active": active, "locked": locked,
             "seq": g["seq"] if g else 0, "records": g["records"] if g else [], "gens": ok}
