@@ -47,7 +47,7 @@ def stage(root, core_id, channel, slot10=True, slot11=True):
     (pkg / "Platforms/_images").mkdir(parents=True); shutil.copy2(DIST / "Platforms/_images/tau.bin", pkg / "Platforms/_images" / (platform + ".bin"))
     pj = DIST / "Platforms" / (platform + ".json")
     if pj.is_file(): shutil.copy2(pj, pkg / "Platforms" / (platform + ".json"))
-    else: (pkg / "Platforms" / (platform + ".json")).write_text(json.dumps({"platform": {"category": "Media Players", "name": ch["name"], "year": 2026, "manufacturer": "alfatreze"}}))
+    else: (pkg / "Platforms" / (platform + ".json")).write_text(json.dumps({"platform": {"category": "Media", "name": ch["name"], "year": 2026, "manufacturer": "alfatreze"}}))
     mr.add_factory_presets(pkg, ch["platforms"][-1])
     return pkg, cd / "tau.rom"
 
@@ -107,6 +107,24 @@ for label, core_id, channel in (("normal core (alfatreze.TAU)", "alfatreze.TAU",
         (extra / "tau-meters.bin").unlink()
     if channel == "preview":
         check("Preview core: the shared slots point at platform index 1 (TAU's common/), slot 10 included", tau_layout.slot_platform_index(s10["parameters"]) == 1 and e10[0]["path"].startswith("Assets/tau/common/"))
+
+# ---- P3: the save file's capability for Omega: layout format, requires_omega.meter_settings_version, the format check ----
+import meter_settings as msf
+with tempfile.TemporaryDirectory() as td:
+    pkg, rom = stage(Path(td), "alfatreze.TAU", "stable")
+    lay = tau_compat.layout(tau_compat.read_zip(zipped(pkg, "alfatreze.TAU", rom, "tau")[0]))
+    e11 = [e for e in lay if e["path"].endswith("tau-meter-settings.bin")][0]
+    check("layout entry of the settings file carries format TMSF v1, 8,192 bytes (what an Omega reader needs)", e11.get("format") == {"name": "TMSF", "version": 1, "bytes": 8192}, e11)
+    check("the format's version is MF_VERSION of fw2/cores/mset_file_core.h", tau_compat.settings_file_version() == 1 and "MF_VERSION     1u" in (ROOT / "fw2/cores/mset_file_core.h").read_text())
+    pkg2, rom2 = stage(Path(td) / "n", "alfatreze.TAU", "stable", slot11=False)
+    lay2 = tau_compat.layout(tau_compat.read_zip(zipped(pkg2, "alfatreze.TAU", rom2, "tau", save_slot=False)[0]))
+    check("requires_omega.meter_settings_version is stated exactly when a package's layout has the settings file (by presence, like the user meter bin): yes with slot 11, no without", tau_compat.has_settings_file([lay]) and not tau_compat.has_settings_file([lay2]) and not tau_compat.has_settings_file([]))
+    fmt = e11["format"]; fp = Path(td) / "f.bin"
+    def fok(b): fp.write_bytes(b); return tau_compat._format_ok(fp, fmt)
+    seed = bytes(8192); good = msf.apply_change(seed, 0x7DDDFE63, 1, 0, [(0, 4)]); newer = bytearray(good); newer[4:6] = (2).to_bytes(2, "little")
+    check("format check: a zero seed, a file of 0xFF, a valid file and a damaged one are readable (defaults); 8,191 and 8,193 bytes and a NEWER version are refused",
+          fok(seed) is None and fok(b"\xff" * 8192) is None and fok(good) is None and fok(good[:100] + b"\0" * 8092) is None
+          and fok(good[:-1]) and fok(good + b"\0") and "newer" in (fok(bytes(newer)) or ""), (fok(good[:-1]), fok(bytes(newer))))
 
 # ---- the v0.7.1 shape: no slot 10 (the negative case) ----
 with tempfile.TemporaryDirectory() as td:

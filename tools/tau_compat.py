@@ -298,6 +298,22 @@ def persist_ids_changed(pkgs, previous, registry=None, previous_release=None):
 
 # ---------------------------------------------------------------- schema 2: the card layout of each package
 
+def settings_file_version(root=ROOT):
+    """The version of the meter-settings save file this firmware reads and writes: MF_VERSION in fw2/cores/mset_file_core.h (docs/features/meters/METER_SAVE_FILE_SPEC.md section 4)."""
+    m = re.search(r"#define\s+MF_VERSION\s+(\d+)u", (root / "fw2/cores/mset_file_core.h").read_text())
+    if not m:
+        raise CompatError("cannot read MF_VERSION (fw2/cores/mset_file_core.h)")
+    return int(m.group(1))
+
+
+SETTINGS_FILE_BYTES = 8192
+
+
+def has_settings_file(layouts):
+    """True when any package's layout lists the meter-settings file (the release then states requires_omega.meter_settings_version)"""
+    return any(e["path"].endswith("/tau-meter-settings.bin") for lay in layouts for e in lay)
+
+
 def firmware_formats(root=ROOT):
     """Format names and the versions this firmware reads, from the firmware's own checks."""
     fw = root / "fw"
@@ -314,6 +330,7 @@ def firmware_formats(root=ROOT):
             "tau-assets.bin": {"name": "TAUA", "version": int(taua.group(1)), "sections": t["assets_sections"],
                                "max_bytes": t["assets_read_limit_bytes"], "preserve_unknown_sections": True},
             "tau-meters.bin": {"name": "TPKB", "version": 2, "max_bytes": 4456448, "preserve_unknown_sections": False},      # the user's meter bin (data slot 10): a v2 bin, never shipped, written by Tau Omega (the firmware reads v2 only)
+            "tau-meter-settings.bin": {"name": "TMSF", "version": settings_file_version(root), "bytes": SETTINGS_FILE_BYTES},   # the Pocket writes it at Quit (data slot 11): Omega may read it, must never overwrite it
             "cover": {"name": "TIM1", "version": 1, "tail": tail.group(1)}}
 
 
@@ -389,7 +406,7 @@ def layout(pkg, root=ROOT, obsolete=()):
             if sl.get("deferload") or int(str(sl.get("parameters", "0")), 16) & 4:
                 raise CompatError(f"{pkg['zip']}: nonvolatile data slot {sl['id']} ({fn}) must not be deferload and must not take another slot's file name (parameter bit 2)")
             if sp not in shipped:
-                out.append({"path": sp, "role": "user", "slot": sl["id"], "required": False, "seed": False})
+                out.append({"path": sp, "role": "user", "slot": sl["id"], "required": False, "seed": False, **({"format": dict(fmts[fn])} if fn in fmts else {})})
             continue
         if fn:
             if common + fn in shipped or mine + fn in shipped:
@@ -497,6 +514,12 @@ def _format_ok(path, fmt):
             meter_bin.open_toc(b)
         except meter_bin.BinError as e:
             return f"not a v2 meter bin this firmware would use ({e})"
+    elif n == "TMSF":                                  # the meter-settings file (data slot 11): exactly 8,192 bytes; a file of a NEWER version is refused (its records would be ignored and never written); a zero, 0xFF or damaged file is fine (defaults)
+        import meter_settings
+        if len(b) != fmt["bytes"]:
+            return f"{len(b)} bytes, the settings file is exactly {fmt['bytes']} (the Pocket loads no other size)"
+        if meter_settings.parse(b)["locked"]:
+            return f"settings file of a newer version than {fmt['version']}: this release would ignore it and never write it"
     elif n == "tau-names":
         import struct, zlib
         if len(b) < 48 or b[:4] != b"TNMS":
@@ -786,6 +809,8 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
     req["persist_ids_changed"] = (persist_ids_changed(pkgs, previous, registry, previous_release) if previous is not None else [])
     cfg = json.loads(Path(omega_cfg).read_text())
     req["min_omega"] = cfg["min_omega"]
+    if has_settings_file([layout(p, root, cfg.get("obsolete", [])) for p in pkgs]):
+        req["meter_settings_version"] = settings_file_version(root)          # by presence, like the user meter bin (D-M24): no key = the release has no settings file
     return {
         "schema": SCHEMA,
         "release": release,
@@ -798,7 +823,8 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
                       "replaces": [c for c in REPLACES.get(p["core_id"], []) if c not in {q["core_id"] for q in pkgs}],
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
-                                               "report_tags_max", "persist_layout", "packs_abi", "packs_abi_minor", "persist_ids_changed", "min_omega")},
+                                               "report_tags_max", "persist_layout", "packs_abi", "packs_abi_minor", "persist_ids_changed", "min_omega",
+                                               "meter_settings_version") if k in req},
         "notes": "\n".join(notes),
         "source": source_state(root),
         "previous_release": previous_release if previous is not None else None,

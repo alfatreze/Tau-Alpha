@@ -179,7 +179,7 @@ Every one of these has been broken at some point.
 | 9.1 | Rename `playlist.m3u` away and launch with an empty slot. | Getting-started screen with the three numbered steps. |
 | 9.2 | Launch with a playlist present. | **LOADING PLAYLIST** with animated dots, then a track starts playing. |
 | 9.3 | Load MP3 from the getting-started screen. | Indicator appears **immediately** on picking, not after a pause. Plays first time — not needing two attempts. |
-| 9.4 | Pocket core list with Group openFPGA enabled. | Shows as **TAU** under **Media Players**. |
+| 9.4 | Pocket core list with Group openFPGA enabled. | Shows as **TAU** under **Media**. |
 
 ---
 

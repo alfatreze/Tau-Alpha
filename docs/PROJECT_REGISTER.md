@@ -55,7 +55,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 
 | Area | Feature | Status / evidence | Source record |
 |---|---|---|---|
-| Core packaging | TAU core identity, Media Players category, platform/author art | Complete; **Pocket** confirmed | [PROJECT.md](../PROJECT.md) |
+| Core packaging | TAU core identity, Media category, platform/author art | Complete; **Pocket** confirmed | [PROJECT.md](../PROJECT.md) |
 | Playback | MP3 playback | Complete; **Pocket** confirmed | [README](../README.md) |
 | Playback | Seek and transport | Complete; **Pocket** confirmed | [PROJECT.md](../PROJECT.md) |
 | Presentation | Album artwork | Complete; **Pocket** confirmed | [PROJECT.md](../PROJECT.md) |

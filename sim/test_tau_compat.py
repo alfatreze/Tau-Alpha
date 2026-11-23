@@ -144,6 +144,10 @@ with tempfile.TemporaryDirectory() as t:
     check(tc.verify(out, **kw) == [], "verify: file matches the zips and the tree")
 
     check(tc.schema_errors(doc) == [], "the file matches the published JSON Schema (docs/schemas/tau-compat.schema.json)")
+    good_ms = json.loads(json.dumps(doc)); good_ms["requires_omega"]["meter_settings_version"] = 1
+    bad_ms = json.loads(json.dumps(doc)); bad_ms["requires_omega"]["meter_settings_version"] = 0
+    fmt_ms = json.loads(json.dumps(doc)); fmt_ms["packages"][0]["layout"].append({"path": "Saves/tau/alfatreze.TAU/tau-meter-settings.bin", "role": "user", "slot": 11, "required": False, "seed": False, "format": {"name": "TMSF", "version": 1, "bytes": 8192}})
+    check(tc.schema_errors(good_ms) == [] and tc.schema_errors(fmt_ms) == [] and tc.schema_errors(bad_ms) != [], "the schema accepts requires_omega.meter_settings_version 1 and a TMSF layout format, and refuses version 0")
 
     # 2a. review fixes (2026-10-08): source, features, root, preserve flag, schema keywords, fixture
     check(doc["source"] == {"commit": HEAD, "dirty": tc.source_state()["dirty"]}, f"source = this tree's commit {HEAD} and its dirty state")

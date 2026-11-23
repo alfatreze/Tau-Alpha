@@ -144,7 +144,8 @@
                         "interact_persist",
                         "tau-names",
                         "tau-names-manifest",
-                        "TPKB"
+                        "TPKB",
+                        "TMSF"
                       ]
                     },
                     "version": {
@@ -170,6 +171,11 @@
                     "preserve_unknown_sections": {
                       "description": "TAUA only: a writer must carry every section it does not write byte for byte (user presets live there)",
                       "type": "boolean"
+                    },
+                    "bytes": {
+                      "description": "TMSF (the meter-settings file): its exact size in bytes; the Pocket loads no other size.",
+                      "type": "integer",
+                      "minimum": 1
                     }
                   }
                 }
@@ -257,6 +263,11 @@
         "min_omega": {
           "type": "string",
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "meter_settings_version": {
+          "description": "Present only when the release has the meter-settings save file (data slot 11, Saves/<platform>/<core>/tau-meter-settings.bin): the format version this release reads and writes (the file's version field). A tool must never overwrite the file; it may read it with a reader that knows this version. Absent = no settings file.",
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

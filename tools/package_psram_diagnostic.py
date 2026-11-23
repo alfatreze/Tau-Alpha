@@ -161,7 +161,7 @@ def main() -> None:
     (platform_dir / "_images").mkdir(parents=True)
     shutil.copy2(SOURCE_PLATFORM_IMAGE, platform_dir / "_images" / f"{platform_id}.bin")
     save_json(platform_dir / f"{platform_id}.json", {
-        "platform": {"category": "Media Players", "name": name, "year": 2026,
+        "platform": {"category": "Media", "name": name, "year": 2026,
                      "manufacturer": "alfatreze"}
     })
 
@@ -175,7 +175,7 @@ def main() -> None:
     (temp / "INSTALL.txt").write_text(
         f"{name} - DEVELOPER BUILD\n\n"
         "Copy the Cores, Assets and Platforms folders to the Pocket SD root. It installs\n"
-        "beside the normal TAU core under Media Players. It REQUIRES the packaged\n"
+        "beside the normal TAU core under Media. It REQUIRES the packaged\n"
         "TAU_PSRAM_PROBE RBF; the ROM stops with a message if the RBF has no probe.\n"
         "The test writes and reads the four PSRAM dies only (about 1 MiB each); it never\n"
         "touches SDRAM player data or any file on the card.\n"

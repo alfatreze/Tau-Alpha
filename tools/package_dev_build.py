@@ -298,7 +298,7 @@ def main():
     if (src / "Platforms" / f"{platform}.json").is_file():          # TAU's own platform: ship its exact file (shared with TAU)
         shutil.copy2(src / "Platforms" / f"{platform}.json", p / f"{platform}.json")
     else:
-        save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
+        save(p / f"{platform}.json", {"platform": {"category": "Media", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
     man = Path(str(rbf) + ".json") if args.rbf else None                    # B-653: what this bitstream was built with (tools/vm_fit.py collect)
     pair_cmd = [sys.executable, "tools/check_fw_bitstream_pair.py", str(out)]
     if man is not None and man.is_file():

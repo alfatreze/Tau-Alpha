@@ -12,7 +12,7 @@ scoped source percentages and staged rebuild gates. It supersedes the older
 origin percentages; this is source/host analysis, not a firmware or RTL rebuild.
 
 **Current preview:** v0.1.0 · **Core identity:** `alfatreze.TAU` ·
-**Platform:** `tau` / Media Players
+**Platform:** `tau` / Media (category renamed from "Media Players" on 2026-11-23; owner decision)
 
 **Current technical status (2026-09-19):** Phase 1 SDRAM access and contention
 gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
