@@ -18,9 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FONT_DIR = ROOT / "third_party/font"
 BOLD, SEMI = FONT_DIR / "SpaceGrotesk-Bold.ttf", FONT_DIR / "SpaceGrotesk-SemiBold.ttf"
 
-TITLE = "TAU"
-SUBTITLE = ["A music player for", "the Analogue Pocket"]
-SUBTITLE_ONE_LINE = "A music player for the Analogue Pocket"
+TITLE = ["TAU ALPHA", "MUSIC PLAYER"]
+SUBTITLE = "for the Analogue Pocket"
 BULLETS = ["Live meters: up to 64, build your own",
            "Every meter keeps its own settings",
            "MP3 and FLAC, library, album art",
@@ -73,15 +72,15 @@ def fit_text(draw, text, path, width, start):
 def left_column(img, version, banner):
     d = ImageDraw.Draw(img)
     x = 56 if not banner else 64
-    d.text((x, 62 if not banner else 58), TITLE, font=font(BOLD, 66 if not banner else 70), fill=C_TITLE)
-    fv = fit_text(d, version, BOLD, 400 if not banner else 440, 140 if not banner else 168)
-    d.text((x - 2, 136 if not banner else 150), version, font=fv, fill=C_ORANGE)
-    if banner:
-        d.text((x, 332), SUBTITLE_ONE_LINE, font=font(SEMI, 27), fill=C_SUB)
-        y0, step, fs = 392, 36, 23
-    else:
-        for i, line in enumerate(SUBTITLE): d.text((x, 312 + i * 34), line, font=font(SEMI, 28), fill=C_SUB)
-        y0, step, fs = 402, 32, 21
+    ft = font(BOLD, 52 if not banner else 58)
+    ty, tstep = (44, 56) if not banner else (38, 62)
+    for i, line in enumerate(TITLE): d.text((x, ty + i * tstep), line, font=ft, fill=C_TITLE)
+    vy = ty + 2 * tstep + 8
+    fv = fit_text(d, version, BOLD, 400 if not banner else 440, 124 if not banner else 140)
+    d.text((x - 2, vy), version, font=fv, fill=C_ORANGE)
+    sy = vy + (150 if not banner else 168)
+    d.text((x, sy), SUBTITLE, font=font(SEMI, 28), fill=C_SUB)
+    y0, step, fs = (sy + 62, 32, 21) if not banner else (sy + 62, 36, 23)
     fb = font(SEMI, fs)
     for i, t in enumerate(BULLETS):
         y = y0 + i * step
@@ -129,8 +128,8 @@ def main():
     while len(shots) < 4: shots.append(shots[len(shots) % len(a.shots[:4])])
     a.out.mkdir(parents=True, exist_ok=True)
     social(shots, a.version).save(a.out / "social-preview-1280x640.png", optimize=True)
-    banner(shots, a.version).save(a.out / f"tau-{a.version}-banner.png", optimize=True)
-    print("wrote", a.out / "social-preview-1280x640.png", "and", a.out / f"tau-{a.version}-banner.png")
+    banner(shots, a.version).save(a.out / f"tau-alpha-{a.version}-banner.png", optimize=True)
+    print("wrote", a.out / "social-preview-1280x640.png", "and", a.out / f"tau-alpha-{a.version}-banner.png")
 
 
 if __name__ == "__main__":
