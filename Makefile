@@ -101,6 +101,7 @@ test-host:
 	$(PYTHON) sim/test_install_dev_core.py
 	$(PYTHON) sim/test_check_qsf_files.py
 	$(PYTHON) sim/test_tau_compat.py
+	$(PYTHON) sim/test_tau_compat_sources.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
 	$(PYTHON) sim/test_mp3_poly_probe.py

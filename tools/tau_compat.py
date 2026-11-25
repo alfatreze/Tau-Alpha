@@ -14,7 +14,7 @@ SHA256SUMS.txt; the zips themselves are unchanged. Every field is derived, never
                             src/fpga/core/tau_soc.v (not the first literal), or --bitstream-version for an RBF without one;
                             the RBF must be the one in the zips and every ROM must accept the value
   library_index_version     fw/library_core.h (the newest index version the firmware reads), cross-checked with tools/tau_library.py
-  assets_sections           every as_find(..., "XXXX") the firmware does
+  assets_sections           every as_find(..., "XXXX") / assets_section("XXXX", ...) Player 2 does (fw2/)
   assets_read_limit_bytes   AS_MAX_FILE in fw/assets_core.h
   report_tags_max           the last SR_T_* tag in fw/suite_core.h
   persist_layout            SF_LAYOUT_VERSION in fw2/cores/settings_core.h: the version of the persisted-settings layout this release writes
@@ -207,12 +207,13 @@ def tree_facts(root=ROOT):
     if int(lib.group(1)) != int(tl.group(1)):
         raise CompatError(f"firmware reads index version <= {lib.group(1)} but tools/tau_library.py writes {tl.group(1)}")
     sections = set()
-    for p in sorted(list(fw.glob("*.inc")) + list(fw.glob("*.h")) + list(fw.glob("*.c"))):
-        sections |= set(re.findall(r'as_find\([^;]*?"([A-Z0-9]{4})"', p.read_text(errors="replace")))
+    # Player 2 looks the sections up with as_find() (theme_file.c) or assets_section() (main_player.c); the old player's as_find calls (fw/*.inc, retired by D-T20) gave the same three
+    for p in sorted(list((root / "fw2").rglob("*.c")) + list((root / "fw2").rglob("*.h")) + list(fw.glob("*.h"))):
+        sections |= set(re.findall(r'(?:as_find|assets_section)\([^;]*?"([A-Z0-9]{4})"', p.read_text(errors="replace")))
     mx = re.search(r"#define\s+AS_MAX_FILE\s+(0x[0-9A-Fa-f]+|\d+)u?", (fw / "assets_core.h").read_text())
     enum = re.search(r"enum\s*\{\s*(SR_T_BUILD\s*=\s*1\s*,[^}]*)\}", (fw / "suite_core.h").read_text())
     if not sections or not mx or not enum:
-        raise CompatError("cannot read assets sections, AS_MAX_FILE or the SR_T_* enum from fw/")
+        raise CompatError("cannot read assets sections (fw2/), AS_MAX_FILE or the SR_T_* enum (fw/)")
     tag, last = 0, 0
     for item in [x.strip() for x in enum.group(1).split(",") if x.strip()]:
         n, _, val = item.partition("=")
@@ -318,9 +319,9 @@ def firmware_formats(root=ROOT):
     """Format names and the versions this firmware reads, from the firmware's own checks."""
     fw = root / "fw"
     taua = re.search(r"lib_ld16\(b \+ 4\) != (\d+)u\) return AS_E_VERSION", (fw / "assets_core.h").read_text())
-    tail = re.search(r'static const char tail\[\] = "([^"]+)"', (fw / "timg.inc").read_text())
+    tail = re.search(r'static const char tail\[\] = "([^"]+)"', (root / "fw2/stream/library.c").read_text())
     if not taua or not tail:
-        raise CompatError("cannot read the TAUA version check (fw/assets_core.h) or the cover file name (fw/timg.inc)")
+        raise CompatError("cannot read the TAUA version check (fw/assets_core.h) or the cover file name (fw2/stream/library.c)")
     t = tree_facts(root)
     nm = re.search(r"lib_ld16\(win \+ 4\) > (\d+)u\) return NAMES_E_HDR", (root / "fw2/cores/names_core.h").read_text())
     if not nm:
