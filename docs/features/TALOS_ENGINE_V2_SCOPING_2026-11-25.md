@@ -1,5 +1,7 @@
 # Talos engine v2: scoping report for a clean-room rewrite (2026-11-25)
 
+> **Owner decision 2026-11-25 (D-T19): Tau Gallery's extensions (`OP_CORNERS` 10, `OP_DSBLIT` 11, viewer fill, pixel doubler) join the common engine as build-parameter features, default off; updating the other projects (Gallery, Tau V, Reader, Tau Μ) is accepted.** Opcodes first, scanout features second; Gallery's pixels are pinned; reserve an escape opcode before adding more; measure each feature's fit cost. See `docs/DECISIONS.md` D-T19 and the consumer inventory.
+>
 > **Owner decision 2026-11-25 (D-T18): keep ALL Talos commands.** The engine is shared with the owner's other core-based apps (Tau V, Tau Μ and others mention it), so the recommendation below changes from **B-lean to B-full** (all nine opcodes); every "drop" in this report and in the requirements table is withdrawn. New open item: inventory which commands the other cores actually issue (their firmware and RTL drivers) before the contract is written; those cores become consumers whose behaviour the compatibility policy must protect. "No regressions, improvements welcome" stands.
 
 
