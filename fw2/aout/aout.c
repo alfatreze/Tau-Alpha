@@ -1,5 +1,6 @@
 #include "aout.h"
 #include "../platform/mmio.h"
+#include "aout_rate.h"
 
 #define RING_BASE_W 0x1C0000u            /* PSRAM word address of ring[0]: byte +0x700000 of the window (spec section 12.1) */
 #ifndef P2_RING_WINDOW
@@ -35,9 +36,7 @@ int aout_init(void)
 
 static void rate_apply(int cymo_present)
 {
-    uint64_t inc = ((uint64_t)(rate_hz == 44100u ? 44100u : 48000u) << 32) / CLK_HZ;
-    if (spd_num != spd_den) inc = inc * spd_num / spd_den;                  /* varispeed: the output tick runs faster or slower (the pitch follows) */
-    REG_WR(R_PCM_RATE, (uint32_t)inc);
+    REG_WR(R_PCM_RATE, aout_rate_inc(CLK_HZ, rate_hz, spd_num, spd_den));    /* the tick is the source rate times the varispeed ratio (aout_rate.h) */
     if (cymo_present) cymo_pres = 1u;
     if (cymo_present || cymo_pres) {
         uint32_t want = (rate_hz == 44100u && spd_num == spd_den && !cymo_user_off) ? 4u : 0u;   /* the resampler is live only for 44.1 kHz at 1.00x */
