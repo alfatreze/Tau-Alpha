@@ -1,6 +1,6 @@
 # Talos engine v2: feature-cost map probes (2026-11-25)
 
-Status: **PARTIAL. The Tau Alpha half is measured (two configurations, VM, map only). The Gallery half was NOT run: the Gallery archive bundle lives on the external volume `MONSTER`, which is not mounted on this Mac, so Gallery's `tau_talos.sv` was never readable.** Nothing about Gallery's feature costs is measured here; the tooling is ready and the missing runs are listed in section 7. Decisions behind this: D-T19 (the cost of each feature is measured before it is agreed) and D-T22 (map-only probes approved). Scoping: `TALOS_ENGINE_V2_GALLERY_FEATURES_SCOPING_2026-11-25.md` section 4, `TALOS_ENGINE_V2_SCOPING_2026-11-25.md`.
+Status: **COMPLETE at map level: ten configurations on the VM (Tau Alpha main twice, Tau Gallery's engine at 26d9b1c eight ways), `quartus_map` only, none fitted.** (A first version of this report was written before a read-only local clone of Gallery's bundle was available and covered only Tau Alpha; this version supersedes it.) Decisions behind this: D-T19 (the cost of each feature is measured before it is agreed) and D-T22 (map-only probes approved). Scoping: `TALOS_ENGINE_V2_GALLERY_FEATURES_SCOPING_2026-11-25.md` section 4, `TALOS_ENGINE_V2_SCOPING_2026-11-25.md`.
 
 ## 1. Method
 
@@ -14,6 +14,9 @@ Commands (from the repository root; each prints the summary and leaves `work/tal
 ```
 python3 tools/probes/talos_feat/run_probe.py ta-default
 python3 tools/probes/talos_feat/run_probe.py ta-shipped --param BLIT_BLEND_ENABLE=1 --param DBUF_ENABLE=1 --param FONT_RAM_ENABLE=1 --macro TAU_MLAB_MIGRATE --macro TAU_FONT_REPACK
+python3 tools/probes/talos_feat/make_variants.py <gallery tau_talos.sv> work/gal/tau_talos_scratch.sv
+# Gallery: --engine work/gal/tau_talos_gal.sv (as shipped) or the scratch copy, same --param/--macro trio as above, plus
+#   --param VIEW_ENABLE=0|1 and --macro NO_CORNERS / NO_DSBLIT / NO_DOUBLER (scratch copy only)
 python3 tools/probes/talos_feat/summarize.py
 ```
 
@@ -25,6 +28,16 @@ python3 tools/probes/talos_feat/summarize.py
 |---|---|---|---|---|---|---|---|---|
 | `ta-default`: main `tau_talos.sv`, every parameter at its default (blend, dbuf, font RAM off) | 1,317 | 1,920 | 1,121 | 125,440 | 15 (+2 auto) | 3 | 0 | 176 s |
 | `ta-shipped`: BLEND=1 DBUF=1 FONT_RAM=1 + the two macros (what ships) | **1,489** | 2,120 | 1,219 | 221,696 | 24 (+1 auto) | **6** | 0 | 268 s |
+| `gal-default`: Gallery's file as shipped, same trio and macros, VIEW_ENABLE=0 (CORNERS and DSBLIT are always built in it) | 1,766 | 2,545 | 1,260 | 221,696 | 24 (+1) | 10 | 0 | 255 s |
+| `gal-view`: the same, VIEW_ENABLE=1 (the Gallery set) | **1,902** | 2,732 | 1,433 | 221,696 | 24 (+1) | **11** | 0 | 254 s |
+| `sc-all`: scratch copy, nothing compiled out, VIEW_ENABLE=1 (control: must equal `gal-view`) | 1,902 | 2,732 | 1,433 | 221,696 | 24 (+1) | 11 | 0 | 247 s |
+| `sc-nocorners`: minus OP_CORNERS | 1,760 | 2,596 | 1,433 | 221,696 | 24 (+1) | 11 | 0 | 239 s |
+| `sc-nodsblit`: minus OP_DSBLIT | 1,772 | 2,498 | 1,392 | 221,696 | 24 (+1) | 7 | 0 | 245 s |
+| `sc-noview`: minus viewer fill (VIEW_ENABLE=0) | 1,766 | 2,545 | 1,260 | 221,696 | 24 (+1) | 10 | 0 | 236 s |
+| `sc-nodoubler`: minus the l/2 line select | 1,893 | 2,717 | 1,432 | 221,696 | 24 (+1) | 11 | 0 | 241 s |
+| `sc-none`: all four compiled out (the "all off" file) | 1,481 | 2,125 | 1,219 | 221,696 | 24 (+1) | 6 | 0 | 232 s |
+
+**Per-feature deltas against `sc-all` (map level, ALMs / ALUTs / registers / DSP):** OP_CORNERS 142 / 136 / 0 / 0; OP_DSBLIT 130 / 234 / 41 / **4**; viewer fill 136 / 187 / 173 / **1** (the doubler's l/2 select inside it: 9 ALMs, 15 ALUTs, 1 register); all four together 421 / 607 / 214 / 5. The three big features sum to 408 and the doubler adds 9: additive to within 4 ALMs, so there is no hidden interaction. **No feature adds block memory** in this file (221,696 bits in every row): the viewer's line buffer is not in the engine. **All-off check (D-T19 proof item 2):** `sc-none` has the same registers (1,219), DSP (6), block bits as `ta-shipped`; ALMs 1,481 against 1,489 (-8) and ALUTs 2,125 against 2,120 (+5): equal within synthesis noise at map level, not bit-identical, so the exact-equality form of the proof needs the rewritten engine's own all-off probe. Gallery's file has other small differences from main beyond the four features (mutation hooks, ports), which is where the -8 comes from.
 
 Warnings that matter: none new. Two "unintended latch behaviour" warnings on `blend_ch` locals (task variables `dsp` and `sum`, default configuration only) and the usual stuck-at output pins (`p0_byte_en`, upper length bits, `fill_seen` constant at map level); no inferred latch, no dropped feature logic beyond what the parameters switch off. The 268 s run overlapped another project's fit on the VM (load 3 to 4), the 176 s run overlapped that project's map.
 
@@ -44,21 +57,26 @@ Not supported: the final fitted ALM count (no packing, no physical synthesis, no
 
 ## 5. What it means for the sets and the budget
 
-* **TAU set (all off): unchanged by anything measured here.** The probe confirms the reference: the engine as shipped is 1,489 ALMs at map level, 6 DSP, 221,696 block bits. The budget (84 % ALMs, 274 to 281 of 308 M10K, 23 of 66 DSP) is for the whole core; no feature that is off may move any of these, and the D-T19 proof (all-off map equal to the pre-feature file) still has to be run on the rewritten engine with exactly this recipe.
-* **GALLERY set: not measured.** Scale only, from the baseline: the scoping's +0.9 to 1.7 k ALMs for the Gallery set would be +60 to +115 % of this engine's whole 1,489; +1 DSP would take the engine from 6 to 7. That sizing is the reason the probes matter, but it is not a result.
+* **TAU set (all off): costs nothing.** `sc-none` equals `ta-shipped` in registers, DSP and memory and is within 8 ALMs; the parameters do their job at map level. The budget (84 % ALMs, 274 to 281 of 308 M10K, 23 of 66 DSP) is untouched as long as nothing is on.
+* **GALLERY set (all on) in the engine file: +421 ALMs (+28 % of the engine's 1,489, about +2.3 % of the device's 18,480), +607 ALUTs, +214 registers, +5 DSP, +0 M10K.** Gallery's DSP total goes from 23 to about 28 of 66 on this evidence (42 %; m1f reported 53 of 66 with everything else in it, the engine's own 11 are part of that). **DSBLIT is the surprise: 4 of the 5 DSP** (a 2 x 2 box average should not need multipliers: the scaled-extent function `dsb_ext` and the tap step logic are mapped onto DSP blocks; a rewrite can write them as shifts and adds and probably recover the 4 DSP, which is worth doing because DSP is not Gallery's tight resource but ALMs and LABs are).
+* **Ranking of cost:** CORNERS 142 ALMs ~ viewer fill 136 ALMs (but the viewer fill carries 173 registers and the one DSP) ~ DSBLIT 130 ALMs (but 234 ALUTs and 4 DSP); the doubler select is negligible (9 ALMs).
+* **Per-set verdict for fit planning:** the engine adds about 2 % of the device for Gallery and nothing for Tau; the real fit risk for Gallery stays the whole-core figures (91 % ALMs, 94 % M10K) and timing, which map level cannot judge.
 
 ## 6. Do the scoping's estimates hold?
 
-**Unknown, not corrected.** No Gallery engine file was readable, so the estimates (+0.9 to 1.7 k ALM, +11 to 13 M10K, +1 DSP) are neither confirmed nor refuted. One thing is already visible without Gallery: the +11 to 13 M10K measured for the viewer bundle (B-1005) is mostly the viewer line buffer and landing FIFO (8 + 2 M10K by its own note), which live in `tau_scanout_v`/the viewer path and not in `tau_talos.sv`; a probe of the engine file alone will show only the engine's share of it. Plan the engine-file probe and a separate scan-out probe if the viewer M10K is to be attributed.
+* **ALMs: corrected downward.** Scoping +0.9 to 1.7 k for the Gallery set; measured +0.42 k at map level for the engine file (CORNERS + DSBLIT + viewer fill + doubler). Packing and physical synthesis move a fitted figure, but a factor of 2 to 4 is outside any plausible fit correction. The estimate is too high for the engine file; it may still hold for the viewer scan-out plus engine together (the scan-out is not in this file and was not probed).
+* **M10K: not an engine cost.** Scoping +11 to 13; measured +0 in the engine file. The +13 of B-1005 is the viewer line buffer (8 by its own note), the landing FIFO and similar, in `tau_scanout_v` and the landing path. The engine file is not where to budget it; the scan-out second step (D-T22) must be probed on its own.
+* **DSP: corrected upward.** Scoping +1; measured **+5** (+4 DSBLIT, +1 viewer fill). The B-1005 +1 DSP measured the viewer bundle only, and DSBLIT (a later Gallery 1.0 addition) was not in it.
 
-## 7. Still to run (needs `MONSTER` mounted; about 30 minutes of VM time)
+## 7. Method notes on the scratch copy
 
-1. Clone the bundle read-only into a new empty directory under `work/`, check out `26d9b1c`, read how `core_game.vh` there sets `BLIT_BLEND_ENABLE` and its other `tau_gfx` parameters (the Gallery engine has `VIEW_ENABLE`, which main's does not).
-2. Probes: `gal-default` (VIEW_ENABLE=0), `gal-view` (VIEW_ENABLE=1), both with the parameters Gallery uses; a baseline repeat of `ta-shipped` with identical settings is already above (like for like: same QSF, same VM, same toolchain).
-3. Scratch-copy variants (not committed): in a copy of Gallery's file wrap each feature in a macro added to the copy only (`FEAT_NO_CORNERS` around the OP_CORNERS arm and its registers, `FEAT_NO_DSBLIT` around the OP_DSBLIT arm and the scaled-blit reuse, `FEAT_NO_VIEWFILL` around the viewer fill states and idle arm, `FEAT_NO_DOUBLER` for the doubler line select if it lives in this file); run `run_probe.py NAME --engine <scratch copy> --macro FEAT_NO_CORNERS ...` for: all on, minus CORNERS, minus DSBLIT, minus viewer fill, minus doubler, none (close to `ta-shipped`). The patch is described, not stored, because it would copy Gallery text into this tree; the deltas are the ranking.
-4. Fill the table of section 2 and replace section 6 with a verdict.
+* Gallery's `tau_talos.sv` (HEAD 26d9b1c, 2,057 lines) was copied from a read-only local clone to `work/gal/` (git-ignored); the leaf modules (`font_rom.v`, `font_ram.v`, `tau_cdc_gray_ctr.sv`) are byte-identical to Tau Alpha's. `tools/probes/talos_feat/make_variants.py GALLERY_FILE OUT.sv` builds the scratch copy: it wraps the `OP_CORNERS: begin ... end` and `OP_DSBLIT: begin ... end` dispatch arms in `` `ifndef NO_CORNERS `` / `` `ifndef NO_DSBLIT `` and turns the `src_line` select into `fill_line` under `` `ifdef NO_DOUBLER ``; nothing else changes. Gallery's text is not stored in this repository, only the patcher. The viewer fill is removed by the existing `VIEW_ENABLE` parameter. The control run `sc-all` equals `gal-view` in every figure, so the patch itself costs nothing.
+* A removed arm leaves the registers it alone set (`dsb_*`, `q_dsb_out_*`, `vdbl_l`) assigned but never read; Quartus removes them (the warnings rise from 9 to 14 in `sc-none`), which is what the register deltas show.
+* Parameters of all Gallery runs: BLIT_BLEND_ENABLE, DBUF_ENABLE and FONT_RAM_ENABLE = 1 with TAU_MLAB_MIGRATE and TAU_FONT_REPACK, as Gallery's `core_game.vh` passes them (it instantiates `tau_gfx` with `TAU_BLIT_BLEND_EN`, `TAU_DBUF_EN`, `TAU_FONT_RAM_EN`, `TAU_VIEW_EN`, the same macros as Tau Alpha plus `TAU_VIEW`); I did not check Gallery's own release macro list, so "blend, dbuf, font RAM on" is an assumption shared with Tau Alpha. `VIEW_ENABLE` is the only extra Gallery parameter.
+* Run times: 232 to 268 s each, about 34 minutes for the eight Gallery runs, sequential, with another project's fit running on the VM the whole time (load 2.5 to 4).
 
 ## 8. Files and leftovers
 
-* `tools/probes/talos_feat/`: `talos_feat.qpf`, `talos_feat.qsf`, `run_probe.py` (one configuration), `summarize.py` (table from the pulled reports). Pulled reports: `work/talos_feat/` (git-ignored).
-* On the VM, left for the owner to clean (small): `~/tau-local/probe-talos-feat-ta-default`, `~/tau-local/probe-talos-feat-ta-shipped`.
+* `tools/probes/talos_feat/`: `talos_feat.qpf`, `talos_feat.qsf`, `run_probe.py` (one configuration), `make_variants.py` (the scratch-copy patcher), `summarize.py` (table from the pulled reports). Pulled reports: `work/talos_feat/` (git-ignored).
+* On the VM, left for the owner to clean (small), all under `~/tau-local/`: `probe-talos-feat-ta-default`, `-ta-shipped`, `-gal-default`, `-gal-view`, `-sc-all`, `-sc-nocorners`, `-sc-nodsblit`, `-sc-noview`, `-sc-nodoubler`, `-sc-none`.
+
