@@ -218,10 +218,10 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [sim/tb_mp3_fb.v](../../../sim/tb_mp3_fb.v) | 366 | 197 | 53.8% | 0 | modified / modified |
 | [sim/tb_pcm_decay.v](../../../sim/tb_pcm_decay.v) | 75 | 68 | 90.7% | 7 | modified / modified |
 | [sim/tb_pcm_fifo.v](../../../sim/tb_pcm_fifo.v) | 76 | 11 | 14.5% | 60 | absent / identical |
-| [sim/tb_picorv32.v](../../../sim/tb_picorv32.v) | 125 | 125 | 100.0% | 0 | identical / identical |
+| `sim/tb_picorv32.v` (deleted by D-T20, in git history) | 125 | 125 | 100.0% | 0 | identical / identical |
 | [sim/tb_psram_fw.v](../../../sim/tb_psram_fw.v) | 129 | 3 | 2.3% | 0 | absent / absent |
 | [sim/tb_psram_ifetch.v](../../../sim/tb_psram_ifetch.v) | 108 | 3 | 2.8% | 0 | absent / absent |
-| [sim/tb_reference.v](../../../sim/tb_reference.v) | 413 | 413 | 100.0% | 0 | identical / identical |
+| `sim/tb_reference.v` (deleted by D-T20, in git history) | 413 | 413 | 100.0% | 0 | identical / identical |
 | [sim/tb_sdram_fb_controller_probe.v](../../../sim/tb_sdram_fb_controller_probe.v) | 106 | 0 | 0.0% | 0 | absent / absent |
 | [sim/tb_sound_i2s_full16.v](../../../sim/tb_sound_i2s_full16.v) | 45 | 0 | 0.0% | 0 | absent / absent |
 | [sim/tb_tau_cdc_gray_bus.v](../../../sim/tb_tau_cdc_gray_bus.v) | 38 | 0 | 0.0% | 0 | absent / absent |
@@ -254,7 +254,7 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [sim/tb_tau_vs_counter.v](../../../sim/tb_tau_vs_counter.v) | 24 | 0 | 0.0% | 0 | absent / absent |
 | [sim/tb_tau_wave_meter.v](../../../sim/tb_tau_wave_meter.v) | 78 | 0 | 0.0% | 0 | absent / absent |
 | [sim/tb_tgt_cmd.v](../../../sim/tb_tgt_cmd.v) | 84 | 67 | 79.8% | 0 | modified / modified |
-| [sim/tb_vexriscv.v](../../../sim/tb_vexriscv.v) | 93 | 93 | 100.0% | 0 | identical / identical |
+| `sim/tb_vexriscv.v` (deleted by D-T20, in git history) | 93 | 93 | 100.0% | 0 | identical / identical |
 | [sim/tempo_funnel_harness.c](../../../sim/tempo_funnel_harness.c) | 40 | 0 | 0.0% | 0 | absent / absent |
 | [sim/test_art_decode.py](../../../sim/test_art_decode.py) | 93 | 4 | 4.3% | 0 | absent / absent |
 | [sim/test_art_source.py](../../../sim/test_art_source.py) | 45 | 0 | 0.0% | 0 | absent / absent |
@@ -374,9 +374,9 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 |---|---:|---:|---:|---:|---|
 | [Makefile](../../../Makefile) | 413 | 0 | 0.0% | 4 | absent / absent |
 | [package.py](../../../package.py) | 124 | 77 | 62.1% | 0 | modified / modified |
-| [tools/art_scale_model.py](../../../tools/art_scale_model.py) | 101 | 101 | 100.0% | 0 | identical / identical |
+| `tools/art_scale_model.py` (deleted by D-T20, in git history) | 101 | 101 | 100.0% | 0 | identical / identical |
 | [tools/capture_splash_frame.py](../../../tools/capture_splash_frame.py) | 87 | 0 | 0.0% | 0 | absent / absent |
-| [tools/card_snapshot.py](../../../tools/card_snapshot.py) | 219 | 215 | 98.2% | 0 | modified / modified |
+| `tools/card_snapshot.py` (deleted by D-T20, in git history) | 219 | 215 | 98.2% | 0 | modified / modified |
 | [tools/check_art_load_order.py](../../../tools/check_art_load_order.py) | 118 | 2 | 1.7% | 0 | absent / absent |
 | [tools/check_audit_trail.py](../../../tools/check_audit_trail.py) | 18 | 0 | 0.0% | 0 | absent / absent |
 | [tools/check_build_env.sh](../../../tools/check_build_env.sh) | 58 | 0 | 0.0% | 0 | absent / absent |
@@ -394,16 +394,16 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [tools/decode_tau_suite.py](../../../tools/decode_tau_suite.py) | 330 | 0 | 0.0% | 0 | absent / absent |
 | [tools/diag_cost.py](../../../tools/diag_cost.py) | 49 | 0 | 0.0% | 0 | absent / absent |
 | [tools/fit_manifest.py](../../../tools/fit_manifest.py) | 57 | 2 | 3.5% | 0 | absent / absent |
-| [tools/flac_bitreader_check.py](../../../tools/flac_bitreader_check.py) | 120 | 120 | 100.0% | 0 | identical / identical |
-| [tools/flac_framepos_check.py](../../../tools/flac_framepos_check.py) | 150 | 150 | 100.0% | 0 | identical / identical |
-| [tools/flac_hdrcrc_check.py](../../../tools/flac_hdrcrc_check.py) | 119 | 119 | 100.0% | 0 | identical / identical |
-| [tools/flac_lpc_capture.py](../../../tools/flac_lpc_capture.py) | 154 | 47 | 30.5% | 0 | absent / absent |
+| `tools/flac_bitreader_check.py` (deleted by D-T20, in git history) | 120 | 120 | 100.0% | 0 | identical / identical |
+| `tools/flac_framepos_check.py` (deleted by D-T20, in git history) | 150 | 150 | 100.0% | 0 | identical / identical |
+| `tools/flac_hdrcrc_check.py` (deleted by D-T20, in git history) | 119 | 119 | 100.0% | 0 | identical / identical |
+| `tools/flac_lpc_capture.py` (deleted by D-T20, in git history) | 154 | 47 | 30.5% | 0 | absent / absent |
 | [tools/flac_make_test.py](../../../tools/flac_make_test.py) | 199 | 199 | 100.0% | 0 | identical / identical |
-| [tools/flac_probe.py](../../../tools/flac_probe.py) | 64 | 64 | 100.0% | 0 | identical / identical |
+| `tools/flac_probe.py` (deleted by D-T20, in git history) | 64 | 64 | 100.0% | 0 | identical / identical |
 | [tools/flac_ref.py](../../../tools/flac_ref.py) | 233 | 233 | 100.0% | 0 | identical / identical |
-| [tools/flac_resync_check.py](../../../tools/flac_resync_check.py) | 76 | 76 | 100.0% | 0 | identical / identical |
+| `tools/flac_resync_check.py` (deleted by D-T20, in git history) | 76 | 76 | 100.0% | 0 | identical / identical |
 | [tools/flac_verify.py](../../../tools/flac_verify.py) | 269 | 269 | 100.0% | 0 | identical / identical |
-| [tools/font_preview.py](../../../tools/font_preview.py) | 175 | 175 | 100.0% | 0 | identical / identical |
+| `tools/font_preview.py` (deleted by D-T20, in git history) | 175 | 175 | 100.0% | 0 | identical / identical |
 | [tools/gen_cymo_resamp_rom.py](../../../tools/gen_cymo_resamp_rom.py) | 105 | 3 | 2.9% | 0 | absent / absent |
 | [tools/gen_diag_features.py](../../../tools/gen_diag_features.py) | 90 | 0 | 0.0% | 0 | absent / absent |
 | [tools/gen_eq_coeffs.py](../../../tools/gen_eq_coeffs.py) | 281 | 198 | 70.5% | 0 | modified / modified |
@@ -418,9 +418,9 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [tools/gen_text_gamma.py](../../../tools/gen_text_gamma.py) | 179 | 166 | 92.7% | 0 | modified / modified |
 | [tools/gen_themes.py](../../../tools/gen_themes.py) | 210 | 2 | 1.0% | 0 | absent / absent |
 | [tools/gen_vu_segment_table.py](../../../tools/gen_vu_segment_table.py) | 82 | 2 | 2.4% | 0 | absent / absent |
-| [tools/gradient_preview.py](../../../tools/gradient_preview.py) | 138 | 138 | 100.0% | 0 | identical / identical |
+| `tools/gradient_preview.py` (deleted by D-T20, in git history) | 138 | 138 | 100.0% | 0 | identical / identical |
 | [tools/halcyon_assets.py](../../../tools/halcyon_assets.py) | 234 | 0 | 0.0% | 0 | absent / absent |
-| [tools/idle_preview.py](../../../tools/idle_preview.py) | 92 | 91 | 98.9% | 0 | modified / modified |
+| `tools/idle_preview.py` (deleted by D-T20, in git history) | 92 | 91 | 98.9% | 0 | modified / modified |
 | [tools/install_dev_core.py](../../../tools/install_dev_core.py) | 451 | 2 | 0.4% | 0 | absent / absent |
 | [tools/lab/barcode_lab.py](../../../tools/lab/barcode_lab.py) | 160 | 0 | 0.0% | 0 | absent / absent |
 | [tools/lab/cymo_ab_listen.py](../../../tools/lab/cymo_ab_listen.py) | 148 | 11 | 7.4% | 0 | absent / absent |
@@ -457,12 +457,12 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [tools/package_dev_build.py](../../../tools/package_dev_build.py) | 203 | 0 | 0.0% | 0 | absent / absent |
 | [tools/package_psram_diagnostic.py](../../../tools/package_psram_diagnostic.py) | 167 | 0 | 0.0% | 0 | absent / absent |
 | [tools/pixgrid_check.py](../../../tools/pixgrid_check.py) | 42 | 0 | 0.0% | 0 | absent / absent |
-| [tools/push_card.ps1](../../../tools/push_card.ps1) | 72 | 69 | 95.8% | 0 | modified / modified |
+| `tools/push_card.ps1` (deleted by D-T20, in git history) | 72 | 69 | 95.8% | 0 | modified / modified |
 | [tools/quartus_fit_summary.py](../../../tools/quartus_fit_summary.py) | 99 | 0 | 0.0% | 0 | absent / absent |
 | [tools/ram_report.py](../../../tools/ram_report.py) | 157 | 0 | 0.0% | 0 | absent / absent |
 | [tools/rv32sim.py](../../../tools/rv32sim.py) | 286 | 286 | 100.0% | 0 | identical / modified |
-| [tools/splash_preview.py](../../../tools/splash_preview.py) | 185 | 183 | 98.9% | 0 | modified / modified |
-| [tools/strip_xing.py](../../../tools/strip_xing.py) | 70 | 70 | 100.0% | 0 | identical / identical |
+| `tools/splash_preview.py` (deleted by D-T20, in git history) | 185 | 183 | 98.9% | 0 | modified / modified |
+| `tools/strip_xing.py` (deleted by D-T20, in git history) | 70 | 70 | 100.0% | 0 | identical / identical |
 | [tools/sync_media.py](../../../tools/sync_media.py) | 516 | 7 | 1.4% | 0 | absent / absent |
 | [tools/tau_assets.py](../../../tools/tau_assets.py) | 229 | 2 | 0.9% | 0 | absent / absent |
 | [tools/tau_compat.py](../../../tools/tau_compat.py) | 737 | 2 | 0.3% | 0 | absent / absent |
@@ -479,7 +479,7 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [tools/ui_snapshot_renderer.py](../../../tools/ui_snapshot_renderer.py) | 799 | 0 | 0.0% | 0 | absent / absent |
 | [tools/visual_review.py](../../../tools/visual_review.py) | 169 | 0 | 0.0% | 0 | absent / absent |
 | [tools/vm_fit.py](../../../tools/vm_fit.py) | 136 | 0 | 0.0% | 0 | absent / absent |
-| [tools/xing_check.py](../../../tools/xing_check.py) | 122 | 120 | 98.4% | 0 | modified / modified |
+| `tools/xing_check.py` (deleted by D-T20, in git history) | 122 | 120 | 98.4% | 0 | modified / modified |
 
 ## vendor
 
