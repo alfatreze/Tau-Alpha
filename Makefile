@@ -56,6 +56,7 @@ test-host:
 	$(PYTHON) tools/check_claude_md.py
 	$(PYTHON) sim/test_check_claude_md.py
 	$(PYTHON) sim/test_check_doc_links.py
+	$(PYTHON) sim/test_derive_text_weights.py
 	$(PYTHON) tools/check_doc_links.py --baseline docs/research/provenance-2026-11-25/doc_links_baseline.json --hard-only
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
