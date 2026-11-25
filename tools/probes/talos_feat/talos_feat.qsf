@@ -1,0 +1,26 @@
+# Map-only (analysis and synthesis) probe of the Talos engine, entity level. MIT licence.
+# top = tau_talos itself (all its ports become pins; nothing is optimised away for lack of a consumer).
+# Staged FLAT by tools/probes/talos_feat/run_probe.py: this file, the .qpf, tau_talos.sv and its leaf modules at the root.
+# Device and the global synthesis settings are those of tools/sdram_probe/sdram_probe.qsf (= src/fpga/ap_core.qsf).
+# run_probe.py appends the per-configuration `set_parameter` / VERILOG_MACRO lines at the end.
+
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name DEVICE_FILTER_PACKAGE FBGA
+set_global_assignment -name DEVICE_FILTER_PIN_COUNT 484
+set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 8
+set_global_assignment -name TOP_LEVEL_ENTITY tau_talos
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+
+set_global_assignment -name SAFE_STATE_MACHINE ON
+set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP ON
+set_global_assignment -name SYNTH_PROTECT_SDC_CONSTRAINT ON
+set_global_assignment -name PRE_MAPPING_RESYNTHESIS ON
+set_global_assignment -name OPTIMIZATION_TECHNIQUE SPEED
+set_global_assignment -name MUX_RESTRUCTURE OFF
+set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
+
+set_global_assignment -name SYSTEMVERILOG_FILE tau_cdc_gray_ctr.sv
+set_global_assignment -name SYSTEMVERILOG_FILE tau_talos.sv
+set_global_assignment -name VERILOG_FILE font_rom.v
+set_global_assignment -name VERILOG_FILE font_ram.v

@@ -1,0 +1,3 @@
+# Quartus project file of the Talos engine feature-cost map probe (see talos_feat.qsf, README.md). MIT licence.
+QUARTUS_VERSION = "18.1"
+PROJECT_REVISION = "talos_feat"
