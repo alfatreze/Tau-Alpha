@@ -108,6 +108,7 @@ test-host:
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
+	$(PYTHON) sim/test_mp3_poly_mono.py
 	$(PYTHON) sim/test_helix_pristine.py
 	$(PYTHON) sim/test_mp3_poly_derive.py
 	$(PYTHON) sim/test_chladni_core.py
@@ -120,6 +121,7 @@ test-host:
 	$(PYTHON) sim/test_p2_governor.py
 	$(PYTHON) sim/test_p2_counters.py
 	$(PYTHON) sim/test_p2_aout.py
+	$(PYTHON) sim/test_p2_aout_rate.py
 	$(PYTHON) sim/test_p2_monoclock.py
 	$(PYTHON) sim/test_p2_rtc.py
 	$(PYTHON) sim/test_p2_save_probe.py
