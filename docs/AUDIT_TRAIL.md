@@ -16651,3 +16651,36 @@ Three fresh subagents (a cheaper model, only the exported template and SDK trees
 **Estimated:** the RAM prize (35-45 KB hot RAM, freeing 27-37 KB), effort (26-36 sessions), the DCT32/IMDCT kernel option (taken from `MP3_FILTERBANK_KERNEL_DESIGN.md`, not re-derived).
 **Whole-engine reading (section 10):** three independent clk_sys-derived 48 kHz tick sources against the asynchronous LRCK; the built resampler is 44.1 kHz at 1.00x only (hold path 27.8 dB SINAD vs 58.2 dB); no rate tag in the ring; recommendation to keep conversion out of the decoder and to define the decoder's output contract with a rate tag and source pair index.
 **Could not verify:** ISO conformance streams and minimp3 vectors (not obtained; licences unknown), the standard's tolerance rule and Huffman tables (from memory, flagged), MPEG-2/2.5, intensity, mixed blocks, free format, the CPU's SpinalHDL configuration, any Pocket figure beyond the audit's single unknown track, whether a slip at the LRCK occurs. The host SDK needed `-isysroot MacOSX26.5.sdk` to link (the default 27.2 SDK has a malformed `libSystem.tbd`).
+
+## B-1170: independent expert review of the MP3 decoder v2 scoping (B-1169) (2026-11-25)
+**Evidence: HOST-MEASURED (re-runs and scratch measurements) + READ + MODEL. Nothing run on a Pocket; no fit, card, VM or decoder code; the scratch tools are not committed.**
+Document: `docs/features/MP3_DECODER_V2_EXPERT_REVIEW_2026-11-25.md`. It names Helix internals, so it must not go to a clean-room implementer.
+**Re-ran:** `tools/mp3_v2_measure/measure.py` reproduces B-1169 exactly: 602,894 instructions / 762,972 model cycles at 150 frames, 603,094 instructions at 3,000 frames.
+**Measured (scratch):**
+* Helix built as Player 2 ships it (`TAU_POLY_FW` + `TAU_POLY_REQUIRED`, unit stubbed), run in a copy of `rvprof.c` with a 4 KiB direct-mapped I$/D$ model:
+  * stereo: 274-300 k instructions / 329-359 k model cycles per frame, not 212 k / 255 k; about 66 k instructions of that is unit handoff glue;
+  * mono speech: 318 k instructions / 390 k model cycles per frame, 242 k of it in the software `PolyphaseMono` (the unit is stereo-only);
+  * calibration against B-591: about 1.3x, or 1.15x with cache misses, not 1.1-2.2x.
+* `fw2/build.sh DIAG=0` rebuilt:
+  * heap gap 13,568 B, confirmed;
+  * linked Helix is 66.8 KB of hot RAM, not 71.5 KB: code 28,844 B (not 33.5 KB), tables 12,614 B, arena 24,576 B.
+* Samples at the rails in Helix's 16-bit output: Test Album 0-3 samples; Cowboy Bebop MP3s 0.03-0.45 %. This is an upper bound on decoder-created clipping.
+* Header scan of 59 MP3s in `test music/`:
+  * all MPEG-1 at 44.1/48 kHz;
+  * no LSF, intensity, mixed-block, CRC or free-format frames;
+  * 05 MacCunn 320 48k has 283 MS frames (B-1169 said none).
+* Slip arithmetic: the 48 kHz tick at 66.667 MHz runs -0.147 ppm against an exact MCLK, one sample slip per 142 s.
+
+**Read:**
+* in full: the Halcyon spec, DSP review, gain-stage design, output-stage spec, headphone plan, GAPLESS spec and SKIP_SILENCE spec;
+* code: `aout.c`, `poly_hw.c`, the `subband.c`/`dct32.c` hooks, `tau_mp3_poly.sv`, the `tau_halcyon.sv` tick, `sound_i2s.v`, the `VexRiscv_Full.v` cache sizes;
+* `STAGE0_RESULTS.md` section 4;
+* minimp3 licence (CC0 1.0) and source structure (web).
+
+**Findings:**
+* A fixed-point minimp3-derived option (CC0) was not compared, and is recommended: option (d), 18-25 sessions, modelled at -35 % decode instructions. Stock float minimp3 stays infeasible: even with the unit it needs about 59 k float ops per frame through softfloat.
+* Player 2 drains every rate except 44.1 kHz at 48 kHz (`fw2/aout/aout.c:38`), a regression from `fw/player.c`. Files at 32/24/22.05 kHz would play at the wrong speed. READ only, not played.
+* The window unit's push order and scaling are a Helix-defined interface that the clean-room contract must restate.
+* The ISO tolerance plan does not state the comparison domain (my statement of the rule is from memory, to verify).
+
+**Not verified:** the 11172-4 text, the vector licences, minimp3's RV32 code size, pvmp3, the fit-report resource figures, the achieved MCLK frequency, any Pocket figure.
