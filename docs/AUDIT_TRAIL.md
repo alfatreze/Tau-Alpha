@@ -16665,3 +16665,43 @@ Three fresh subagents (a cheaper model, only the exported template and SDK trees
 
 ## B-1168: Helix vendored pristine plus tau.patch; MP3 window ROM derived from the standard (2026-11-25)
 **Evidence: HOST-ONLY (host builds, host tests, iverilog bench, two firmware builds); nothing run on a Pocket, no fit, no VM, no card.** Task A: `third_party/libhelix-mp3/` is byte-identical to upstream `0a0e0673` (70 files, `UPSTREAM.sha256`, `UPSTREAM.md`; project files regained CRLF; three root licence files added); Tau's changes are one `tau.patch` (5 files) plus `third_party/libhelix-mp3-tau/pub/mp3_profile.h`; `tools/helix_tree.py` assembles `build/helix-tau/`, used by `fw2/build.sh`, `fw/build.sh`, `sim/build_fw.sh`, six host tests and the ROM generator. Gate: `fw2/build.sh` DIAG=0 `tau.rom` 7964072921d0f19ba4c1add03a4215f3943bdf3af9e347ac6d432cfdd2434187 and DIAG=1 1bf6bdefd999cb5c985df3f35780447a78c9e9b0b535621e4bccf65ecf2303de, identical before and after (tau-cold.bin too). New `sim/test_helix_pristine.py`. Not run: `fw/build.sh` and `sim/build_fw.sh` (only `bash -n`). Task B: see `docs/features/MP3_WINDOW_TABLE_PROVENANCE_2026-11-25.md` (source lieff/minimp3 CC0; `tools/extract_mp3_window.py`, `tools/mp3_window_derive.py`, `sim/test_mp3_poly_derive.py`); `tau_mp3_poly_rom.svh` byte-identical (SHA-256 d166cc9c...c388); the tap map is derived from the standard, the push order stays a Helix-defined ABI. Passing: helix_pristine, mp3_poly_{derive,model,subband,probe,fw}, test-rtl-mp3-poly; doc-link gate 0 new. Host C tests needed `SDKROOT=.../MacOSX26.5.sdk` (the default SDK's libSystem.tbd is broken on this Mac, unrelated to this change). Open: the `.svh` header comment still names Helix (byte-identity gate); `test_p2_mp3` and the trim real-file part skip (no test music).
+
+## B-1169: MP3 decoder v2 scoping: current decoder measured (instruction counts, cycle model, RAM), architecture, ISA model, whole-engine alignment (2026-11-25)
+**Evidence: HOST-MEASURED (instruction counts of the real Helix build on rv32im, per function, 150 frames of three Test Album files), MODEL (cycles: a VexRiscv-like model written into `tools/mp3_v2_measure/rvprof.c`; optimistic against the Pocket by 1.1-2.2x), READ (RTL headers and wiring, firmware, audit B-586..B-593, B-713, the Cymo and gapless docs), ESTIMATE where stated. Not run on a Pocket; no fit, no RTL, no decoder code, nothing merged or pushed.** Documents: `docs/features/MP3_DECODER_V2_SCOPING_2026-11-25.md`, `MP3_DECODER_V2_REQUIREMENTS.csv`, `MP3_DECODER_V2_CLEANROOM_PROCESS.md` (all three describe Helix internals and must not go to the clean-room author). Tools: `tools/mp3_v2_measure/` (measurement only; links the current decoder, contains no decoder).
+**Measured:** with the software window one 44.1 kHz stereo frame is 602,894 instructions / 762,972 model cycles, the window 67 % of it; with the hardware window the remainder is about 255 k model cycles (IMDCT 33 %, DCT32 24 %, requant 18 %, Huffman 14 %, MS 6 %); the model x1.6-1.75 reproduces the pre-unit "70-77 % of real time" figure. Player 2 DIAG=0 rebuilt: heap gap 13,568 B; Helix is about 71.5 KB of hot RAM (code 33.5 KB, tables 12.75 KB, data 0.64 KB, arena 24.6 KB; `sizeof` of its eight state structures 23,856 B against the hardware peak 23,824 B), of which the polyphase history is 8.7 KB. Custom-instruction candidates counted on the real hot loops: fusable multiply-high-accumulate 6.1 k of 212 k remaining instructions, everything combined at most 14 k (1.5-2.5 % CPU): not justified.
+**Estimated:** the RAM prize (35-45 KB hot RAM, freeing 27-37 KB), effort (26-36 sessions), the DCT32/IMDCT kernel option (taken from `MP3_FILTERBANK_KERNEL_DESIGN.md`, not re-derived).
+**Whole-engine reading (section 10):** three independent clk_sys-derived 48 kHz tick sources against the asynchronous LRCK; the built resampler is 44.1 kHz at 1.00x only (hold path 27.8 dB SINAD vs 58.2 dB); no rate tag in the ring; recommendation to keep conversion out of the decoder and to define the decoder's output contract with a rate tag and source pair index.
+**Could not verify:** ISO conformance streams and minimp3 vectors (not obtained; licences unknown), the standard's tolerance rule and Huffman tables (from memory, flagged), MPEG-2/2.5, intensity, mixed blocks, free format, the CPU's SpinalHDL configuration, any Pocket figure beyond the audit's single unknown track, whether a slip at the LRCK occurs. The host SDK needed `-isysroot MacOSX26.5.sdk` to link (the default 27.2 SDK has a malformed `libSystem.tbd`).
+
+## B-1170: independent expert review of the MP3 decoder v2 scoping (B-1169) (2026-11-25)
+**Evidence: HOST-MEASURED (re-runs and scratch measurements) + READ + MODEL. Nothing run on a Pocket; no fit, card, VM or decoder code; the scratch tools are not committed.**
+Document: `docs/features/MP3_DECODER_V2_EXPERT_REVIEW_2026-11-25.md`. It names Helix internals, so it must not go to a clean-room implementer.
+**Re-ran:** `tools/mp3_v2_measure/measure.py` reproduces B-1169 exactly: 602,894 instructions / 762,972 model cycles at 150 frames, 603,094 instructions at 3,000 frames.
+**Measured (scratch):**
+* Helix built as Player 2 ships it (`TAU_POLY_FW` + `TAU_POLY_REQUIRED`, unit stubbed), run in a copy of `rvprof.c` with a 4 KiB direct-mapped I$/D$ model:
+  * stereo: 274-300 k instructions / 329-359 k model cycles per frame, not 212 k / 255 k; about 66 k instructions of that is unit handoff glue;
+  * mono speech: 318 k instructions / 390 k model cycles per frame, 242 k of it in the software `PolyphaseMono` (the unit is stereo-only);
+  * calibration against B-591: about 1.3x, or 1.15x with cache misses, not 1.1-2.2x.
+* `fw2/build.sh DIAG=0` rebuilt:
+  * heap gap 13,568 B, confirmed;
+  * linked Helix is 66.8 KB of hot RAM, not 71.5 KB: code 28,844 B (not 33.5 KB), tables 12,614 B, arena 24,576 B.
+* Samples at the rails in Helix's 16-bit output: Test Album 0-3 samples; Cowboy Bebop MP3s 0.03-0.45 %. This is an upper bound on decoder-created clipping.
+* Header scan of 59 MP3s in `test music/`:
+  * all MPEG-1 at 44.1/48 kHz;
+  * no LSF, intensity, mixed-block, CRC or free-format frames;
+  * 05 MacCunn 320 48k has 283 MS frames (B-1169 said none).
+* Slip arithmetic: the 48 kHz tick at 66.667 MHz runs -0.147 ppm against an exact MCLK, one sample slip per 142 s.
+
+**Read:**
+* in full: the Halcyon spec, DSP review, gain-stage design, output-stage spec, headphone plan, GAPLESS spec and SKIP_SILENCE spec;
+* code: `aout.c`, `poly_hw.c`, the `subband.c`/`dct32.c` hooks, `tau_mp3_poly.sv`, the `tau_halcyon.sv` tick, `sound_i2s.v`, the `VexRiscv_Full.v` cache sizes;
+* `STAGE0_RESULTS.md` section 4;
+* minimp3 licence (CC0 1.0) and source structure (web).
+
+**Findings:**
+* A fixed-point minimp3-derived option (CC0) was not compared, and is recommended: option (d), 18-25 sessions, modelled at -35 % decode instructions. Stock float minimp3 stays infeasible: even with the unit it needs about 59 k float ops per frame through softfloat.
+* Player 2 drains every rate except 44.1 kHz at 48 kHz (`fw2/aout/aout.c:38`), a regression from `fw/player.c`. Files at 32/24/22.05 kHz would play at the wrong speed. READ only, not played.
+* The window unit's push order and scaling are a Helix-defined interface that the clean-room contract must restate.
+* The ISO tolerance plan does not state the comparison domain (my statement of the rule is from memory, to verify).
+
+**Not verified:** the 11172-4 text, the vector licences, minimp3's RV32 code size, pvmp3, the fit-report resource figures, the achieved MCLK frequency, any Pocket figure.

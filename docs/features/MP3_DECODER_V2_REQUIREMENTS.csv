@@ -1,0 +1,34 @@
+name,kind,needed_now,current_cost_cpu,current_cost_ram,measured_or_estimated,keep_or_change,test_that_covers_it_today,test_to_add
+MPEG-1 L3 44.1/48/32 kHz decode,bitstream,yes,"decode loop about 30% CPU at 1.00x (Pocket B-591); about 255k model cycles/frame with the hardware window","71.5 KB hot RAM (33.5 code + 12.75 tables + 0.64 data + 24.6 arena)",Pocket + host-measured,change (rewrite),sim/test_p2_mp3.py (Test Album files; skipped without the music); sim/test_mp3_poly_*.py,ISO conformance streams; encoder-generated edge streams; float-model RMS/max per vector
+32 kHz MPEG-1,bitstream,yes (rate supported; no shipped test file),same as 44.1,same,not measured,keep,none (no 32 kHz file in Test Album),generated 32 kHz vector
+MPEG-2 LSF 16/22.05/24 kHz,bitstream,unknown (spoken-word MP3s at 22.05/24 kHz are named in CYMO_AUDIO_ENGINE),not measured,not measured,not measured,keep if the owner's library has any (decision D2),none,LSF vectors; scale-factor and granule structure tests
+MPEG-2.5 8/11.025/12 kHz,bitstream,unknown,not measured,not measured,not measured,owner decision D2,none,vectors
+Free format,bitstream,no evidence of need,not measured,not measured,not measured,owner decision D2,none,vector
+VBR (per-frame bit rate),bitstream,yes,included above,included above,host,keep,Test Album VBR? (unverified),VBR vector with Xing
+Mono,bitstream,yes (speech file),"about 395k model cycles/frame software window; half of stereo","same arena (one channel unused)",host-measured,keep,sim/test_p2_mp3.py (track 11),mono vectors incl. MPEG-2 mono
+Stereo/joint MS,stereo,yes,"MS 15.2k model cycles/frame (6% of remainder)",none,host-measured,keep,sim/test_p2_mp3.py,MS-only and L/R-only frames; MS rounding mutants
+Intensity stereo,stereo,unknown,not exercised (about 1.1k+0.9k bytes code),not measured,not measured,owner decision D2,none,intensity vectors (MPEG-1 and MPEG-2)
+Long/short/start/stop blocks,transform,yes,"part of IMDCT 84.3k model cycles/frame",overlap 4.6 KB,host-measured,keep,Test Album music (not isolated),switch-pattern vector; mutants for the short-block window half
+Mixed blocks,transform,unknown,not measured,not measured,not measured,owner decision D2,none,mixed-block vector
+Antialias and reorder,transform,yes,inlined in IMDCT/requant (cannot be separated),none,host-measured,keep,none isolated,golden stage data from the float model
+Huffman decode (bit reader + tables),entropy,yes,"34.7k model cycles/frame at 128k, 55.6k at 320k (Pocket h 4%)","8.9 KB tables + 4.6 KB spectrum buffer",host-measured + Pocket,change (compact tables),Test Album,all 32 tables incl. linbits; count1 A/B; mutants (linbits width; sign)
+Requantisation,transform,yes,"47.0k model cycles/frame (6.2% of software-window total)","pow tables 0.4 KB + 0.84 KB work buffer",host-measured,change,Test Album,golden stage data; saturation tests
+Scale factors / scfsi,side info,yes,"1.6k model cycles/frame","0.28 KB",host-measured,keep,Test Album,scfsi reuse vectors
+Side info and frame header,side info,yes,"0.9k model cycles/frame","0.4 KB",host-measured,keep,Test Album,header corruption fuzz
+Bit reservoir,state,yes,"memcpy/memmove about 6k model cycles/frame","2.06 KB (1.94 KB main data)",host-measured,change (ring instead of memmove),Test Album + junk-between-frames test,main_data_begin beyond available; reservoir-before-file-start
+CRC check,bitstream,no (bits skipped today),0,0,read,keep skipped unless owner decides,none,CRC vector (decision)
+Polyphase DCT32,synthesis,yes,"61.7k model cycles/frame; Pocket sub_fdct 8% (about 139k cycles/frame)","0.26 KB scratch needed; 8.7 KB history in Helix",host-measured + Pocket,change (kernel candidate section 5.3),sim/test_mp3_poly_subband.py,golden stage data
+Polyphase window,synthesis,yes (hardware unit),"software 508k model cycles/frame (67%); hardware handoff Pocket 3%","7.5 KB code + 1 KB table kept as fallback",host-measured + Pocket,keep the unit; drop the software path if D3,sim/test_mp3_poly_*.py,unit handshake contract test; timeout-silence rule
+Window unit handshake (start/finish/clear),interface,yes,"130 MMIO accesses/slot; first 8 slots self-checked","160 B bss",read,keep unchanged,sim/test_mp3_poly_subband.py,same
+Output/PCM push,interface,yes,"sample push 7% of CPU (B-593)","pcm[] 4.6 KB",Pocket,change (write granules straight to the ring),sim/test_pcm_burst.py,ring write tests
+Xing/Info/LAME header and gapless trim,metadata,yes,negligible,small,host,keep (frame driver),sim/test_mp3_trim.py; test_p2_mp3.py,unchanged
+ID3v2 skip by seek,metadata,yes,negligible,0,host,keep,sim/test_p2_mp3.py,
+Resync after errors,robustness,yes,"byte-wise search; cost not measured","1.5 KB window",read,keep behaviour,test_p2_mp3.py junk test,fuzz corpus
+Seeking (byte position + skip list),interface,yes,negligible,skiplist tables,read,keep,sim/test_p2_skiptab.py,seek-then-decode vectors incl. reservoir reset
+Gapless/skip-silence pair accounting (P3),interface,yes,negligible,0,read,keep + state the single position rule (S4),test_p2_mp3.py,
+ReplayGain,output stage,yes,0 in the decoder (gain stage + firmware Q15),0,read,keep outside the decoder,gain model tests,
+Rate tag output (rate/channels/pair index),interface,yes (new contract),0,0,design,add (S3/S4),none,contract test
+Report counters (poly stats; arena peak; SR_T_LOAD*),diagnostics,yes,"profile ticks add cost in the profile build",small,read,keep,sim/test_suite.py,counter-equivalence test on the new decoder
+Worst-frame time (atomic step about 12 ms),behaviour,yes,"one frame per call",n/a,read,keep or improve (granule steps),governor tests,per-frame cycle bound under fuzz
+Stack depth,resource,yes,"peak 1,672 B (B-230)",5 KB reserved,hardware,keep or better,platform_stack_peak,worst-case stack on the new decoder in rv32sim
+Hot RAM total,resource,yes,n/a,"71.5 KB today",host build,change (target 35-45 KB),fw2 build size gate,build size gate in sim/test
