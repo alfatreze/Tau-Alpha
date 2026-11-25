@@ -16,7 +16,9 @@ files = [T / "gapless_tone/Gapless Tone Test/01 MP3 tone A.mp3", T / "Test Album
 files = [f for f in files if f.exists()]
 if not files:
     print("skip: test music not present"); sys.exit(0)
-H = ROOT / "third_party/libhelix-mp3"
+sys.path.insert(0, str(ROOT / "tools"))
+from helix_tree import helix_tree
+H = helix_tree()      # pristine upstream + third_party/libhelix-mp3/tau.patch (tools/helix_tree.py)
 
 def lame(b):
     o = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]) if b[:3] == b"ID3" else 0

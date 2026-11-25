@@ -62,7 +62,8 @@ def real_files(fails):
         print("skip real-file alignment (numpy missing)"); return fails
     T = ROOT.parent / "test music" / "Test Album"
     if not T.is_dir(): print("skip real-file alignment (test music not present)"); return fails
-    H = ROOT / "third_party/libhelix-mp3"
+    sys.path.insert(0, str(ROOT / "tools")); from helix_tree import helix_tree
+    H = helix_tree()
     with tempfile.TemporaryDirectory() as d:
         d = Path(d); src = d / "src"; src.mkdir()
         for f in list((H / "real").glob("*.c")) + list((H / "real").glob("*.h")): (src / f.name).write_bytes(f.read_bytes())

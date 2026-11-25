@@ -20,7 +20,7 @@ LDFLAGS=()
 # PACKS=1: loadable meters (a pack in the MPKB section of tau-assets.bin replaces a built-in meter; the built-in stays as the fallback). Reserves a 4 KB scratch under the tag zone (fw2/platform/link.ld).
 if [ "${PACKS:-0}" = "1" ]; then TAUMM="$(python3 "$ROOT/tools/tau_mm.py")" || exit 1; DEFS+=(-DP2_PACKS=1 -DMTR_TAU_MM=${TAUMM}u);      # MTR_TAU_MM: the firmware's own major.minor for the meters' tau_min, from core.json (tools/tau_mm.py)
    LDFLAGS+=(-Wl,--defsym=_packs=1); SRCS+=("$FW2/art/mpreset_host.c"); fi
-H="$ROOT/third_party/libhelix-mp3"
+H="$(python3 "$ROOT/tools/helix_tree.py")"      # pristine third_party/libhelix-mp3 + tau.patch + Tau files (tools/helix_tree.py)
 SRCS+=("$H/mp3dec.c" "$H/mp3tabs.c" "$H"/real/{bitstream,buffers,dct32,dequant,dqchan,huffman,hufftabs,imdct,polyphase,scalfact,stproc,subband,trigtabs}.c)
 INCS+=(-I "$H/pub" -I "$H/real" -I "$FW2/cores")
 if [ "${POLY:-1}" = "1" ]; then DEFS+=(-DTAU_POLY_FW=1 -DTAU_POLY_REQUIRED=1); INCS+=(-I "$ROOT/fw"); SRCS+=("$FW2/decode/poly_hw.c"); fi

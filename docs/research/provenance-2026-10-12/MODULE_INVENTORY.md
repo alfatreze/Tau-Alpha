@@ -488,7 +488,7 @@ Base comparison is against v1.4.0-era fork `7ef8f0f`; upstream comparison is aga
 | [third_party/libhelix-mp3/Umakefil](../../../third_party/libhelix-mp3/Umakefil) | 31 | 31 | 100.0% | 0 | identical / identical |
 | [third_party/libhelix-mp3/mp3dec.c](../../../third_party/libhelix-mp3/mp3dec.c) | 264 | 241 | 91.3% | 0 | modified / modified |
 | [third_party/libhelix-mp3/mp3tabs.c](../../../third_party/libhelix-mp3/mp3tabs.c) | 95 | 95 | 100.0% | 0 | identical / identical |
-| [third_party/libhelix-mp3/pub/mp3_profile.h](../../../third_party/libhelix-mp3/pub/mp3_profile.h) | 36 | 0 | 0.0% | 0 | absent / absent |
+| [third_party/libhelix-mp3/pub/mp3_profile.h (moved 2026-11-25 to third_party/libhelix-mp3-tau/pub/)](../../../third_party/libhelix-mp3-tau/pub/mp3_profile.h) | 36 | 0 | 0.0% | 0 | absent / absent |
 | [third_party/libhelix-mp3/pub/mp3common.h](../../../third_party/libhelix-mp3/pub/mp3common.h) | 54 | 54 | 100.0% | 0 | identical / identical |
 | [third_party/libhelix-mp3/pub/mp3dec.h](../../../third_party/libhelix-mp3/pub/mp3dec.h) | 68 | 68 | 100.0% | 0 | identical / identical |
 | [third_party/libhelix-mp3/pub/mpadecobjfixpt.h](../../../third_party/libhelix-mp3/pub/mpadecobjfixpt.h) | 35 | 35 | 100.0% | 0 | identical / identical |

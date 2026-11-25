@@ -12,7 +12,9 @@ The tap index is  i = row*16 + tap  (row 0..16, tap 0..15; the sample-16 row 16 
 import argparse, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-H = ROOT / "third_party/libhelix-mp3"
+sys.path.insert(0, str(ROOT / "tools"))
+from helix_tree import helix_tree
+H = helix_tree()      # pristine upstream + third_party/libhelix-mp3/tau.patch (tools/helix_tree.py)
 
 
 def build_map():
