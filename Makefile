@@ -84,6 +84,7 @@ test-host:
 	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) sim/test_palette_source.py
 	$(PYTHON) sim/test_library_check_limits.py
+	$(PYTHON) sim/test_check_heap_gap.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
