@@ -63,9 +63,13 @@ work/triad/
 # Vendored upstreams that carry their own .git (would become gitlinks, not
 # content). Re-clone per README; only the ones we build against matter:
 #   libhelix-mp3, pythondata-cpu-vexriscv  -> required
-#   minimp3, picorv32                      -> evaluated and rejected (Stage 0)
+#   picorv32                               -> evaluated and rejected (Stage 0)
+#   minimp3 (CC0)                          -> ADOPTED by D-C01 as the MP3 v2 float oracle and front-end source;
+#       minimp3.h, minimp3_ex.h, LICENSE, UPSTREAM.* are vendored (see third_party/minimp3/UPSTREAM.md);
+#       only the upstream test vectors stay local (ISO-derived, not ours to redistribute, D-C02 D4)
 third_party/libhelix-mp3/.git/
-third_party/minimp3/
+third_party/minimp3/vectors/
+third_party/minimp3/.git/
 third_party/picorv32/
 # upstream clone; the build uses src/fpga/rtl/VexRiscv_Full.v
 third_party/pythondata-cpu-vexriscv/
