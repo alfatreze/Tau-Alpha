@@ -331,7 +331,7 @@
  /**************************************************************************************
   * Function:    Subband
   *
-@@ -74,13 +92,110 @@
+@@ -74,21 +92,148 @@
  
  	if (mp3DecInfo->nChans == 2) {
  		/* stereo */
@@ -444,4 +444,42 @@
 +#endif
  	} else {
  		/* mono */
++#if TAU_POLY_REQUIRED
++		/* Player 2: a mono stream uses the window unit too (no software window of either kind is linked). The unit is stereo-only, so the one channel is pushed as BOTH channels and the
++		 * left result is taken: the unit runs Helix's PolyphaseStereo arithmetic per channel, and PolyphaseMono is the same arithmetic on one channel (sim/test_mp3_poly_mono.py), so the PCM is
++		 * identical. Same pipelining and the same failure rule as the stereo branch above: a missing, failed or never-finishing unit gives counted silence (tau_poly_stat_silent). */
++		int hw = tau_poly_hw_enable;
++		if (hw && !sbi->hwPolyReady) { tau_poly_hw_clear(); hw = tau_poly_hw_enable; sbi->hwPolyReady = 1; }
++		short *hw_pend = 0, st[2 * NBANDS];
  		for (b = 0; b < BLOCK_SIZE; b++) {
++			if (hw) {
++				int w0[32];
++				tau_poly_wn = 0;
++				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
++				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w0[j++] = tau_poly_wlog[k];
++				if (hw_pend) {
++					if (tau_poly_hw_finish(st)) { for (int j = 0; j < NBANDS; j++) hw_pend[j] = st[2 * j]; }
++					else { for (int j = 0; j < NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; hw = 0; }
++					hw_pend = 0;
++				}
++				if (hw) { if (tau_poly_hw_start(w0, w0)) hw_pend = pcmBuf; else hw = 0; }
++			}
++			if (!hw && !hw_pend) { for (int j = 0; j < NBANDS; j++) pcmBuf[j] = 0; tau_poly_stat_silent++; }
++			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
++			pcmBuf += NBANDS;
++		}
++		if (hw_pend) {
++			if (tau_poly_hw_finish(st)) { for (int j = 0; j < NBANDS; j++) hw_pend[j] = st[2 * j]; }
++			else { for (int j = 0; j < NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; }
++		}
++#else
++		for (b = 0; b < BLOCK_SIZE; b++) {
+ 			FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
+ 			PolyphaseMono(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
+ 			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
+ 			pcmBuf += NBANDS;
+ 		}
++#endif
+ 	}
+ 
+ 	return 0;
