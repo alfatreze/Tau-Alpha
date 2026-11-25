@@ -1,0 +1,447 @@
+--- a/mp3dec.c
++++ b/mp3dec.c
+@@ -51,6 +51,24 @@
+ #include "systime.h"
+ #endif
+ 
++/* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): per-stage cycle counting,
++ * added alongside the dead PROFILE scaffolding above rather than replacing
++ * it -- see mp3_profile.h. */
++#ifndef MP3_PROFILE
++#define MP3_PROFILE 0     /* 1 to re-measure; must be 0 in a shipped build */
++#endif
++#include "mp3_profile.h"   /* B-345: MPROF_T0/MPROF_ADD now live there, shared with imdct.c; the macros themselves
++                                  * expand to no-ops when MP3_PROFILE is 0, exactly as this file's own copy used to. */
++#if MP3_PROFILE
++uint32_t (*mp3_tick)(void);
++uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc, mp3_dequant_cyc, mp3_alias_cyc, mp3_xform_cyc;
++uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
++uint32_t mp3_dequant_total_cyc, mp3_alias_total_cyc, mp3_xform_total_cyc;
++uint32_t mp3_sub_fdct_total_cyc, mp3_sub_hw_total_cyc;   /* Cymo C0: Subband split (subband.c) */
++uint32_t mp3_huff_vum_cyc, mp3_imdct_vum_cyc, mp3_sub_vum_cyc;   /* B-347 */
++uint32_t mp3_dequant_vum_cyc, mp3_alias_vum_cyc, mp3_xform_vum_cyc;
++#endif
++
+ /**************************************************************************************
+  * Function:    MP3InitDecoder
+  *
+@@ -400,9 +418,11 @@
+ 			#ifdef PROFILE
+ 				time = systime_get();
+ 			#endif
++			{ MPROF_T0();
+ 			/* unpack scale factors and compute size of scale factor block */
+ 			prevBitOffset = bitOffset;
+ 			offset = UnpackScaleFactors(mp3DecInfo, mainPtr, &bitOffset, mainBits, gr, ch);
++			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
+ 			#ifdef PROFILE
+ 				time = systime_get() - time;
+ 				printf("UnpackScaleFactors: %i ms\n", time);
+@@ -421,9 +441,11 @@
+ 			#ifdef PROFILE
+ 				time = systime_get();
+ 			#endif
++			{ MPROF_T0();
+ 			/* decode Huffman code words */
+ 			prevBitOffset = bitOffset;
+ 			offset = DecodeHuffman(mp3DecInfo, mainPtr, &bitOffset, huffBlockBits, gr, ch);
++			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
+ 			if (offset < 0) {
+ 				MP3ClearBadFrame(mp3DecInfo, outbuf);
+ 				return ERR_MP3_INVALID_HUFFCODES;
+@@ -436,15 +458,17 @@
+ 			mainPtr += offset;
+ 			mainBits -= (8*offset - prevBitOffset + bitOffset);
+ 		}
+-		
++
+ 		#ifdef PROFILE
+ 			time = systime_get();
+ 		#endif
++		{ MPROF_T0();
+ 		/* dequantize coefficients, decode stereo, reorder short blocks */
+ 		if (Dequantize(mp3DecInfo, gr) < 0) {
+ 			MP3ClearBadFrame(mp3DecInfo, outbuf);
+-			return ERR_MP3_INVALID_DEQUANTIZE;			
++			return ERR_MP3_INVALID_DEQUANTIZE;
+ 		}
++		MPROF_ADD(mp3_dequant_cyc, mp3_dequant_total_cyc, mp3_dequant_vum_cyc); }   /* B-345/B-347 */
+ 		#ifdef PROFILE
+ 			time = systime_get() - time;
+ 			printf("Dequantize: %i ms\n", time);
+@@ -456,29 +480,33 @@
+ 		#ifdef PROFILE
+ 			time = systime_get();
+ 		#endif
++			MPROF_T0();
+ 			if (IMDCT(mp3DecInfo, gr, ch) < 0) {
+ 				MP3ClearBadFrame(mp3DecInfo, outbuf);
+-				return ERR_MP3_INVALID_IMDCT;			
++				return ERR_MP3_INVALID_IMDCT;
+ 			}
++			MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc, mp3_imdct_vum_cyc);
+ 		#ifdef PROFILE
+ 			time = systime_get() - time;
+ 			printf("IMDCT: %i ms\n", time);
+ 		#endif
+ 		}
+-		
++
+ 		#ifdef PROFILE
+ 			time = systime_get();
+ 		#endif
++		{ MPROF_T0();
+ 		/* subband transform - if stereo, interleaves pcm LRLRLR */
+ 		if (Subband(mp3DecInfo, outbuf + gr*mp3DecInfo->nGranSamps*mp3DecInfo->nChans) < 0) {
+ 			MP3ClearBadFrame(mp3DecInfo, outbuf);
+-			return ERR_MP3_INVALID_SUBBAND;			
++			return ERR_MP3_INVALID_SUBBAND;
+ 		}
++		MPROF_ADD(mp3_sub_cyc, mp3_sub_total_cyc, mp3_sub_vum_cyc); }
+ 		#ifdef PROFILE
+ 			time = systime_get() - time;
+ 			printf("Subband: %i ms\n", time);
+ 		#endif
+-		
++
+ 	}
+ 	return ERR_MP3_NONE;
+ }
+--- a/real/coder.h
++++ b/real/coder.h
+@@ -250,9 +250,18 @@
+  *  (in Subband, instead of replicating each block in FDCT32 you would do a memmove on the
+  *   last 15 blocks to shift them down one, a hardware style FIFO)
+  */ 
++#ifndef TAU_POLY_FW
++#define TAU_POLY_FW 0		/* B-307: MP3 window-unit firmware redirect (see subband.c); must be the same in every translation unit -- build.sh passes -DTAU_POLY_FW */
++#endif
+ typedef struct _SubbandInfo {
+ 	int vbuf[MAX_NCHAN * VBUF_LENGTH];		/* vbuf for fast DCT-based synthesis PQMF - double size for speed (no modulo indexing) */
+ 	int vindex;								/* internal index for tracking position in vbuf */
++#if TAU_POLY_FW
++	int hwPolyReady;						/* TAU_POLY_FW (B-307): 0 until the hardware window unit's shared history has been cleared for
++											 * THIS decoder instance (malloc'd + zeroed fresh by AllocateBuffers, same as vbuf/vindex above --
++											 * so this needs no separate reset call anywhere: a new decoder is a new hwPolyReady==0 for free).
++											 * Compiled in ONLY with TAU_POLY_FW so the struct (and every sizeof/malloc of it) is unchanged when off. */
++#endif
+ } SubbandInfo;
+ 
+ /* bitstream.c */
+--- a/real/dct32.c
++++ b/real/dct32.c
+@@ -45,6 +45,26 @@
+ #include "coder.h"
+ #include "assembly.h"
+ 
++/* TAU_POLY_FW: when set, every one of FDCT32's 33 stores into d[0]/d[8] also appends to tau_poly_wlog[]
++ * in call order (index 17 is a duplicate write, see docs/MP3_FILTERBANK_KERNEL_DESIGN.md section 6 step 4).
++ * Off by default -- byte-identical to the unmodified decoder. This mirrors tools/gen_mp3_poly_rom.py's
++ * WRLOG scratch-copy patch, made permanent so firmware can capture the same values in the real path. */
++#ifndef TAU_POLY_FW
++#define TAU_POLY_FW 0
++#endif
++
++#if TAU_POLY_FW
++extern int tau_poly_wlog[33];
++extern int tau_poly_wn;
++/* Bounded: FDCT32 also runs for mono streams and for the per-slot software fallback, where nobody resets tau_poly_wn -- an unbounded log would
++ * write past the 33-entry array (found by sim/test_mp3_poly_subband.py: the mono decode corrupted memory). Only the stereo redirect resets the count. */
++#define TAU_POLY_LOG(d, s) do { if (tau_poly_wn < 33) tau_poly_wlog[tau_poly_wn++] = (s); } while (0)
++#define TAU_POLY_FIX(k, v) do { tau_poly_wlog[k] = (v); } while (0)   /* the guard-bit (es) fixup below rewrites the stored words: keep the log equal to what vbuf now holds */
++#else
++#define TAU_POLY_LOG(d, s) do { } while (0)
++#define TAU_POLY_FIX(k, v) do { } while (0)
++#endif
++
+ #define COS0_0  0x4013c251	/* Q31 */
+ #define COS0_1  0x40b345bd	/* Q31 */
+ #define COS0_2  0x41fa2d6d	/* Q31 */
+@@ -201,63 +221,63 @@
+ 
+ 	/* sample 0 - always delayed one block */
+ 	d = dest + 64*16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
+-	s = buf[ 0];				d[0] = d[8] = s;
++	s = buf[ 0];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
+     
+ 	/* samples 16 to 31 */
+ 	d = dest + offset + (oddBlock ? VBUF_LENGTH  : 0);
+ 
+-	s = buf[ 1];				d[0] = d[8] = s;	d += 64;
++	s = buf[ 1];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[25] + buf[29];
+-	s = buf[17] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[ 9] + buf[13];		d[0] = d[8] = s;	d += 64;
+-	s = buf[21] + tmp;			d[0] = d[8] = s;	d += 64;
++	s = buf[17] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[ 9] + buf[13];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[21] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[29] + buf[27];
+-	s = buf[ 5];				d[0] = d[8] = s;	d += 64;
+-	s = buf[21] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[13] + buf[11];		d[0] = d[8] = s;	d += 64;
+-	s = buf[19] + tmp;			d[0] = d[8] = s;	d += 64;
++	s = buf[ 5];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[21] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[13] + buf[11];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[19] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[27] + buf[31];
+-	s = buf[ 3];				d[0] = d[8] = s;	d += 64;
+-	s = buf[19] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[11] + buf[15];		d[0] = d[8] = s;	d += 64;
+-	s = buf[23] + tmp;			d[0] = d[8] = s;	d += 64;
++	s = buf[ 3];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[19] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[11] + buf[15];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[23] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[31];
+-	s = buf[ 7];				d[0] = d[8] = s;	d += 64;
+-	s = buf[23] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[15];				d[0] = d[8] = s;	d += 64;
+-	s = tmp;					d[0] = d[8] = s;
++	s = buf[ 7];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[23] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[15];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = tmp;					d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
+ 
+ 	/* samples 16 to 1 (sample 16 used again) */
+ 	d = dest + 16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
+ 
+-	s = buf[ 1];				d[0] = d[8] = s;	d += 64;
++	s = buf[ 1];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[30] + buf[25];
+-	s = buf[17] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[14] + buf[ 9];		d[0] = d[8] = s;	d += 64;
+-	s = buf[22] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[ 6];				d[0] = d[8] = s;	d += 64;
++	s = buf[17] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[14] + buf[ 9];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[22] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[ 6];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[26] + buf[30];
+-	s = buf[22] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[10] + buf[14];		d[0] = d[8] = s;	d += 64;
+-	s = buf[18] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[ 2];				d[0] = d[8] = s;	d += 64;
++	s = buf[22] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[10] + buf[14];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[18] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[ 2];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[28] + buf[26];
+-	s = buf[18] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[12] + buf[10];		d[0] = d[8] = s;	d += 64;
+-	s = buf[20] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[ 4];				d[0] = d[8] = s;	d += 64;
++	s = buf[18] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[12] + buf[10];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[20] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[ 4];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+ 
+ 	tmp = buf[24] + buf[28];
+-	s = buf[20] + tmp;			d[0] = d[8] = s;	d += 64;
+-	s = buf[ 8] + buf[12];		d[0] = d[8] = s;	d += 64;
+-	s = buf[16] + tmp;			d[0] = d[8] = s;
++	s = buf[20] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[ 8] + buf[12];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
++	s = buf[16] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
+ 
+ 	/* this is so rarely invoked that it's not worth making two versions of the output
+ 	 *   shuffle code (one for no shift, one for clip + variable shift) like in IMDCT
+@@ -265,16 +285,16 @@
+ 	 */
+ 	if (es) {
+ 		d = dest + 64*16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
+-		s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);
++		s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(0, s << es);
+ 	
+ 		d = dest + offset + (oddBlock ? VBUF_LENGTH  : 0);
+ 		for (i = 16; i <= 31; i++) {
+-			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	d += 64;
++			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(1 + (i - 16), s << es);	d += 64;
+ 		}
+ 
+ 		d = dest + 16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
+ 		for (i = 15; i >= 0; i--) {
+-			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	d += 64;
++			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(17 + (15 - i), s << es);	d += 64;
+ 		}
+ 	}
+ }
+--- a/real/imdct.c
++++ b/real/imdct.c
+@@ -44,6 +44,7 @@
+ 
+ #include "coder.h"
+ #include "assembly.h"
++#include "mp3_profile.h"   /* B-345: local addition, see mp3_profile.h for why this file needs it too */
+ 
+ /**************************************************************************************
+  * Function:    AntiAlias
+@@ -759,7 +760,9 @@
+ 		nBfly = 0;
+ 	}
+  
++	{ MPROF_T0();
+ 	AntiAlias(hi->huffDecBuf[ch], nBfly);
++	MPROF_ADD(mp3_alias_cyc, mp3_alias_total_cyc, mp3_alias_vum_cyc); }
+ 	hi->nonZeroBound[ch] = MAX(hi->nonZeroBound[ch], (nBfly * 18) + 8);
+ 
+ 	ASSERT(hi->nonZeroBound[ch] <= MAX_NSAMP);
+@@ -772,7 +775,9 @@
+ 	bc.currWinSwitch = (si->sis[gr][ch].mixedBlock ? blockCutoff : 0);	/* where WINDOW switches (not nec. transform) */
+ 	bc.gbIn = hi->gb[ch];
+ 
++	{ MPROF_T0();
+ 	mi->numPrevIMDCT[ch] = HybridTransform(hi->huffDecBuf[ch], mi->overBuf[ch], mi->outBuf[ch], &si->sis[gr][ch], &bc);
++	MPROF_ADD(mp3_xform_cyc, mp3_xform_total_cyc, mp3_xform_vum_cyc); }
+ 	mi->prevType[ch] = si->sis[gr][ch].blockType;
+ 	mi->prevWinSwitch[ch] = bc.currWinSwitch;		/* 0 means not a mixed block (either all short or all long) */
+ 	mi->gb[ch] = bc.gbOut;
+--- a/real/subband.c
++++ b/real/subband.c
+@@ -45,6 +45,24 @@
+ #include "coder.h"
+ #include "assembly.h"
+ 
++/* TAU_POLY_FW (B-307): redirect the stereo branch's FDCT32 output to the MP3 window unit (tau_mp3_poly.sv, TAU_POLY) via
++ * fw/mp3_poly_hw.h/.inc, instead of calling PolyphaseStereo. Off by default -- byte-identical to the unmodified decoder.
++ * FDCT32 still always runs unconditionally (it updates sbi->vbuf, which the per-slot software fallback below needs, and
++ * which the mono path -- never redirected -- always needs); only the window computation itself is optionally redirected.
++ * dct32.c's own TAU_POLY_FW hook is what makes tau_poly_wlog[]/tau_poly_wn available here. */
++#ifndef TAU_POLY_FW
++#define TAU_POLY_FW 0
++#endif
++#ifndef TAU_POLY_REQUIRED
++#define TAU_POLY_REQUIRED 0
++#endif
++#include "mp3_profile.h"   /* Cymo C0: MPROF_MARK/MPROF_ACC1 (no-ops unless MP3_PROFILE) */
++#if TAU_POLY_FW
++#include "mp3_poly_hw.h"
++extern int tau_poly_wlog[33];
++extern int tau_poly_wn;
++#endif
++
+ /**************************************************************************************
+  * Function:    Subband
+  *
+@@ -74,13 +92,110 @@
+ 
+ 	if (mp3DecInfo->nChans == 2) {
+ 		/* stereo */
++#if TAU_POLY_REQUIRED
++		/* Player 2: the window unit is REQUIRED (no software window is built in). Same pipelining as below: a slot's PCM is collected after the next slot's FDCT32. If the unit is absent,
++		 * times out or was disabled the slots are output as SILENCE and counted (tau_poly_stat_silent), which the player shows on screen: a missing unit is never a quiet failure. */
++		int hw = tau_poly_hw_enable;
++		if (hw && !sbi->hwPolyReady) { tau_poly_hw_clear(); hw = tau_poly_hw_enable; sbi->hwPolyReady = 1; }
++		short *hw_pend = 0;
+ 		for (b = 0; b < BLOCK_SIZE; b++) {
+-			FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
+-			FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
+-			PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
++			if (hw) {
++				int w0[32], w1[32];
++				tau_poly_wn = 0;
++				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
++				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w0[j++] = tau_poly_wlog[k];
++				tau_poly_wn = 0;
++				FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
++				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w1[j++] = tau_poly_wlog[k];
++				if (hw_pend) { if (!tau_poly_hw_finish(hw_pend)) { for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; hw = 0; } hw_pend = 0; }
++				if (hw) { if (tau_poly_hw_start(w0, w1)) hw_pend = pcmBuf; else { hw = 0; } }
++			}
++			if (!hw && !hw_pend) { for (int j = 0; j < 2 * NBANDS; j++) pcmBuf[j] = 0; tau_poly_stat_silent++; }
+ 			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
+ 			pcmBuf += (2 * NBANDS);
+ 		}
++		if (hw_pend) { if (!tau_poly_hw_finish(hw_pend)) { for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; } }
++#else
++#if TAU_POLY_FW
++		int hw_this_track = tau_poly_hw_enable;
++		if (hw_this_track && !sbi->hwPolyReady) {
++			tau_poly_hw_clear();
++			hw_this_track = tau_poly_hw_enable;   /* tau_poly_hw_clear() may have just disabled it */
++			sbi->hwPolyReady = 1;                  /* either way: don't ask again for this decoder instance */
++		}
++#endif
++		/* Cymo C0 follow-up (B-587): the unit needs about 4,400 clocks per slot and takes no pushes while busy, so a slot's result is collected AFTER the next slot's
++		 * software FDCT32 has run (hw_pend = where the in-flight slot's PCM goes). The first slots of every decoder instance (the self-check window) stay
++		 * synchronous. If the unit times out with a slot in flight that slot's PCM is lost for good -- FDCT32 of the following slot has already overwritten the
++		 * oldest history line the software window would need -- so it is output as silence (32 stereo samples) and the rest of the track runs in software. */
++#if TAU_POLY_FW
++		short *hw_pend = 0;
++#endif
++		for (b = 0; b < BLOCK_SIZE; b++) {
++#if TAU_POLY_FW
++			if (hw_this_track) {
++				int w0[32], w1[32];
++				MPROF_MARK(pm0);
++				tau_poly_wn = 0;
++				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
++				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w0[j++] = tau_poly_wlog[k];
++				tau_poly_wn = 0;
++				FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
++				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w1[j++] = tau_poly_wlog[k];
++				MPROF_ACC1(pm0, mp3_sub_fdct_total_cyc);
++				MPROF_MARK(pm1);
++				if (tau_poly_verify_left <= 0) {
++					/* pipelined: collect the previous slot (its compute overlapped the FDCT32 above), then start this one */
++					if (hw_pend) {
++						const int ok = tau_poly_hw_finish(hw_pend);
++						if (!ok) for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0;
++						hw_pend = 0;
++						if (!ok) hw_this_track = 0;
++					}
++					if (hw_this_track && tau_poly_hw_start(w0, w1)) hw_pend = pcmBuf;
++					else {
++						hw_this_track = 0;
++						PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
++					}
++					MPROF_ACC1(pm1, mp3_sub_hw_total_cyc);
++				} else {
++				const int hw_ok = tau_poly_hw_slot(w0, w1, pcmBuf);
++				MPROF_ACC1(pm1, mp3_sub_hw_total_cyc);
++				if (!hw_ok) {
++					hw_this_track = 0;              /* this slot's redirect failed: finish the track in software */
++					PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
++				} else {
++					/* self-check the first slots of every decoder instance against the real window (vbuf is always current, FDCT32 above updated it) */
++					short chk[2 * NBANDS];
++					tau_poly_verify_left--;
++					PolyphaseStereo(chk, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
++					for (int k = 0; k < 2 * NBANDS; k++) if (chk[k] != pcmBuf[k]) {
++						tau_poly_stat_mismatch++;
++						tau_poly_hw_enable = 0;     /* a unit that disagrees with the software window is not trusted again this session */
++						hw_this_track = 0;
++						for (int j = 0; j < 2 * NBANDS; j++) pcmBuf[j] = chk[j];
++						break;
++					}
++				}
++				}
++			} else
++#endif
++			{
++				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
++				FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
++				PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
++			}
++			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
++			pcmBuf += (2 * NBANDS);
++		}
++#if TAU_POLY_FW
++		if (hw_pend) {                              /* the last slot of this call is still in the unit: its PCM is due before we return */
++			MPROF_MARK(pm2);
++			if (!tau_poly_hw_finish(hw_pend)) for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0;
++			MPROF_ACC1(pm2, mp3_sub_hw_total_cyc);
++		}
++#endif
++#endif
+ 	} else {
+ 		/* mono */
+ 		for (b = 0; b < BLOCK_SIZE; b++) {

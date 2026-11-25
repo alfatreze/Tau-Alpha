@@ -36,7 +36,7 @@ OBJCOPY="${OBJCOPY_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}objcopy}"
 SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"
 NM="${NM_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}nm}"
 PYTHON="${PYTHON:-python3}"
-HELIX="$ROOT/third_party/libhelix-mp3"
+HELIX="$(python3 "$ROOT/tools/helix_tree.py")"      # pristine third_party/libhelix-mp3 + tau.patch + Tau files (tools/helix_tree.py)
 OUT="$ROOT/dist/Assets/tau/alfatreze.TAU"
 
 for tool in "$GCC" "$OBJCOPY" "$SIZE" "$PYTHON"; do

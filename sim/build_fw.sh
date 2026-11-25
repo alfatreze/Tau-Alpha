@@ -11,7 +11,7 @@ GCC="$TC/riscv-none-elf-gcc.exe"
 OBJCOPY="$TC/riscv-none-elf-objcopy.exe"
 SIZE="$TC/riscv-none-elf-size.exe"
 COMMON="$ROOT/sim/common"
-HELIX="$ROOT/third_party/libhelix-mp3"
+HELIX="$(python3 "$ROOT/tools/helix_tree.py")"      # pristine third_party/libhelix-mp3 + tau.patch + Tau files (tools/helix_tree.py)
 MINIMP3="$ROOT/third_party/minimp3"
 
 # EXTRA_CFLAGS lets callers add defines, e.g.

@@ -51,24 +51,6 @@
 #include "systime.h"
 #endif
 
-/* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): per-stage cycle counting,
- * added alongside the dead PROFILE scaffolding above rather than replacing
- * it -- see mp3_profile.h. */
-#ifndef MP3_PROFILE
-#define MP3_PROFILE 0     /* 1 to re-measure; must be 0 in a shipped build */
-#endif
-#include "mp3_profile.h"   /* B-345: MPROF_T0/MPROF_ADD now live there, shared with imdct.c; the macros themselves
-                                  * expand to no-ops when MP3_PROFILE is 0, exactly as this file's own copy used to. */
-#if MP3_PROFILE
-uint32_t (*mp3_tick)(void);
-uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc, mp3_dequant_cyc, mp3_alias_cyc, mp3_xform_cyc;
-uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
-uint32_t mp3_dequant_total_cyc, mp3_alias_total_cyc, mp3_xform_total_cyc;
-uint32_t mp3_sub_fdct_total_cyc, mp3_sub_hw_total_cyc;   /* Cymo C0: Subband split (subband.c) */
-uint32_t mp3_huff_vum_cyc, mp3_imdct_vum_cyc, mp3_sub_vum_cyc;   /* B-347 */
-uint32_t mp3_dequant_vum_cyc, mp3_alias_vum_cyc, mp3_xform_vum_cyc;
-#endif
-
 /**************************************************************************************
  * Function:    MP3InitDecoder
  *
@@ -418,11 +400,9 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			#ifdef PROFILE
 				time = systime_get();
 			#endif
-			{ MPROF_T0();
 			/* unpack scale factors and compute size of scale factor block */
 			prevBitOffset = bitOffset;
 			offset = UnpackScaleFactors(mp3DecInfo, mainPtr, &bitOffset, mainBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
 			#ifdef PROFILE
 				time = systime_get() - time;
 				printf("UnpackScaleFactors: %i ms\n", time);
@@ -441,11 +421,9 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			#ifdef PROFILE
 				time = systime_get();
 			#endif
-			{ MPROF_T0();
 			/* decode Huffman code words */
 			prevBitOffset = bitOffset;
 			offset = DecodeHuffman(mp3DecInfo, mainPtr, &bitOffset, huffBlockBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
 			if (offset < 0) {
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
 				return ERR_MP3_INVALID_HUFFCODES;
@@ -458,17 +436,15 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			mainPtr += offset;
 			mainBits -= (8*offset - prevBitOffset + bitOffset);
 		}
-
+		
 		#ifdef PROFILE
 			time = systime_get();
 		#endif
-		{ MPROF_T0();
 		/* dequantize coefficients, decode stereo, reorder short blocks */
 		if (Dequantize(mp3DecInfo, gr) < 0) {
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
-			return ERR_MP3_INVALID_DEQUANTIZE;
+			return ERR_MP3_INVALID_DEQUANTIZE;			
 		}
-		MPROF_ADD(mp3_dequant_cyc, mp3_dequant_total_cyc, mp3_dequant_vum_cyc); }   /* B-345/B-347 */
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Dequantize: %i ms\n", time);
@@ -480,33 +456,29 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 		#ifdef PROFILE
 			time = systime_get();
 		#endif
-			MPROF_T0();
 			if (IMDCT(mp3DecInfo, gr, ch) < 0) {
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
-				return ERR_MP3_INVALID_IMDCT;
+				return ERR_MP3_INVALID_IMDCT;			
 			}
-			MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc, mp3_imdct_vum_cyc);
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("IMDCT: %i ms\n", time);
 		#endif
 		}
-
+		
 		#ifdef PROFILE
 			time = systime_get();
 		#endif
-		{ MPROF_T0();
 		/* subband transform - if stereo, interleaves pcm LRLRLR */
 		if (Subband(mp3DecInfo, outbuf + gr*mp3DecInfo->nGranSamps*mp3DecInfo->nChans) < 0) {
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
-			return ERR_MP3_INVALID_SUBBAND;
+			return ERR_MP3_INVALID_SUBBAND;			
 		}
-		MPROF_ADD(mp3_sub_cyc, mp3_sub_total_cyc, mp3_sub_vum_cyc); }
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Subband: %i ms\n", time);
 		#endif
-
+		
 	}
 	return ERR_MP3_NONE;
 }
