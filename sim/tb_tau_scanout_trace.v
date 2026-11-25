@@ -1,8 +1,11 @@
 `timescale 1ps/1ps
-// Differential testbench: the oracle tau_scanout1_oracle (the scanout before the clean-room rewrite) against tau_scanout (Talos 2 T5, contract section 7).
-// Same random stimulus on three unrelated clocks; every output of both is compared on every edge of its own clock.
-// +seed=N picks the stimulus; -Ptb_tau_scanout_diff.BUG=n turns on mutant n of tau_scanout (the bench must FAIL).
-module tb_tau_scanout_diff;
+// Trace regression bench for tau_scanout (Talos 2 T5, contract section 7; D-T20).
+// It replaces the differential bench that ran tau_scanout against the pre-rewrite oracle (deleted by D-T20 after the Pocket confirmation DEV 198).
+// The stimulus is the same: random line-buffer writes, an engine model that answers the fill requests (missing, doubled and very late ones included),
+// cmd_push, a reset, three unrelated clocks. Every output is folded into one 64-bit trace hash per clock domain (X and Z are part of the trace);
+// the hash must equal the golden value in sim/golden/scanout_trace.txt, which was recorded from the oracle on the passing bench (same seeds, cycle for cycle).
+// +seed=N picks the stimulus, +gvid=<hex> +gsys=<hex> the golden hashes; -Ptb_tau_scanout_trace.BUG=n turns on mutant n of tau_scanout (the bench must FAIL).
+module tb_tau_scanout_trace;
     parameter BUG = 0;
     parameter NFRAMES = 4;       // frames simulated (one frame = 16.667 ms)
 
@@ -28,19 +31,13 @@ module tb_tau_scanout_diff;
     reg [9:0]  fill_done_line = 0;
     reg        fill_seen = 0;
 
-    // ---- the two devices
-    wire [15:0] o_cnt, n_cnt;
-    wire        o_rt, n_rt, o_vt, n_vt;
-    wire [9:0]  o_fl, n_fl;
-    wire [23:0] o_rgb, n_rgb;
-    wire        o_de, n_de, o_hs, n_hs, o_vs, n_vs;
-    wire [8:0]  o_svc, n_svc;
-
-    tau_scanout1_oracle o (.reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid), .cmd_push(cmd_push),
-        .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
-        .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
-        .underflow_cnt(o_cnt), .fill_req_tgl(o_rt), .fill_line_req(o_fl), .vblank_tgl(o_vt),
-        .video_rgb(o_rgb), .video_de(o_de), .video_hs(o_hs), .video_vs(o_vs), .scan_vc(o_svc));
+    // ---- the device
+    wire [15:0] n_cnt;
+    wire        n_rt, n_vt;
+    wire [9:0]  n_fl;
+    wire [23:0] n_rgb;
+    wire        n_de, n_hs, n_vs;
+    wire [8:0]  n_svc;
 
     tau_scanout #(
         .BUG_ACT_X(BUG==1), .BUG_HS(BUG==2), .BUG_LATENCY(BUG==3), .BUG_PARITY(BUG==4), .BUG_VBLANK(BUG==5),
@@ -52,38 +49,22 @@ module tb_tau_scanout_diff;
         .underflow_cnt(n_cnt), .fill_req_tgl(n_rt), .fill_line_req(n_fl), .vblank_tgl(n_vt),
         .video_rgb(n_rgb), .video_de(n_de), .video_hs(n_hs), .video_vs(n_vs), .scan_vc(n_svc));
 
-    // ---- compare: 100 ps after each edge of the output's own clock (outputs have settled, nothing else moves yet)
-    integer errs = 0, cmp_vid = 0, cmp_sys = 0, cmp_sdram = 0;
-    task note(input [127:0] what);
-        begin
-            errs = errs + 1;
-            if (errs <= 8) $display("MISMATCH %0s at %0t", what, $time);
-        end
-    endtask
-    // The oracle's de/hs/vs registers start undefined (X) in simulation; the first three vid edges flush the pipeline.
+    // ---- trace: 100 ps after each edge of the output's own clock (outputs have settled, nothing else moves yet)
+    function [63:0] fold(input [63:0] h, input [47:0] p);   // FNV-style step; any X or Z in the sample is folded as one marker value (X-ness is part of the trace)
+        begin fold = ((^p) === 1'bx) ? ((h ^ 64'hdeadbeefdeadbeef) * 64'h100000001b3) : ((h ^ {16'd0, p}) * 64'h100000001b3); end
+    endfunction
+    reg [63:0] hv = 64'hcbf29ce484222325, hs = 64'hcbf29ce484222325, gvid = 0, gsys = 0;
+    integer cmp_vid = 0, cmp_sys = 0, have_golden = 0;
+    // The first three vid edges flush the output pipeline (its registers start undefined in simulation) and are not part of the trace.
     always @(posedge clk_vid) begin
         #100;
         cmp_vid = cmp_vid + 1;
-        if (cmp_vid > 3) begin
-        if (o_rt  !== n_rt)  note("fill_req_tgl");
-        if (o_fl  !== n_fl)  note("fill_line_req");
-        if (o_vt  !== n_vt)  note("vblank_tgl");
-        if (o_rgb !== n_rgb) note("video_rgb");
-        if (o_de  !== n_de)  note("video_de");
-        if (o_hs  !== n_hs)  note("video_hs");
-        if (o_vs  !== n_vs)  note("video_vs");
-        if (o_svc !== n_svc) note("scan_vc");
-        end
-        if (errs >= 8) begin
-            $display("seed=%0d BUG=%0d stopped at %0t after %0d mismatches", seed0, BUG, $time, errs);
-            $display("FAILED errors=%0d", errs);
-            $finish;
-        end
+        if (cmp_vid > 3) hv = fold(hv, {n_rt,n_fl,n_vt,n_rgb,n_de,n_hs,n_vs,n_svc});
     end
     always @(posedge clk_sys) begin
         #100;
         cmp_sys = cmp_sys + 1;
-        if (o_cnt !== n_cnt) note("underflow_cnt");
+        hs = fold(hs, {32'd0,n_cnt});
     end
 
     // ---- coverage (measured on the new device's outputs)
@@ -144,15 +125,15 @@ module tb_tau_scanout_diff;
         else begin burst_left = 1 + rnd(40); burst_gap = rnd(30); end
 
         // request observation (the engine samples the toggle through two flops)
-        rt_s1 <= o_rt; rt_s2 <= rt_s1; rt_prev <= rt_s2;
+        rt_s1 <= n_rt; rt_s2 <= rt_s1; rt_prev <= rt_s2;
         if (rt_s2 !== rt_prev) begin
             n_req = n_req + 1;
             case (rnd(12))
                 0: n_skip = n_skip + 1;                                        // missing
-                1: begin enqueue(o_fl, rnd(2000)); enqueue(o_fl, rnd(6000)); n_dup = n_dup + 1; end  // two for one line
-                2: begin enqueue(o_fl, 42000 + rnd(30000)); n_late = n_late + 1; end                 // more than a line late
-                3: begin enqueue(o_fl, 20000 + rnd(20000)); end
-                default: enqueue(o_fl, rnd(12000));
+                1: begin enqueue(n_fl, rnd(2000)); enqueue(n_fl, rnd(6000)); n_dup = n_dup + 1; end  // two for one line
+                2: begin enqueue(n_fl, 42000 + rnd(30000)); n_late = n_late + 1; end                 // more than a line late
+                3: begin enqueue(n_fl, 20000 + rnd(20000)); end
+                default: enqueue(n_fl, rnd(12000));
             endcase
         end
 
@@ -203,8 +184,14 @@ module tb_tau_scanout_diff;
                  tg_de, tg_hs, tg_vs, tg_rgb, tg_rt, tg_vt, cnt_end);
         $display("stimulus: writes=%0d requests=%0d done=%0d dup=%0d skipped=%0d very_late=%0d  push@%0d ns seen@%0d ns reset@%0d ns",
                  n_wr, n_req, n_done, n_dup, n_skip, n_late, t_push_ns, t_seen_ns, t_reset_ns);
-        $display("painted: rgb nonzero before push=%0d after push=%0d (oracle shows black before)", rgb_nonzero_before_paint, rgb_nonzero_after_paint);
-        ok = (errs == 0);
+        $display("painted: rgb nonzero before push=%0d after push=%0d (black before)", rgb_nonzero_before_paint, rgb_nonzero_after_paint);
+        $display("TRACE seed=%0d BUG=%0d vid=%h sys=%h", seed0, BUG, hv, hs);
+        ok = 1;
+        if ($value$plusargs("gvid=%h", gvid) && $value$plusargs("gsys=%h", gsys)) begin
+            have_golden = 1;
+            if (hv !== gvid) begin ok = 0; $display("TRACE MISMATCH: video-side hash %h, golden %h", hv, gvid); end
+            if (hs !== gsys) begin ok = 0; $display("TRACE MISMATCH: sys-side hash %h, golden %h", hs, gsys); end
+        end else begin ok = 0; $display("no golden hash given (+gvid=... +gsys=...)"); end
         if (BUG == 0) begin
             if (!(tg_de > 0 && tg_hs > 0 && tg_vs > 0 && tg_rgb > 0 && tg_rt > 0 && tg_vt > 0)) begin ok = 0; $display("coverage hole: a video output or toggle never moved"); end
             if (!(cnt_end > 0))                     begin ok = 0; $display("coverage hole: no late line was counted"); end
@@ -213,7 +200,7 @@ module tb_tau_scanout_diff;
             if (!(vsyncs >= 3))                     begin ok = 0; $display("coverage hole: fewer than three frames"); end
             if (!(n_dup > 0 && n_skip > 0 && n_late > 0)) begin ok = 0; $display("coverage hole: stimulus classes (double/missing/late) not all hit"); end
         end
-        if (ok) $display("PASSED errors=%0d", errs); else $display("FAILED errors=%0d", errs);
+        if (ok) $display("PASSED"); else $display("FAILED");
         $finish;
     end
 endmodule

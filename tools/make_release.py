@@ -197,39 +197,9 @@ def main():
         jobs = [(cid, src, tau_layout.core_dir(src, ch["platform"], cid) / "tau.rom") for cid, src in ((normal_id, normal_src), (diag_id, diag_src))]
         return finish(args, jobs, rbf, raw, date, channel, ch)
 
-    env = dict(os.environ)
-    # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
-    # built to match. Set the flags here instead of relying on the caller's shell: a plain run silently built a
-    # 256 KB / 60 MHz ROM that the rev 26 bitstream refuses (the black screen, B-394/B-448/B-563).
-    for k, v in (("RAM_192K", "1"), ("CLK66", "1"), ("SDRAM_BUSY", "1")):
-        env.setdefault(k, v)
-    sh(["bash", "-n", "fw/build.sh"])
-    sh(["bash", "fw/build.sh", "release"], env=env)                       # v0.4.0 (B-078): library + Phase G, no Check
-    # B-563: a RAM_192K=1 build never writes dist/ (build.sh, B-333) but goes to work/ram192k/release/. The
-    # release ships that build, so put it where package.py and the zip expect it -- and refuse to go on if
-    # the ROM in dist/ is not the one just built (the earlier run silently zipped a stale 256 KB ROM).
-    built = ROOT / ("work/ram192k/release" if env.get("RAM_192K") == "1" else "dist/Assets/tau/alfatreze.TAU")
-    for name in ("tau.rom", "tau-cold.bin"):
-        if built != ROOT / "dist/Assets/tau/alfatreze.TAU":
-            shutil.copy2(built / name, ROOT / "dist/Assets/tau/alfatreze.TAU" / name)
-        assert sha(built / name) == sha(ROOT / "dist/Assets/tau/alfatreze.TAU" / name), f"dist/{name} is not the freshly built one"
-    sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
-    sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
-    sh([sys.executable, "tools/check_tau_package.py"])
-    sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist", "--bitstream-version", core_version])   # B-581: the ROM in the zip must be accepted by the bitstream
-    sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic", "--channel", channel,
-        "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
-    # The normal core of a Preview release is the release build under the Preview channel's name and platforms (TAU's media in place).
-    normal_src = ROOT / "dist" if channel == "stable" else tau_layout.retarget(
-        ROOT / "dist", ROOT / "work/release-preview/pocket", "alfatreze.TAU", normal_id, channel)
-    if channel != "stable":
-        sh([sys.executable, "tools/check_fw_bitstream_pair.py", normal_src, "--bitstream-version", core_version])
-    if args.test:
-        sh(["make", "test-host"])
-
-    jobs = [(core_id, src, tau_layout.core_dir(src, ch["platform"], core_id) / "tau.rom")
-            for core_id, src in ((normal_id, normal_src), (diag_id, DIAG))]
-    finish(args, jobs, rbf, raw, date, channel, ch)
+    # The old player's release path (fw/build.sh release + package.py + the --release-diagnostic packager) was retired by D-T20; its copy is
+    # legacy-harpmudd/tools/make_release.py. Every release is Player 2.
+    sys.exit("make_release.py ships Player 2 only: pass --player2 (the old player's release path is archived in legacy-harpmudd/tools/make_release.py)")
 
 
 def finish(args, jobs, rbf, raw, date, channel, ch):

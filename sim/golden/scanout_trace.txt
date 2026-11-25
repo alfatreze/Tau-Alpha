@@ -1,0 +1,9 @@
+# Golden trace hashes of tau_scanout (Talos 2 T5), D-T20. One line per seed: seed, video-side hash, sys-side hash (64-bit FNV-style fold of every output sample, see sim/tb_tau_scanout_trace.v).
+# Recorded 2026-11-25 from the oracle tau_scanout1_oracle (the pre-rewrite scanout, replaced and Pocket-confirmed on DEV 198) running in lockstep with tau_scanout in the old differential bench:
+# both devices gave the same hash for every seed (0 mismatches), so the hashes describe the behaviour the oracle had.
+1 667be6833573552d d996a6449641b2bf
+2 fbd494d72b1e955c f3e0496bae70a717
+3 a6cb3381477bf86c 41f9511ab002c64f
+4 599b7a743b7709aa 13abb3f5ed01bd8b
+5 241777a306f89fae 4f12fc4c4e9f05af
+6 f89e0371d6a0f2a5 7ff81f9dc7858947

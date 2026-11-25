@@ -1,4 +1,4 @@
-.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-trace test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check
 
 PYTHON ?= python3
 # Build tools (tools/toolchain.py, B-985): the RISC-V compiler is found the same way for every script (RISCV_TOOLCHAIN_BIN, this tree, the main checkout when this is a git worktree, PATH), and a macOS
@@ -29,13 +29,10 @@ check-fpga:
 	bash tools/check_build_env.sh fpga
 
 firmware:
-	bash fw/build.sh release
+	bash fw2/build.sh
 
 fpga:
 	cd src/fpga && $(QUARTUS_SH) --flow compile ap_core.qpf
-
-package:
-	$(PYTHON) package.py
 
 test: test-host test-rtl
 
@@ -83,6 +80,9 @@ test-host:
 	$(PYTHON) sim/test_cymo_gain_model.py
 	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js </dev/null && $(PYTHON) sim/test_p2_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_layered_wave_wasm.py && $(PYTHON) sim/test_meter_trace.py && $(PYTHON) sim/test_sound_map_twin.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) tools/gen_themes.py --check
+	$(PYTHON) sim/test_palette_source.py
+	$(PYTHON) sim/test_library_check_limits.py
+	$(PYTHON) sim/test_check_heap_gap.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
@@ -102,9 +102,9 @@ test-host:
 	$(PYTHON) sim/test_install_dev_core.py
 	$(PYTHON) sim/test_check_qsf_files.py
 	$(PYTHON) sim/test_tau_compat.py
+	$(PYTHON) sim/test_tau_compat_sources.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
-	$(PYTHON) sim/test_splash_asset.py
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
@@ -257,7 +257,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-trace test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -787,27 +787,28 @@ test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_psram_ifetch.IFETCH=0 -Ptb_psram_ifetch.EXPECT_NOFEATURE=1 -o $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp $(PSRAM_IFETCH_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_ifetch.bin | tail -4 | tee $(RTL_BUILD_DIR)/psram_ifetch_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_ifetch_off.log
 
-# Talos 2 T5: the clean-room scanout against the pre-rewrite oracle sim/oracle/tau_scanout1_oracle.sv (black box), cycle for cycle on every output, three unrelated clocks,
-# several seeds (run in parallel); then twelve BUG_* mutants of tau_scanout, each of which the bench must fail (a survivor fails the target).
-# The oracle is only ever a file argument here. SCANOUT_ORACLE can be overridden (the path may contain spaces).
-SCANOUT_ORACLE ?= sim/oracle/tau_scanout1_oracle.sv
-SCANOUT_DIFF_SRC = sim/tb_tau_scanout_diff.v src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
+# Talos 2 T5 (D-T07, D-T20): the clean-room scanout against a FROZEN trace. The oracle it was once compared with is deleted (the replacement is Pocket-confirmed, DEV 198); the bench keeps the same
+# random stimulus on three unrelated clocks, folds every output into a 64-bit trace hash per clock domain and compares it with sim/golden/scanout_trace.txt (recorded from the oracle, same seeds);
+# then twelve BUG_* mutants of tau_scanout (seed 3), each of which must change the trace (a survivor fails the target).
+SCANOUT_TRACE_SRC = sim/tb_tau_scanout_trace.v src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
+SCANOUT_GOLDEN = sim/golden/scanout_trace.txt
 SCANOUT_SEEDS ?= 1 2 3
 SCANOUT_MUTANTS ?= 1 2 3 4 5 6 7 8 9 10 11 12
-test-rtl-scanout-diff: $(SCANOUT_DIFF_SRC) | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -o $(RTL_BUILD_DIR)/scanout_diff.vvp $(SCANOUT_DIFF_SRC) "$(SCANOUT_ORACLE)"
+test-rtl-scanout-trace: $(SCANOUT_TRACE_SRC) $(SCANOUT_GOLDEN) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $(RTL_BUILD_DIR)/scanout_trace.vvp $(SCANOUT_TRACE_SRC)
 	@set -e; for sd in $(SCANOUT_SEEDS); do \
-	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_diff.vvp +seed=$$sd > $(RTL_BUILD_DIR)/scanout_diff_$$sd.out ) & done; wait; \
-	for sd in $(SCANOUT_SEEDS); do cat $(RTL_BUILD_DIR)/scanout_diff_$$sd.out; \
-	  grep -q "^PASSED" $(RTL_BUILD_DIR)/scanout_diff_$$sd.out || { echo "SCANOUT DIFF FAILED: seed $$sd"; exit 1; }; done
-	@set -e; for b in $(SCANOUT_MUTANTS); do \
-	  $(IVERILOG) -g2012 -Ptb_tau_scanout_diff.BUG=$$b -o $(RTL_BUILD_DIR)/scanout_mut_$$b.vvp $(SCANOUT_DIFF_SRC) "$(SCANOUT_ORACLE)"; done; \
+	  g=$$(awk -v s=$$sd '$$1==s {print "+gvid=" $$2 " +gsys=" $$3}' $(SCANOUT_GOLDEN)); test -n "$$g" || { echo "no golden line for seed $$sd"; exit 1; }; \
+	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_trace.vvp +seed=$$sd $$g > $(RTL_BUILD_DIR)/scanout_trace_$$sd.out ) & done; wait; \
+	for sd in $(SCANOUT_SEEDS); do cat $(RTL_BUILD_DIR)/scanout_trace_$$sd.out; \
+	  grep -q "^PASSED" $(RTL_BUILD_DIR)/scanout_trace_$$sd.out || { echo "SCANOUT TRACE FAILED: seed $$sd"; exit 1; }; done
+	@set -e; g=$$(awk '$$1==3 {print "+gvid=" $$2 " +gsys=" $$3}' $(SCANOUT_GOLDEN)); for b in $(SCANOUT_MUTANTS); do \
+	  $(IVERILOG) -g2012 -Ptb_tau_scanout_trace.BUG=$$b -o $(RTL_BUILD_DIR)/scanout_tmut_$$b.vvp $(SCANOUT_TRACE_SRC); done; \
 	for b in $(SCANOUT_MUTANTS); do \
-	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_mut_$$b.vvp +seed=3 > $(RTL_BUILD_DIR)/scanout_mut_$$b.out ) & done; wait; \
+	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_tmut_$$b.vvp +seed=3 $$g > $(RTL_BUILD_DIR)/scanout_tmut_$$b.out ) & done; wait; \
 	for b in $(SCANOUT_MUTANTS); do \
-	  if grep -q "^FAILED" $(RTL_BUILD_DIR)/scanout_mut_$$b.out; then echo "mutant killed: BUG=$$b ($$(grep -m1 MISMATCH $(RTL_BUILD_DIR)/scanout_mut_$$b.out | cut -d' ' -f2))"; \
+	  if grep -q "^FAILED" $(RTL_BUILD_DIR)/scanout_tmut_$$b.out; then echo "mutant killed: BUG=$$b"; \
 	  else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
-	@echo "test-rtl-scanout-diff: PASSED"
+	@echo "test-rtl-scanout-trace: PASSED"
 
 # ---- Wall clock (APF host command 0x0090): the real core_bridge_cmd.v (an Icarus-readable copy, sim/make_bridge_sim.py) into tau_rtc_cdc.sv, three system clocks and phases; the two mutants must FAIL ----
 RTC_CDC_SRC = sim/tb_rtc_cdc.v src/fpga/core/tau_rtc_cdc.sv $(RTL_BUILD_DIR)/core_bridge_cmd_sim.v src/fpga/apf/common.v sim/stub_mf_datatable.v
@@ -925,17 +926,6 @@ rtl-lint:
 card-check:
 	$(PYTHON) tools/library_check.py
 
-# Decode the actual packaged RGB565/RLE loading asset, rather than previewing
-# the source file.  This is a design-review aid and never alters release files.
-visual-review:
-	$(PYTHON) tools/visual_review.py
 
 # (test-qr removed: the QR encoder and its test are archived in archive/qr_encoder/)
 
-# B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
-test-ram192k:
-	$(PYTHON) sim/test_ram192k.py --build
-
-# B-338: the CLK66=1 firmware link and the RAM_192K/CLK66 mutual-exclusion refusal. Slow (a firmware build).
-test-clk66:
-	$(PYTHON) sim/test_clk66.py --build

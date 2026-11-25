@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Build a Tau release: the normal core and the Diagnostic Build, each in its own zip.
+
+Both cores run on the same FPGA bitstream and the same firmware source; the Diagnostic Build only has the test
+menus switched on. Zip names follow Analogue's convention <Author>.<Core>_<Version>_<Date>.zip and contain only
+Pocket base folders (Cores, Platforms, Assets). Version and date come from dist/Cores/alfatreze.TAU/core.json.
+
+  python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH --release v0.6.0-alpha.5 \
+      --previous-release v0.6.0-alpha.4 --previous release/<last normal zip> --previous release/<last diagnostic zip> [--test]
+
+Channel from the tag (tools/tau_layout.py): vX.Y.Z = Stable (alfatreze.TAU + 'TAU Diagnostics' on platform tau); any pre-release label =
+Preview ('TAU Preview' + 'TAU Preview Diagnostics' on platform tau_preview, reading TAU's media in place). Zips: <core id, spaces as _>_<version>_<date>.zip
+
+Steps: build both ROMs, package the normal core (package.py), package the diagnostic core
+(tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2, release/tau-compat.json (Tau Omega's compatibility manifest, tools/tau_compat.py,
+RELEASE_SYSTEM_SPEC section 10) and release/SHA256SUMS.txt listing all three, then print the gh command that publishes them.
+Bump the version first (fw/player.c APP_VER, core.json, README 'Current version', CHANGELOG); build.sh refuses a mismatch.
+"""
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import shutil
+import sys
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import tau_compat  # noqa: E402
+import tau_layout  # noqa: E402  (release channels, RELEASE_SYSTEM_SPEC section 4)
+DIAG = ROOT / "work/diagnostics/library-diagnostic/pocket"   # B-078: the Diagnostic Build now includes the media library and Check
+OUT = ROOT / "release"
+
+
+def sh(cmd, **kw):
+    print("+", " ".join(str(c) for c in cmd), flush=True)
+    r = subprocess.run(cmd, cwd=ROOT, **kw)
+    if r.returncode:
+        sys.exit(f"step failed ({r.returncode}): {' '.join(str(c) for c in cmd)}")
+
+
+def sha(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def make_zip(src: Path, name: str):
+    z = OUT / name
+    if z.exists():
+        z.unlink()
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as f:
+        for root, dirs, files in os.walk(src):
+            dirs.sort()
+            for n in sorted(files):
+                if n.startswith("._") or n == ".DS_Store":
+                    continue
+                p = Path(root) / n
+                if p.relative_to(src).parts[0] not in ("Cores", "Assets", "Platforms"):
+                    continue                    # package-root files (bitstream-manifest.json, B-653) never go to the card or the zip
+                zi = zipfile.ZipInfo(str(p.relative_to(src)), (2026, 1, 1, 0, 0, 0))
+                zi.compress_type = zipfile.ZIP_DEFLATED
+                zi.external_attr = 0o644 << 16
+                f.writestr(zi, p.read_bytes())
+    return z
+
+
+PRESET_DIR = "tau-presets"
+
+
+def add_factory_presets(src: Path, media_platform: str):
+    """Player 2 meters read their presets from files (docs/features/METER_PRESETS_EXTERNAL.md): put the factory set (tools/player2/mpreset.py, meters/<key>/presets.json) in the package under
+    Assets/<media platform>/common/tau-presets/, next to the library (the media root of /Assets/tau/common/). Unzipping a release over a card therefore restores the factory presets: Tau Omega's sync
+    is the way that keeps a user's own."""
+    import install_factory_presets as ifp
+    files = ifp.factory()
+    assert files, "no factory preset files: meters/*/presets.json missing?"
+    base = src / "Assets" / media_platform / "common" / PRESET_DIR
+    for rel, data in files.items():
+        f = base / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+    return len(files)
+
+
+def check_factory_presets(names, read, media_platform: str):
+    """the zip (its name list and a reader) holds every factory preset file, byte for byte, and no other file under tau-presets/ (B-982). Returns the number of files."""
+    import install_factory_presets as ifp
+    want = {f"Assets/{media_platform}/common/{PRESET_DIR}/{rel}": data for rel, data in ifp.factory().items()}
+    have = {n for n in names if f"/common/{PRESET_DIR}/" in n}
+    assert have == set(want), f"factory preset files differ: missing {sorted(set(want) - have)[:3]}, extra {sorted(have - set(want))[:3]}"
+    for n, data in want.items():
+        assert read(n) == data, f"{n} is not the factory file"
+    return len(want)
+
+
+def check_save_slot(names, read, core_id):
+    """The meter-settings save slot (release 0.7.5, D-M25, D-M27, B-1137/B-1140): data slot 11 is `tau-meter-settings.bin`, nonvolatile, core-specific (bit 1), parameters EXACTLY 0x22 (bit 5: the Pocket fills a missing file
+    with 0xFF; the firmware then sets the slot's size entry and the Pocket creates the file), not deferload, not required, 8,192 bytes, address 0x30000000, and the zip carries NO Saves/ file at all (the user's file is the one thing an
+    update must never overwrite, and none is needed). Parameters 0x2 would silently lose every setting when no file exists; any other value changes who may overwrite the file."""
+    slots = json.loads(read(f"Cores/{core_id}/data.json"))["data"]["data_slots"]
+    s = next((x for x in slots if x["id"] == 11), None)
+    want = {"filename": "tau-meter-settings.bin", "nonvolatile": True, "parameters": "0x22", "size_exact": 8192, "size_maximum": 8192, "address": "0x30000000", "required": False}
+    assert s is not None, "data slot 11 (the meter-settings save slot) is missing"
+    for k, v in want.items(): assert s.get(k) == v, f"data slot 11: {k} is {s.get(k)!r}, must be {v!r}"
+    assert not s.get("deferload"), "data slot 11 must not be deferload (the Pocket loads it by itself)"
+    assert not any(n.startswith("Saves/") for n in names), "the zip ships a Saves/ file: a hand update would overwrite the user's settings"
+
+
+def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path, player2: bool = False, media_platform: str = "tau", save_slot=None):
+    rev = raw_rbf.translate(bytes(int(f"{x:08b}"[::-1], 2) for x in range(256)))
+    with zipfile.ZipFile(z) as f:
+        names = f.namelist()
+        tops = {n.split("/")[0] for n in names}
+        assert tops <= {"Cores", "Platforms", "Assets"}, f"unexpected base folders {tops}"
+        assert not any("/._" in "/" + n or n.endswith(".DS_Store") for n in names), "metadata files in zip"
+        core = json.loads(f.read(f"Cores/{core_id}/core.json"))["core"]["metadata"]
+        assert f"{core['author']}.{core['shortname']}" == core_id, "core folder does not match author.shortname"
+        assert core["version"] == version, f"core.json version {core['version']} != {version}"
+        assert f.read(f"Cores/{core_id}/bitstream.rbf_r") == rev, "bitstream is not the bit-reversed RBF"
+        roms = [n for n in names if n.endswith(f"/{core_id}/tau.rom")]                # H4: core-specific
+        assert len(roms) == 1 and f.read(roms[0]) == rom.read_bytes(), "tau.rom is not the freshly built ROM"
+        if player2: check_factory_presets(names, f.read, media_platform)
+        if save_slot is None: save_slot = player2
+        if save_slot: check_save_slot(names, f.read, core_id)
+        plat = core["platform_ids"][0]
+        assert len(plat) <= 15 and f"Platforms/{plat}.json" in names and f"Platforms/_images/{plat}.bin" in names
+        return len(names)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--rbf", required=True, type=Path, help="raw (not reversed) RBF for both cores")
+    ap.add_argument("--rbf-sha256", required=True, help="expected SHA-256 of --rbf (refuses an unaudited bitstream)")
+    ap.add_argument("--release", required=True, help="the tag, e.g. v0.6.0-alpha.5 (needs a matching CHANGELOG heading)")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--previous", action="append", type=Path, help="the previous release's zip of each core (persist_ids_changed)")
+    g.add_argument("--no-previous", action="store_true", help="no previous zips: persist_ids_changed = []")
+    ap.add_argument("--previous-release", help="the tag of the --previous zips (checked against their version, date and the CHANGELOG)")
+    ap.add_argument("--bitstream-version", help="CORE_VERSION of --rbf when it has no fit manifest (<rbf>.json)")
+    ap.add_argument("--test", action="store_true", help="also run make test-host")
+    ap.add_argument("--player2", action="store_true", help="ship Player 2 (fw2/): TWO cores, the normal build and the Diagnostic Build (D-U02), each packaged by "
+                    "tools/package_dev_build.py --semver --variant player2 (--diagnostic-core for the second); the old firmware is not built")
+    args = ap.parse_args()
+    rbf = args.rbf if args.rbf.is_absolute() else ROOT / args.rbf
+    if sha(rbf) != args.rbf_sha256:
+        sys.exit(f"RBF hash mismatch: expected {args.rbf_sha256}, got {sha(rbf)}")
+    raw = rbf.read_bytes()
+
+    meta = json.loads((ROOT / "dist/Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]
+    version, date = meta["version"].split("-")[0], meta["date_release"]     # X.Y.Z (dist may still carry a previous pre-release label)
+    print(f"release {args.release}: core.json v{version} ({date})")
+    # tau-compat.json (Tau Omega): refuse early what would refuse late -- the tag must match core.json and the changelog,
+    # and the bitstream's CORE_VERSION comes from its fit manifest, not from the first literal in tau_soc.v.
+    try:
+        if not args.release.startswith(f"v{version}") or args.release[len(version) + 1:][:1] not in ("", "-"):
+            raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
+        tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
+        cl_date = tau_compat.changelog_releases(ROOT / "CHANGELOG.md").get(args.release)
+        if args.player2 and cl_date:
+            date = cl_date                          # Player 2: the package's core.json date follows the CHANGELOG heading
+        if cl_date and cl_date != date:      # the rehearsal of 2026-10-08 zipped "2026-10-07" under a heading dated 8 October
+            raise tau_compat.CompatError(f"core.json date_release {date} differs from the CHANGELOG heading's date {cl_date}: set one of them")
+        if args.previous and not args.previous_release:
+            raise tau_compat.CompatError("--previous needs --previous-release")
+        core_version = tau_compat.bitstream_core_version(rbf, args.bitstream_version)
+        if tau_compat.source_state()["dirty"]:      # review M1: the tree-derived fields must come from a committed tree
+            raise tau_compat.CompatError("the tree has uncommitted changes outside dist/ and release/: commit them before a release")
+    except tau_compat.CompatError as e:
+        sys.exit(f"tau-compat: {e}")
+    print(f"bitstream CORE_VERSION {core_version}")
+    channel = tau_layout.channel_of(args.release)
+    if channel == "dev":
+        sys.exit("dev builds are not published: use tools/package_dev_build.py --number")
+    ch = tau_layout.CHANNELS[channel]
+    normal_id, diag_id = f"alfatreze.{ch['core']}", f"alfatreze.{ch['diag']}"
+    print(f"channel {channel}: {normal_id} + {diag_id} on platform {ch['platform']}")
+
+    if args.player2:
+        if channel == "dev":
+            sys.exit("--player2 ships in the Stable or Preview channel")
+        full = args.release[1:]
+        # TWO cores, as the standing rule says (docs/DECISIONS.md D-U01/D-U02): the normal build (DIAG=0: About, the support Report, no Check) and the Diagnostic Build (DIAG=1: everything).
+        # PACKS=1: the loadable meters; the packager then builds tau-packs.bin (data slot 9) next to tau.rom. Each is built and packaged in turn (both write work/diagnostics/player2/).
+        base_args = [sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256,
+                     "--save-file", "--save-file-params", "0x22", "--save-file-no-seed"]          # data slot 11, the meter-settings file: no seed (the Pocket creates it, D-M27); the rbf's fit manifest must list TAU_SAVE
+        sh(base_args + ["--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=0"])
+        sh(base_args + ["--diagnostic-core", "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1,DIAG=1"])
+        normal_src = ROOT / f"work/diagnostics/tau-{channel}-{full}/pocket"
+        diag_src = ROOT / f"work/diagnostics/tau-{channel}-{full}-diag/pocket"
+        for cid, src in ((normal_id, normal_src), (diag_id, diag_src)):
+            cj = json.loads((src / "Cores" / cid / "core.json").read_text())
+            cj["core"]["metadata"]["date_release"] = date
+            (src / "Cores" / cid / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
+        if args.test:
+            sh(["make", "test-host"])
+        jobs = [(cid, src, tau_layout.core_dir(src, ch["platform"], cid) / "tau.rom") for cid, src in ((normal_id, normal_src), (diag_id, diag_src))]
+        return finish(args, jobs, rbf, raw, date, channel, ch)
+
+    env = dict(os.environ)
+    # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
+    # built to match. Set the flags here instead of relying on the caller's shell: a plain run silently built a
+    # 256 KB / 60 MHz ROM that the rev 26 bitstream refuses (the black screen, B-394/B-448/B-563).
+    for k, v in (("RAM_192K", "1"), ("CLK66", "1"), ("SDRAM_BUSY", "1")):
+        env.setdefault(k, v)
+    sh(["bash", "-n", "fw/build.sh"])
+    sh(["bash", "fw/build.sh", "release"], env=env)                       # v0.4.0 (B-078): library + Phase G, no Check
+    # B-563: a RAM_192K=1 build never writes dist/ (build.sh, B-333) but goes to work/ram192k/release/. The
+    # release ships that build, so put it where package.py and the zip expect it -- and refuse to go on if
+    # the ROM in dist/ is not the one just built (the earlier run silently zipped a stale 256 KB ROM).
+    built = ROOT / ("work/ram192k/release" if env.get("RAM_192K") == "1" else "dist/Assets/tau/alfatreze.TAU")
+    for name in ("tau.rom", "tau-cold.bin"):
+        if built != ROOT / "dist/Assets/tau/alfatreze.TAU":
+            shutil.copy2(built / name, ROOT / "dist/Assets/tau/alfatreze.TAU" / name)
+        assert sha(built / name) == sha(ROOT / "dist/Assets/tau/alfatreze.TAU" / name), f"dist/{name} is not the freshly built one"
+    sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
+    sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
+    sh([sys.executable, "tools/check_tau_package.py"])
+    sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist", "--bitstream-version", core_version])   # B-581: the ROM in the zip must be accepted by the bitstream
+    sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic", "--channel", channel,
+        "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
+    # The normal core of a Preview release is the release build under the Preview channel's name and platforms (TAU's media in place).
+    normal_src = ROOT / "dist" if channel == "stable" else tau_layout.retarget(
+        ROOT / "dist", ROOT / "work/release-preview/pocket", "alfatreze.TAU", normal_id, channel)
+    if channel != "stable":
+        sh([sys.executable, "tools/check_fw_bitstream_pair.py", normal_src, "--bitstream-version", core_version])
+    if args.test:
+        sh(["make", "test-host"])
+
+    jobs = [(core_id, src, tau_layout.core_dir(src, ch["platform"], core_id) / "tau.rom")
+            for core_id, src in ((normal_id, normal_src), (diag_id, DIAG))]
+    finish(args, jobs, rbf, raw, date, channel, ch)
+
+
+def finish(args, jobs, rbf, raw, date, channel, ch):
+    OUT.mkdir(exist_ok=True)
+    import tau_version
+    full = args.release[1:]
+    for core_id, src, rom in jobs:
+        core_dir = src / "Cores" / core_id
+        cj = json.loads((core_dir / "core.json").read_text())
+        cj["core"]["metadata"]["version"] = full
+        (core_dir / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
+        print(f"version {tau_version.stamp_file(rom, full)} -> {rom.relative_to(ROOT)}")
+    version = full
+    sums = []
+    media = ch["platforms"][-1]                                          # the platform whose common/ holds the media library (TAU's: a Preview core reads it in place)
+    for core_id, src, rom in jobs:
+        if args.player2: print(f"  {core_id}: {add_factory_presets(src, media)} factory preset files under Assets/{media}/common/{PRESET_DIR}/")
+        z = make_zip(src, tau_layout.zip_name(core_id, version, date))
+        n = verify(z, core_id, version, raw, rom, args.player2, media)
+        sums.append(f"{sha(z)}  {z.name}")
+        print(f"  {z.name}: {n} files, {z.stat().st_size:,} bytes, checks ok")
+    zips = [OUT / line.split("  ", 1)[1] for line in sums]
+    kw = dict(release=args.release, zips=zips, previous=None if args.no_previous else args.previous,
+              rbf=rbf, bitstream_version=args.bitstream_version, previous_release=args.previous_release)
+    compat = OUT / "tau-compat.json"
+    try:
+        compat.write_text(tau_compat.dumps(tau_compat.build(**kw)))
+        errs = tau_compat.verify(compat, **kw)
+    except tau_compat.CompatError as e:
+        sys.exit(f"tau-compat: {e}")
+    if errs:
+        sys.exit("tau-compat.json does not match the zips:\n  " + "\n  ".join(errs))
+    sums.append(f"{sha(compat)}  {compat.name}")
+    (OUT / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
+    print("\n".join(sums))
+    pre = " --prerelease" if "-" in args.release else ""
+    print("\nPublish (owner approval first):\n  gh release create " + args.release + " --repo alfatreze/Tau-Alpha" + pre
+          + " --title '" + args.release + "' --notes-file <notes> " + " ".join(f"release/{z.name}" for z in zips)
+          + " release/tau-compat.json release/SHA256SUMS.txt")
+
+
+if __name__ == "__main__":
+    main()

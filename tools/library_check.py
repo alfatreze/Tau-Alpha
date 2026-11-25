@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Predict what the core will do with the library on the card, before booting it.
 
-This mirrors the decisions fw/art.inc and fw/playlist.inc actually make -- the
+This mirrors the decisions the old player's embedded-art path (fw/art.inc, archived in legacy-harpmudd/) made -- the
 APIC search, the size cap, the reduce-vs-full choice, the geometry guards, and
 whether every playlist entry resolves. Written after a track showed no art for
 days with nothing on screen to say why: the cause was a size cap rejecting the
 frame, which one scan of the real files would have found immediately.
 
-Keep the constants below in step with fw/art.inc. They are asserted against the
-header where possible so a drift shows up as a failure here rather than as a
-silent disagreement between what this predicts and what the core does.
+The limits below are constants (the old player's values, pinned by D-T20).
 
     python tools/library_check.py                # find the card
     python tools/library_check.py --root PATH    # check a folder instead
@@ -22,29 +20,13 @@ import struct
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ART_INC = os.path.join(ROOT, "fw", "art.inc")
-
-
-def from_art_inc():
-    """Read the limits out of the firmware so this cannot drift from it."""
-    src = open(ART_INC, encoding="utf-8", errors="replace").read()
-    def num(name, default):
-        m = re.search(r"#define\s+%s\s+\(?([0-9]+)u?\s*\*?\s*([0-9]*)u?\s*\)?" % name, src)
-        if not m:
-            return default
-        a = int(m.group(1))
-        return a * int(m.group(2)) if m.group(2) else a
-    art_img = 92
-    m = re.search(r"#define\s+ART_IMG\s+([0-9]+)u",
-                  open(os.path.join(ROOT, "fw", "player.c"),
-                       encoding="utf-8", errors="replace").read())
-    if m:
-        art_img = int(m.group(1))
-    return (num("ART_MAX_BYTES", 2048 * 1024), num("ART_MAX_SRC_W", 320),
-            num("ART_FULL_MAX", 1024), art_img)
-
-
-ART_MAX_BYTES, ART_MAX_SRC_W, ART_FULL_MAX, ART_IMG = from_art_inc()
+# The limits of the embedded-art path (the old player's fw/art.inc and ART_IMG in fw/player.c, retired by D-T20; Player 2 shows only the pre-converted
+# tau-art/*.timg covers). They are pinned here with the values those files held, so this predictor and tools/sync_media.py keep their caps
+# (sim/test_library_check_limits.py).
+ART_MAX_BYTES = 2048 * 1024      # a larger embedded picture is not read
+ART_MAX_SRC_W = 320              # reduce mode: art up to ~2560 px wide
+ART_FULL_MAX = 1024              # full-decode limit
+ART_IMG = 128                    # cover size in pixels
 
 
 def syncsafe(b):
@@ -179,7 +161,7 @@ def main():
         sys.exit("no card found and no --root given")
 
     print("library: %s" % root)
-    print("limits from fw/art.inc: ART_MAX_BYTES=%s ART_MAX_SRC_W=%d "
+    print("limits (pinned from the old fw/art.inc): ART_MAX_BYTES=%s ART_MAX_SRC_W=%d "
           "ART_FULL_MAX=%d ART_IMG=%d\n"
           % (f"{ART_MAX_BYTES:,}", ART_MAX_SRC_W, ART_FULL_MAX, ART_IMG))
 

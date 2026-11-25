@@ -37,11 +37,19 @@ RULES = [("text_primary", ["surface", "base", "ramp"], 4.5), ("text_secondary", 
          ("text_secondary", ["ramp"], 2.6)]
 
 
-def palette():
-    """The firmware's accent palette [(name, rgb565)] read from fw/player.c, so the checks use what the device really has."""
-    src = (ROOT / "fw" / "player.c").read_text()
-    blk = src[src.index("static const uint16_t ui_palette[]"):src.index("#define UI_PALETTE_N")]
-    return [(m.group(2), int(m.group(1), 16)) for m in re.finditer(r"0x([0-9A-Fa-f]{4})u,\s+/\*\s+([A-Z_]+)", blk)]
+def palette(root=ROOT):
+    """The firmware's accent palette [(name, rgb565)] read from Player 2's fw2/ui/theme.c (palette[] and th_palette_name[]), so the checks use what the device really has.
+    (It was read from the old player's fw/player.c ui_palette[] until D-T20; the 19 pairs are the same, sim/test_palette_source.py.)"""
+    src = (Path(root) / "fw2" / "ui" / "theme.c").read_text()
+    pal = src[src.index("static const uint16_t palette["):]
+    pal = pal[pal.index("{"):pal.index("};")]
+    names = src[src.index("th_palette_name["):]
+    names = names[names.index("{"):names.index("};")]
+    cols = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{4})u", pal)]
+    nm = re.findall(r'"([A-Z_]+)"', names)
+    if len(cols) != len(nm) or not cols:
+        sys.exit(f"fw2/ui/theme.c: {len(cols)} palette colours but {len(nm)} names")
+    return list(zip(nm, cols))
 
 
 def snap(v):

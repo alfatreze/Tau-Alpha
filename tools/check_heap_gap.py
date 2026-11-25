@@ -1,120 +1,100 @@
 #!/usr/bin/env python3
-"""Regression guard for B-391 (docs/AUDIT_TRAIL.md): a function moving out of the cold image (losing
-COLD_FN/COLD_TEXT placement, deliberately or by accident) grows the hot code and shrinks the heap gap
--- a real, silent RAM-budget regression. Last time, it was caught only because a human happened to
-compare two printed "heap gap: N B" numbers before and after a refactor. This script automates that
-comparison: builds each tracked firmware target, parses its own heap-gap line, and fails if the actual
-gap drops more than TOLERANCE_B below the recorded baseline (tools/heap_gap_baseline.json). Free RAM
-going UP, or moving by less than the tolerance, is never a failure -- only a real drop past it, so
-ordinary feature growth from genuinely new code does not need constant re-baselining.
+"""Heap-gap guard for Player 2 (rule 6 of docs/PROJECT_RULES.md: measure against the shipped link).
 
-Not wired into `make test-host`: like tools/check_cold_calls.py, this is an informational tool run by
-hand, deliberately -- it rebuilds every tracked target via fw/build.sh, which overwrites
-dist/Assets/tau/alfatreze.TAU/tau.rom (the real shipped ROM), a side effect a plain host test should not have
-without the project deciding to accept it.
+fw2/build.sh has ONE configuration, the shipped 192 KB / CLK66 link (there is no 256 KB variant to mistake for it), in two builds: DIAG=0 (the normal build) and
+DIAG=1 (the Diagnostic Build). The heap gap of a build is the free RAM between the end of the image and the reserved zone under the tag buffer:
+`_heap_limit - _image_end` from the linked ELF (fw2/platform/link.ld). The link itself already refuses an image that leaves less than `_min_free`; this script also
+catches a slow shrink: it fails when a build's gap falls more than TOLERANCE_B below the recorded baseline (tools/heap_gap_baseline.json), so a function that
+leaves the cold image, or a feature that eats the margin, shows up here and not on a Pocket. Free RAM going up, or moving by less than the tolerance, never fails.
 
-B-565: the baseline also keeps one RAM snapshot per target (tools/ram_snapshots/<target>.json, written by
-tools/ram_report.py), so when a gap drops past the tolerance the script prints WHICH symbols and feature
-groups grew, instead of leaving that to be rediscovered by hand.
+(Until D-T20 this script built the old player's fw/build.sh targets with RAM_192K=1 CLK66=1 SDRAM_BUSY=1; that player and its baseline are archived in legacy-harpmudd/.)
+
+Builds go to work/heapcheck/gap (TAU_BUILD_OUT), never into dist/.
 
 Usage:
-  check_heap_gap.py            # check every tracked target against the baseline
-  check_heap_gap.py --update   # rebuild every tracked target and overwrite the baseline (and snapshots)
+  check_heap_gap.py            # build DIAG=0 and DIAG=1, check against the baseline
+  check_heap_gap.py --update   # rebuild and overwrite the baseline
+  check_heap_gap.py --elf FILE # the gap of an existing ELF (no build)
 """
 import json
-import re
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ram_report  # noqa: E402
+import toolchain  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tools" / "heap_gap_baseline.json"
-SNAPSHOTS = ROOT / "tools" / "ram_snapshots"
 TOLERANCE_B = 512   # a handful of bytes moving with ordinary code changes is not a regression to chase
-# ram-diet: the guard used to build the 256 KB link with no flags, which is NOT what ships (the shipped bitstream is the 192 KB / 66.667 MHz one). It
-# reported 54 / 39 / 36 KB free while the shipped link had 15.5 / 1.3 KB and a profile build that did not link at all. Every entry now builds with the
-# shipped flags, and release is tracked with tempo on as well, because both builds ship the tempo funnel.
-SHIPPED = {"RAM_192K": "1", "CLK66": "1", "SDRAM_BUSY": "1"}
-CONFIGS = {   # name -> (fw/build.sh target, extra environment)
-    "release": ("release", {}),
-    "release-tempo-slim": ("release", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),   # the RAM-diet A/B build: sliced output hop and a 512-entry stage-2 ring
-    "player-library-diagnostic": ("player-library-diagnostic", {}),
-    "player-library-diagnostic-perf": ("player-library-diagnostic", {"DIAG_PRESET": "perf"}),   # docs/features/DIAG_FEATURES.md
-    "player-library-diagnostic-slim-preset": ("player-library-diagnostic", {"DIAG_PRESET": "slim"}),
-    "player-library-diagnostic-slim": ("player-library-diagnostic", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
-    "player-library-diagnostic-profile": ("player-library-diagnostic-profile", {}),
-    "player-library-diagnostic-profile-slim": ("player-library-diagnostic-profile", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
-}
-DEFAULT_TARGETS = list(CONFIGS)
+BUILDS = {"fw2-diag0": "0", "fw2-diag1": "1"}
 
 
-def build_heap_gap(name):
-    target, extra = CONFIGS[name]
-    env = dict(os.environ, TAU_BUILD_OUT=str(ROOT / "work/heapcheck"), **SHIPPED, **extra)   # B-585: never write dist/ or the flagged work/diagnostics/ ROMs
-    r = subprocess.run(["bash", "fw/build.sh", target], cwd=ROOT, capture_output=True, text=True, env=env)
-    m = re.search(r"heap gap: (\d+) B", r.stdout)
-    if not m:
-        # A 192 KB link that does not fit is a measurement, not a crash: record how far over it is as a negative gap.
-        o = re.search(r"image is \+(\d+) B over; (\d+) B short of the (\d+) B heap floor", r.stdout + r.stderr)
-        if o:
-            return -int(o.group(1)), None   # no ELF is produced by a failed link (fw.elf would be stale)
+def gap_from_nm(text):
+    """(heap gap, link floor) in bytes from `nm` output of fw2.elf."""
+    sym = {}
+    for line in text.splitlines():
+        p = line.split()
+        if len(p) == 3 and p[2] in ("_heap_limit", "_image_end", "_min_free"):
+            sym[p[2]] = int(p[0], 16)
+    for k in ("_heap_limit", "_image_end", "_min_free"):
+        if k not in sym:
+            sys.exit(f"nm output has no {k}: not a Player 2 ELF?")
+    return sym["_heap_limit"] - sym["_image_end"], sym["_min_free"]
+
+
+def verdict(name, gap, floor, baseline):
+    """(ok, text) for one build."""
+    if gap < floor:
+        return False, f"FAIL {name}: heap gap {gap} B is under the link floor {floor} B"
+    base = baseline.get(name)
+    if base is None:
+        return True, f"{name}: heap gap {gap} B (no baseline recorded: run --update)"
+    if base - gap > TOLERANCE_B:
+        return False, f"FAIL {name}: heap gap dropped {base - gap} B (baseline {base} B, now {gap} B): did something leave the cold image (docs/AUDIT_TRAIL.md B-391)?"
+    return True, f"{name}: heap gap {gap} B (baseline {base} B)"
+
+
+def elf_gap(elf):
+    nm = toolchain.riscv_bin() / "riscv-none-elf-nm"
+    r = subprocess.run([str(nm), str(elf)], capture_output=True, text=True, check=True)
+    return gap_from_nm(r.stdout)
+
+
+def build(diag):
+    out = ROOT / "work" / "heapcheck" / "gap" / f"d{diag}"
+    env = dict(os.environ, DIAG=diag, TAU_BUILD_OUT=str(out))   # never dist/
+    r = subprocess.run(["bash", "fw2/build.sh"], cwd=ROOT, capture_output=True, text=True, env=env)
+    if r.returncode:
         print(r.stdout)
         print(r.stderr, file=sys.stderr)
-        sys.exit(f"fw/build.sh {target} failed and printed no 'heap gap' line")
-    return int(m.group(1)), ram_report.load(ROOT / "fw" / "fw.elf")   # parse now: the next build overwrites fw.elf
+        sys.exit(f"fw2/build.sh DIAG={diag} failed")
+    return out / "player2" / "fw2.elf"
 
 
 def main():
-    update = "--update" in sys.argv
-    if update:
-        targets = DEFAULT_TARGETS
-    elif BASELINE.exists():
-        targets = sorted(json.loads(BASELINE.read_text()))
-    else:
-        sys.exit(f"{BASELINE} does not exist yet -- run with --update to create it")
-
-    results, elfs = {}, {}
-    for t in targets:
-        gap, elfs[t] = build_heap_gap(t)
-        results[t] = gap
-        print(f"{t}: heap gap {gap} B")
-
-    if update:
-        BASELINE.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
-        SNAPSHOTS.mkdir(exist_ok=True)
-        for t, loaded in elfs.items():
-            if loaded is None:
-                continue
-            sec, sym = loaded
-            ram_report.save_snapshot(sec, sym, SNAPSHOTS / f"{t}.json")
-        print(f"baseline written to {BASELINE} (snapshots in {SNAPSHOTS})")
+    args = sys.argv[1:]
+    if "--elf" in args:
+        gap, floor = elf_gap(args[args.index("--elf") + 1])
+        print(f"heap gap {gap} B (link floor {floor} B)")
         return
-
-    baseline = json.loads(BASELINE.read_text())
-    bad = []
-    for t, gap in results.items():
-        base = baseline.get(t)
-        if base is None:
-            print(f"{t}: no baseline recorded for this target (run --update to add it)")
-            continue
-        drop = base - gap
-        if drop > TOLERANCE_B:
-            bad.append((t, base, gap, drop))
-
-    if bad:
-        for t, base, gap, drop in bad:
-            print(f"FAIL {t}: heap gap dropped {drop} B (baseline {base} B, now {gap} B) -- "
-                  f"check whether something moved out of the cold image (docs/AUDIT_TRAIL.md B-391)")
-            snap = SNAPSHOTS / f"{t}.json"
-            if snap.exists() and elfs[t] is not None:
-                print(f"what changed in {t} since the baseline snapshot:")
-                print(ram_report.diff(ram_report.load(snap), elfs[t]))
-            else:
-                print(f"(no RAM snapshot for {t}: run --update to create one)")
+    results = {}
+    for name, diag in BUILDS.items():
+        gap, floor = elf_gap(build(diag))
+        results[name] = (gap, floor)
+    if "--update" in args:
+        BASELINE.write_text(json.dumps({k: v[0] for k, v in results.items()}, indent=2, sort_keys=True) + "\n")
+        print(f"baseline written to {BASELINE}: " + ", ".join(f"{k} {v[0]} B" for k, v in results.items()))
+        return
+    baseline = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+    ok = True
+    for name, (gap, floor) in results.items():
+        good, text = verdict(name, gap, floor, baseline)
+        print(text)
+        ok &= good
+    if not ok:
         sys.exit(1)
     print("PASSED")
 
