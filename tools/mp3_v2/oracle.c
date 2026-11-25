@@ -1,6 +1,6 @@
 /* MP3 v2 float oracle: a command-line decoder around the PRISTINE lieff/minimp3 (CC0 1.0, third_party/minimp3/minimp3.h, unchanged).
  * Own code (Tau Alpha, MIT). Decodes a whole MP3 file to 16-bit PCM and/or a float dump, deterministically:
- *   oracle <in.mp3> [--pcm out.s16le] [--f32 out.f32le] [--frames N]
+ *   oracle <in.mp3> [--pcm out.s16le] [--f32 out.f32le] [--frames N] [--verbose]
  * Always prints one JSON line to stdout: frames, decoded frames, hz, channels, sample pairs, float peak (1.0 = 16-bit full scale), count of
  * samples beyond +-1.0 (clipping potential of the float output), count of rail samples in the 16-bit output.
  * Build (tools/mp3_v2/oracle.py does it): cc -O2 -ffp-contract=off -DMINIMP3_NO_SIMD -DMINIMP3_ONLY_MP3 -DMINIMP3_FLOAT_OUTPUT ...
@@ -28,11 +28,12 @@ static uint8_t *slurp(const char *path, size_t *n)
 int main(int argc, char **argv)
 {
     const char *in = NULL, *pcm_path = NULL, *f32_path = NULL;
-    long max_frames = -1;
+    long max_frames = -1; int verbose = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pcm") && i + 1 < argc) pcm_path = argv[++i];
         else if (!strcmp(argv[i], "--f32") && i + 1 < argc) f32_path = argv[++i];
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = atol(argv[++i]);
+        else if (!strcmp(argv[i], "--verbose")) verbose = 1;
         else if (!in) in = argv[i];
         else { fprintf(stderr, "usage: oracle in.mp3 [--pcm out] [--f32 out] [--frames N]\n"); return 2; }
     }
@@ -48,6 +49,13 @@ int main(int argc, char **argv)
         if (sz > left) sz = left;
         p += sz; left -= sz;
     }
+    if (left >= 128 && !memcmp(p + left - 128, "TAG", 3)) left -= 128;   /* trailing ID3v1, then APEv2 (footer "APETAGEX"): not audio, as minimp3_ex strips them */
+    if (left >= 32 && !memcmp(p + left - 32, "APETAGEX", 8)) {
+        uint32_t sz = (uint32_t)p[left - 20] | ((uint32_t)p[left - 19] << 8) | ((uint32_t)p[left - 18] << 16) | ((uint32_t)p[left - 17] << 24);
+        uint32_t fl = (uint32_t)p[left - 12] | ((uint32_t)p[left - 11] << 8) | ((uint32_t)p[left - 10] << 16) | ((uint32_t)p[left - 9] << 24);
+        size_t cut = (size_t)sz + ((fl & 0x80000000u) ? 32 : 0);
+        left = cut <= left ? left - cut : 0;
+    }
     static mp3dec_t dec; mp3dec_init(&dec);
     static float pcmf[MINIMP3_MAX_SAMPLES_PER_FRAME];
     static int16_t pcm16[MINIMP3_MAX_SAMPLES_PER_FRAME];
@@ -57,6 +65,7 @@ int main(int argc, char **argv)
         int s = mp3dec_decode_frame(&dec, p, (int)left, pcmf, &info);
         if (!info.frame_bytes) break;
         frames++;
+        if (verbose) fprintf(stderr, "frame %ld bytes %d offset %d samples %d\n", frames, info.frame_bytes, info.frame_offset, s);
         p += info.frame_bytes; left -= (size_t)info.frame_bytes;
         if (s <= 0) continue;
         decoded++; hz = info.hz; ch = info.channels; pairs += (unsigned)s;

@@ -63,7 +63,7 @@ def granule_bits(rng, pairs):
 
 
 def frame(version=1, mode=1, mode_ext=0, crc=False, br_idx=9, sr_idx=0, padding=0, main_data_begin=0, window=None, mixed=None, block_type=None,
-          pairs=40, seed=1, scfsi=0, emphasis=0, fill=0, gain=190):
+          pairs=40, seed=1, scfsi=0, emphasis=0, fill=0, gain=190, total=None):
     """One Layer III frame. window/block_type/mixed: per-(granule, channel) lists (or a single value for all); block_type 0..3 (needs window=1).
     Returns bytes."""
     ch = 1 if mode == 3 else 2
@@ -99,7 +99,7 @@ def frame(version=1, mode=1, mode_ext=0, crc=False, br_idx=9, sr_idx=0, padding=
     data = BitWriter()
     for c in chunks: data.bits += c.bits
     body = sib + data.tobytes()
-    total = frame_bytes(version, br_idx, sr_idx, padding)
+    total = total if total is not None else frame_bytes(version, br_idx, sr_idx, padding)
     crcb = b"\x00\x00" if crc else b""
     pad = total - 4 - len(crcb) - len(body)
     assert pad >= 0, "too much main data for the frame"
@@ -144,7 +144,7 @@ def id3v1(): return b"TAG" + b"\x00" * 125
 
 def apev2(items_size=40):
     body = b"\x00" * items_size
-    foot = b"APETAGEX" + struct.pack("<IIII", 2000, items_size + 32, 0, 0x80000000) + b"\x00" * 8
+    foot = b"APETAGEX" + struct.pack("<IIII", 2000, items_size + 32, 0, 0) + b"\x00" * 8     # footer only: flags 0 = no header present
     return body + foot
 
 

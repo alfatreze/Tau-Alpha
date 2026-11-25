@@ -2,7 +2,7 @@
 """WP-01 report: compile the PRISTINE float minimp3 for rv32im with the project's riscv-none-elf-gcc (MINIMP3_ONLY_MP3, MINIMP3_NO_SIMD),
 print code/rodata/data/bss, per-function code sizes, the static stack figure (-fstack-usage), the measured stack watermark, and the soft-float
 (libgcc) calls per frame and instructions per frame from the project's RV32IM simulator (tools/mp3_v2_measure/rvprof.c, used read-only).
-Usage: rv32_size.py <scratch-dir> <frames> <file.mp3> [more.mp3] [--opt -Os|-O2] [--inc dir-with-a-variant-minimp3.h]       (nothing is written into the tree)"""
+Usage: rv32_size.py <scratch-dir> <frames> <file.mp3> [more.mp3] [--opt -Os|-O2] [--inc dir-with-a-variant-minimp3.h] [--with-layer12]       (nothing is written into the tree)"""
 import re, subprocess, sys, os, bisect
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +17,7 @@ def build(out, opt, frames, extra=(), inc=None):
     out.mkdir(parents=True, exist_ok=True)
     elf = out / f"mp3{opt}.elf"
     sh([str(BIN / "riscv-none-elf-gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", opt, "-ffreestanding", "-nostartfiles", "-nostdlib",
-        "-ffunction-sections", "-fdata-sections", "-fstack-usage", "-w", f"-DFRAMES={frames}", "-DMINIMP3_ONLY_MP3", "-DMINIMP3_NO_SIMD", *extra,
+        "-ffunction-sections", "-fdata-sections", "-fstack-usage", "-w", f"-DFRAMES={frames}", *(() if "L12" in extra else ("-DMINIMP3_ONLY_MP3",)), "-DMINIMP3_NO_SIMD",
         "-I", str(inc or ROOT / "third_party/minimp3"), "-Wl,--gc-sections", "-Wl,-Map=" + str(out / f"mp3{opt}.map"), "-T", str(M / "link.ld"), "-o", str(elf),
         str(ROOT / "tools/mp3_v2/rv32_harness.c"), str(ROOT / "fw2/platform/libc_min.c"), str(M / "crt0.S"), "-lgcc"], cwd=out)
     return elf
@@ -38,18 +38,20 @@ def syms(elf):
     return r
 
 def main():
-    a = sys.argv[1:]; opt = "-Os"; inc = None
+    a = sys.argv[1:]; opt = "-Os"; inc = None; extra = ()
+    if "--with-layer12" in a:   # leave MINIMP3_ONLY_MP3 undefined: what Layer I/II cost (plan 3A.2 row 2)
+        a.remove("--with-layer12"); extra = ("L12",)
     if "--inc" in a:   # measurement variant: a scratch copy of minimp3.h (never the vendored file), e.g. with the window loop removed
         i = a.index("--inc"); inc = a[i + 1]; del a[i:i + 2]
     if "--opt" in a:
         i = a.index("--opt"); opt = a[i + 1]; del a[i:i + 2]
     out = Path(a[0]); frames = int(a[1]); files = a[2:]
-    elf = build(out, opt, frames, inc=inc)
+    elf = build(out, opt, frames, extra=extra, inc=inc)
     size = sh([str(BIN / "riscv-none-elf-size"), "-A", str(elf)]).stdout
     sec = {m.group(1): int(m.group(2)) for m in re.finditer(r"^(\.\w+)\s+(\d+)", size, re.M)}
     S = syms(elf)
     code = sec.get(".text", 0); ro = sec.get(".rodata", 0); data = sec.get(".data", 0); bss = sec.get(".bss", 0)
-    print(f"## build {opt} rv32im ilp32, MINIMP3_ONLY_MP3 + NO_SIMD (int16 output, float internals)")
+    print(f"## build {opt} rv32im ilp32, {'Layer I/II linked' if extra else 'MINIMP3_ONLY_MP3'} + NO_SIMD (int16 output, float internals)")
     print(f"code(.text incl. libgcc soft-float and harness) {code}  rodata {ro}  data {data}  bss {bss}")
     fn = sorted(((s, n) for _, s, t, n in S if t in "tTwW" and s), reverse=True)
     mp = [(s, n) for s, n in fn if not n.startswith("__") and n not in ("main", "memcpy", "memmove", "memset", "memcmp", "strlen", "malloc", "free", "_start")]

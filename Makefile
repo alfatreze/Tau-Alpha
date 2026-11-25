@@ -113,6 +113,7 @@ test-host:
 	$(PYTHON) sim/test_mp3_poly_derive.py
 	$(PYTHON) sim/test_mp3_v2_oracle.py
 	$(PYTHON) sim/test_mp3_v2_window_abi.py
+	$(PYTHON) sim/test_mp3_v2_scan_library.py
 	$(PYTHON) sim/test_chladni_core.py
 	$(PYTHON) sim/test_vu_master.py
 	$(PYTHON) sim/test_pcm_push.py
