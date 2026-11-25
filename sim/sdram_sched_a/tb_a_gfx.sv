@@ -1,13 +1,13 @@
 // Whole-path bench: the real tau_gfx (tau_talos draw engine + tau_scanout) and a CPU hammer on one of three memory stacks:
 //   STACK 0  the reference: a plain functional memory stand-in speaking the p0 protocol (no chip model)
-//   STACK 1  the OLD path: tau_sdram_cpu_bridge + tau_sdram_arbiter + tau_sdram_ctrl through the chip model (baseline glue)
+//   (STACK 1, the OLD path tau_sdram_cpu_bridge + tau_sdram_arbiter + tau_sdram_ctrl, was removed with sim/legacy_sdram by D-T20; the number stays unused)
 //   STACK 2  the NEW path: tau_sdram_a_cpu + tau_sdram_sched_a (PHY + sched_v) through the chip model
 // The same random command stream (RECT / CHAR / COPY / BLIT / SBLIT / CBLIT ... with random sticky state, DBUF off so the
 // result does not depend on timing) and the same scan-out run on every stack; at the end the whole memory image is read
 // back through the stack's own p0 port and reduced to a checksum. A stack passes when its checksum equals the reference's
 // (+REFCRC=<hex>), the CPU hammer's words match their shadow, no scan-out line was late (underflow 0), FENCE counted
 // exactly, and no write lands after gfx_idle. It also prints the cycles the stream took (the "replay" measurement).
-// MIT licence. Simulation only (iverilog -g2012 -DSIM, the old controller through the packed-typedef build copy).
+// MIT licence. Simulation only (iverilog -g2012 -DSIM).
 `timescale 1ps/1ps
 `default_nettype none
 
@@ -145,59 +145,7 @@ module tb_a_gfx #(
         assign stack_init = 1'b1;
         integer kc; reg [31:0] cc;
         always @(posedge crc_go) begin cc = 32'd0; for (kc = 0; kc < MEMW; kc = kc + 1) if (kc < CPU_BASE || kc >= CPU_END) cc = cc * 31 + mem[kc]; ref_crc_r = cc; end
-    end else if (STACK == 1) begin : g_old
-        wire        init_complete; assign stack_init = init_complete;
-        wire [24:0] cpu_addr; wire [15:0] cpu_data, cpu_q; wire [1:0] cpu_be; wire [10:0] cpu_len;
-        wire        cpu_wr, cpu_rd, cpu_end, cpu_acc, cpu_ready, cpu_da, cpu_avail;
-        wire [24:0] a_addr; wire [15:0] a_data, a_q; wire [1:0] a_be; wire [10:0] a_len, a_wsa; wire a_str, a_wr, a_rd, a_end, a_av, a_rdy, a_da; wire [15:0] a_wsq;
-        wire [15:0] dq_ctrl; wire [12:0] c_a; wire [1:0] c_dqm, c_ba; wire c_ncs, c_nwe, c_nras, c_ncas, c_cke, c_clk;
-        wire [24:0] f_addr = s_addr;
-        tau_sdram_cpu_bridge u_br (
-            .clk_sys(clk_sys), .rst_sys(rst_sys), .sys_start(sys_start), .sys_wb_start(1'b0), .sys_write(sys_write), .sys_addr(sys_addr),
-            .sys_wdata(sys_wdata), .sys_byte_en(sys_be), .sys_busy(sys_busy), .sys_done(sys_done), .sys_rdata(sys_rdata),
-            .debug_wb_write_seen(), .debug_op_write(), .debug_wdata_all_ones(), .debug_be_all_enabled(), .debug_lo_write_accepted(),
-            .debug_hi_write_accepted(), .debug_follow_read_seen(), .debug_follow_read_data_zero(), .debug_follow_read_data_all_ones(),
-            .clk_sdram(clk), .rst_sdram(reset), .m_addr(cpu_addr), .m_data(cpu_data), .m_byte_en(cpu_be), .m_wr_len(cpu_len),
-            .m_wr_req(cpu_wr), .m_rd_req(cpu_rd), .m_end_burst_req(cpu_end), .m_q(cpu_q), .m_accepted(cpu_acc), .m_ready(cpu_ready),
-            .m_data_available(cpu_da));
-        tau_sdram_arbiter u_arb (
-            .clk(clk), .rst(reset),
-            .fb_addr(s_addr), .fb_data(s_data), .fb_byte_en(s_be), .fb_wr_len(s_len), .fb_wr_stream(s_str), .fb_wr_req(s_wr), .fb_rd_req(s_rd),
-            .fb_end_burst_req(s_eb), .fb_q(p_q), .fb_available(p_av), .fb_ready(p_rdy), .fb_data_available(p_da), .fb_wsrc_q(s_wsq), .fb_wsrc_addr(p_wsa),
-            .cpu_addr(cpu_addr), .cpu_data(cpu_data), .cpu_byte_en(cpu_be), .cpu_wr_len(cpu_len), .cpu_wr_req(cpu_wr), .cpu_rd_req(cpu_rd),
-            .cpu_end_burst_req(cpu_end), .cpu_q(cpu_q), .cpu_available(cpu_avail), .cpu_ready(cpu_ready), .cpu_data_available(cpu_da),
-            .cpu_accepted(cpu_acc), .p0_cpu_selected(),
-            .p0_addr(a_addr), .p0_data(a_data), .p0_byte_en(a_be), .p0_wr_len(a_len), .p0_wr_stream(a_str), .p0_q(a_q), .p0_wr_req(a_wr),
-            .p0_rd_req(a_rd), .p0_end_burst_req(a_end), .p0_available(a_av), .p0_ready(a_rdy), .p0_data_available(a_da),
-            .wsrc_addr(a_wsa), .wsrc_q(a_wsq));
-        tau_sdram_ctrl #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) u_ctrl (
-            .clk(clk), .reset(reset), .init_complete(init_complete),
-            .p0_addr(a_addr), .p0_data(a_data), .p0_byte_en(a_be), .p0_wr_len(a_len), .p0_q(a_q),
-            .p0_wr_stream(a_str), .wsrc_addr(a_wsa), .wsrc_q(a_wsq),
-            .p0_wr_req(a_wr), .p0_rd_req(a_rd), .p0_end_burst_req(a_end),
-            .p0_available(a_av), .p0_ready(a_rdy), .p0_data_available(a_da),
-            .SDRAM_DQ(dq_ctrl), .SDRAM_A(c_a), .SDRAM_DQM(c_dqm), .SDRAM_BA(c_ba),
-            .SDRAM_nCS(c_ncs), .SDRAM_nWE(c_nwe), .SDRAM_nRAS(c_nras), .SDRAM_nCAS(c_ncas), .SDRAM_CKE(c_cke), .SDRAM_CLK(c_clk));
-        initial begin u_ctrl.SDRAM_A = 13'd0; u_ctrl.SDRAM_BA = 2'b00; u_ctrl.SDRAM_DQM = 2'b00; end
-        // chip-side glue of sim/sdram_baseline (scenario nominal): chip clock 3.5 ns late, commands 1 ns, board 0
-        reg chip_clk_en = 1'b0; initial begin repeat (3) @(posedge clk); chip_clk_en = 1'b1; end
-        reg dram_clk = 1'b0; wire clk_g = c_clk & chip_clk_en; always @(clk_g) dram_clk <= #(3500) clk_g;
-        reg dram_cke, dram_ras_n, dram_cas_n, dram_we_n; reg [1:0] dram_dqm, dram_ba; reg [12:0] dram_a;
-        always @(c_cke) dram_cke <= #(1000) c_cke; always @(c_nras) dram_ras_n <= #(1000) c_nras; always @(c_ncas) dram_cas_n <= #(1000) c_ncas;
-        always @(c_nwe) dram_we_n <= #(1000) c_nwe; always @(c_dqm) dram_dqm <= #(1000) c_dqm; always @(c_ba) dram_ba <= #(1000) c_ba; always @(c_a) dram_a <= #(1000) c_a;
-        reg [15:0] dq_w; reg dq_w_en = 1'b0;
-        always @(u_ctrl.sdram_data) dq_w <= #(1000) u_ctrl.sdram_data;
-        always @(u_ctrl.dq_output) dq_w_en <= #(1000) u_ctrl.dq_output;
-        wire [15:0] dq_pin = dq_w_en ? dq_w : 16'hzzzz;
-        reg [15:0] dq_ret; always @(dq_pin) dq_ret <= dq_pin;
-        assign dq_ctrl = u_ctrl.dq_output ? 16'hzzzz : dq_ret;
-        reg [15:0] fpga_oe = 16'h0000; always @(u_ctrl.dq_output) begin if (u_ctrl.dq_output) fpga_oe <= #(1000) 16'hffff; else fpga_oe <= #(1000) 16'h0000; end
-        sdram_chip_model #(.CAP_MODE(0), .MEM_LOG2(20), .MEM_COMPACT(0), .VERBOSE(1), .CLKOUT_MIN_PS(0), .CLKOUT_MAX_PS(0), .DQIN_MIN_PS(0), .DQIN_MAX_PS(0)) u_chip (
-            .dram_clk(dram_clk), .dram_cke(dram_cke), .dram_ras_n(dram_ras_n), .dram_cas_n(dram_cas_n), .dram_we_n(dram_we_n),
-            .dram_dqm(dram_dqm), .dram_ba(dram_ba), .dram_a(dram_a), .dram_dq(dq_pin), .fpga_oe(fpga_oe), .cap_clk(clk));
-        integer kk; initial begin wait (u_chip.init_stage == 4); #1; u_chip.init_stage = 5; u_chip.init_done = 1'b1; for (kk = 0; kk < 8192; kk = kk + 1) u_chip.row_ts[kk] = $time; end
-        always @* begin chip_wr_words = u_chip.wr_words; chip_err = u_chip.err_count; end
-    end else begin : g_new
+    end else begin : g_new      // STACK 2 (STACK 1, the old controller path, was removed by D-T20)
         wire init_done, busy, rst_out, phy_fault; assign stack_init = init_done; wire [15:0] fcount, dbg_pmiss; wire [31:0] refreshes;
         wire c_req_valid, c_req_ready, c_req_we, c_w_next, c_r_valid, c_r_last, c_done; wire [24:0] c_req_addr; wire [9:0] c_req_len, c_w_idx;
         wire [15:0] c_w_data, c_r_data; wire [1:0] c_w_be;
@@ -229,6 +177,7 @@ module tb_a_gfx #(
     endgenerate
 
     // ------------------------------------------------------------------ the stimulus (identical on every stack)
+    initial if (STACK != 0 && STACK != 2) begin $display("STACK %0d does not exist (0 reference, 2 new path)", STACK); $fatal(1); end
     integer seed = SEED;
     function integer rnd(input integer n); rnd = $unsigned($random(seed)) % n; endfunction
     integer nfence = 0;
@@ -406,7 +355,6 @@ module tb_a_gfx #(
         if (eng_in_cpu != 0) begin $display("  FAIL: %0d engine writes overlap the CPU region (stimulus invalid)", eng_in_cpu); fails = fails + 1; end
         if (cpu_bad != 0) begin $display("  FAIL: %0d CPU words differ from the shadow", cpu_bad); fails = fails + 1; end
         if (chip_err != 0 && STACK == 2) begin $display("  FAIL: %0d chip errors", chip_err); fails = fails + 1; end
-        if (chip_err != 0 && STACK == 1) $display("  note: the OLD controller drew %0d chip-model errors (the baseline's findings: CKE at start, EMRS, tRFC ...)", chip_err);
         if ($value$plusargs("REFCRC=%h", ref_crc_arg) && ref_crc_arg !== crc) begin $display("  FAIL: image checksum %h differs from the reference %h", crc, ref_crc_arg); fails = fails + 1; end
         $display("RESULT stack=%0d cmds=%0d cycles_to_idle=%0d cpu_ops=%0d cpu_avg_ns=%0.0f cpu_max_ns=%0.0f underflow=%0d ovf=%0d fences=%0d crc=%h", STACK, NCMD, t_idle - t_start, cpu_ops,
                  cpu_ops ? cpu_lat_sum / cpu_ops : 0.0, cpu_lat_max, uf_idle, gfx_ovf, gfx_fence, crc);
