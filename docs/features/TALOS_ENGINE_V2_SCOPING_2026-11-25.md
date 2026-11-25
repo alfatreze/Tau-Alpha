@@ -1,5 +1,8 @@
 # Talos engine v2: scoping report for a clean-room rewrite (2026-11-25)
 
+> **Owner decision 2026-11-25 (D-T18): keep ALL Talos commands.** The engine is shared with the owner's other core-based apps (Tau V, Tau Μ and others mention it), so the recommendation below changes from **B-lean to B-full** (all nine opcodes); every "drop" in this report and in the requirements table is withdrawn. New open item: inventory which commands the other cores actually issue (their firmware and RTL drivers) before the contract is written; those cores become consumers whose behaviour the compatibility policy must protect. "No regressions, improvements welcome" stands.
+
+
 **Evidence label: HOST-ONLY, READ-AND-ARITHMETIC.** Nothing was simulated, built, fitted, run on a Pocket or pushed. Sources: the files named in each section (read today), the audit entries B-891..B-904, B-929..B-931, B-940, B-1121, B-1130 for fit and Pocket figures, `git blame -w -M -C -C` of `tau_talos.sv` (987 code lines, 362 HarpMudd-blamed, matches the assessment's 360). Per-entity fit numbers for the engine alone were NOT available (no fit report on this machine; `work/` is not in git); the figures marked *unmeasured* say how to get them.
 **Audience: the owner and the coordinator. This report describes old internals in places; it must NOT be given to the clean-room author** (see `TALOS_ENGINE_V2_CLEANROOM_PROCESS.md`). The author gets only the contract extracted from section 5.
 **Owner correction applied (2026-11-25):** the goal is NO REGRESSIONS, not bit-for-bit reproduction; improvements are welcome. Sections 1 and 2 define "regression" and the compatibility policy; section 6 replaces the bit-exact differential by a classified one.
