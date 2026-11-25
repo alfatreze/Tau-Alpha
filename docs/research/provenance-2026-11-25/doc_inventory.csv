@@ -32,7 +32,7 @@ docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md,DUPLICATE,2026-09-24,8,,,DUP-ROOT-IDENTICAL
 docs/HELIOS.md,REFERENCE,2026-09-30,10,,,docs root standing document,
 docs/HOST_TOOLCHAIN.md,REFERENCE,2026-11-07,2,,,docs root standing document,
 docs/HOW_IT_WORKS.md,REFERENCE,2026-09-28,9,,,docs root standing document,
-docs/JTAG_DEBUG_ACCESS.md,DUPLICATE,2026-09-30,14,,,DUP-DIVERGED-ROOT-NEWER: newer copy docs/procedures/JTAG_DEBUG_ACCESS.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/JTAG_DEBUG_ACCESS.md,DUPLICATE,2026-09-30,14,,,DUP-DIVERGED-ROOT-NEWER: newer copy docs/procedures/JTAG_DEBUG_ACCESS.md,canonical (owner decision 2026-11-25); the older duplicate is archived
 docs/LIBRARY_PHASE0_TEST.md,DUPLICATE,2026-09-22,2,,,DUP-ROOT-STALE: canonical docs/tests/LIBRARY_PHASE0_TEST.md,moved to docs/archive/duplicates-2026-09-reorg/LIBRARY_PHASE0_TEST.md (stub left at the old path)
 docs/MEDIA_LIBRARY_0.4_BRIEF.md,REFERENCE,2026-09-21,6,,,docs root standing document,
 docs/MEDIA_LIBRARY_0.4_PROMPT.md,REFERENCE,2026-09-21,2,,,docs root standing document,
@@ -41,7 +41,7 @@ docs/METER_CAPABILITIES.md,REFERENCE,2026-10-22,8,,,docs root standing document,
 docs/METER_CONFIG_SPEC.md,DUPLICATE,2026-09-26,4,,,"DUP-PROTECTED-OMEGA-LINKS: Omega links this path, left in place; other copy docs/features/meters/METER_CONFIG_SPEC.md",left in place: Tau Omega links this path
 docs/METER_REGISTRY.md,REFERENCE,2026-11-06,8,,,docs root standing document,
 docs/MMIO_ALLOCATION.md,REFERENCE,2026-11-18,57,,,docs root standing document,
-docs/MOD_TRACKER_SUPPORT_SPEC.md,DUPLICATE,2026-10-18,2,,,DUP-DIVERGED-ROOT-NEWER: newer copy docs/features/MOD_TRACKER_SUPPORT_SPEC.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/MOD_TRACKER_SUPPORT_SPEC.md,DUPLICATE,2026-10-18,2,,,DUP-DIVERGED-ROOT-NEWER: newer copy docs/features/MOD_TRACKER_SUPPORT_SPEC.md,canonical (owner decision 2026-11-25); the older duplicate is archived
 docs/MP3_FILTERBANK_KERNEL_DESIGN.md,DUPLICATE,2026-09-26,12,,,DUP-ROOT-STALE: canonical docs/features/MP3_FILTERBANK_KERNEL_DESIGN.md,moved to docs/archive/duplicates-2026-09-reorg/MP3_FILTERBANK_KERNEL_DESIGN.md (stub left at the old path)
 docs/MP3_IMDCT_KERNEL_SCOPING.md,DUPLICATE,2026-09-27,3,,,DUP-ROOT-STALE: canonical docs/research/MP3_IMDCT_KERNEL_SCOPING.md,moved to docs/archive/duplicates-2026-09-reorg/MP3_IMDCT_KERNEL_SCOPING.md (stub left at the old path)
 docs/PERFORMANCE.md,REFERENCE,2026-10-07,6,,,docs root standing document,
@@ -115,7 +115,7 @@ docs/features/BATTERY_AND_POWER_PLAN.md,REFERENCE,2026-09-28,0,,,design/spec/res
 docs/features/CARD_NAME_RULES.md,REFERENCE,2026-11-07,9,,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/CONFIGURE_STRINGS_ON_DEMAND.md,REFERENCE,2026-11-06,1,,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/COVER_TIMG_READER.md,REFERENCE,2026-09-28,0,,,design/spec/research; still valid unless a banner says otherwise,
-docs/features/CROSS_PROJECT_INTERFACE.md,DUPLICATE,2026-10-17,12,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/CROSS_PROJECT_INTERFACE.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/features/CROSS_PROJECT_INTERFACE.md,DUPLICATE,2026-10-17,12,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/CROSS_PROJECT_INTERFACE.md,"archived 2026-11-25 (owner decision): root copy is canonical; old copy in docs/archive/duplicates-2026-11-reorg/, stub at this path"
 docs/features/CYMO_AUDIO_ENGINE.md,REFERENCE,2026-10-07,27,CURRENT_STATUS.md,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/CYMO_AUDIO_ENGINE_REVIEW.md,REFERENCE,2026-09-29,6,,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/CYMO_AUDIO_STACK_REVIEW.md,REFERENCE,2026-10-07,9,,,design/spec/research; still valid unless a banner says otherwise,
@@ -144,7 +144,7 @@ docs/features/LAYERED_WAVE_PERF_PLAN.md,CURRENT,2026-11-07,8,DECISIONS.md;ROADMA
 docs/features/MEDIA_LIBRARY_0.4_SPEC.md,DUPLICATE,2026-11-07,11,,,"DUP-PROTECTED-OMEGA-LINKS: Omega links this path, left in place; other copy docs/MEDIA_LIBRARY_0.4_SPEC.md",left in place: Tau Omega links this path
 docs/features/METER_PRESETS_EXTERNAL.md,CURRENT,2026-11-07,17,CURRENT_STATUS.md;ROADMAP.md,,design/spec/research; named by a status doc and edited since 2026-10-25,
 docs/features/MODE_OVERLAY_PROPOSAL.md,REFERENCE,2026-10-07,5,,,design/spec/research; still valid unless a banner says otherwise,
-docs/features/MOD_TRACKER_SUPPORT_SPEC.md,DUPLICATE,2026-09-28,1,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/MOD_TRACKER_SUPPORT_SPEC.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/features/MOD_TRACKER_SUPPORT_SPEC.md,DUPLICATE,2026-09-28,1,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/MOD_TRACKER_SUPPORT_SPEC.md,"archived 2026-11-25 (owner decision): root copy is canonical; old copy in docs/archive/duplicates-2026-11-reorg/, stub at this path"
 docs/features/MP3_FILTERBANK_KERNEL_DESIGN.md,REFERENCE,2026-09-28,4,,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/NAME_SIDECAR_SPEC.md,REFERENCE,2026-11-07,15,,,design/spec/research; still valid unless a banner says otherwise,
 docs/features/PACK_WATCHDOG_PLAN.md,CURRENT,2026-11-07,19,CURRENT_STATUS.md;DECISIONS.md;ROADMAP.md,,design/spec/research; named by a status doc and edited since 2026-10-25,
@@ -339,10 +339,10 @@ docs/memory/SDRAM_CONTENTION_DIAGNOSTIC.md,REFERENCE,2026-09-28,0,,,design/spec/
 docs/memory/SDRAM_CPU_WINDOW_DIAGNOSTIC.md,REFERENCE,2026-09-28,0,,,design/spec/research; still valid unless a banner says otherwise,
 docs/memory/SDRAM_MEMORY_ARCHITECTURE.md,REFERENCE,2026-09-28,2,,,design/spec/research; still valid unless a banner says otherwise,
 docs/memory/SDRAM_POCKET_DIAGNOSTIC.md,REFERENCE,2026-09-28,0,,,design/spec/research; still valid unless a banner says otherwise,
-docs/procedures/CARD_INSTALL_PROCEDURE.md,DUPLICATE,2026-09-28,3,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/CARD_INSTALL_PROCEDURE.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/procedures/CARD_INSTALL_PROCEDURE.md,DUPLICATE,2026-09-28,3,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/CARD_INSTALL_PROCEDURE.md,"archived 2026-11-25 (owner decision): root copy is canonical; old copy in docs/archive/duplicates-2026-11-reorg/, stub at this path"
 docs/procedures/DEVELOPMENT_WORKFLOW.md,REFERENCE,2026-11-04,0,,,design/spec/research; still valid unless a banner says otherwise,
 docs/procedures/FPGA_BUILD.md,REFERENCE,2026-09-28,1,,,design/spec/research; still valid unless a banner says otherwise,
-docs/procedures/JTAG_DEBUG_ACCESS.md,DUPLICATE,2026-09-28,5,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/JTAG_DEBUG_ACCESS.md,"left in place: the two copies differ, owner picks the canonical one"
+docs/procedures/JTAG_DEBUG_ACCESS.md,DUPLICATE,2026-09-28,5,,,DUP-DIVERGED-SUBDIR-OLDER: newer copy docs/JTAG_DEBUG_ACCESS.md,"archived 2026-11-25 (owner decision): root copy is canonical; old copy in docs/archive/duplicates-2026-11-reorg/, stub at this path"
 docs/research/A088_UPSTREAM_CHECKS.md,REFERENCE,2026-09-28,1,,,design/spec/research; still valid unless a banner says otherwise,
 docs/research/AUDIO_FORMAT_SUPPORT_RESEARCH.md,REFERENCE,2026-09-28,1,,,design/spec/research; still valid unless a banner says otherwise,
 docs/research/CODE_ORIGIN_ANALYSIS.md,SUPERSEDED,2026-10-18,5,,> **Superseded for Tau Alpha on 2026-10-13:** use the [pinned HarpMudd comparison and rewrite report](HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md) and its complete source inventory. This historical analysis mixes docum,SUPERSEDED-WHOLE: docs/research/HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md,moved to docs/archive/superseded-2026-11/CODE_ORIGIN_ANALYSIS.md (stub left at the old path)
