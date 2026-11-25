@@ -1,0 +1,3625 @@
+diff --git a/Makefile b/Makefile
+index ac7fa572..483ef478 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,4 +1,4 @@
+-.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-diff test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
++.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+ 
+ PYTHON ?= python3
+ # Build tools (tools/toolchain.py, B-985): the RISC-V compiler is found the same way for every script (RISCV_TOOLCHAIN_BIN, this tree, the main checkout when this is a git worktree, PATH), and a macOS
+@@ -256,7 +256,7 @@ test-host:
+ 	$(PYTHON) tools/fit_manifest.py check-bundles
+ 	$(PYTHON) sim/test_fit_manifest.py
+ 
+-test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-diff test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
++test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+ 
+ $(RTL_BUILD_DIR):
+ 	mkdir -p $@
+@@ -786,27 +786,6 @@ test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/tau_soc_sim.v
+ 	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_psram_ifetch.IFETCH=0 -Ptb_psram_ifetch.EXPECT_NOFEATURE=1 -o $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp $(PSRAM_IFETCH_SRC)
+ 	$(VVP) $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_ifetch.bin | tail -4 | tee $(RTL_BUILD_DIR)/psram_ifetch_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_ifetch_off.log
+ 
+-# Talos 2 T5: the clean-room scanout against the pre-rewrite oracle sim/oracle/tau_scanout1_oracle.sv (black box), cycle for cycle on every output, three unrelated clocks,
+-# several seeds (run in parallel); then twelve BUG_* mutants of tau_scanout, each of which the bench must fail (a survivor fails the target).
+-# The oracle is only ever a file argument here. SCANOUT_ORACLE can be overridden (the path may contain spaces).
+-SCANOUT_ORACLE ?= sim/oracle/tau_scanout1_oracle.sv
+-SCANOUT_DIFF_SRC = sim/tb_tau_scanout_diff.v src/fpga/core/tau_scanout.sv src/fpga/core/tau_cdc_gray_bus.sv src/fpga/core/tau_cdc_gray_ctr.sv
+-SCANOUT_SEEDS ?= 1 2 3
+-SCANOUT_MUTANTS ?= 1 2 3 4 5 6 7 8 9 10 11 12
+-test-rtl-scanout-diff: $(SCANOUT_DIFF_SRC) | $(RTL_BUILD_DIR)
+-	$(IVERILOG) -g2012 -o $(RTL_BUILD_DIR)/scanout_diff.vvp $(SCANOUT_DIFF_SRC) "$(SCANOUT_ORACLE)"
+-	@set -e; for sd in $(SCANOUT_SEEDS); do \
+-	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_diff.vvp +seed=$$sd > $(RTL_BUILD_DIR)/scanout_diff_$$sd.out ) & done; wait; \
+-	for sd in $(SCANOUT_SEEDS); do cat $(RTL_BUILD_DIR)/scanout_diff_$$sd.out; \
+-	  grep -q "^PASSED" $(RTL_BUILD_DIR)/scanout_diff_$$sd.out || { echo "SCANOUT DIFF FAILED: seed $$sd"; exit 1; }; done
+-	@set -e; for b in $(SCANOUT_MUTANTS); do \
+-	  $(IVERILOG) -g2012 -Ptb_tau_scanout_diff.BUG=$$b -o $(RTL_BUILD_DIR)/scanout_mut_$$b.vvp $(SCANOUT_DIFF_SRC) "$(SCANOUT_ORACLE)"; done; \
+-	for b in $(SCANOUT_MUTANTS); do \
+-	  ( $(VVP) $(RTL_BUILD_DIR)/scanout_mut_$$b.vvp +seed=3 > $(RTL_BUILD_DIR)/scanout_mut_$$b.out ) & done; wait; \
+-	for b in $(SCANOUT_MUTANTS); do \
+-	  if grep -q "^FAILED" $(RTL_BUILD_DIR)/scanout_mut_$$b.out; then echo "mutant killed: BUG=$$b ($$(grep -m1 MISMATCH $(RTL_BUILD_DIR)/scanout_mut_$$b.out | cut -d' ' -f2))"; \
+-	  else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+-	@echo "test-rtl-scanout-diff: PASSED"
+ 
+ # ---- Wall clock (APF host command 0x0090): the real core_bridge_cmd.v (an Icarus-readable copy, sim/make_bridge_sim.py) into tau_rtc_cdc.sv, three system clocks and phases; the two mutants must FAIL ----
+ RTC_CDC_SRC = sim/tb_rtc_cdc.v src/fpga/core/tau_rtc_cdc.sv $(RTL_BUILD_DIR)/core_bridge_cmd_sim.v src/fpga/apf/common.v sim/stub_mf_datatable.v
+diff --git a/legacy-harpmudd/README.md b/legacy-harpmudd/README.md
+deleted file mode 100644
+index e4711dae..00000000
+--- a/legacy-harpmudd/README.md
++++ /dev/null
+@@ -1,13 +0,0 @@
+-# legacy-harpmudd/
+-
+-Files whose text is almost entirely inherited from HarpMudd's MP3 player (Tau baseline `7ef8f0fb`, v1.4.0), that nothing live reads any more. Moved here on 2026-11-25 (phase 0 of the "remove HarpMudd-derived code" work) so they no longer sit in the working paths. Original paths are mirrored: `legacy-harpmudd/tools/xing_check.py` was `tools/xing_check.py`.
+-
+-Why: provenance (see `docs/research/provenance-2026-11-25/harpmudd_manifest.csv`). Nothing here is built, tested or shipped. The moves are plain `git mv`, so history is kept (`git log --follow`).
+-
+-How to restore one file: `git mv legacy-harpmudd/tools/xing_check.py tools/xing_check.py`.
+-
+-How to compare with the baseline: `git diff 7ef8f0fb HEAD -- <original path>`; the measurement tool is `docs/research/provenance-2026-10-12/measure.py`.
+-
+-Not deleted on purpose: deletion needs the owner's approval (D-T01). `docs/research/provenance-2026-11-25/removal.patch` (not applied) deletes this folder and the Pocket-confirmed scanout oracle.
+-
+-Note: the licence and attribution wording (`NOTICE.md`, `docs/ATTRIBUTIONS.md`, `docs/PROVENANCE.md`) is not changed by moving files; that is for the owner to review.
+diff --git a/legacy-harpmudd/sim/tb_picorv32.v b/legacy-harpmudd/sim/tb_picorv32.v
+deleted file mode 100644
+index 6e9521d7..00000000
+--- a/legacy-harpmudd/sim/tb_picorv32.v
++++ /dev/null
+@@ -1,148 +0,0 @@
+-`timescale 1ns/1ps
+-// Stage 0 benchmark harness: plain (non-AXI) PicoRV32 + a simple 1MB memory
+-// model + a memory-mapped print port at 0x10000000 (same convention PicoRV32's
+-// own reference firmware uses). Loads whichever firmware.hex is passed via
+-// +firmware=path, runs until the core traps (ebreak), then reports.
+-
+-module tb_picorv32;
+-	reg clk = 0;
+-	reg resetn = 0;
+-	always #5 clk = ~clk;
+-
+-	initial begin
+-		repeat (10) @(posedge clk);
+-		resetn <= 1;
+-	end
+-
+-	wire        mem_valid;
+-	wire        mem_instr;
+-	reg         mem_ready;
+-	wire [31:0] mem_addr;
+-	wire [31:0] mem_wdata;
+-	wire [3:0]  mem_wstrb;
+-	reg  [31:0] mem_rdata;
+-	wire        trap;
+-
+-	localparam MEM_WORDS = 1024*1024/4;
+-	reg [31:0] memory [0:MEM_WORDS-1];
+-
+-	reg [1023:0] firmware_file;
+-	initial begin
+-		if (!$value$plusargs("firmware=%s", firmware_file))
+-			firmware_file = "fw_helix/fw_helix.hex";
+-		$readmemh(firmware_file, memory);
+-	end
+-
+-`ifdef ZERO_WAIT
+-	// 0-wait-state memory: combinational read + combinational ready. Models
+-	// BRAM driven via picorv32's look-ahead interface, and matches the memory
+-	// model used in tb_vexriscv.v so CPU comparisons are like-for-like.
+-	// Explicit sensitivity list, NOT `always @*`: with @* Icarus derives a
+-	// sensitivity list covering all 262144 memory words and elaboration hangs.
+-	always @(mem_valid or mem_addr) begin
+-		mem_ready = mem_valid;
+-		mem_rdata = memory[mem_addr[21:2]];
+-	end
+-	always @(posedge clk) begin
+-		if (mem_valid) begin
+-			if (mem_addr == 32'h8000_0000) begin
+-				if (mem_wstrb != 0) begin $write("%c", mem_wdata[7:0]); $fflush(); end
+-			end else if (mem_addr == 32'h8000_0004) begin
+-				if (mem_wstrb != 0) begin
+-					$display("\n[sim_finish]");
+-					$finish;
+-				end
+-			end else begin
+-				if (mem_wstrb[0]) memory[mem_addr[21:2]][7:0]   <= mem_wdata[7:0];
+-				if (mem_wstrb[1]) memory[mem_addr[21:2]][15:8]  <= mem_wdata[15:8];
+-				if (mem_wstrb[2]) memory[mem_addr[21:2]][23:16] <= mem_wdata[23:16];
+-				if (mem_wstrb[3]) memory[mem_addr[21:2]][31:24] <= mem_wdata[31:24];
+-			end
+-		end
+-	end
+-`else
+-	// 1-wait-state memory (registered ready). Original model.
+-	always @(posedge clk) begin
+-		mem_ready <= 0;
+-		if (mem_valid && !mem_ready) begin
+-			mem_ready <= 1;
+-			if (mem_addr == 32'h8000_0000) begin
+-				if (mem_wstrb != 0) begin $write("%c", mem_wdata[7:0]); $fflush(); end
+-			end else if (mem_addr == 32'h8000_0004) begin
+-				if (mem_wstrb != 0) begin
+-					$display("\n[sim_finish]");
+-					$finish;
+-				end
+-			end else begin
+-				if (mem_wstrb[0]) memory[mem_addr[21:2]][7:0]   <= mem_wdata[7:0];
+-				if (mem_wstrb[1]) memory[mem_addr[21:2]][15:8]  <= mem_wdata[15:8];
+-				if (mem_wstrb[2]) memory[mem_addr[21:2]][23:16] <= mem_wdata[23:16];
+-				if (mem_wstrb[3]) memory[mem_addr[21:2]][31:24] <= mem_wdata[31:24];
+-				mem_rdata <= memory[mem_addr[21:2]];
+-			end
+-		end
+-	end
+-`endif
+-
+-	// Helix is multiply-bound (MULSHIFT32 -> mulh everywhere in the filterbank/
+-	// IMDCT/dequant). ENABLE_MUL selects picorv32's *serial* multiplier (tens of
+-	// cycles per multiply); ENABLE_FAST_MUL selects the DSP-block one. Build with
+-	// -DFAST_MUL to measure the difference.
+-	picorv32 #(
+-		.ENABLE_COUNTERS(1),
+-		.ENABLE_COUNTERS64(1),
+-`ifdef FAST_MUL
+-		.ENABLE_MUL(0),
+-		.ENABLE_FAST_MUL(1),
+-		.BARREL_SHIFTER(1),
+-`else
+-		.ENABLE_MUL(1),
+-`endif
+-		.ENABLE_DIV(1),
+-		.ENABLE_IRQ(0)
+-	) cpu (
+-		.clk      (clk),
+-		.resetn   (resetn),
+-		.trap     (trap),
+-		.mem_valid(mem_valid),
+-		.mem_instr(mem_instr),
+-		.mem_ready(mem_ready),
+-		.mem_addr (mem_addr),
+-		.mem_wdata(mem_wdata),
+-		.mem_wstrb(mem_wstrb),
+-		.mem_rdata(mem_rdata),
+-		.mem_la_read(),
+-		.mem_la_write(),
+-		.mem_la_addr(),
+-		.mem_la_wdata(),
+-		.mem_la_wstrb(),
+-		.pcpi_valid(),
+-		.pcpi_insn(),
+-		.pcpi_rs1(),
+-		.pcpi_rs2(),
+-		.pcpi_wr(1'b0),
+-		.pcpi_rd(32'b0),
+-		.pcpi_wait(1'b0),
+-		.pcpi_ready(1'b0),
+-		.irq(32'b0),
+-		.eoi(),
+-		.trace_valid(),
+-		.trace_data()
+-	);
+-
+-	reg [31:0] timeout_cycles;
+-	initial begin
+-		if (!$value$plusargs("timeout=%d", timeout_cycles))
+-			timeout_cycles = 50_000_000;
+-		repeat (timeout_cycles) @(posedge clk);
+-		$display("\nTIMEOUT");
+-		$finish;
+-	end
+-
+-	always @(posedge clk) begin
+-		if (resetn && trap) begin
+-			$display("\n[trap - ebreak reached]");
+-			$finish;
+-		end
+-	end
+-endmodule
+diff --git a/legacy-harpmudd/sim/tb_reference.v b/legacy-harpmudd/sim/tb_reference.v
+deleted file mode 100644
+index c59d1a54..00000000
+--- a/legacy-harpmudd/sim/tb_reference.v
++++ /dev/null
+@@ -1,479 +0,0 @@
+-// This is free and unencumbered software released into the public domain.
+-//
+-// Anyone is free to copy, modify, publish, use, compile, sell, or
+-// distribute this software, either in source code form or as a compiled
+-// binary, for any purpose, commercial or non-commercial, and by any
+-// means.
+-
+-`timescale 1 ns / 1 ps
+-
+-`ifndef VERILATOR
+-module testbench #(
+-	parameter AXI_TEST = 0,
+-	parameter VERBOSE = 0
+-);
+-	reg clk = 1;
+-	reg resetn = 0;
+-	wire trap;
+-
+-	always #5 clk = ~clk;
+-
+-	initial begin
+-		repeat (100) @(posedge clk);
+-		resetn <= 1;
+-	end
+-
+-	initial begin
+-		if ($test$plusargs("vcd")) begin
+-			$dumpfile("testbench.vcd");
+-			$dumpvars(0, testbench);
+-		end
+-		repeat (1000000) @(posedge clk);
+-		$display("TIMEOUT");
+-		$finish;
+-	end
+-
+-	wire trace_valid;
+-	wire [35:0] trace_data;
+-	integer trace_file;
+-
+-	initial begin
+-		if ($test$plusargs("trace")) begin
+-			trace_file = $fopen("testbench.trace", "w");
+-			repeat (10) @(posedge clk);
+-			while (!trap) begin
+-				@(posedge clk);
+-				if (trace_valid)
+-					$fwrite(trace_file, "%x\n", trace_data);
+-			end
+-			$fclose(trace_file);
+-			$display("Finished writing testbench.trace.");
+-		end
+-	end
+-
+-	picorv32_wrapper #(
+-		.AXI_TEST (AXI_TEST),
+-		.VERBOSE  (VERBOSE)
+-	) top (
+-		.clk(clk),
+-		.resetn(resetn),
+-		.trap(trap),
+-		.trace_valid(trace_valid),
+-		.trace_data(trace_data)
+-	);
+-endmodule
+-`endif
+-
+-module picorv32_wrapper #(
+-	parameter AXI_TEST = 0,
+-	parameter VERBOSE = 0
+-) (
+-	input clk,
+-	input resetn,
+-	output trap,
+-	output trace_valid,
+-	output [35:0] trace_data
+-);
+-	wire tests_passed;
+-	reg [31:0] irq = 0;
+-
+-	reg [15:0] count_cycle = 0;
+-	always @(posedge clk) count_cycle <= resetn ? count_cycle + 1 : 0;
+-
+-	always @* begin
+-		irq = 0;
+-		irq[4] = &count_cycle[12:0];
+-		irq[5] = &count_cycle[15:0];
+-	end
+-
+-	wire        mem_axi_awvalid;
+-	wire        mem_axi_awready;
+-	wire [31:0] mem_axi_awaddr;
+-	wire [ 2:0] mem_axi_awprot;
+-
+-	wire        mem_axi_wvalid;
+-	wire        mem_axi_wready;
+-	wire [31:0] mem_axi_wdata;
+-	wire [ 3:0] mem_axi_wstrb;
+-
+-	wire        mem_axi_bvalid;
+-	wire        mem_axi_bready;
+-
+-	wire        mem_axi_arvalid;
+-	wire        mem_axi_arready;
+-	wire [31:0] mem_axi_araddr;
+-	wire [ 2:0] mem_axi_arprot;
+-
+-	wire        mem_axi_rvalid;
+-	wire        mem_axi_rready;
+-	wire [31:0] mem_axi_rdata;
+-
+-	axi4_memory #(
+-		.AXI_TEST (AXI_TEST),
+-		.VERBOSE  (VERBOSE)
+-	) mem (
+-		.clk             (clk             ),
+-		.mem_axi_awvalid (mem_axi_awvalid ),
+-		.mem_axi_awready (mem_axi_awready ),
+-		.mem_axi_awaddr  (mem_axi_awaddr  ),
+-		.mem_axi_awprot  (mem_axi_awprot  ),
+-
+-		.mem_axi_wvalid  (mem_axi_wvalid  ),
+-		.mem_axi_wready  (mem_axi_wready  ),
+-		.mem_axi_wdata   (mem_axi_wdata   ),
+-		.mem_axi_wstrb   (mem_axi_wstrb   ),
+-
+-		.mem_axi_bvalid  (mem_axi_bvalid  ),
+-		.mem_axi_bready  (mem_axi_bready  ),
+-
+-		.mem_axi_arvalid (mem_axi_arvalid ),
+-		.mem_axi_arready (mem_axi_arready ),
+-		.mem_axi_araddr  (mem_axi_araddr  ),
+-		.mem_axi_arprot  (mem_axi_arprot  ),
+-
+-		.mem_axi_rvalid  (mem_axi_rvalid  ),
+-		.mem_axi_rready  (mem_axi_rready  ),
+-		.mem_axi_rdata   (mem_axi_rdata   ),
+-
+-		.tests_passed    (tests_passed    )
+-	);
+-
+-`ifdef RISCV_FORMAL
+-	wire        rvfi_valid;
+-	wire [63:0] rvfi_order;
+-	wire [31:0] rvfi_insn;
+-	wire        rvfi_trap;
+-	wire        rvfi_halt;
+-	wire        rvfi_intr;
+-	wire [4:0]  rvfi_rs1_addr;
+-	wire [4:0]  rvfi_rs2_addr;
+-	wire [31:0] rvfi_rs1_rdata;
+-	wire [31:0] rvfi_rs2_rdata;
+-	wire [4:0]  rvfi_rd_addr;
+-	wire [31:0] rvfi_rd_wdata;
+-	wire [31:0] rvfi_pc_rdata;
+-	wire [31:0] rvfi_pc_wdata;
+-	wire [31:0] rvfi_mem_addr;
+-	wire [3:0]  rvfi_mem_rmask;
+-	wire [3:0]  rvfi_mem_wmask;
+-	wire [31:0] rvfi_mem_rdata;
+-	wire [31:0] rvfi_mem_wdata;
+-`endif
+-
+-	picorv32_axi #(
+-`ifndef SYNTH_TEST
+-`ifdef SP_TEST
+-		.ENABLE_REGS_DUALPORT(0),
+-`endif
+-`ifdef COMPRESSED_ISA
+-		.COMPRESSED_ISA(1),
+-`endif
+-		.ENABLE_MUL(1),
+-		.ENABLE_DIV(1),
+-		.ENABLE_IRQ(1),
+-		.ENABLE_TRACE(1)
+-`endif
+-	) uut (
+-		.clk            (clk            ),
+-		.resetn         (resetn         ),
+-		.trap           (trap           ),
+-		.mem_axi_awvalid(mem_axi_awvalid),
+-		.mem_axi_awready(mem_axi_awready),
+-		.mem_axi_awaddr (mem_axi_awaddr ),
+-		.mem_axi_awprot (mem_axi_awprot ),
+-		.mem_axi_wvalid (mem_axi_wvalid ),
+-		.mem_axi_wready (mem_axi_wready ),
+-		.mem_axi_wdata  (mem_axi_wdata  ),
+-		.mem_axi_wstrb  (mem_axi_wstrb  ),
+-		.mem_axi_bvalid (mem_axi_bvalid ),
+-		.mem_axi_bready (mem_axi_bready ),
+-		.mem_axi_arvalid(mem_axi_arvalid),
+-		.mem_axi_arready(mem_axi_arready),
+-		.mem_axi_araddr (mem_axi_araddr ),
+-		.mem_axi_arprot (mem_axi_arprot ),
+-		.mem_axi_rvalid (mem_axi_rvalid ),
+-		.mem_axi_rready (mem_axi_rready ),
+-		.mem_axi_rdata  (mem_axi_rdata  ),
+-		.irq            (irq            ),
+-`ifdef RISCV_FORMAL
+-		.rvfi_valid     (rvfi_valid     ),
+-		.rvfi_order     (rvfi_order     ),
+-		.rvfi_insn      (rvfi_insn      ),
+-		.rvfi_trap      (rvfi_trap      ),
+-		.rvfi_halt      (rvfi_halt      ),
+-		.rvfi_intr      (rvfi_intr      ),
+-		.rvfi_rs1_addr  (rvfi_rs1_addr  ),
+-		.rvfi_rs2_addr  (rvfi_rs2_addr  ),
+-		.rvfi_rs1_rdata (rvfi_rs1_rdata ),
+-		.rvfi_rs2_rdata (rvfi_rs2_rdata ),
+-		.rvfi_rd_addr   (rvfi_rd_addr   ),
+-		.rvfi_rd_wdata  (rvfi_rd_wdata  ),
+-		.rvfi_pc_rdata  (rvfi_pc_rdata  ),
+-		.rvfi_pc_wdata  (rvfi_pc_wdata  ),
+-		.rvfi_mem_addr  (rvfi_mem_addr  ),
+-		.rvfi_mem_rmask (rvfi_mem_rmask ),
+-		.rvfi_mem_wmask (rvfi_mem_wmask ),
+-		.rvfi_mem_rdata (rvfi_mem_rdata ),
+-		.rvfi_mem_wdata (rvfi_mem_wdata ),
+-`endif
+-		.trace_valid    (trace_valid    ),
+-		.trace_data     (trace_data     )
+-	);
+-
+-`ifdef RISCV_FORMAL
+-	picorv32_rvfimon rvfi_monitor (
+-		.clock          (clk           ),
+-		.reset          (!resetn       ),
+-		.rvfi_valid     (rvfi_valid    ),
+-		.rvfi_order     (rvfi_order    ),
+-		.rvfi_insn      (rvfi_insn     ),
+-		.rvfi_trap      (rvfi_trap     ),
+-		.rvfi_halt      (rvfi_halt     ),
+-		.rvfi_intr      (rvfi_intr     ),
+-		.rvfi_rs1_addr  (rvfi_rs1_addr ),
+-		.rvfi_rs2_addr  (rvfi_rs2_addr ),
+-		.rvfi_rs1_rdata (rvfi_rs1_rdata),
+-		.rvfi_rs2_rdata (rvfi_rs2_rdata),
+-		.rvfi_rd_addr   (rvfi_rd_addr  ),
+-		.rvfi_rd_wdata  (rvfi_rd_wdata ),
+-		.rvfi_pc_rdata  (rvfi_pc_rdata ),
+-		.rvfi_pc_wdata  (rvfi_pc_wdata ),
+-		.rvfi_mem_addr  (rvfi_mem_addr ),
+-		.rvfi_mem_rmask (rvfi_mem_rmask),
+-		.rvfi_mem_wmask (rvfi_mem_wmask),
+-		.rvfi_mem_rdata (rvfi_mem_rdata),
+-		.rvfi_mem_wdata (rvfi_mem_wdata)
+-	);
+-`endif
+-
+-	reg [1023:0] firmware_file;
+-	initial begin
+-		if (!$value$plusargs("firmware=%s", firmware_file))
+-			firmware_file = "firmware/firmware.hex";
+-		$readmemh(firmware_file, mem.memory);
+-	end
+-
+-	integer cycle_counter;
+-	always @(posedge clk) begin
+-		cycle_counter <= resetn ? cycle_counter + 1 : 0;
+-		if (resetn && trap) begin
+-`ifndef VERILATOR
+-			repeat (10) @(posedge clk);
+-`endif
+-			$display("TRAP after %1d clock cycles", cycle_counter);
+-			if (tests_passed) begin
+-				$display("ALL TESTS PASSED.");
+-				$finish;
+-			end else begin
+-				$display("ERROR!");
+-				if ($test$plusargs("noerror"))
+-					$finish;
+-				$stop;
+-			end
+-		end
+-	end
+-endmodule
+-
+-module axi4_memory #(
+-	parameter AXI_TEST = 0,
+-	parameter VERBOSE = 0
+-) (
+-	/* verilator lint_off MULTIDRIVEN */
+-
+-	input             clk,
+-	input             mem_axi_awvalid,
+-	output reg        mem_axi_awready,
+-	input      [31:0] mem_axi_awaddr,
+-	input      [ 2:0] mem_axi_awprot,
+-
+-	input             mem_axi_wvalid,
+-	output reg        mem_axi_wready,
+-	input      [31:0] mem_axi_wdata,
+-	input      [ 3:0] mem_axi_wstrb,
+-
+-	output reg        mem_axi_bvalid,
+-	input             mem_axi_bready,
+-
+-	input             mem_axi_arvalid,
+-	output reg        mem_axi_arready,
+-	input      [31:0] mem_axi_araddr,
+-	input      [ 2:0] mem_axi_arprot,
+-
+-	output reg        mem_axi_rvalid,
+-	input             mem_axi_rready,
+-	output reg [31:0] mem_axi_rdata,
+-
+-	output reg        tests_passed
+-);
+-	reg [31:0]   memory [0:1024*1024/4-1] /* verilator public */;
+-	reg verbose;
+-	initial verbose = $test$plusargs("verbose") || VERBOSE;
+-
+-	reg axi_test;
+-	initial axi_test = $test$plusargs("axi_test") || AXI_TEST;
+-
+-	initial begin
+-		mem_axi_awready = 0;
+-		mem_axi_wready = 0;
+-		mem_axi_bvalid = 0;
+-		mem_axi_arready = 0;
+-		mem_axi_rvalid = 0;
+-		tests_passed = 0;
+-	end
+-
+-	reg [63:0] xorshift64_state = 64'd88172645463325252;
+-
+-	task xorshift64_next;
+-		begin
+-			// see page 4 of Marsaglia, George (July 2003). "Xorshift RNGs". Journal of Statistical Software 8 (14).
+-			xorshift64_state = xorshift64_state ^ (xorshift64_state << 13);
+-			xorshift64_state = xorshift64_state ^ (xorshift64_state >>  7);
+-			xorshift64_state = xorshift64_state ^ (xorshift64_state << 17);
+-		end
+-	endtask
+-
+-	reg [2:0] fast_axi_transaction = ~0;
+-	reg [4:0] async_axi_transaction = ~0;
+-	reg [4:0] delay_axi_transaction = 0;
+-
+-	always @(posedge clk) begin
+-		if (axi_test) begin
+-				xorshift64_next;
+-				{fast_axi_transaction, async_axi_transaction, delay_axi_transaction} <= xorshift64_state;
+-		end
+-	end
+-
+-	reg latched_raddr_en = 0;
+-	reg latched_waddr_en = 0;
+-	reg latched_wdata_en = 0;
+-
+-	reg fast_raddr = 0;
+-	reg fast_waddr = 0;
+-	reg fast_wdata = 0;
+-
+-	reg [31:0] latched_raddr;
+-	reg [31:0] latched_waddr;
+-	reg [31:0] latched_wdata;
+-	reg [ 3:0] latched_wstrb;
+-	reg        latched_rinsn;
+-
+-	task handle_axi_arvalid; begin
+-		mem_axi_arready <= 1;
+-		latched_raddr = mem_axi_araddr;
+-		latched_rinsn = mem_axi_arprot[2];
+-		latched_raddr_en = 1;
+-		fast_raddr <= 1;
+-	end endtask
+-
+-	task handle_axi_awvalid; begin
+-		mem_axi_awready <= 1;
+-		latched_waddr = mem_axi_awaddr;
+-		latched_waddr_en = 1;
+-		fast_waddr <= 1;
+-	end endtask
+-
+-	task handle_axi_wvalid; begin
+-		mem_axi_wready <= 1;
+-		latched_wdata = mem_axi_wdata;
+-		latched_wstrb = mem_axi_wstrb;
+-		latched_wdata_en = 1;
+-		fast_wdata <= 1;
+-	end endtask
+-
+-	task handle_axi_rvalid; begin
+-		if (verbose)
+-			$display("RD: ADDR=%08x DATA=%08x%s", latched_raddr, memory[latched_raddr >> 2], latched_rinsn ? " INSN" : "");
+-		if (latched_raddr < 1024*1024) begin
+-			mem_axi_rdata <= memory[latched_raddr >> 2];
+-			mem_axi_rvalid <= 1;
+-			latched_raddr_en = 0;
+-		end else begin
+-			$display("OUT-OF-BOUNDS MEMORY READ FROM %08x", latched_raddr);
+-			$finish;
+-		end
+-	end endtask
+-
+-	task handle_axi_bvalid; begin
+-		if (verbose)
+-			$display("WR: ADDR=%08x DATA=%08x STRB=%04b", latched_waddr, latched_wdata, latched_wstrb);
+-		if (latched_waddr < 1024*1024) begin
+-			if (latched_wstrb[0]) memory[latched_waddr >> 2][ 7: 0] <= latched_wdata[ 7: 0];
+-			if (latched_wstrb[1]) memory[latched_waddr >> 2][15: 8] <= latched_wdata[15: 8];
+-			if (latched_wstrb[2]) memory[latched_waddr >> 2][23:16] <= latched_wdata[23:16];
+-			if (latched_wstrb[3]) memory[latched_waddr >> 2][31:24] <= latched_wdata[31:24];
+-		end else
+-		if (latched_waddr == 32'h1000_0000) begin
+-			if (verbose) begin
+-				if (32 <= latched_wdata && latched_wdata < 128)
+-					$display("OUT: '%c'", latched_wdata[7:0]);
+-				else
+-					$display("OUT: %3d", latched_wdata);
+-			end else begin
+-				$write("%c", latched_wdata[7:0]);
+-`ifndef VERILATOR
+-				$fflush();
+-`endif
+-			end
+-		end else
+-		if (latched_waddr == 32'h2000_0000) begin
+-			if (latched_wdata == 123456789)
+-				tests_passed = 1;
+-		end else begin
+-			$display("OUT-OF-BOUNDS MEMORY WRITE TO %08x", latched_waddr);
+-			$finish;
+-		end
+-		mem_axi_bvalid <= 1;
+-		latched_waddr_en = 0;
+-		latched_wdata_en = 0;
+-	end endtask
+-
+-	always @(negedge clk) begin
+-		if (mem_axi_arvalid && !(latched_raddr_en || fast_raddr) && async_axi_transaction[0]) handle_axi_arvalid;
+-		if (mem_axi_awvalid && !(latched_waddr_en || fast_waddr) && async_axi_transaction[1]) handle_axi_awvalid;
+-		if (mem_axi_wvalid  && !(latched_wdata_en || fast_wdata) && async_axi_transaction[2]) handle_axi_wvalid;
+-		if (!mem_axi_rvalid && latched_raddr_en && async_axi_transaction[3]) handle_axi_rvalid;
+-		if (!mem_axi_bvalid && latched_waddr_en && latched_wdata_en && async_axi_transaction[4]) handle_axi_bvalid;
+-	end
+-
+-	always @(posedge clk) begin
+-		mem_axi_arready <= 0;
+-		mem_axi_awready <= 0;
+-		mem_axi_wready <= 0;
+-
+-		fast_raddr <= 0;
+-		fast_waddr <= 0;
+-		fast_wdata <= 0;
+-
+-		if (mem_axi_rvalid && mem_axi_rready) begin
+-			mem_axi_rvalid <= 0;
+-		end
+-
+-		if (mem_axi_bvalid && mem_axi_bready) begin
+-			mem_axi_bvalid <= 0;
+-		end
+-
+-		if (mem_axi_arvalid && mem_axi_arready && !fast_raddr) begin
+-			latched_raddr = mem_axi_araddr;
+-			latched_rinsn = mem_axi_arprot[2];
+-			latched_raddr_en = 1;
+-		end
+-
+-		if (mem_axi_awvalid && mem_axi_awready && !fast_waddr) begin
+-			latched_waddr = mem_axi_awaddr;
+-			latched_waddr_en = 1;
+-		end
+-
+-		if (mem_axi_wvalid && mem_axi_wready && !fast_wdata) begin
+-			latched_wdata = mem_axi_wdata;
+-			latched_wstrb = mem_axi_wstrb;
+-			latched_wdata_en = 1;
+-		end
+-
+-		if (mem_axi_arvalid && !(latched_raddr_en || fast_raddr) && !delay_axi_transaction[0]) handle_axi_arvalid;
+-		if (mem_axi_awvalid && !(latched_waddr_en || fast_waddr) && !delay_axi_transaction[1]) handle_axi_awvalid;
+-		if (mem_axi_wvalid  && !(latched_wdata_en || fast_wdata) && !delay_axi_transaction[2]) handle_axi_wvalid;
+-
+-		if (!mem_axi_rvalid && latched_raddr_en && !delay_axi_transaction[3]) handle_axi_rvalid;
+-		if (!mem_axi_bvalid && latched_waddr_en && latched_wdata_en && !delay_axi_transaction[4]) handle_axi_bvalid;
+-	end
+-endmodule
+diff --git a/legacy-harpmudd/sim/tb_vexriscv.v b/legacy-harpmudd/sim/tb_vexriscv.v
+deleted file mode 100644
+index c6c6266a..00000000
+--- a/legacy-harpmudd/sim/tb_vexriscv.v
++++ /dev/null
+@@ -1,127 +0,0 @@
+-`timescale 1ns/1ps
+-// Stage 0 CPU comparison harness -- VexRiscv "Full" (RV32IM, 5-stage fully
+-// bypassed, 4kB I$ + 4kB D$, single-cycle multiply).
+-//
+-// Runs the EXACT SAME firmware binary as tb_picorv32.v so the comparison is
+-// apples-to-apples: instructions retired should match almost exactly, and any
+-// difference in cycles is purely the CPU microarchitecture.
+-//
+-// VexRiscv exposes classic Wishbone iBus/dBus (both cached, hence the burst
+-// CTI/BTE signals). Modelled here as a single 0-wait-state memory serving both
+-// -- representing the intended real design where firmware, tables and buffers
+-// all live in on-chip BRAM. Note tb_picorv32.v models 1 wait state, so also
+-// build that with -DZERO_WAIT for a like-for-like memory comparison.
+-//
+-//   0x10000000  console character out
+-//   0x20000000  simulation finish
+-
+-module tb_vexriscv;
+-	reg clk = 0;
+-	reg reset = 1;
+-	always #5 clk = ~clk;
+-
+-	initial begin
+-		repeat (10) @(posedge clk);
+-		reset <= 0;
+-	end
+-
+-	localparam MEM_WORDS = 1024*1024/4;   // 1MB
+-	localparam AW = 18;                    // 2^18 words = 1MB
+-	reg [31:0] memory [0:MEM_WORDS-1];
+-
+-	// MMIO at >= 0x8000_0000 so VexRiscv treats it as uncached (addr bit 31).
+-	localparam [29:0] ADR_CONSOLE = 30'h20000000; // byte 0x80000000 >> 2
+-	localparam [29:0] ADR_EXIT    = 30'h20000001; // byte 0x80000004 >> 2
+-
+-	reg [1023:0] firmware_file;
+-	initial begin
+-		if (!$value$plusargs("firmware=%s", firmware_file))
+-			firmware_file = "fw_helix/fw_helix.hex";
+-		$readmemh(firmware_file, memory);
+-	end
+-
+-	// ---------------- instruction bus (read only) ----------------
+-	wire        iCYC, iSTB, iWE;
+-	wire [29:0] iADR;
+-	wire [31:0] iDAT_MOSI;
+-	wire [3:0]  iSEL;
+-	wire [2:0]  iCTI;
+-	wire [1:0]  iBTE;
+-
+-	wire [31:0] iDAT_MISO = memory[iADR[AW-1:0]];
+-	wire        iACK = iCYC & iSTB;   // 0 wait states
+-
+-	// ---------------- data bus ----------------
+-	wire        dCYC, dSTB, dWE;
+-	wire [29:0] dADR;
+-	wire [31:0] dDAT_MOSI;
+-	wire [3:0]  dSEL;
+-	wire [2:0]  dCTI;
+-	wire [1:0]  dBTE;
+-
+-	wire [31:0] dDAT_MISO = memory[dADR[AW-1:0]];
+-	wire        dACK = dCYC & dSTB;   // 0 wait states
+-
+-	integer cycle_counter = 0;
+-	always @(posedge clk) if (!reset) cycle_counter <= cycle_counter + 1;
+-
+-	always @(posedge clk) begin
+-		if (!reset && dCYC && dSTB && dWE) begin
+-			if (dADR == ADR_CONSOLE) begin
+-				$write("%c", dDAT_MOSI[7:0]);
+-				$fflush();
+-			end else if (dADR == ADR_EXIT) begin
+-				$display("\n[sim_finish after %0d cycles]", cycle_counter);
+-				$finish;
+-			end else begin
+-				if (dSEL[0]) memory[dADR[AW-1:0]][7:0]   <= dDAT_MOSI[7:0];
+-				if (dSEL[1]) memory[dADR[AW-1:0]][15:8]  <= dDAT_MOSI[15:8];
+-				if (dSEL[2]) memory[dADR[AW-1:0]][23:16] <= dDAT_MOSI[23:16];
+-				if (dSEL[3]) memory[dADR[AW-1:0]][31:24] <= dDAT_MOSI[31:24];
+-			end
+-		end
+-	end
+-
+-	VexRiscv cpu (
+-		.externalResetVector   (32'h00000000),
+-		.timerInterrupt        (1'b0),
+-		.softwareInterrupt     (1'b0),
+-		.externalInterruptArray(32'b0),
+-
+-		.iBusWishbone_CYC      (iCYC),
+-		.iBusWishbone_STB      (iSTB),
+-		.iBusWishbone_ACK      (iACK),
+-		.iBusWishbone_WE       (iWE),
+-		.iBusWishbone_ADR      (iADR),
+-		.iBusWishbone_DAT_MISO (iDAT_MISO),
+-		.iBusWishbone_DAT_MOSI (iDAT_MOSI),
+-		.iBusWishbone_SEL      (iSEL),
+-		.iBusWishbone_ERR      (1'b0),
+-		.iBusWishbone_CTI      (iCTI),
+-		.iBusWishbone_BTE      (iBTE),
+-
+-		.dBusWishbone_CYC      (dCYC),
+-		.dBusWishbone_STB      (dSTB),
+-		.dBusWishbone_ACK      (dACK),
+-		.dBusWishbone_WE       (dWE),
+-		.dBusWishbone_ADR      (dADR),
+-		.dBusWishbone_DAT_MISO (dDAT_MISO),
+-		.dBusWishbone_DAT_MOSI (dDAT_MOSI),
+-		.dBusWishbone_SEL      (dSEL),
+-		.dBusWishbone_ERR      (1'b0),
+-		.dBusWishbone_CTI      (dCTI),
+-		.dBusWishbone_BTE      (dBTE),
+-
+-		.clk                   (clk),
+-		.reset                 (reset)
+-	);
+-
+-	reg [31:0] timeout_cycles;
+-	initial begin
+-		if (!$value$plusargs("timeout=%d", timeout_cycles))
+-			timeout_cycles = 50_000_000;
+-		repeat (timeout_cycles) @(posedge clk);
+-		$display("\nTIMEOUT after %0d cycles", cycle_counter);
+-		$finish;
+-	end
+-endmodule
+diff --git a/legacy-harpmudd/tools/art_scale_model.py b/legacy-harpmudd/tools/art_scale_model.py
+deleted file mode 100644
+index 10fa24b0..00000000
+--- a/legacy-harpmudd/tools/art_scale_model.py
++++ /dev/null
+@@ -1,129 +0,0 @@
+-#!/usr/bin/env python3
+-"""Model fw/art.inc's box-downscale exactly, and check the three things that
+-could be quietly wrong on hardware rather than loudly wrong in a build.
+-
+-1. EMIT ORDER AND COMPLETENESS -- every destination row emitted exactly once,
+-   in order, and only after its last source row has arrived. A destination row
+-   can straddle two MCU rows; emitting it early would ship a row averaged from
+-   half its input, which looks like a faint horizontal seam rather than like a
+-   bug.
+-2. ACCUMULATOR SLOT REUSE -- slots are recycled dy % ART_ACC_ROWS. If row
+-   dy+ART_ACC_ROWS starts accumulating before row dy is flushed and cleared,
+-   two rows silently add into each other.
+-3. OVERFLOW -- cells are uint16 and sum rowcnt*colcnt pixels of max 255.
+-
+-Run against the real cover sizes measured off the card, not invented ones.
+-"""
+-import sys
+-
+-ART_IMG = 92
+-ART_ACC_ROWS = 20
+-ART_FULL_MAX = 1024
+-UINT16_MAX = 65535
+-
+-
+-def last_sy(ay, sh, ah):
+-    return ((ay + 1) * sh + ah - 1) // ah - 1
+-
+-
+-def plan(iw, ih):
+-    """Mirror art_decode's mode choice and geometry."""
+-    reduce = ((iw + 7) // 8) >= ART_IMG and ((ih + 7) // 8) >= ART_IMG
+-    if not reduce and (iw > ART_FULL_MAX or ih > ART_FULL_MAX):
+-        reduce = True
+-    # MCU geometry: assume the common 4:2:0 case, the largest MCU (16x16), which
+-    # is the worst case for both straddling and slot reuse.
+-    mcu_w = 2 if reduce else 16
+-    mcu_h = 2 if reduce else 16
+-    rw = (iw + 7) // 8 if reduce else iw
+-    rh = (ih + 7) // 8 if reduce else ih
+-    mcus_row = (rw + mcu_w - 1) // mcu_w
+-    mcus_col = (rh + mcu_h - 1) // mcu_h
+-    sw = min(mcus_row * mcu_w, rw)
+-    sh = min(mcus_col * mcu_h, rh)
+-    return reduce, mcu_w, mcu_h, mcus_row, mcus_col, sw, sh
+-
+-
+-def check(iw, ih):
+-    reduce, mcu_w, mcu_h, mcus_row, mcus_col, sw, sh = plan(iw, ih)
+-    if not sw or not sh:
+-        return "skip", "degenerate"
+-
+-    # The accumulator is capped at the source size on each axis; magnification
+-    # happens on emit. This is what bounds slot pressure.
+-    aw = min(ART_IMG, sw)
+-    ah = min(ART_IMG, sh)
+-
+-    rowcnt = [0] * ah
+-    colcnt = [0] * aw
+-    for sy in range(sh):
+-        rowcnt[sy * ah // sh] += 1
+-    for sx in range(sw):
+-        colcnt[sx * aw // sw] += 1
+-    if min(rowcnt) == 0 or min(colcnt) == 0:
+-        return "FAIL", "empty accumulator cell -- divide by zero in art_flush_row"
+-
+-    worst = max(rowcnt) * max(colcnt) * 255
+-    if worst > UINT16_MAX:
+-        return "FAIL", "accumulator overflows: %d > %d" % (worst, UINT16_MAX)
+-
+-    # Walk the decode in source order, tracking which ay owns each slot.
+-    slot_owner = {}
+-    emitted = []
+-    next_ay = 0
+-    for my in range(mcus_col):
+-        for sy in range(my * mcu_h, min((my + 1) * mcu_h, sh)):
+-            ay = sy * ah // sh
+-            slot = ay % ART_ACC_ROWS
+-            if slot in slot_owner and slot_owner[slot] != ay:
+-                return "FAIL", ("slot %d reused by ay=%d while ay=%d still held "
+-                                "it (sy=%d)" % (slot, ay, slot_owner[slot], sy))
+-            slot_owner[slot] = ay
+-        sy_done = min((my + 1) * mcu_h, sh)
+-        while next_ay < ah and last_sy(next_ay, sh, ah) < sy_done:
+-            # Emitting means complete: no later source row may still map here.
+-            if any(s * ah // sh == next_ay for s in range(sy_done, sh)):
+-                return "FAIL", "ay=%d emitted early (more source rows follow)" % next_ay
+-            d0 = (next_ay * ART_IMG + ah - 1) // ah
+-            d1 = min(((next_ay + 1) * ART_IMG + ah - 1) // ah, ART_IMG)
+-            emitted += list(range(d0, d1))
+-            slot_owner.pop(next_ay % ART_ACC_ROWS, None)
+-            next_ay += 1
+-    while next_ay < ah:
+-        d0 = (next_ay * ART_IMG + ah - 1) // ah
+-        d1 = min(((next_ay + 1) * ART_IMG + ah - 1) // ah, ART_IMG)
+-        emitted += list(range(d0, d1))
+-        next_ay += 1
+-
+-    if emitted != list(range(ART_IMG)):
+-        return "FAIL", ("destination rows emitted %s, expected 0..%d exactly once"
+-                        % (emitted[:8], ART_IMG - 1))
+-
+-    mode = "reduce" if reduce else "FULL"
+-    ratio = sw / ART_IMG
+-    return "ok", ("%-6s src %dx%d -> acc %dx%d -> %d  (%.2fx %s)  max cell %d"
+-                  % (mode, sw, sh, aw, ah, ART_IMG, ratio,
+-                     "down" if ratio >= 1 else "UP", worst))
+-
+-
+-CASES = [
+-    # Measured off the user's own library.
+-    (300, 297), (455, 455), (1280, 1280),
+-    # Common cover sizes in the wild.
+-    (200, 200), (250, 250), (350, 350), (500, 500), (600, 600),
+-    (640, 640), (735, 735), (736, 736), (800, 800), (1000, 1000),
+-    (1024, 1024), (1400, 1400), (1500, 1500), (2000, 2000), (3000, 3000),
+-    # Degenerate and adversarial.
+-    (92, 92), (91, 91), (64, 64), (8, 8), (16, 9),
+-    (1024, 100), (100, 1024), (2000, 100), (4000, 90),
+-]
+-
+-bad = 0
+-for iw, ih in CASES:
+-    status, msg = check(iw, ih)
+-    if status == "FAIL":
+-        bad += 1
+-    print("%-6s %5dx%-5d %s" % (status, iw, ih, msg))
+-print()
+-print("FAILURES: %d" % bad)
+-sys.exit(1 if bad else 0)
+diff --git a/legacy-harpmudd/tools/card_snapshot.py b/legacy-harpmudd/tools/card_snapshot.py
+deleted file mode 100644
+index 761c2b5a..00000000
+--- a/legacy-harpmudd/tools/card_snapshot.py
++++ /dev/null
+@@ -1,263 +0,0 @@
+-"""Record what is actually on the SD card, so a before/after comparison is a
+-measurement rather than a recollection.
+-
+-    python tools/card_snapshot.py before
+-    ... run the probe on hardware, remount the card ...
+-    python tools/card_snapshot.py after
+-    python tools/card_snapshot.py diff
+-
+-Two things this does that eyeballing the folder does not.
+-
+-It hashes, WHOLE FILES by default. A file can be extended and still report a
+-plausible size, and it can be rewritten in place at the same size; only content
+-settles it. An earlier draft hashed just the first and last 1 MB, on the theory
+-that damage lands at the tail -- and a test that planted "SPM3" at offset
+-5,505,024, exactly where the third event actually found it, came back "nothing
+-changed". The one signature that matters most sits in the middle of a file.
+---quick restores the edges-only mode; do not use it for this test.
+-
+-It prints sizes in HEX. The three recorded damage events were 21,037,825 /
+-21,365,505 / 20,382,465, which look unrelated in decimal and are 0x01410301 /
+-0x01460301 / 0x01370301 in hex -- the same low 16 bits three times. That
+-constant is the strongest lead there is, and reading the numbers in decimal is
+-what hid it for three events. Never look at a size on this card in decimal.
+-
+-The drive letter moves between D: and E: depending on what else is mounted, so
+-the card is found by looking for the core rather than by assuming a letter.
+-
+-By default it scans ONLY Assets/tau -- where every recorded damage event
+-has landed, and where all the .mp3 files live. Hashing the whole card means
+-hashing ~16 GB over USB, which took long enough that the first attempt had to be
+-abandoned; a measurement nobody can afford to run is not a measurement. Pass
+---all to sweep the entire card when that is genuinely wanted.
+-"""
+-
+-import argparse
+-import hashlib
+-import json
+-import os
+-import string
+-import sys
+-import time
+-
+-MARKERS = ("Assets/tau", "Cores/alfatreze.TAU")
+-SUBTREE = "Assets/tau"     # default scan scope; --all overrides
+-HASH_EDGE = 1 << 20          # bytes hashed at each end unless --full
+-STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_snapshots")
+-
+-
+-def find_card(wait_s):
+-    """A drive holding this core. Waits rather than assuming a letter."""
+-    deadline = time.time() + wait_s
+-    seen = set()
+-    while True:
+-        for letter in string.ascii_uppercase:
+-            root = letter + ":\\"
+-            if not os.path.isdir(root):
+-                continue
+-            try:
+-                if all(os.path.isdir(os.path.join(root, m.replace("/", os.sep)))
+-                       for m in MARKERS):
+-                    return root
+-            except OSError:
+-                continue        # a drive that vanished mid-scan
+-            seen.add(letter)
+-        if time.time() >= deadline:
+-            return None
+-        print("  waiting for the card to mount...", flush=True)
+-        time.sleep(2.0)
+-
+-
+-def digest(path, size, quick):
+-    h = hashlib.sha256()
+-    with open(path, "rb") as f:
+-        if not quick or size <= 2 * HASH_EDGE:
+-            for chunk in iter(lambda: f.read(1 << 20), b""):
+-                h.update(chunk)
+-            return h.hexdigest(), "full"
+-        h.update(f.read(HASH_EDGE))
+-        f.seek(-HASH_EDGE, os.SEEK_END)
+-        h.update(f.read(HASH_EDGE))
+-    return h.hexdigest(), "edges"
+-
+-
+-def scan(root, quick, subtree):
+-    out = {}
+-    base = os.path.join(root, subtree.replace("/", os.sep)) if subtree else root
+-    if not os.path.isdir(base):
+-        sys.exit("scan path does not exist: %s" % base)
+-    for dirpath, _dirnames, filenames in os.walk(base):
+-        if os.path.basename(dirpath).lower() == "system volume information":
+-            continue
+-        for name in sorted(filenames):
+-            p = os.path.join(dirpath, name)
+-            rel = os.path.relpath(p, root).replace(os.sep, "/")
+-            try:
+-                size = os.path.getsize(p)
+-                d, mode = digest(p, size, quick)
+-            except OSError as e:
+-                out[rel] = {"error": str(e)}
+-                continue
+-            out[rel] = {"size": size, "sha": d, "hash": mode}
+-    return out
+-
+-
+-def hx(n):
+-    return "0x%08X" % n if n < (1 << 32) else "0x%X" % n
+-
+-
+-def report_size(n):
+-    return "%s  %s  (low16 0x%04X)" % (format(n, ","), hx(n), n & 0xFFFF)
+-
+-
+-def cmd_snap(args, label):
+-    # The baseline is the one irreplaceable artefact here, and re-running
+-    # "before" out of habit silently destroys it: the diff then compares two
+-    # snapshots taken minutes apart with no core use between them and reports a
+-    # confident all-clear that means nothing. That happened once and was caught
+-    # only because the file mtimes did not line up. Take the baseline ONCE, then
+-    # run "after" as many times as you like -- each one re-diffs against the
+-    # same original.
+-    if label == "before" and not args.force:
+-        prev = os.path.join(STATE, "before.json")
+-        if os.path.exists(prev):
+-            try:
+-                when = json.load(open(prev, encoding="utf-8")).get("when", "?")
+-            except Exception:
+-                when = "?"
+-            sys.exit("a baseline already exists (taken %s).\n"
+-                     "Run 'after' instead -- it re-diffs against that same "
+-                     "baseline every time.\nUse --force only if you really "
+-                     "mean to discard it and start a new comparison." % when)
+-    root = args.root or find_card(args.wait)
+-    if not root:
+-        sys.exit("no card found: no drive holds both %s" % " and ".join(MARKERS))
+-    subtree = "" if args.all else SUBTREE
+-    print("card: %s   scanning: %s" % (root, subtree or "(everything)"))
+-    files = scan(root, args.quick, subtree)
+-    os.makedirs(STATE, exist_ok=True)
+-    path = os.path.join(STATE, label + ".json")
+-    with open(path, "w", encoding="utf-8") as f:
+-        json.dump({"root": root, "when": time.strftime("%Y-%m-%d %H:%M:%S"),
+-                   "quick": args.quick, "subtree": subtree,
+-                   "files": files}, f, indent=1, sort_keys=True)
+-    mp3s = [k for k in files if k.lower().endswith(".mp3")]
+-    print("%s: %d files (%d mp3) -> %s" % (label, len(files), len(mp3s), path))
+-    for k in sorted(mp3s):
+-        e = files[k]
+-        if "size" in e:
+-            print("   %-44s %s" % (k[-44:], report_size(e["size"])))
+-    return 0
+-
+-
+-def cmd_diff(args):
+-    try:
+-        a = json.load(open(os.path.join(STATE, "before.json"), encoding="utf-8"))
+-        b = json.load(open(os.path.join(STATE, "after.json"), encoding="utf-8"))
+-    except OSError as e:
+-        sys.exit("need both snapshots first (%s)" % e)
+-
+-    print("baseline %s   ->   latest %s" % (a.get("when", "?"), b.get("when", "?")))
+-    try:
+-        fmt = "%Y-%m-%d %H:%M:%S"
+-        gap = (time.mktime(time.strptime(b["when"], fmt))
+-               - time.mktime(time.strptime(a["when"], fmt)))
+-        if gap < 300:
+-            print("WARNING: only %d seconds separate them. If the core was not "
+-                  "used in that window this diff proves nothing." % int(gap))
+-    except Exception:
+-        pass
+-    print()
+-
+-    if a.get("subtree") != b.get("subtree"):
+-        sys.exit("before/after were taken at different scopes (%r vs %r) -- "
+-                 "retake them the same way or the diff invents changes"
+-                 % (a.get("subtree"), b.get("subtree")))
+-
+-    fa, fb = a["files"], b["files"]
+-    changed = grown = 0
+-    expected = []
+-
+-    for k in sorted(set(fa) | set(fb)):
+-        ea, eb = fa.get(k), fb.get(k)
+-        # Two files are SUPPOSED to change and must not be read as damage.
+-        # An earlier version counted them and reported "0184 is unusable" on a
+-        # run where nothing was harmed -- a diagnostic that cries wolf is worse
+-        # than no diagnostic, because the next real hit gets discounted.
+-        base = k.rsplit("/", 1)[-1]
+-        if base == "tau.rom":
+-            expected.append("%s -- the firmware image, replaced by hand between "
+-                            "snapshots" % k)
+-            continue
+-        if ea is None:
+-            print("ADDED    %s  %s" % (k, report_size(eb.get("size", 0))))
+-            changed += 1
+-        elif eb is None:
+-            print("REMOVED  %s" % k)
+-            changed += 1
+-        elif ea.get("size") != eb.get("size"):
+-            d = eb["size"] - ea["size"]
+-            print("RESIZED  %s" % k)
+-            print("   before %s" % report_size(ea["size"]))
+-            print("   after  %s" % report_size(eb["size"]))
+-            print("   delta  %+d  (%s, %+.1f KB)" % (d, hx(abs(d)), d / 1024.0))
+-            changed += 1
+-            if d > 0:
+-                grown += 1
+-        elif ea.get("sha") != eb.get("sha"):
+-            print("REWRITTEN %s  (same size %s)" % (k, report_size(ea["size"])))
+-            changed += 1
+-
+-    mp3s = [k for k in fb if k.lower().endswith(".mp3")]
+-    intact = [k for k in mp3s
+-              if k in fa and fa[k].get("sha") == fb[k].get("sha")
+-              and fa[k].get("size") == fb[k].get("size")]
+-    print()
+-    print("%d of %d .mp3 files byte-for-byte unchanged." % (len(intact), len(mp3s)))
+-    if expected:
+-        print("Ignored (expected to change):")
+-        for e in expected:
+-            print("  - %s" % e)
+-
+-    print()
+-    if not changed:
+-        print("VERDICT: no unexpected change. Nothing was damaged.")
+-        print("The writes in this session left every .mp3 byte-identical.")
+-        print("That is NECESSARY but not SUFFICIENT: the three damage events")
+-        print("came after extended use, so one clean session does not clear")
+-        print("0184. Keep snapshotting across real sessions before trusting it.")
+-        return 0
+-
+-    print("VERDICT: %d file(s) changed, %d grew." % (changed, grown))
+-    if grown:
+-        print("A single 32-byte write at offset 0 extended a file. 0184 is")
+-        print("unusable by this core: settings must never write the card, and")
+-        print("settings.bin stays a hand-edited preferences file.")
+-        print("Record the new sizes in hex above -- if the low 16 bits are 0301")
+-        print("a fourth time, that constant is the thread to pull.")
+-    return 1
+-
+-
+-def main():
+-    ap = argparse.ArgumentParser(description=__doc__,
+-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+-    ap.add_argument("mode", choices=["before", "after", "diff"])
+-    ap.add_argument("--quick", action="store_true",
+-                    help="hash only the first and last 1 MB. MISSES an in-place "
+-                         "edit mid-file, which is the signature this test is "
+-                         "looking for -- not for use here")
+-    ap.add_argument("--wait", type=float, default=60.0,
+-                    help="seconds to wait for the card to mount (default 60)")
+-    ap.add_argument("--force", action="store_true",
+-                    help="allow 'before' to overwrite an existing baseline")
+-    ap.add_argument("--all", action="store_true",
+-                    help="scan the whole card, not just " + SUBTREE +
+-                         " (slow: hashes every file on the volume)")
+-    ap.add_argument("--root", default=None,
+-                    help="scan this folder instead of auto-detecting the card")
+-    args = ap.parse_args()
+-    sys.exit(cmd_diff(args) if args.mode == "diff" else cmd_snap(args, args.mode))
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/legacy-harpmudd/tools/flac_bitreader_check.py b/legacy-harpmudd/tools/flac_bitreader_check.py
+deleted file mode 100644
+index 4b283ea4..00000000
+--- a/legacy-harpmudd/tools/flac_bitreader_check.py
++++ /dev/null
+@@ -1,147 +0,0 @@
+-#!/usr/bin/env python3
+-"""Proves the rewritten bit reader in fw/flac.c, without hardware.
+-
+-The reader was changed in three ways to chase the 24-bit hiccups -- a 64-bit
+-reservoir refilled four bytes at a time, unary by leading-zero count instead of
+-one bit per iteration, and an accumulator that is no longer masked after each
+-read. All three are the kind of change that still decodes *something* when it
+-is wrong, so "it played" would not have been evidence.
+-
+-There is no host C compiler here, so this models the C exactly rather than
+-compiling it: a 64-bit register that TRUNCATES on shift, garbage left above the
+-live window, the same <=31 refill guard, and lead = clz(win) - (64 - bitcnt).
+-Then it runs the real decoder over real files and checks the same things
+-flac_verify.py does -- MD5 where the encoder stored one, and exact sample count
+-with zero resync scans where it did not.
+-
+-If the model and the reference reader both reproduce a file, the ALGORITHM is
+-right. What that cannot cover is C-specific undefined behaviour, so the two
+-places it could bite are pinned by asserts here instead: the reservoir never
+-exceeds 63 bits (or `1 << bitcnt` is undefined) and no shift is ever 64.
+-"""
+-import sys, os
+-import flac_verify
+-from flac_verify import verify
+-
+-M64 = (1 << 64) - 1
+-
+-
+-class CBits:
+-    """Bit reader modelled on the C in fw/flac.c, register widths included."""
+-    __slots__ = ('d', 'p', 'acc', 'n', 'max_n')
+-
+-    def __init__(self, data):
+-        self.d, self.p, self.acc, self.n = data, 0, 0, 0
+-        self.max_n = 0
+-
+-    # ---- need(): refill 4 bytes when the guard allows, else 1 -------------
+-    def _fill(self, k):
+-        while self.n < k:
+-            if self.p + 4 <= len(self.d) and self.n <= 31:
+-                self.acc = ((self.acc << 32) | int.from_bytes(
+-                    self.d[self.p:self.p + 4], 'big')) & M64
+-                self.p += 4
+-                self.n += 32
+-            else:
+-                if self.p >= len(self.d):
+-                    raise EOFError
+-                self.acc = ((self.acc << 8) | self.d[self.p]) & M64
+-                self.p += 1
+-                self.n += 8
+-            # The C indexes (1 << bitcnt) in unary; at 64 that is undefined.
+-            assert self.n <= 63, "reservoir reached %d bits" % self.n
+-            if self.n > self.max_n:
+-                self.max_n = self.n
+-
+-    def bits(self, k):
+-        if not k:
+-            return 0
+-        if self.n < k:
+-            self._fill(k)
+-        self.n -= k
+-        assert self.n < 64, "shift of %d" % self.n
+-        mask = 0xFFFFFFFF if k == 32 else (1 << k) - 1
+-        # NOTE: no masking of acc afterwards -- the C leaves the consumed bits
+-        # in place and relies on the mask. Modelling that is the whole point.
+-        return (self.acc >> self.n) & mask
+-
+-    def sbits(self, k):
+-        v = self.bits(k)
+-        return v - (1 << k) if k and (v >> (k - 1)) & 1 else v
+-
+-    def unary(self):
+-        c = 0
+-        while True:
+-            if self.n == 0:
+-                self._fill(1)
+-            win = self.acc & ((1 << self.n) - 1)
+-            if win:
+-                lead = (64 - win.bit_length()) - (64 - self.n)   # = clz - (64-n)
+-                c += lead
+-                self.n -= lead + 1
+-                return c
+-            c += self.n
+-            self.n = 0
+-            if c > (1 << 20):
+-                return c
+-
+-    def align(self):
+-        self.n -= self.n & 7
+-
+-    def raw_byte(self):
+-        """Models byte() in the C: reads the BUFFER, bypassing the reservoir.
+-
+-        This is the gap that let a real bug through. frame_header() used a raw
+-        byte read for the UTF-8 frame number, correct only while the reservoir
+-        happened to be empty there; the reference reader in flac_verify.py
+-        reads the same field through bits(8), so it could never reproduce the
+-        fault. A model that quietly does the right thing where the C does the
+-        risky thing cannot fail, and a check that cannot fail proves nothing.
+-
+-        Kept even though the C no longer calls it there, so that reintroducing
+-        a raw read is caught rather than passed.
+-        """
+-        if self.n:
+-            raise AssertionError(
+-                "raw byte read with %d bits still in the reservoir -- this is "
+-                "the frame-header bug" % self.n)
+-        if self.p >= len(self.d):
+-            raise EOFError
+-        v = self.d[self.p]
+-        self.p += 1
+-        return v
+-
+-    # frame_header() in flac_verify pokes .acc/.n directly for the sync scan;
+-    # it masks acc as it goes, which is harmless here -- dropping bits ABOVE
+-    # the window cannot change any value the reader returns.
+-    def _fill_pub(self, k):
+-        self._fill(k)
+-
+-
+-if __name__ == '__main__':
+-    paths = sys.argv[1:]
+-    if not paths:
+-        print("usage: flac_bitreader_check.py <file.flac> ...")
+-        sys.exit(2)
+-
+-    flac_verify.Bits = CBits          # swap the reader, keep the decoder
+-    bad = 0
+-    for path in paths:
+-        print(os.path.basename(path), flush=True)
+-        try:
+-            si, frames, samples, digest, scans = verify(path, progress_every=0)
+-        except Exception as e:
+-            print("  ERROR %s: %s" % (type(e).__name__, e))
+-            bad += 1
+-            continue
+-        ok = digest is not None and samples == si['total'] and scans == 0
+-        if digest is not None and si['md5'] != b'\0' * 16:
+-            ok = ok and digest == si['md5']
+-            print("  md5 %s" % ("MATCH" if digest == si['md5'] else "MISMATCH"))
+-        else:
+-            print("  md5 absent -- checking parse exactness instead")
+-        print("  %d frames, %d/%d samples, %d resync scans  ==> %s"
+-              % (frames, samples, si['total'], scans, "OK" if ok else "FAILED"))
+-        bad += 0 if ok else 1
+-    print("\n%s" % ("all files reproduce" if not bad else "%d FAILED" % bad))
+-    sys.exit(1 if bad else 0)
+diff --git a/legacy-harpmudd/tools/flac_framepos_check.py b/legacy-harpmudd/tools/flac_framepos_check.py
+deleted file mode 100644
+index 7c592cab..00000000
+--- a/legacy-harpmudd/tools/flac_framepos_check.py
++++ /dev/null
+@@ -1,184 +0,0 @@
+-#!/usr/bin/env python3
+-"""Checks the frame-position decode added to fw/flac.c against real files.
+-
+-Seeking used to set the clock to the time the seek ASKED for. The byte offset
+-is interpolated between seek points, so the decoder resyncs at whatever frame
+-header comes next -- often earlier than the target. The clock kept that error
+-for the rest of the track and ran past the total, which is what "it keeps
+-playing beyond the total playtime" was.
+-
+-The fix reads the position out of the frame header instead. That field was
+-already being parsed for its LENGTH and discarded, so the risk is not that it
+-is missing -- it is that the UTF-8-style decode is subtly wrong in a way that
+-still yields plausible numbers. A wrong decode would show up as a clock that
+-jumps somewhere odd after a seek, which is hard to tell from the bug being
+-fixed.
+-
+-So this walks every frame of a real file, decodes the number with the SAME
+-arithmetic as the C, and requires it to be exactly the frame index (fixed
+-blocking) or the running sample count (variable). Any drift is a decode error.
+-Then it replays the actual seek path: for each seek target, find the frame the
+-byte interpolation lands on, and compare the old clock (the target) against the
+-new one (the frame's own position) with the truth.
+-"""
+-import os, sys, struct
+-
+-def crc8(b):
+-    c = 0
+-    for x in b:
+-        c ^= x
+-        for _ in range(8):
+-            c = ((c << 1) ^ 0x07) & 0xFF if c & 0x80 else (c << 1) & 0xFF
+-    return c
+-
+-BLK = [0, 192, 576, 1152, 2304, 4608, -1, -2, 256, 512, 1024, 2048,
+-       4096, 8192, 16384, 32768]
+-
+-def streaminfo(d):
+-    assert d[:4] == b'fLaC'
+-    p = 4
+-    while True:
+-        last, typ = d[p] >> 7, d[p] & 0x7F
+-        ln = int.from_bytes(d[p+1:p+4], 'big')
+-        body = d[p+4:p+4+ln]
+-        if typ == 0:
+-            v = int.from_bytes(body[10:18], 'big')
+-            si = dict(minblk=int.from_bytes(body[0:2], 'big'),
+-                      maxblk=int.from_bytes(body[2:4], 'big'),
+-                      rate=v >> 44, nch=((v >> 41) & 7) + 1,
+-                      total=int.from_bytes(body[13:18], 'big') & 0xFFFFFFFFF)
+-        p += 4 + ln
+-        if last:
+-            return si, p
+-
+-SYNC = bytes([0xFF])
+-
+-def frames(d, start):
+-    """Yield (byte_offset, coded_number, is_sample, blocksize) per frame."""
+-    p = start
+-    n = len(d)
+-    while p + 5 < n:
+-        # Jump to the next 0xFF rather than stepping a byte at a time: the
+-        # frame body between headers is thousands of bytes and scanning it in
+-        # Python is the whole runtime.
+-        p = d.find(SYNC, p)
+-        if p < 0 or p + 5 >= n:
+-            return
+-        if (d[p+1] & 0xFC) != 0xF8:
+-            p += 1
+-            continue
+-        h = [d[p], d[p+1], d[p+2], d[p+3]]
+-        i = p + 4
+-        c = d[i]
+-        extra = None
+-        for mask, val, k in ((0x80,0x00,0),(0xE0,0xC0,1),(0xF0,0xE0,2),
+-                             (0xF8,0xF0,3),(0xFC,0xF8,4),(0xFE,0xFC,5),
+-                             (0xFF,0xFE,6)):
+-            if (c & mask) == val:
+-                extra = k
+-                break
+-        if extra is None:
+-            p += 1
+-            continue
+-        num_at = len(h)
+-        h.append(c); i += 1
+-        for _ in range(extra):
+-            h.append(d[i]); i += 1
+-        bsi = len(h)
+-        bs_code, sr_code = h[2] >> 4, h[2] & 0x0F
+-        for _ in range({6: 1, 7: 2}.get(bs_code, 0)):
+-            h.append(d[i]); i += 1
+-        for _ in range({12: 1, 13: 2, 14: 2}.get(sr_code, 0)):
+-            h.append(d[i]); i += 1
+-        if i >= n or crc8(bytes(h)) != d[i]:
+-            p += 1
+-            continue
+-
+-        # --- the arithmetic under test, transcribed from fw/flac.c ---
+-        v = h[num_at] if extra == 0 else (h[num_at] & (0x3F >> extra))
+-        for k in range(1, extra + 1):
+-            v = (v << 6) | (h[num_at + k] & 0x3F)
+-        # -------------------------------------------------------------
+-
+-        if bs_code == 6:
+-            blocksize = h[bsi] + 1
+-        elif bs_code == 7:
+-            blocksize = ((h[bsi] << 8) | h[bsi+1]) + 1
+-        else:
+-            blocksize = BLK[bs_code]
+-        yield p, v, h[1] & 1, blocksize
+-        p = i + 1
+-
+-def check(path):
+-    d = open(path, 'rb').read()
+-    si, first = streaminfo(d)
+-    dur = si['total'] / si['rate'] if si['rate'] else 0
+-    print("%s\n  %d Hz  %dch  %d samples (%d:%02d)  blk %d..%d"
+-          % (os.path.basename(path), si['rate'], si['nch'], si['total'],
+-             int(dur)//60, int(dur)%60, si['minblk'], si['maxblk']))
+-
+-    # A blind scan for the sync pattern finds occasional FALSE headers that
+-    # also pass CRC-8 -- 22 of them in the first file tried here. That is a
+-    # property of the data, not of the decode, and the real decoder only scans
+-    # like this when resyncing after a seek. So the rule is: a candidate is
+-    # real only if it CONTINUES the sequence, in the stream's own blocking
+-    # strategy. Anything else is a false sync and gets skipped.
+-    #
+-    # That cannot launder a broken decode into a pass: if the arithmetic were
+-    # wrong, frames would stop continuing the sequence and the accepted count
+-    # would fall far short of STREAMINFO's sample total, which is checked.
+-    raw = list(frames(d, first))
+-    if not raw:
+-        print("  no frames found"); return False
+-    strategy = raw[0][2]
+-    if raw[0][1] != 0:
+-        print("  DECODE ERROR: first frame reads %d, must be 0" % raw[0][1])
+-        return False
+-
+-    tbl, false_syncs, run, idx = [], [], 0, 0
+-    for off, num, is_samp, blk in raw:
+-        want = run if strategy else idx
+-        if is_samp != strategy or num != want:
+-            false_syncs.append(off)
+-            continue
+-        tbl.append((off, num, is_samp, blk))
+-        run += blk
+-        idx += 1
+-
+-    widths = sorted(set(1 if t[1] < 0x80 else 2 if t[1] < 0x800 else 3
+-                        for t in tbl))
+-    print("  %d frames, %s blocking, %d false syncs skipped, "
+-          "coded widths %s byte(s)"
+-          % (idx, "variable" if strategy else "fixed", len(false_syncs),
+-             "/".join(str(w) for w in widths)))
+-    if run != si['total']:
+-        print("  ==> FAILED: accepted frames cover %d samples, STREAMINFO says %d"
+-              % (run, si['total']))
+-        return False
+-    print("  sequence complete and contiguous: %d samples, exactly STREAMINFO"
+-          % run)
+-
+-    # Replay the seek path: interpolate a byte offset the way flac_seek_byte
+-    # does, land on the next frame, and compare both clocks with the truth.
+-    audio_lo, audio_hi = first, len(d)
+-    worst_old = worst_new = 0
+-    for pct in (10, 25, 50, 75, 90):
+-        tgt = dur * pct / 100.0
+-        want_byte = audio_lo + int((audio_hi - audio_lo) * (tgt / dur))
+-        land = next((t for t in tbl if t[0] >= want_byte), tbl[-1])
+-        true_sec = (land[1] / si['rate']) if land[2] else \
+-                   (land[1] * si['maxblk'] / si['rate'])
+-        worst_old = max(worst_old, abs(tgt - true_sec))
+-        worst_new = max(worst_new, 0.0)
+-        print("  seek %2d%% -> %5.1fs asked, landed at %5.1fs   old clock off by %+.1fs"
+-              % (pct, tgt, true_sec, tgt - true_sec))
+-    print("  ==> worst old-clock error %.1fs; new clock reads the frame, error 0"
+-          % worst_old)
+-    return True
+-
+-if __name__ == '__main__':
+-    paths = sys.argv[1:]
+-    if not paths:
+-        print("usage: flac_framepos_check.py <file.flac> ...")
+-        sys.exit(2)
+-    sys.exit(0 if all(check(p) for p in paths) else 1)
+diff --git a/legacy-harpmudd/tools/flac_hdrcrc_check.py b/legacy-harpmudd/tools/flac_hdrcrc_check.py
+deleted file mode 100644
+index 98793f4f..00000000
+--- a/legacy-harpmudd/tools/flac_hdrcrc_check.py
++++ /dev/null
+@@ -1,143 +0,0 @@
+-#!/usr/bin/env python3
+-"""Checks that the byte-aligned + CRC-8 frame header in fw/flac.c ACCEPTS every
+-real frame of a file.
+-
+-The danger in adding a CRC check is not that it misses a false sync -- it is
+-that it rejects a GOOD one. A header parse that is subtly wrong about the
+-length it covers would fail on some frames and not others, and the symptom
+-would be intermittent dropouts in normal playback, far from the seek code that
+-motivated the change.
+-
+-So this replaces flac_verify's frame_header with a model of the C version --
+-same alignment rule, same byte-by-byte accumulation, same CRC over exactly the
+-header bytes before the CRC byte -- and decodes whole files with it. If every
+-frame parses and the sample count still matches with zero resync scans, the
+-check accepts real frames. tools/flac_verify.py separately confirms the audio
+-those frames produce is bit-exact.
+-"""
+-import sys, os
+-import flac_verify
+-from flac_verify import verify
+-
+-BLK_TAB = flac_verify.BLK_TAB
+-
+-
+-def crc8(b):
+-    c = 0
+-    for x in b:
+-        c ^= x
+-        for _ in range(8):
+-            c = ((c << 1) ^ 0x07) & 0xFF if c & 0x80 else (c << 1) & 0xFF
+-    return c
+-
+-
+-rejected = []          # (frame_index, reason) for anything the CRC turned away
+-accepted = [0]
+-
+-
+-def frame_header(b, cap):
+-    """Models frame_header()/parse_frame_header() in fw/flac.c."""
+-    tries = 0
+-    while True:
+-        if b.n < 15:
+-            b._fill(15)
+-
+-        # Frames are byte-aligned; a candidate at any other offset is false.
+-        if b.n & 7:
+-            drop = b.n & 7
+-            b.n -= drop
+-            b.acc &= (1 << b.n) - 1
+-            continue
+-
+-        peek = (b.acc >> (b.n - 15)) & 0x7FFF
+-        if (peek >> 1) == 0x3FFE:
+-            h = []
+-
+-            def hbyte():
+-                h.append(b.bits(8))
+-                return h[-1]
+-
+-            hbyte(); hbyte(); hbyte(); hbyte()
+-            bs_code, sr_code = h[2] >> 4, h[2] & 0x0F
+-            chmode = h[3] >> 4
+-
+-            c = hbyte()
+-            extra = None
+-            for mask, val, k in ((0x80, 0x00, 0), (0xE0, 0xC0, 1), (0xF0, 0xE0, 2),
+-                                 (0xF8, 0xF0, 3), (0xFC, 0xF8, 4), (0xFE, 0xFC, 5),
+-                                 (0xFF, 0xFE, 6)):
+-                if (c & mask) == val:
+-                    extra = k
+-                    break
+-            if extra is None:
+-                rejected.append((accepted[0], 'bad utf8 lead'))
+-                tries += 1
+-                continue
+-            for _ in range(extra):
+-                hbyte()
+-
+-            bsi = len(h)
+-            if bs_code == 6:
+-                hbyte()
+-            elif bs_code == 7:
+-                hbyte(); hbyte()
+-            if sr_code == 12:
+-                hbyte()
+-            elif sr_code in (13, 14):
+-                hbyte(); hbyte()
+-
+-            stored = b.bits(8)
+-            if crc8(bytes(h)) != stored:
+-                rejected.append((accepted[0], 'crc'))
+-                tries += 1
+-                if tries > (1 << 20):
+-                    raise ValueError("lost sync")
+-                continue
+-
+-            if bs_code == 6:
+-                blocksize = h[bsi] + 1
+-            elif bs_code == 7:
+-                blocksize = ((h[bsi] << 8) | h[bsi + 1]) + 1
+-            else:
+-                blocksize = BLK_TAB[bs_code]
+-            if not blocksize or blocksize > cap:
+-                rejected.append((accepted[0], 'blocksize %d' % blocksize))
+-                tries += 1
+-                continue
+-
+-            accepted[0] += 1
+-            return blocksize, chmode, tries
+-
+-        b.n -= 8                       # whole byte, not one bit
+-        b.acc &= (1 << b.n) - 1
+-        tries += 1
+-        if tries > (1 << 20):
+-            raise ValueError("lost sync")
+-
+-
+-if __name__ == '__main__':
+-    paths = sys.argv[1:]
+-    if not paths:
+-        print("usage: flac_hdrcrc_check.py <file.flac> ...")
+-        sys.exit(2)
+-
+-    flac_verify.frame_header = frame_header
+-    bad = 0
+-    for path in paths:
+-        del rejected[:]
+-        accepted[0] = 0
+-        print(os.path.basename(path), flush=True)
+-        try:
+-            si, frames, samples, digest, scans = verify(path, progress_every=0)
+-        except Exception as e:
+-            print("  ERROR %s: %s" % (type(e).__name__, e))
+-            bad += 1
+-            continue
+-        ok = (samples == si['total']) and scans == 0 and not rejected
+-        print("  %d frames accepted, %d/%d samples, %d rejected"
+-              % (accepted[0], samples, si['total'], len(rejected)))
+-        if rejected:
+-            print("  first rejections: %s" % rejected[:5])
+-        print("  ==> %s" % ("every real frame accepted" if ok else "FAILED"))
+-        bad += 0 if ok else 1
+-    sys.exit(1 if bad else 0)
+diff --git a/legacy-harpmudd/tools/flac_lpc_capture.py b/legacy-harpmudd/tools/flac_lpc_capture.py
+deleted file mode 100644
+index 769fff9e..00000000
+--- a/legacy-harpmudd/tools/flac_lpc_capture.py
++++ /dev/null
+@@ -1,175 +0,0 @@
+-#!/usr/bin/env python3
+-"""Real-file follow-up to sim/test_flac_lpc_symmetry.py (docs/research/FLAC_LPC_KERNEL_DESIGN.md section 4,
+-B-365): the synthetic legal-range check already proved a 45-bit accumulator is sufficient for ANY legal
+-FLAC input. This captures the (order, shift, coef, history-window) tuples FLAC subframes from REAL files
+-actually use -- both channel 0's and channel 1's, since tools/flac_verify.py's subframe() is called once
+-per channel with no code difference between them (fw/flac.c's own channel-1 fusion, subframe_stream(), is
+-a buffer-sharing OPTIMIZATION of the identical math, not a different algorithm) -- and replays them
+-through the same hardware_predict() model used there, as a second, real-world confirmation on top of the
+-already-closed legal-range question. Reuses tools/flac_verify.py's own bit-exact parser (proven correct via
+-whole-file MD5 checks) rather than re-implementing FLAC parsing.
+-
+-  flac_lpc_capture.py FILE.flac [FILE2.flac ...]
+-"""
+-import sys
+-import os
+-import random
+-
+-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sim"))
+-import flac_verify as fv           # noqa: E402
+-from test_flac_lpc_symmetry import software_predict, hardware_predict  # noqa: E402
+-
+-FIXED = fv.FIXED
+-
+-
+-def capture_subframe(b, n, out, bps, tuples):
+-    """A copy of flac_verify.subframe(), instrumented to record every real-LPC prediction step's
+-    (order, shift, coef, window, residual-adjusted-output) into `tuples`. FIXED predictors are not
+-    captured here -- their coefficients are tiny fixed integers (docs/research/FLAC_LPC_KERNEL_DESIGN.md's
+-    own FIXED_COEF table), already covered exhaustively by the synthetic check; real-LPC's coefficients
+-    are what actually vary with real content and are the point of this capture."""
+-    b.bits(1)
+-    typ = b.bits(6)
+-    wasted = b.unary() + 1 if b.bits(1) else 0
+-    bps -= wasted
+-
+-    if typ == 0:
+-        v = b.sbits(bps)
+-        for i in range(n):
+-            out[i] = v
+-    elif typ == 1:
+-        for i in range(n):
+-            out[i] = b.sbits(bps)
+-    elif 8 <= typ <= 12:
+-        order = typ - 8
+-        for i in range(order):
+-            out[i] = b.sbits(bps)
+-        fv.residual(b, n, order, out, order)
+-        if order == 1:
+-            for i in range(1, n): out[i] += out[i - 1]
+-        elif order == 2:
+-            for i in range(2, n): out[i] += 2 * out[i - 1] - out[i - 2]
+-        elif order == 3:
+-            for i in range(3, n):
+-                out[i] += 3 * out[i - 1] - 3 * out[i - 2] + out[i - 3]
+-        elif order == 4:
+-            for i in range(4, n):
+-                out[i] += (4 * out[i - 1] - 6 * out[i - 2]
+-                           + 4 * out[i - 3] - out[i - 4])
+-    elif typ >= 32:
+-        order = typ - 31
+-        for i in range(order):
+-            out[i] = b.sbits(bps)
+-        prec = b.bits(4) + 1
+-        shift = b.sbits(5)
+-        if prec == 16 or shift < 0:
+-            raise ValueError("LPC prec/shift")
+-        coef = [b.sbits(prec) for _ in range(order)]
+-        fv.residual(b, n, order, out, order)
+-        rc = list(reversed(coef))
+-        for i in range(order, n):
+-            acc = 0
+-            w = out[i - order:i]
+-            for cj, sj in zip(rc, w):
+-                acc += cj * sj
+-            tuples.append((order, shift, tuple(rc), tuple(w)))
+-            out[i] += acc >> shift
+-    else:
+-        raise ValueError("subframe type %d" % typ)
+-
+-    if wasted:
+-        for i in range(n):
+-            out[i] <<= wasted
+-
+-
+-def scan_file(path, tuples, max_frames=None):
+-    """Decodes a real file with fv's own parser, routing every subframe (both channels) through
+-    capture_subframe() instead of fv.subframe() -- same frame loop as fv.verify(), minus the MD5/PCM
+-    bookkeeping this tool doesn't need. max_frames bounds a quick run (a few hundred frames already
+-    exercises real coefficient/order/shift distributions; pure-Python parsing of a whole track is slow,
+-    same reason tools/flac_verify.py exists as an optimized alternative to tools/flac_ref.py)."""
+-    b = fv.Bits(open(path, 'rb').read())
+-    si = fv.open_stream(b)
+-    cap = si['maxb']
+-    ch0, ch1 = [0] * cap, [0] * cap
+-    nch, bps = si['ch'], si['bps']
+-    frames = 0
+-    while max_frames is None or frames < max_frames:
+-        try:
+-            n, m, tries = fv.frame_header(b, cap)
+-        except (EOFError, ValueError):
+-            break
+-        try:
+-            capture_subframe(b, n, ch0, bps + (1 if m == 9 else 0), tuples)
+-            if nch != 1:
+-                capture_subframe(b, n, ch1, bps + (1 if m in (8, 10) else 0), tuples)
+-            b.align(); b.bits(16)
+-        except (EOFError, ValueError):
+-            break
+-        frames += 1
+-    return si, frames
+-
+-
+-def main():
+-    if len(sys.argv) < 2:
+-        print(__doc__)
+-        return 2
+-    max_frames = 300
+-    args = sys.argv[1:]
+-    if args and args[0] == "--full":
+-        max_frames = None
+-        args = args[1:]
+-    all_tuples = []
+-    for path in args:
+-        print(f"{os.path.basename(path)}: scanning" + (f" (first {max_frames} frames)" if max_frames else " (full)"), flush=True)
+-        tuples = []
+-        try:
+-            si, frames = scan_file(path, tuples, max_frames=max_frames)
+-        except Exception as e:                                   # noqa: BLE001 - report and keep going
+-            print(f"{os.path.basename(path)}: SKIP ({e})")
+-            continue
+-        print(f"{os.path.basename(path)}: {si['bps']}-bit {si['rate']}Hz {si['ch']}ch, "
+-              f"{frames} frames, {len(tuples)} real-LPC subframes captured", flush=True)
+-        all_tuples += tuples
+-
+-    if not all_tuples:
+-        print("no real-LPC subframes captured across any file -- nothing to check")
+-        return 1
+-
+-    orders = [t[0] for t in all_tuples]
+-    max_coef = max(abs(c) for t in all_tuples for c in t[2])
+-    max_samp = max(abs(s) for t in all_tuples for s in t[3])
+-    print(f"\ncaptured {len(all_tuples)} real-LPC prediction steps across {len(args)} file(s)")
+-    print(f"real-world ranges: order {min(orders)}..{max(orders)}, "
+-          f"max |coef| {max_coef} (legal bound 16384), max |sample| {max_samp} (legal bound 16777216)")
+-
+-    # A random subsample is enough for a real-world CONFIRMATION (not an exhaustiveness claim -- that's
+-    # already covered by sim/test_flac_lpc_symmetry.py's exact legal-range proof): comparing all of a
+-    # multi-million-tuple capture in pure Python is needlessly slow for what this step is actually for.
+-    SAMPLE_N = 100000
+-    sample = all_tuples if len(all_tuples) <= SAMPLE_N else random.Random(20260928).sample(all_tuples, SAMPLE_N)
+-    print(f"checking a random sample of {len(sample)} real steps against the hardware model...")
+-
+-    for acc_bits in (45, 48, 64):
+-        mismatches = overflows = 0
+-        for order, shift, coef, hist in sample:
+-            sw_acc, sw_out = software_predict(coef, hist, shift)
+-            hw = hardware_predict(coef, hist, shift, acc_bits)
+-            if hw is None:
+-                overflows += 1
+-                continue
+-            if hw != (sw_acc, sw_out):
+-                mismatches += 1
+-        status = "ok" if mismatches == 0 and overflows == 0 else "FAIL"
+-        print(f"{status}   {acc_bits}-bit accumulator vs {len(all_tuples)} real captured steps: "
+-              f"{mismatches} mismatches, {overflows} overflows")
+-        if mismatches or overflows:
+-            return 1
+-    print("\nreal-file confirmation OK -- matches the synthetic legal-range result "
+-          "(sim/test_flac_lpc_symmetry.py): 45-bit accumulator is sufficient")
+-    return 0
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(main())
+diff --git a/legacy-harpmudd/tools/flac_probe.py b/legacy-harpmudd/tools/flac_probe.py
+deleted file mode 100644
+index 5a3123bf..00000000
+--- a/legacy-harpmudd/tools/flac_probe.py
++++ /dev/null
+@@ -1,75 +0,0 @@
+-#!/usr/bin/env python3
+-"""Report what a FLAC file actually is, and whether this core could play it.
+-
+-Everything here comes from STREAMINFO, which is the first metadata block and
+-34 bytes long -- so the core can make the same judgement before decoding a
+-single sample, and say why rather than stuttering.
+-
+-The CPU estimate is an ESTIMATE. FLAC decode cost has not been benchmarked on
+-this hardware; 0.65x MP3 per sample is a literature figure for a decoder with
+-no MDCT and no polyphase filterbank.
+-"""
+-import sys, os, glob
+-
+-MP3_44_MHZ, BUDGET_MHZ, FLAC_RATIO = 45.7, 60.0, 0.65
+-IO_KBPS = 736  # measured on hardware 2026-08-14
+-
+-BLOCK = {0: 'STREAMINFO', 1: 'PADDING', 2: 'APPLICATION', 3: 'SEEKTABLE',
+-         4: 'VORBIS_COMMENT', 5: 'CUESHEET', 6: 'PICTURE'}
+-
+-
+-def probe(path):
+-    with open(path, 'rb') as f:
+-        head = f.read(1 << 16)
+-    if head[:4] != b'fLaC':
+-        return None
+-    info, blocks, off = {}, [], 4
+-    while off + 4 <= len(head):
+-        h = head[off]
+-        last, btype = h >> 7, h & 0x7F
+-        ln = int.from_bytes(head[off + 1:off + 4], 'big')
+-        blocks.append((BLOCK.get(btype, str(btype)), ln))
+-        if btype == 0 and off + 4 + ln <= len(head):
+-            s = head[off + 4:off + 4 + ln]
+-            v, n = int.from_bytes(s, 'big'), len(s) * 8
+-            info = dict(minblk=(v >> (n - 16)) & 0xFFFF,
+-                        maxblk=(v >> (n - 32)) & 0xFFFF,
+-                        rate=(v >> (n - 100)) & 0xFFFFF,
+-                        ch=((v >> (n - 103)) & 0x7) + 1,
+-                        bps=((v >> (n - 108)) & 0x1F) + 1,
+-                        total=(v >> (n - 144)) & 0xFFFFFFFFF)
+-        if last:
+-            break
+-        off += 4 + ln
+-    info['blocks'] = blocks
+-    info['bytes'] = os.path.getsize(path)
+-    return info
+-
+-
+-def verdict(i):
+-    mhz = MP3_44_MHZ * FLAC_RATIO * (i['rate'] / 44100.0)
+-    if i['ch'] > 2:
+-        return 'REJECT', f"{i['ch']} channels", mhz
+-    if mhz < BUDGET_MHZ * 0.8:
+-        return 'PLAYS', 'comfortable', mhz
+-    if mhz < BUDGET_MHZ:
+-        return 'MARGINAL', 'no CPU headroom', mhz
+-    return 'REJECT', 'over CPU budget', mhz
+-
+-
+-for path in sorted(sys.argv[1:] or glob.glob('*.flac')):
+-    i = probe(path)
+-    name = os.path.basename(path)
+-    if not i:
+-        print(f"{name}\n  not a FLAC file\n")
+-        continue
+-    secs = i['total'] / i['rate'] if i['rate'] else 0
+-    kbps = i['bytes'] * 8 / secs / 1000 if secs else 0
+-    v, why, mhz = verdict(i)
+-    print(f"{name}")
+-    print(f"  {i['bps']}-bit / {i['rate']} Hz / {i['ch']}ch   blocksize "
+-          f"{i['minblk']}..{i['maxblk']}")
+-    print(f"  {secs/60:.1f} min   {i['bytes']/1e6:.0f} MB   {kbps:.0f} kbps "
+-          f"= {kbps/8:.0f} KB/s  ({IO_KBPS/(kbps/8):.1f}x IO margin)")
+-    print(f"  blocks: {', '.join(f'{n}' for n, _ in i['blocks'])}")
+-    print(f"  -> {v}: {why}  (~{mhz:.0f} MHz of {BUDGET_MHZ:.0f})\n")
+diff --git a/legacy-harpmudd/tools/flac_resync_check.py b/legacy-harpmudd/tools/flac_resync_check.py
+deleted file mode 100644
+index 2c36d308..00000000
+--- a/legacy-harpmudd/tools/flac_resync_check.py
++++ /dev/null
+@@ -1,90 +0,0 @@
+-"""Replays the post-seek resync rule over real files.
+-
+-Two things must both hold, and they pull in opposite directions:
+-  - a FALSE sync must never be believed (that is what broke seek), and
+-  - a real correction must never be rejected (or the fix does nothing).
+-
+-So this drives the rule from both ends: from the true frame at each seek
+-target, and from each false sync the scan actually contains.
+-"""
+-import sys, os, importlib.util
+-spec = importlib.util.spec_from_file_location('fp', 'flac_framepos_check.py')
+-fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+-
+-WINDOW, TRIES = 30, 12
+-
+-def resync(seq, start_i, tgt, blk, rate, is_samp):
+-    """The C rule: hold a candidate, require the next frame to be consecutive
+-    AND the position to land within WINDOW of the seek target."""
+-    prev, tries, i = seq[start_i][1], 0, start_i + 1
+-    while i < len(seq) and tries < TRIES:
+-        num = seq[i][1]
+-        ok = (num > prev and num - prev <= blk) if is_samp else (num == prev + 1)
+-        pos = (num if is_samp else num * blk) / rate
+-        if ok and abs(pos - tgt) <= WINDOW:
+-            return pos, tries
+-        tries += 1
+-        prev = num
+-        i += 1
+-    return None, tries
+-
+-for path in sys.argv[1:]:
+-    d = open(path, 'rb').read()
+-    si, first = fp.streaminfo(d)
+-    p, seek = 4, None
+-    while True:
+-        last, typ = d[p] >> 7, d[p] & 0x7F
+-        ln = int.from_bytes(d[p+1:p+4], 'big')
+-        if typ == 3: seek = d[p+4:p+4+ln]
+-        p += 4 + ln
+-        if last: break
+-    audio0, rate, blk = p, si['rate'], si['maxblk']
+-
+-    raw = list(fp.frames(d, audio0))
+-    strategy = raw[0][2]
+-    tbl, false_syncs, run, idx = [], [], 0, 0
+-    for off, num, is_samp, b in raw:
+-        want = run if strategy else idx
+-        if is_samp != strategy or num != want:
+-            false_syncs.append((off, num)); continue
+-        tbl.append((off, num, is_samp, b)); run += b; idx += 1
+-
+-    dur = si['total'] / rate
+-    print("%s\n  %d real frames, %d false syncs, %s"
+-          % (os.path.basename(path), len(tbl), len(false_syncs),
+-             "seektable" if seek else "no seektable"))
+-
+-    # 1. real corrections must be ACCEPTED
+-    acc = rej = 0
+-    worst = 0.0
+-    for pct in range(5, 100, 5):
+-        tgt = dur * pct / 100.0
+-        # where the scan starts: first real frame at/after the interpolated byte
+-        want_b = audio0 + int((len(d) - audio0) * pct / 100.0)
+-        si_i = next((k for k, t in enumerate(tbl) if t[0] >= want_b), len(tbl) - 2)
+-        pos, tries = resync(tbl, si_i, tgt, blk, rate, strategy)
+-        if pos is None: rej += 1
+-        else:
+-            acc += 1
+-            true = (tbl[si_i+1][1] if strategy else tbl[si_i+1][1] * blk) / rate
+-            worst = max(worst, abs(pos - true))
+-    print("  real corrections: %d accepted, %d rejected (worst error vs truth %.2fs)"
+-          % (acc, rej, worst))
+-
+-    # 2. false syncs must be REJECTED as the starting candidate
+-    caught = believed = 0
+-    for off, num in false_syncs:
+-        pos_f = (num if strategy else num * blk) / rate
+-        # the true time at that byte, for the seek target
+-        k = next((i for i, t in enumerate(tbl) if t[0] >= off), len(tbl) - 2)
+-        tgt = (tbl[k][1] if strategy else tbl[k][1] * blk) / rate
+-        # candidate = the false sync; next real frame will not be consecutive
+-        fake = [(off, num, strategy, blk)] + tbl[k:]
+-        pos, tries = resync(fake, 0, tgt, blk, rate, strategy)
+-        if pos is not None and abs(pos - pos_f) < 0.01:
+-            believed += 1
+-        else:
+-            caught += 1
+-    print("  false syncs as candidate: %d rejected, %d believed  ==> %s\n"
+-          % (caught, believed,
+-             "OK" if believed == 0 and rej == 0 else "FAILED"))
+diff --git a/legacy-harpmudd/tools/font_preview.py b/legacy-harpmudd/tools/font_preview.py
+deleted file mode 100644
+index 2b5631f9..00000000
+--- a/legacy-harpmudd/tools/font_preview.py
++++ /dev/null
+@@ -1,222 +0,0 @@
+-#!/usr/bin/env python3
+-"""Render text through a BIT-EXACT model of the CHAR compose path, so font and
+-blend changes can be judged on screen instead of on hardware.
+-
+-Every stage the real pixel passes through is reproduced here in the same order
+-and at the same precision: glyph raster -> 4bpp coverage quantisation ->
+-coverage-to-weight -> the 16-step interpolation -> the >>4 -> the RGB565 pack.
+-What comes out is what the framebuffer would hold. The only liberty taken is the
+-final magnification for viewing, and even that is honest: the Pocket scales
+-400x360 to its 1600x1440 panel by an exact factor of 4, so 4x nearest-neighbour
+-is what the panel genuinely does to these pixels.
+-
+-The point is to spend zero hardware cycles on a question that is entirely
+-decidable at the desk. Two of the three variables here (which quantiser, which
+-weight table) are not matters of taste at all -- they have right answers, and
+-the render only has to confirm the arithmetic landed where the model said it
+-would. The third (type size and weight) IS taste, and taste needs eyes.
+-
+-    python tools/font_preview.py                  # writes docs/font_preview.png
+-    python tools/font_preview.py --out other.png
+-"""
+-import argparse
+-from pathlib import Path
+-
+-from PIL import Image, ImageDraw, ImageFont
+-
+-ROOT = Path(__file__).resolve().parent.parent
+-TTF = ROOT / "third_party" / "font" / "Inter-SemiBold.ttf"
+-
+-CELL_W, CELL_H = 16, 16
+-BASELINE = 12
+-
+-# The palette, straight from fw/player.c.
+-UI_WHITE, UI_DIM = 0xFFFF, 0x94B2
+-GRAD_TOP, GRAD_BOT = 0x2124, 0x0000
+-ACCENT = 0x7E55          # seafoam -- a mid-brightness accent, the honest case
+-
+-# The fitted table now in mp3_fb.sv (tools/gen_text_gamma.py).
+-COV_WEIGHT = [0, 4, 6, 7, 8, 10, 10, 11, 12, 13, 13, 14, 15, 15, 16, 16]
+-# What the hardware did before: coverage used directly as the weight.
+-COV_LINEAR = [c + (1 if c == 15 else 0) for c in range(16)]
+-
+-
+-def mix565(a, b, t, n):
+-    ar, ag, ab = a >> 11, (a >> 5) & 0x3F, a & 0x1F
+-    br, bg, bb = b >> 11, (b >> 5) & 0x3F, b & 0x1F
+-    return (((ar + (br - ar) * t // n) << 11)
+-            | ((ag + (bg - ag) * t // n) << 5)
+-            | (ab + (bb - ab) * t // n))
+-
+-
+-def rgb888(c):
+-    r, g, b = c >> 11, (c >> 5) & 0x3F, c & 0x1F
+-    # Replicate high bits into the low ones, as any 565 panel does.
+-    return ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2))
+-
+-
+-def blend(fg, bg, w):
+-    """The RTL's own arithmetic, widths and truncation included."""
+-    fr, fgc, fb = fg >> 11, (fg >> 5) & 0x3F, fg & 0x1F
+-    br, bgc, bb = bg >> 11, (bg >> 5) & 0x3F, bg & 0x1F
+-    r = min(((fr * w + br * (16 - w)) >> 4), 31)
+-    g = min(((fgc * w + bgc * (16 - w)) >> 4), 63)
+-    b = min(((fb * w + bb * (16 - w)) >> 4), 31)
+-    return (r << 11) | (g << 5) | b
+-
+-
+-def load_font(size, weight, opsz):
+-    f = ImageFont.truetype(str(TTF), size)
+-    try:
+-        f.set_variation_by_axes([opsz, weight])
+-    except Exception:
+-        pass
+-    return f
+-
+-
+-def glyph_cov(font, ch, quant):
+-    """Raster one glyph and quantise exactly as gen_font_rom.py does."""
+-    img = Image.new("L", (CELL_W, CELL_H), 0)
+-    ImageDraw.Draw(img).text((0, BASELINE), ch, font=font, fill=255, anchor="ls")
+-    px = img.load()
+-    cov = [[0] * CELL_W for _ in range(CELL_H)]
+-    for y in range(CELL_H):
+-        for x in range(CELL_W):
+-            v = px[x, y]
+-            cov[y][x] = (v >> 4) if quant == "trunc" else (v * 15 + 127) // 255
+-    ink = 0
+-    for x in range(CELL_W):
+-        if any(px[x, y] > 8 for y in range(CELL_H)):
+-            ink = x + 1
+-    adv = ink + 2 if ink else max(3, int(font.getlength(ch)))
+-    return cov, min(adv, CELL_W)
+-
+-
+-def draw_text(dst, x0, y0, text, fgc, font, quant, table, scale, bg_of_row):
+-    """Paint a string the way the engine does: whole cell, fg over bg, with the
+-    engine's Bresenham replication for scales above 1x."""
+-    pen = x0
+-    for ch in text:
+-        if not (0x20 <= ord(ch) <= 0x7E):
+-            ch = "?"
+-        cov, adv = glyph_cov(font, ch, quant)
+-        for oy in range(CELL_H * scale):
+-            sy = oy // scale
+-            for ox in range(adv * scale):
+-                sx = ox // scale
+-                px, py = pen + ox, y0 + oy
+-                if not (0 <= px < dst.width and 0 <= py < dst.height):
+-                    continue
+-                w = table[cov[sy][sx]]
+-                dst.putpixel((px, py), rgb888(blend(fgc, bg_of_row(py), w)))
+-        pen += adv * scale
+-
+-
+-def panel(title, quant, table, size, weight, opsz, w=360, h=132):
+-    img = Image.new("RGB", (w, h))
+-    # The real vertical ramp, in 40 bands, as ui_gradient() draws it.
+-    def bg_of_row(y):
+-        return mix565(GRAD_TOP, GRAD_BOT, min(y * 40 // h, 40), 40)
+-    for y in range(h):
+-        c = rgb888(bg_of_row(y))
+-        for x in range(w):
+-            img.putpixel((x, y), c)
+-
+-    f = load_font(size, weight, opsz)
+-    # A title at 2x and body lines at 1x -- the two cases that actually appear.
+-    draw_text(img, 8, 6, "Stockholm Syndrome", UI_WHITE, f, quant, table, 2, bg_of_row)
+-    draw_text(img, 8, 44, "Muse - Absolution", UI_DIM, f, quant, table, 1, bg_of_row)
+-    draw_text(img, 8, 64, "MP3 320kbps 44.1kHz JOINT", UI_WHITE, f, quant, table, 1, bg_of_row)
+-    draw_text(img, 8, 84, "SHUFFLE  REPEAT ALL  EQ: ROCK", ACCENT, f, quant, table, 1, bg_of_row)
+-    draw_text(img, 8, 104, "12 of 47   -2:41   VOL 65%", UI_DIM, f, quant, table, 1, bg_of_row)
+-    return img
+-
+-
+-VARIANTS = [
+-    # label,                          quant,   table,       size, wght, opsz
+-    ("A  BEFORE  (shipped today)",    "trunc", COV_LINEAR,  15,   600,  14),
+-    ("B  + gamma weights",            "trunc", COV_WEIGHT,  15,   600,  14),
+-    ("C  + rounded coverage  <- now", "round", COV_WEIGHT,  15,   600,  14),
+-    ("D  C, Medium 500",              "round", COV_WEIGHT,  15,   500,  14),
+-    ("E  C, Bold 700",                "round", COV_WEIGHT,  15,   700,  14),
+-    ("F  C, 16px SemiBold",           "round", COV_WEIGHT,  16,   600,  14),
+-]
+-
+-
+-def body_panel(quant, table, size, weight, opsz, w=300, h=26):
+-    """Just one 1x info line -- the case the complaint was actually about, big
+-    enough to see individual pixels decide the shape of a stem."""
+-    img = Image.new("RGB", (w, h))
+-
+-    def bg_of_row(y):
+-        return mix565(GRAD_TOP, GRAD_BOT, 22, 40)
+-    c = rgb888(bg_of_row(0))
+-    for y in range(h):
+-        for x in range(w):
+-            img.putpixel((x, y), c)
+-    f = load_font(size, weight, opsz)
+-    draw_text(img, 4, 4, "MP3 320kbps 44.1kHz JOINT", UI_WHITE, f,
+-              quant, table, 1, bg_of_row)
+-    return img
+-
+-
+-def focus_sheet(out, zoom=7):
+-    rows = []
+-    for lab, q, t, sz, wt, op in VARIANTS:
+-        rows.append((lab, body_panel(q, t, sz, wt, op)))
+-    pw, ph = rows[0][1].size
+-    label_h, pad = 20, 6
+-    W = pw * zoom + 2 * pad
+-    H = len(rows) * (ph * zoom + label_h) + pad
+-    sheet = Image.new("RGB", (W, H), (24, 24, 28))
+-    d = ImageDraw.Draw(sheet)
+-    ui = ImageFont.load_default()
+-    for i, (lab, img) in enumerate(rows):
+-        y = pad + i * (ph * zoom + label_h)
+-        d.text((pad, y), lab, fill=(235, 235, 240), font=ui)
+-        sheet.paste(img.resize((pw * zoom, ph * zoom), Image.NEAREST),
+-                    (pad, y + label_h))
+-    sheet.save(out)
+-    print("wrote %s  (%dx%d, %dx zoom)" % (out, W, H, zoom))
+-
+-
+-def main():
+-    ap = argparse.ArgumentParser()
+-    ap.add_argument("--out", default=str(ROOT / "docs" / "font_preview.png"))
+-    ap.add_argument("--zoom", type=int, default=3)
+-    ap.add_argument("--focus", action="store_true",
+-                    help="one 1x line per variant, heavily zoomed")
+-    args = ap.parse_args()
+-
+-    if args.focus:
+-        focus_sheet(str(Path(args.out).with_name("font_preview_body.png")))
+-        return
+-
+-    label_h, pad = 22, 10
+-    tiles = []
+-    for lab, q, t, sz, wt, op in VARIANTS:
+-        tiles.append((lab, panel(lab, q, t, sz, wt, op)))
+-
+-    pw, ph = tiles[0][1].size
+-    cols, rows = 2, (len(tiles) + 1) // 2
+-    W = cols * (pw * args.zoom + pad) + pad
+-    H = rows * (ph * args.zoom + label_h + pad) + pad
+-    sheet = Image.new("RGB", (W, H), (24, 24, 28))
+-    d = ImageDraw.Draw(sheet)
+-    ui = ImageFont.load_default()
+-
+-    for i, (lab, img) in enumerate(tiles):
+-        cx, cy = i % cols, i // cols
+-        x = pad + cx * (pw * args.zoom + pad)
+-        y = pad + cy * (ph * args.zoom + label_h + pad)
+-        d.text((x, y + 5), lab, fill=(235, 235, 240), font=ui)
+-        sheet.paste(img.resize((pw * args.zoom, ph * args.zoom), Image.NEAREST),
+-                    (x, y + label_h))
+-
+-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+-    sheet.save(args.out)
+-    print("wrote %s  (%dx%d, %dx zoom)" % (args.out, W, H, args.zoom))
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/legacy-harpmudd/tools/gradient_preview.py b/legacy-harpmudd/tools/gradient_preview.py
+deleted file mode 100644
+index 56134269..00000000
+--- a/legacy-harpmudd/tools/gradient_preview.py
++++ /dev/null
+@@ -1,177 +0,0 @@
+-#!/usr/bin/env python3
+-"""Compare background gradient treatments at the framebuffer's real precision.
+-
+-The current ramp draws 40 bands between 0x2124 and black, and those 40 bands
+-collapse to THIRTEEN distinct RGB565 colours -- each holding for ~28 framebuffer
+-rows, which the Pocket's 4x integer scale turns into ~111 panel rows. That is the
+-banding. Drawing more bands changes nothing, because the colour space has no
+-values in between: at this brightness green has 10 levels and red/blue have 5.
+-
+-The fix for a ramp with too few levels is DITHER, and the same trick is what
+-makes an accent tint expressible at all. At luma ~35 a tinted top and a neutral
+-top quantise to nearly the same RGB565 triple, so without dither the tint is
+-invisible; with it, alternating rows between adjacent levels lands the eye on
+-intermediate colours that RGB565 cannot name.
+-
+-Dither is VERTICAL ONLY here, deliberately. The engine draws a rect per command,
+-so one colour per row is 360 commands -- affordable for a background drawn on
+-repaints rather than per frame. Varying the pattern along x as well would mean
+-runs within a row, tens of thousands of commands, which this core cannot spend.
+-
+-    python tools/gradient_preview.py
+-"""
+-from pathlib import Path
+-
+-from PIL import Image, ImageDraw, ImageFont
+-
+-ROOT = Path(__file__).resolve().parent.parent
+-H, BANDS = 360, 40
+-GRAD_TOP, GRAD_BOT = 0x2124, 0x0000
+-
+-PALETTE = [
+-    ("amber",   0xFC65), ("lime",    0xBF08), ("mint",    0xAF13),
+-    ("seafoam", 0x7E55), ("sky",     0x5D5C), ("indigo",  0x7C5A),
+-    ("lilac",   0xAC5E), ("blush",   0xF534), ("coral",   0xF32D),
+-    ("crimson", 0xB9E9), ("gold",    0xEE07), ("cream",   0xEF1A),
+-]
+-
+-# Ordered dither thresholds over 4 rows. A void-and-cluster pattern would be
+-# marginally better but 4 entries is enough for a one-level step and keeps the
+-# firmware side to a 4-entry table.
+-BAYER = (0.125, 0.625, 0.375, 0.875)
+-
+-
+-def ch(c):
+-    return (c >> 11, (c >> 5) & 0x3F, c & 0x1F)
+-
+-
+-def pack(r, g, b):
+-    return (min(max(r, 0), 31) << 11) | (min(max(g, 0), 63) << 5) | min(max(b, 0), 31)
+-
+-
+-def rgb888(c):
+-    r, g, b = ch(c)
+-    return ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2))
+-
+-
+-def luma(c):
+-    r, g, b = rgb888(c)
+-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+-
+-
+-def tinted_top(accent, target_luma, mix_to_grey=0.0):
+-    """The accent, scaled to the SAME luma the neutral ramp already uses, so the
+-    text contrast that was tuned against this background does not move. Optional
+-    pull toward grey for a subtler tint."""
+-    r, g, b = rgb888(accent)
+-    l = 0.2126 * r + 0.7152 * g + 0.0722 * b
+-    if l <= 0:
+-        return GRAD_TOP
+-    k = target_luma / l
+-    r, g, b = r * k, g * k, b * k
+-    if mix_to_grey > 0.0:
+-        r = r + (target_luma - r) * mix_to_grey
+-        g = g + (target_luma - g) * mix_to_grey
+-        b = b + (target_luma - b) * mix_to_grey
+-    return pack(int(round(r / 255 * 31)), int(round(g / 255 * 63)),
+-                int(round(b / 255 * 31)))
+-
+-
+-def rows_banded(top, bot, bands=BANDS):
+-    """What ui_gradient() does today."""
+-    tr, tg, tb = ch(top)
+-    br, bg, bb = ch(bot)
+-    out = []
+-    for y in range(H):
+-        i = min(y * bands // H, bands - 1)
+-        out.append(pack(tr + (br - tr) * i // bands,
+-                        tg + (bg - tg) * i // bands,
+-                        tb + (bb - tb) * i // bands))
+-    return out
+-
+-
+-def rows_dithered(top, bot):
+-    """One colour per row, each channel dithered between adjacent levels."""
+-    tr, tg, tb = ch(top)
+-    br, bg, bb = ch(bot)
+-    out = []
+-    for y in range(H):
+-        t = y / (H - 1)
+-        thr = BAYER[y & 3]
+-        px = []
+-        for a, b_ in ((tr, br), (tg, bg), (tb, bb)):
+-            ideal = a + (b_ - a) * t
+-            base = int(ideal)
+-            px.append(base + (1 if (ideal - base) > thr else 0))
+-        out.append(pack(*px))
+-    return out
+-
+-
+-def strip(rows, w):
+-    im = Image.new("RGB", (w, len(rows)))
+-    px = im.load()
+-    for y, c in enumerate(rows):
+-        col = rgb888(c)
+-        for x in range(w):
+-            px[x, y] = col
+-    return im
+-
+-
+-def main():
+-    tl = luma(GRAD_TOP)
+-    print("current top 0x%04X  luma %.1f" % (GRAD_TOP, tl))
+-    print("distinct colours -- banded: %d   dithered: %d\n"
+-          % (len(set(rows_banded(GRAD_TOP, GRAD_BOT))),
+-             len(set(rows_dithered(GRAD_TOP, GRAD_BOT)))))
+-
+-    print("%-9s %-16s %-16s" % ("accent", "tint @ luma 35", "tint @ luma 55"))
+-    print("-" * 46)
+-    for name, c in PALETTE:
+-        a = tinted_top(c, tl)
+-        b = tinted_top(c, 55.0)
+-        print("%-9s 0x%04X r%d g%-2d b%-2d  0x%04X r%d g%-2d b%-2d %s"
+-              % (name, a, *ch(a), b, *ch(b),
+-                 "<- same as neutral" if a == GRAD_TOP else ""))
+-
+-    panels = [
+-        ("A  now: 40 bands", rows_banded(GRAD_TOP, GRAD_BOT)),
+-        ("B  360 bands, no dither", rows_banded(GRAD_TOP, GRAD_BOT, H)),
+-        ("C  dithered, neutral", rows_dithered(GRAD_TOP, GRAD_BOT)),
+-        ("D  dither+seafoam L35", rows_dithered(tinted_top(0x7E55, tl), GRAD_BOT)),
+-        ("E  seafoam L45 half-sat",
+-         rows_dithered(tinted_top(0x7E55, 45.0, 0.5), GRAD_BOT)),
+-        ("F  seafoam L55 full", rows_dithered(tinted_top(0x7E55, 55.0), GRAD_BOT)),
+-        ("G  coral L45 half-sat",
+-         rows_dithered(tinted_top(0xF32D, 45.0, 0.5), GRAD_BOT)),
+-        ("H  sky   L45 half-sat",
+-         rows_dithered(tinted_top(0x5D5C, 45.0, 0.5), GRAD_BOT)),
+-    ]
+-
+-    # Two sheets. The overview is 1:1 for shape; the detail is 4x VERTICAL,
+-    # which is what the Pocket's integer scale actually does to these rows --
+-    # and therefore what decides whether dither texture is acceptable. Judging
+-    # dither at 1:1 would flatter it dishonestly.
+-    for tag, zoom, y0, y1 in (("gradient_preview", 1, 0, H),
+-                              ("gradient_preview_4x", 4, 40, 130)):
+-        hh = (y1 - y0) * zoom
+-        w, pad, lab = 150, 10, 18
+-        sheet = Image.new("RGB", (len(panels) * (w + pad) + pad, hh + lab + 2 * pad),
+-                          (20, 20, 24))
+-        d = ImageDraw.Draw(sheet)
+-        ui = ImageFont.load_default()
+-        for i, (name, rows) in enumerate(panels):
+-            x = pad + i * (w + pad)
+-            d.text((x, pad), name, fill=(235, 235, 240), font=ui)
+-            s = strip(rows[y0:y1], w)
+-            if zoom != 1:
+-                s = s.resize((w, hh), Image.NEAREST)
+-            sheet.paste(s, (x, pad + lab))
+-        out = ROOT / "docs" / ("%s.png" % tag)
+-        sheet.save(out)
+-        print("wrote %s  (%s)" % (out, "1:1" if zoom == 1
+-                                  else "rows %d-%d at %dx vertical = panel scale"
+-                                       % (y0, y1, zoom)))
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/legacy-harpmudd/tools/idle_preview.py b/legacy-harpmudd/tools/idle_preview.py
+deleted file mode 100644
+index 6340a800..00000000
+--- a/legacy-harpmudd/tools/idle_preview.py
++++ /dev/null
+@@ -1,124 +0,0 @@
+-#!/usr/bin/env python3
+-"""Render the getting-started (idle) screen through the real pixel pipeline.
+-
+-This is the first thing a new user sees, and composition is the one thing that
+-cannot be argued about in the abstract -- so draw it rather than describe it.
+-
+-Reuses tools/splash_preview.py, which in turn reuses font_preview, so the type
+-is the real atlas at the real metrics with the real gamma-corrected blend over
+-ui_grad_at()'s dithered ramp. The lines and their y positions are PARSED OUT of
+-ui_idle_screen() in fw/player.c, so this cannot quietly disagree with the
+-build: change the firmware and the preview follows.
+-
+-    python tools/idle_preview.py            # both states
+-"""
+-import re
+-import sys
+-from pathlib import Path
+-
+-sys.path.insert(0, str(Path(__file__).resolve().parent))
+-
+-import splash_preview as SP          # noqa: E402  (path set above)
+-import font_preview as FP            # noqa: E402
+-
+-ROOT = Path(__file__).resolve().parent.parent
+-SRC = (ROOT / "fw" / "player.c").read_text(encoding="utf-8", errors="replace")
+-
+-FB_W, FB_H = 400, 360
+-MARGIN = SP.const("UI_MARGIN", 20)
+-INNER_W = FB_W - 2 * MARGIN
+-
+-COLOR = {"UI_WHITE": 0xFFFF, "UI_DIM": 0x94B2, "UI_RED": 0xF800,
+-         "ui_accent": SP.ACCENT}
+-
+-# ts_half from fw/player.c: size = 16 * half / 2. Kept in HALF units, not as a
+-# float, because that is what the engine's Bresenham actually indexes with.
+-HALF = {"TS_1X": 2, "TS_15X": 3, "TS_2X": 4, "TS_3X": 6}
+-
+-
+-def draw_frac(dst, x0, y0, text, fgc, font, half, bg_of_row):
+-    """fb_text at a fractional scale.
+-
+-    font_preview.draw_text only replicates by an integer (sy = oy // scale), so
+-    it cannot draw the 1.5x heading at all. The engine advances the source
+-    position by num/den per output pixel, which in half units is
+-    sy = oy * 2 // half -- reproduced here rather than patched into the shared
+-    tool, which the other previews depend on."""
+-    pen = x0
+-    for ch in text:
+-        if not (0x20 <= ord(ch) <= 0x7E):
+-            ch = "?"
+-        cov, adv = FP.glyph_cov(font, ch, "round")
+-        oh = FP.CELL_H * half // 2
+-        ow = adv * half // 2
+-        for oy in range(oh):
+-            sy = min(oy * 2 // half, FP.CELL_H - 1)
+-            for ox in range(ow):
+-                sx = min(ox * 2 // half, adv - 1)
+-                px, py = pen + ox, y0 + oy
+-                if not (0 <= px < dst.width and 0 <= py < dst.height):
+-                    continue
+-                w = FP.COV_WEIGHT[cov[sy][sx]]
+-                dst.putpixel((px, py),
+-                             FP.rgb888(FP.blend(fgc, bg_of_row(py), w)))
+-        pen += ow
+-
+-
+-def parse_lines():
+-    """Pull the ui_gs_line() calls straight out of the firmware."""
+-    body = SRC.split("static void ui_idle_screen(")[1].split("\n}")[0]
+-    out = []
+-    for y, s, fg, ts in re.findall(
+-            r'ui_gs_line\(\s*(\d+)u,\s*"((?:[^"\\]|\\.)*)"\s*,\s*'
+-            r'(\w+)\s*,\s*(\w+)\s*\)', body):
+-        out.append((int(y), s.replace('\\"', '"'), COLOR[fg], HALF[ts]))
+-    return out
+-
+-
+-def render(reason=None):
+-    im = SP.new_frame()
+-    f = FP.load_font(15, 600, 14)
+-
+-    # The card, title and version, exactly as the splash draws them.
+-    SP.round_rect(im, MARGIN - 4, SP.UI_TITLE_Y - 14, INNER_W + 8,
+-                  SP.const("UI_CARD_H", 120), 10, SP.UI_PANEL)
+-    draw_frac(im, MARGIN, SP.UI_TITLE_Y, "TAU", SP.ACCENT, f, 4,
+-              lambda y: SP.UI_PANEL)
+-    draw_frac(im, MARGIN, SP.V_Y, "v" + SP.VER, SP.UI_DIM, f, 2,
+-              lambda y: SP.UI_PANEL)
+-
+-    # The error line is drawn from a VARIABLE, not a literal, so parse_lines()
+-    # cannot see it -- it only matches quoted strings. Handled explicitly, and
+-    # its y is read out of the firmware so it still cannot drift. Getting this
+-    # wrong once already produced two "different" previews that were identical.
+-    if reason:
+-        m = re.search(r'if \(reason\) ui_gs_line\((\d+)u', SRC)
+-        draw_frac(im, MARGIN, int(m.group(1)), reason, COLOR["UI_RED"], f, 2,
+-                  SP.grad_at)
+-
+-    for y, s, fg, half in parse_lines():
+-        draw_frac(im, MARGIN, y, s, fg, f, half, SP.grad_at)
+-    return im
+-
+-
+-def main():
+-    widest = 0
+-    for y, s, _fg, half in parse_lines():
+-        w = SP.width(s, half / 2.0)
+-        widest = max(widest, w)
+-        flag = "" if w <= INNER_W else "   <-- OVERFLOWS"
+-        print("  y=%-4d %-42s %4d px%s" % (y, '"' + s + '"', w, flag))
+-    print("\n  widest %d px of %d available (%d spare)"
+-          % (widest, INNER_W, INNER_W - widest))
+-
+-    out = ROOT / "docs"
+-    for name, reason in (("idle_preview.png", None),
+-                         ("idle_preview_err.png",
+-                          "No playable tracks in playlist")):
+-        im = render(reason)
+-        im.resize((FB_W * 2, FB_H * 2), 0).save(out / name)
+-        print("  wrote docs/%s" % name)
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/legacy-harpmudd/tools/push_card.ps1 b/legacy-harpmudd/tools/push_card.ps1
+deleted file mode 100644
+index 970694d4..00000000
+--- a/legacy-harpmudd/tools/push_card.ps1
++++ /dev/null
+@@ -1,84 +0,0 @@
+-<#
+-Copy dist\ to the Pocket's SD card and verify it, or fail loudly.
+-
+-Written after the ad-hoc version reported "card matches dist" for a push where
+-the card had been removed mid-copy and NOTHING was written. Every file's
+-Join-Path threw, $dst came back null, Test-Path errored instead of returning
+-false, so the mismatch counter stayed at zero and the check passed itself.
+-
+-The rules that keeps it honest:
+-  - resolve the card ONCE and re-check it right before verifying, so a card
+-    that disappears is an error rather than a silent zero
+-  - count files COMPARED, not just mismatches; a run that compared nothing is
+-    a failure even with no mismatches
+-  - -ErrorAction Stop inside a try, so a vanished drive cannot be shrugged off
+-#>
+-[CmdletBinding()]
+-param([string]$Dist = "$PSScriptRoot\..\dist")
+-
+-$ErrorActionPreference = 'Stop'
+-$Dist = (Resolve-Path $Dist).Path
+-
+-$card = $null
+-foreach ($d in (Get-PSDrive -PSProvider FileSystem).Root) {
+-    if (Test-Path (Join-Path $d 'Assets\tau\common')) { $card = $d; break }
+-}
+-if (-not $card) { Write-Error 'card not mounted'; exit 1 }
+-Write-Host "card: $card"
+-
+-$files = @(Get-ChildItem $Dist -Recurse -File)
+-if ($files.Count -eq 0) { Write-Error "dist is empty: $Dist"; exit 1 }
+-
+-$copied = 0
+-foreach ($f in $files) {
+-    $rel = $f.FullName.Substring($Dist.Length + 1)
+-    $dst = Join-Path $card $rel
+-    $need = $true
+-    if (Test-Path $dst) {
+-        $need = (Get-FileHash $f.FullName -Algorithm SHA256).Hash -ne
+-                (Get-FileHash $dst        -Algorithm SHA256).Hash
+-    }
+-    if ($need) {
+-        New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+-        Copy-Item $f.FullName $dst -Force
+-        Write-Host ("  copied  {0}" -f $rel)
+-        $copied++
+-    }
+-}
+-
+-# Re-check the card is still there before trusting anything the verify says.
+-if (-not (Test-Path (Join-Path $card 'Assets\tau\common'))) {
+-    Write-Error 'card disappeared during the copy -- nothing is verified'
+-    exit 1
+-}
+-
+-$compared = 0
+-$bad = @()
+-foreach ($f in $files) {
+-    $rel = $f.FullName.Substring($Dist.Length + 1)
+-    $dst = Join-Path $card $rel
+-    try {
+-        if (-not (Test-Path $dst)) { $bad += "missing: $rel"; continue }
+-        $a = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+-        $b = (Get-FileHash $dst        -Algorithm SHA256).Hash
+-        if ($a -ne $b) { $bad += "differs: $rel" }
+-        $compared++
+-    } catch {
+-        $bad += ("unreadable: {0} ({1})" -f $rel, $_.Exception.Message)
+-    }
+-}
+-
+-if ($compared -ne $files.Count) {
+-    Write-Error ("only {0} of {1} files could be compared -- NOT verified" -f $compared, $files.Count)
+-    $bad | ForEach-Object { Write-Host "  $_" }
+-    exit 1
+-}
+-if ($bad.Count) {
+-    Write-Error ("{0} file(s) wrong on card" -f $bad.Count)
+-    $bad | ForEach-Object { Write-Host "  $_" }
+-    exit 1
+-}
+-
+-Write-Host ("  {0} copied, {1}/{2} verified identical" -f $copied, $compared, $files.Count)
+-$rom = Join-Path $card 'Assets\tau\common\tau.rom'
+-Write-Host ("  firmware {0:N0} bytes" -f (Get-Item $rom).Length)
+diff --git a/legacy-harpmudd/tools/splash_preview.py b/legacy-harpmudd/tools/splash_preview.py
+deleted file mode 100644
+index 6099b8f8..00000000
+--- a/legacy-harpmudd/tools/splash_preview.py
++++ /dev/null
+@@ -1,234 +0,0 @@
+-#!/usr/bin/env python3
+-"""Render the boot screen, before and after, through the real pixel pipeline.
+-
+-Composition is the one thing that cannot be argued about in the abstract, and
+-the complaint here was placement rather than content: the old splash put a
+-left-aligned title at UI_MARGIN with 120 empty rows above it and 89 below, so
+-209 of 360 rows carried nothing.
+-
+-Reuses tools/font_preview.py for glyphs, so the type is the real atlas at the
+-real metrics with the real gamma-corrected blend, and reproduces ui_grad_at()'s
+-dithered accent-tinted ramp underneath. Layout constants are READ OUT of
+-fw/player.c rather than copied, so this cannot quietly disagree with the build.
+-
+-    python tools/splash_preview.py
+-"""
+-import re
+-from pathlib import Path
+-
+-from PIL import Image, ImageDraw, ImageFont
+-
+-import font_preview as FP
+-
+-ROOT = Path(__file__).resolve().parent.parent
+-SRC = (ROOT / "fw" / "player.c").read_text(encoding="utf-8", errors="replace")
+-
+-FB_W, FB_H = 400, 360
+-
+-
+-_consts = {}
+-
+-
+-def const(name, default=None):
+-    """Resolve a #define to a number, evaluating simple expressions built from
+-    constants already resolved. Layout values are sometimes derived from each
+-    other (the version line is anchored off the card), and hardcoding the
+-    arithmetic here is exactly the drift this tool exists to prevent."""
+-    if name in _consts:
+-        return _consts[name]
+-    m = re.search(r"#define\s+%s\s+(.+)" % name, SRC)
+-    if m:
+-        body = m.group(1).split("/*")[0].strip()
+-        expr = re.sub(r"(\d)u\b", r"\1", body)
+-        # Resolve any constants the expression names, recursively, so the order
+-        # things are asked for here cannot matter. UI_BOOT_Y is defined in terms
+-        # of UI_SPL_INFO_Y, and a fixed order would break the next time two
+-        # layout constants are chained.
+-        env = dict(_consts)
+-        for ident in set(re.findall(r"[A-Za-z_]\w*", expr)):
+-            if ident not in env:
+-                v = const(ident, default=-1)
+-                if v != -1:
+-                    env[ident] = v
+-        try:
+-            v = int(eval(expr, {"__builtins__": {}}, env))
+-            _consts[name] = v
+-            return v
+-        except Exception:
+-            pass
+-    if default is None:
+-        raise SystemExit("constant %s not resolvable in player.c" % name)
+-    return default
+-
+-
+-UI_MARGIN = const("UI_MARGIN")
+-UI_WAVE_Y = const("UI_WAVE_Y")
+-UI_WAVE_H = const("UI_WAVE_H")
+-UI_BOOT_Y = const("UI_BOOT_Y")
+-UI_DOT_N = const("UI_DOT_N")
+-UI_DOT_W = const("UI_DOT_W")
+-UI_DOT_GAP = const("UI_DOT_GAP")
+-UI_TITLE_Y = const("UI_TITLE_Y")
+-UI_CARD_H = const("UI_CARD_H")
+-V_Y = const("UI_SPL_VER_Y")
+-I_Y = const("UI_SPL_INFO_Y")
+-VER = re.search(r'#define\s+APP_VER\s+"([^"]+)"', SRC).group(1)
+-
+-UI_DIM = 0x94B2
+-UI_WHITE = 0xFFFF
+-ACCENT = 0x7E55                       # seafoam, as in the current screenshot
+-BAYER = (1, 5, 3, 7)
+-
+-
+-def grad_top(accent, L=45):
+-    r = ((accent >> 11) & 0x1F) * 255 // 31
+-    g = ((accent >> 5) & 0x3F) * 255 // 63
+-    b = (accent & 0x1F) * 255 // 31
+-    l = (2126 * r + 7152 * g + 722 * b) // 10000 or 1
+-    r, g, b = (r * L + l // 2) // l, (g * L + l // 2) // l, (b * L + l // 2) // l
+-    r, g, b = (r + L + 1) // 2, (g + L + 1) // 2, (b + L + 1) // 2
+-    return (min(r, 255) * 31 + 127) // 255 << 11 | \
+-           (min(g, 255) * 63 + 127) // 255 << 5 | (min(b, 255) * 31 + 127) // 255
+-
+-
+-TOP = grad_top(ACCENT)
+-
+-
+-def grad_at(y):
+-    """ui_grad_at(), reproduced."""
+-    den, rem, t = FB_H - 1, FB_H - 1 - y, BAYER[y & 3]
+-    out = []
+-    for lv in ((TOP >> 11) & 0x1F, (TOP >> 5) & 0x3F, TOP & 0x1F):
+-        num = lv * rem
+-        base = num // den
+-        if (num - base * den) * 8 > t * den:
+-            base += 1
+-        out.append(base)
+-    return out[0] << 11 | out[1] << 5 | out[2]
+-
+-
+-def new_frame():
+-    im = Image.new("RGB", (FB_W, FB_H))
+-    px = im.load()
+-    for y in range(FB_H):
+-        c = FP.rgb888(grad_at(y))
+-        for x in range(FB_W):
+-            px[x, y] = c
+-    return im
+-
+-
+-def text(im, x, y, s, fg, scale):
+-    FP.draw_text(im, x, y, s, fg, FP.load_font(15, 600, 14),
+-                 "round", FP.COV_WEIGHT, scale, grad_at)
+-
+-
+-def width(s, scale):
+-    """Advance width, matching fb_text_width()."""
+-    f = FP.load_font(15, 600, 14)
+-    return sum(FP.glyph_cov(f, c if 0x20 <= ord(c) <= 0x7E else "?", "round")[1]
+-               for c in s) * scale
+-
+-
+-def rect(im, x, y, w, h, c):
+-    d = ImageDraw.Draw(im)
+-    if w > 0 and h > 0:
+-        d.rectangle([x, y, x + w - 1, y + h - 1], fill=FP.rgb888(c))
+-
+-
+-def meter(im, seed=12345):
+-    """A representative mid-settle frame of the boot animation."""
+-    rng = seed
+-    n, ww = 28, FB_W - 2 * UI_MARGIN
+-    for i in range(n):
+-        rng ^= (rng << 13) & 0xFFFFFFFF
+-        rng ^= rng >> 17
+-        rng ^= (rng << 5) & 0xFFFFFFFF
+-        h = 6 + rng % (UI_WAVE_H - 10)
+-        x = UI_MARGIN + i * ww // n
+-        xn = UI_MARGIN + (i + 1) * ww // n
+-        w = max(xn - x - 3, 1)
+-        y = UI_WAVE_Y + UI_WAVE_H - h
+-        for yy in range(y, UI_WAVE_Y + UI_WAVE_H):
+-            t = (yy - UI_WAVE_Y) * 31 // UI_WAVE_H
+-            rect(im, x, yy, w, 1, FP.blend(ACCENT, grad_at(yy), 6 + t // 2))
+-
+-
+-def dots(im, x, y):
+-    for i in range(UI_DOT_N):
+-        lit = (28, 16, 8)[i]
+-        c = FP.blend(ACCENT, grad_at(y), lit >> 1)
+-        rect(im, x + i * (UI_DOT_W + UI_DOT_GAP), y, UI_DOT_W, UI_DOT_W, c)
+-
+-
+-def before():
+-    im = new_frame()
+-    meter(im)
+-    text(im, UI_MARGIN, 120, "TAU", ACCENT, 2)
+-    text(im, UI_MARGIN, UI_BOOT_Y, "LOADING PLAYLIST", UI_WHITE, 1)
+-    dots(im, UI_MARGIN + width("LOADING PLAYLIST", 1) + 8, UI_BOOT_Y + 4)
+-    return im
+-
+-
+-def after(loading=False):
+-    """Exactly what fw/player.c now draws. The status row carries the loading
+-    indicator first, then the playlist summary in its place."""
+-    im = new_frame()
+-    round_rect(im, UI_MARGIN - 8, UI_TITLE_Y - 14,
+-               (FB_W - 2 * UI_MARGIN) + 16, UI_CARD_H, 8, 0x2945)
+-    FP.draw_text(im, UI_MARGIN, UI_TITLE_Y, "TAU", ACCENT,
+-                 FP.load_font(15, 600, 14), "round", FP.COV_WEIGHT, 2,
+-                 lambda _y: 0x2945)
+-    FP.draw_text(im, UI_MARGIN, V_Y, "v" + VER, UI_DIM,
+-                 FP.load_font(15, 600, 14), "round", FP.COV_WEIGHT, 1,
+-                 lambda _y: 0x2945)
+-    meter(im)
+-    if loading:
+-        lbl = "LOADING PLAYLIST"
+-        text(im, UI_MARGIN, UI_BOOT_Y, lbl, UI_WHITE, 1)
+-        dots(im, UI_MARGIN + width(lbl, 1) + 8, UI_BOOT_Y + 4)
+-    else:
+-        text(im, UI_MARGIN, I_Y, "PLAYLIST", UI_DIM, 1)
+-        s2 = "10 TRACKS"
+-        text(im, FB_W - UI_MARGIN - width(s2, 1), I_Y, s2, ACCENT, 1)
+-    return im
+-
+-
+-UI_PANEL = 0x2945
+-
+-
+-def round_rect(im, x, y, w, h, r, c):
+-    rect(im, x, y + r, w, h - 2 * r, c)
+-    for i in range(r):
+-        dy = r - i
+-        inner = 0
+-        while (inner + 1) ** 2 + dy * dy <= r * r:
+-            inner += 1
+-        cut = r - inner
+-        rect(im, x + cut, y + i, w - 2 * cut, 1, c)
+-        rect(im, x + cut, y + h - 1 - i, w - 2 * cut, 1, c)
+-
+-
+-def main():
+-    panels = [("BEFORE  original", before()),
+-              ("AFTER  reading the playlist", after(loading=True)),
+-              ("AFTER  playlist read", after())]
+-    zoom, pad, lab = 2, 12, 20
+-    W = len(panels) * (FB_W * zoom + pad) + pad
+-    H = FB_H * zoom + lab + 2 * pad
+-    sheet = Image.new("RGB", (W, H), (20, 20, 24))
+-    d = ImageDraw.Draw(sheet)
+-    ui = ImageFont.load_default()
+-    for i, (name, im) in enumerate(panels):
+-        x = pad + i * (FB_W * zoom + pad)
+-        d.text((x, pad), name, fill=(235, 235, 240), font=ui)
+-        sheet.paste(im.resize((FB_W * zoom, FB_H * zoom), Image.NEAREST),
+-                    (x, pad + lab))
+-    out = ROOT / "docs" / "splash_preview.png"
+-    sheet.save(out)
+-    print("layout read from player.c: card y=%d h=%d, ver y=%d, status y=%d"
+-          % (UI_TITLE_Y - 14, UI_CARD_H, V_Y, I_Y))
+-    print("wrote %s" % out)
+-
+-
+-if __name__ == "__main__":
+-    main()
+diff --git a/legacy-harpmudd/tools/strip_xing.py b/legacy-harpmudd/tools/strip_xing.py
+deleted file mode 100644
+index d615e68f..00000000
+--- a/legacy-harpmudd/tools/strip_xing.py
++++ /dev/null
+@@ -1,88 +0,0 @@
+-#!/usr/bin/env python3
+-"""Write a copy of an .mp3 with its Xing/Info/VBRI frame REMOVED.
+-
+-The headerless-MP3 path is the one caveat left in the v1.4.0 stutter fix: those
+-files have no duration source, so they still probe during playback and may tic.
+-Testing that needs a file with no frame-count header, and the three originals
+-that had one (Stockholm Syndrome 256, Stone Temple Pilots 128, Widespread Panic
+-160) are no longer on the card.
+-
+-Making one is more reliable than finding one. The frame-count header lives in a
+-single silent MPEG frame at the head of the audio; dropping that whole frame
+-leaves a valid CBR stream that decodes identically and reports no duration --
+-exactly the shape being tested.
+-
+-NEVER writes in place. Source file is opened read-only and a new path is
+-written, because the one thing this project has actually damaged is the user's
+-music library.
+-
+-    python tools/strip_xing.py in.mp3 out.mp3
+-"""
+-import sys
+-from pathlib import Path
+-
+-BITRATE_V1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+-SAMPRATE_V1 = [44100, 48000, 32000, 0]
+-
+-
+-def id3_len(b):
+-    if len(b) < 10 or b[:3] != b"ID3":
+-        return 0
+-    n = ((b[6] & 0x7F) << 21) | ((b[7] & 0x7F) << 14) | ((b[8] & 0x7F) << 7) | (b[9] & 0x7F)
+-    return n + 10
+-
+-
+-def frame_at(b, i):
+-    """(length, has_count_header) for the MPEG-1 L3 frame at i, or None."""
+-    if i + 4 > len(b) or b[i] != 0xFF or (b[i + 1] & 0xE0) != 0xE0:
+-        return None
+-    ver, layer = (b[i + 1] >> 3) & 3, (b[i + 1] >> 1) & 3
+-    if ver != 3 or layer != 1:
+-        return None
+-    br = BITRATE_V1L3[(b[i + 2] >> 4) & 0xF]
+-    sr = SAMPRATE_V1[(b[i + 2] >> 2) & 3]
+-    if not br or not sr:
+-        return None
+-    pad = (b[i + 2] >> 1) & 1
+-    length = (144 * br * 1000) // sr + pad
+-    tag = b[i:i + length]
+-    has = (b"Xing" in tag) or (b"Info" in tag) or (b"VBRI" in tag)
+-    return length, has
+-
+-
+-def main():
+-    if len(sys.argv) != 3:
+-        print(__doc__)
+-        return 1
+-    src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+-    if dst.resolve() == src.resolve():
+-        print("refusing to write over the source")
+-        return 1
+-    b = src.read_bytes()
+-
+-    off = id3_len(b)
+-    # Walk to the first real frame; the tag length can be slightly off.
+-    while off < len(b) - 4:
+-        f = frame_at(b, off)
+-        if f:
+-            break
+-        off += 1
+-    else:
+-        print("no MPEG-1 Layer III frame found")
+-        return 1
+-
+-    length, has = f
+-    if not has:
+-        print(f"{src.name}: already headerless -- copying unchanged")
+-        out = b
+-    else:
+-        print(f"{src.name}: dropping {length}-byte count header at offset {off}")
+-        out = b[:off] + b[off + length:]
+-
+-    dst.write_bytes(out)
+-    print(f"wrote {dst}  ({len(out)} bytes, was {len(b)})")
+-    return 0
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(main())
+diff --git a/legacy-harpmudd/tools/xing_check.py b/legacy-harpmudd/tools/xing_check.py
+deleted file mode 100644
+index d95c0d98..00000000
+--- a/legacy-harpmudd/tools/xing_check.py
++++ /dev/null
+@@ -1,147 +0,0 @@
+-#!/usr/bin/env python3
+-"""Which .mp3 files carry a Xing/Info/VBRI header, and what the core does without one.
+-
+-The 1.2x seek defect is file-dependent, and `track_secs` is the suspected
+-discriminator: it is set ONLY from a frame-count header. With one,
+-ui_byte_rate() returns an exact constant. Without one it falls through to
+-meas_rate -- the measured, self-correcting rate that the 2026-08-10
+-hold-to-seek bug lived in.
+-
+-This reports which files are on which side, so a failing set can be compared
+-against a passing one instead of guessed at.
+-
+-    python tools/xing_check.py D:/Assets/tau/common
+-"""
+-import struct
+-import sys
+-from pathlib import Path
+-
+-BITRATE_V1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+-SAMPRATE_V1 = [44100, 48000, 32000, 0]
+-
+-
+-def id3_len(b):
+-    """Length of a leading ID3v2 tag, 0 if absent."""
+-    if len(b) < 10 or b[:3] != b"ID3":
+-        return 0
+-    n = ((b[6] & 0x7F) << 21) | ((b[7] & 0x7F) << 14) | ((b[8] & 0x7F) << 7) | (b[9] & 0x7F)
+-    return n + 10
+-
+-
+-def first_frame(b, off):
+-    """Find the first MPEG-1 Layer III frame header at/after off."""
+-    for i in range(off, min(len(b) - 4, off + 200000)):
+-        if b[i] != 0xFF or (b[i + 1] & 0xE0) != 0xE0:
+-            continue
+-        ver, layer = (b[i + 1] >> 3) & 3, (b[i + 1] >> 1) & 3
+-        if ver != 3 or layer != 1:                 # MPEG-1 Layer III only
+-            continue
+-        br = BITRATE_V1L3[(b[i + 2] >> 4) & 0xF]
+-        sr = SAMPRATE_V1[(b[i + 2] >> 2) & 3]
+-        if not br or not sr:
+-            continue
+-        pad = (b[i + 2] >> 1) & 1
+-        chan = (b[i + 3] >> 6) & 3
+-        return i, br, sr, pad, chan
+-    return None
+-
+-
+-def scan(path):
+-    # Only the head. A frame-count header lives in the FIRST audio frame, so
+-    # reading whole multi-megabyte files off the card just to look at its first
+-    # few hundred bytes made this take minutes instead of seconds.
+-    size = path.stat().st_size
+-    with path.open("rb") as fh:
+-        b = fh.read(1 << 20)
+-    tag = id3_len(b)
+-    f = first_frame(b, tag)
+-    if not f:
+-        return dict(name=path.name, err="no MPEG-1 Layer III frame")
+-    off, br, sr, pad, chan = f
+-
+-    # Xing/Info sits at a fixed offset into the first frame, which depends on
+-    # version and channel mode. VBRI is always 32 bytes in.
+-    side = 17 if chan == 3 else 32              # mono vs stereo, MPEG-1
+-    hdr, frames = None, None
+-    for probe, tagname in ((off + 4 + side, None), (off + 36, "VBRI")):
+-        if probe + 8 > len(b):
+-            continue
+-        magic = b[probe:probe + 4]
+-        if magic in (b"Xing", b"Info"):
+-            flags = struct.unpack(">I", b[probe + 4:probe + 8])[0]
+-            if flags & 1:
+-                frames = struct.unpack(">I", b[probe + 8:probe + 12])[0]
+-            hdr = magic.decode()
+-            break
+-        if magic == b"VBRI":
+-            frames = struct.unpack(">I", b[probe + 14:probe + 18])[0]
+-            hdr = "VBRI"
+-            break
+-    secs = round(frames * 1152 / sr) if (frames and sr) else None
+-    return dict(name=path.name, size=size, kbps=br, hz=sr,
+-                mode="mono" if chan == 3 else "stereo",
+-                hdr=hdr or "-", frames=frames, secs=secs)
+-
+-
+-def main():
+-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "D:/Assets/tau/common")
+-    files = sorted(root.glob("*.mp3"))
+-    if not files:
+-        sys.exit("no .mp3 files under %s" % root)
+-
+-    print("%-44s %-6s %5s %6s %-6s %8s  %s"
+-          % ("file", "hdr", "kbps", "hz", "mode", "secs", "track_secs"))
+-    print("-" * 96)
+-    withhdr = 0
+-    for p in files:
+-        r = scan(p)
+-        if r.get("err"):
+-            print("%-44s %s" % (r["name"][:44], r["err"]))
+-            continue
+-        has = r["hdr"] != "-"
+-        withhdr += has
+-        print("%-44s %-6s %5d %6d %-6s %8s  %s"
+-              % (r["name"][:44], r["hdr"], r["kbps"], r["hz"], r["mode"],
+-                 r["secs"] if r["secs"] else "?",
+-                 "set (exact rate)" if has else "ZERO -> meas_rate"))
+-    print("-" * 96)
+-    print("%d of %d carry a frame-count header." % (withhdr, len(files)))
+-    print()
+-    print("Files reading ZERO take the meas_rate path -- the one the")
+-    print("hold-to-seek bug lived in. If the 1.2x failures are exactly this")
+-    print("set, that is the fault located.")
+-
+-
+-if __name__ == "__main__":
+-    main()
+-
+-
+-def bitrate_varies(path, probe_frames=400):
+-    """Walk real frame headers and report whether the bitrate ever changes.
+-
+-    A file with no Xing header is not necessarily VBR -- plain CBR encoders
+-    often write none. That distinction decides the fix: for CBR the first
+-    frame's bitrate IS the exact byte rate, so nothing needs measuring.
+-    """
+-    with path.open("rb") as fh:
+-        b = fh.read(4 << 20)
+-    off = id3_len(b)
+-    f = first_frame(b, off)
+-    if not f:
+-        return None
+-    i = f[0]
+-    seen, n = set(), 0
+-    while n < probe_frames and i + 4 < len(b):
+-        if b[i] != 0xFF or (b[i + 1] & 0xE0) != 0xE0:
+-            i += 1
+-            continue
+-        br = BITRATE_V1L3[(b[i + 2] >> 4) & 0xF]
+-        sr = SAMPRATE_V1[(b[i + 2] >> 2) & 3]
+-        if not br or not sr:
+-            i += 1
+-            continue
+-        pad = (b[i + 2] >> 1) & 1
+-        seen.add(br)
+-        n += 1
+-        i += (144000 * br) // sr + pad
+-    return sorted(seen), n
+diff --git a/sim/oracle/tau_scanout1_oracle.sv b/sim/oracle/tau_scanout1_oracle.sv
+deleted file mode 100644
+index b12223d6..00000000
+--- a/sim/oracle/tau_scanout1_oracle.sv
++++ /dev/null
+@@ -1,184 +0,0 @@
+-// SIM-ONLY ORACLE (Talos 2 T5, D-T07): the scanout as it was before the clean-room rewrite, kept only as the reference for sim/tb_tau_scanout_diff.v. Never synthesised. Delete after the new scanout is confirmed on a Pocket.
+-// ============================================================================
+-// tau_scanout.sv -- the scanout half of the old mp3_fb.sv (Talos 2, T2, D-T02).
+-//
+-// Video timing (clk_vid), the line buffer (parity-split double buffer: one half
+-// drains to clk_vid while the other fills from clk_sdram for the NEXT line), the
+-// prefetch request toggle (fill_req_tgl/fill_line_req), the per-frame vblank
+-// toggle, and the blank-until-painted level. Moved out of mp3_fb.sv with NO
+-// behaviour change: the differential test (sim/tb_tau_gfx_diff.v) compares every
+-// output of the whole split against the preserved original, cycle by cycle.
+-// The engine side is tau_talos.sv; tau_gfx.sv joins the two.
+-// ============================================================================
+-
+-`default_nettype none
+-
+-module tau_scanout1_oracle (
+-    input  wire        reset,
+-    input  wire        clk_sys,      // only for the "painted" level (cmd_push)
+-    input  wire        clk_sdram,    // line buffer write side
+-    input  wire        clk_vid,      // pixel clock (12 MHz)
+-    input  wire        cmd_push,     // clk_sys: one command pushed is enough to know the CPU is painting
+-
+-    // From tau_talos (clk_sdram): the line-buffer write port
+-    input  wire        lb_we,
+-    input  wire [9:0]  lb_waddr,
+-    input  wire [15:0] lb_wdata,
+-
+-    // Talos 2 T3, from tau_talos (clk_sdram): which line the last finished fill was for, and that one has finished
+-    input  wire        fill_done_inc,
+-    input  wire [9:0]  fill_done_line,
+-    input  wire        fill_seen,
+-    // Scanout underflow: lines whose fill had not finished when their display started (clk_sys, saturating)
+-    output wire [15:0] underflow_cnt,
+-
+-    // To tau_talos (clk_vid toggles, sampled in clk_sdram there)
+-    output reg         fill_req_tgl = 0,
+-    output reg  [9:0]  fill_line_req = 0,
+-    output reg         vblank_tgl = 0,   // H2 (B-340): clk_vid domain, toggles once per frame inside vblank
+-
+-    output reg  [23:0] video_rgb,
+-    output reg         video_de,
+-    output reg         video_hs,
+-    output reg         video_vs,
+-    // Helios beam position (B-267): the video line counter, 0..V_TOT-1 (V_TOT is 400, so 9 bits). The row being scanned
+-    // is vc - VOFF while VOFF <= vc < VOFF + V_ACT. Carried to the CPU by tau_cdc_gray_bus (it steps by +1 per line).
+-    output wire [8:0]  scan_vc
+-);
+-
+-    // ---- Geometry ----------------------------------------------------------
+-    localparam H_ACT = 11'd400, V_ACT = 11'd360;
+-    localparam H_TOT = 11'd500, V_TOT = 11'd400;
+-    localparam [10:0] HOFF = 11'd8,  VOFF = 11'd4;
+-    localparam [10:0] HS_ST = HOFF + H_ACT + 11'd12, HS_EN = HS_ST + 11'd40;
+-    localparam [10:0] VS_ST = VOFF + V_ACT + 11'd3,  VS_EN = VS_ST + 11'd4;
+-
+-    // Top black guard-band, INHERITED FROM pocket_vector_fb.sv AND NOW 0.
+-    //
+-    // That core found the scaler overshoots into a bright artifact at a
+-    // black->content luminance step on the FIRST active line, and forced the
+-    // first few active lines to black to move the step away from the DE edge.
+-    // It was invisible there because a vector display's background IS black.
+-    //
+-    // Here it is not. The gradient's top is 0x2124, luma 34/255, so three
+-    // forced-black lines read as a seam above the background -- visible in
+-    // screenshots and over HDMI from the dock, less so on the handheld panel.
+-    //
+-    // And it was not buying anything. The guard does not REMOVE the
+-    // black->content step, it relocates it; relocating a 34/255 step is worth
+-    // nothing, where the artifact it was designed against was a step to bright
+-    // vector lines at luma ~255. There has never been a bottom guard here
+-    // either, and no artifact has ever been reported at that edge -- which is
+-    // the same gentle step, and evidence the scaler copes with it.
+-    //
+-    // Left as a parameter rather than deleted: if a bright artifact ever does
+-    // appear on the top line, 3 is the value that hides it.
+-    localparam [10:0] GUARD_TOP = 11'd0;
+-
+-
+-    // ======================================================================
+-    // Scanout line buffer: parity-split double buffer, exactly as
+-    // pocket_vector_fb.sv -- one half drains to clk_vid while the other half
+-    // fills from clk_sdram for the NEXT line, so fill and scanout of the same
+-    // line never race.
+-    // ======================================================================
+-    (* ramstyle = "M10K" *) reg [15:0] linebuf [0:1023];
+-    always @(posedge clk_sdram) if (lb_we) linebuf[lb_waddr] <= lb_wdata;
+-
+-    // ======================================================================
+-    // Video timing (clk_vid domain) -- same structure as pocket_vector_fb.sv.
+-    // ======================================================================
+-    reg [10:0] hc = 0, vc = 0;
+-    assign scan_vc = vc[8:0];
+-    always @(posedge clk_vid) begin
+-        if (reset) begin hc <= 0; vc <= 0; end
+-        else if (hc == H_TOT - 1'b1) begin
+-            hc <= 0;
+-            vc <= (vc == V_TOT - 1'b1) ? 11'd0 : vc + 1'b1;
+-        end else hc <= hc + 1'b1;
+-    end
+-
+-    wire active   = (hc >= HOFF) && (hc < HOFF + H_ACT) &&
+-                    (vc >= VOFF) && (vc < VOFF + V_ACT);
+-    wire hs_pulse = (hc >= HS_ST) && (hc < HS_EN);
+-    wire vs_pulse = (vc >= VS_ST) && (vc < VS_EN);
+-
+-    // Prefetch the row the NEXT scanline will display, so its burst-fill has
+-    // a full scanline period to complete before it's actually scanned out.
+-    wire [10:0] next_sl = (vc == V_TOT - 1'b1) ? 11'd0 : vc + 1'b1;
+-    wire        do_fill = (next_sl >= VOFF) && (next_sl < VOFF + V_ACT);
+-    wire [9:0]  pf_row  = next_sl[9:0] - VOFF[9:0];
+-    always @(posedge clk_vid) begin
+-        if (hc == 11'd0 && do_fill) begin
+-            fill_line_req <= pf_row;
+-            fill_req_tgl  <= ~fill_req_tgl;
+-        end
+-        // H2 (B-340): one shot per frame, well inside vertical blanking and well before do_fill's own
+-        // wrap-around prefetch of the new frame's row 0 (vc==V_TOT-1) -- see the comment on flip_req_s
+-        // above for why applying the flip by then matters.
+-        if (hc == 11'd0 && vc == VS_ST) vblank_tgl <= ~vblank_tgl;
+-    end
+-
+-    reg [15:0] lb_q;
+-    reg        active_p1, hs_p1, vs_p1, top_guard_p1;
+-    wire [10:0] hcsub = hc - HOFF;
+-    wire [10:0] vsub  = vc - VOFF;
+-    wire        top_guard = active && (vsub < GUARD_TOP);
+-
+-    // Blank until the CPU has drawn something.
+-    //
+-    // SDRAM powers up holding garbage and scanout displays it the moment video
+-    // comes alive, which is well before the firmware is even loaded. That used
+-    // to be hidden because APF put its file browser in front of the core at
+-    // launch; now the core comes up directly and the garbage is the first thing
+-    // on screen. One command pushed is enough to know the CPU is running and
+-    // painting -- main() clears the whole frame before anything else.
+-    reg painted_sys = 1'b0;
+-    always @(posedge clk_sys) if (cmd_push) painted_sys <= 1'b1;
+-
+-    // A level that only ever goes 0 -> 1, so a plain synchroniser is enough.
+-    reg [2:0] painted_vid = 3'b0;
+-    always @(posedge clk_vid) painted_vid <= {painted_vid[1:0], painted_sys};
+-
+-    always @(posedge clk_vid) begin
+-        lb_q         <= linebuf[{vc[0], hcsub[8:0]}];   // vc-VOFF parity = vc[0] (VOFF even)
+-        active_p1    <= active;
+-        top_guard_p1 <= top_guard;
+-        hs_p1        <= hs_pulse;
+-        vs_p1        <= vs_pulse;
+-        video_rgb    <= (active_p1 && !top_guard_p1 && painted_vid[2])
+-                       ? {lb_q[15:11], 3'b0, lb_q[10:5], 2'b0, lb_q[4:0], 3'b0}  // RGB565 -> 24-bit
+-                       : 24'h000000;
+-        video_de     <= active_p1;
+-        video_hs     <= hs_p1;
+-        video_vs     <= vs_p1;
+-    end
+-
+-
+-    // ======================================================================
+-    // Talos 2 T3: underflow detection (the instrument the central claim "scanout always wins" was missing).
+-    // Line n is displayed during scanline n + VOFF; its fill was requested one scanline earlier and must have
+-    // finished by hc == HOFF, when the display starts. At that instant the last finished fill is line n (its own),
+-    // or line n + 1 if the next line's fill (requested at hc == 0) is already done too. Anything else means line n's
+-    // buffer half was not filled in time. fill_done_line steps by +1 per fill, so it crosses with tau_cdc_gray_bus
+-    // (the 359 -> 0 wrap happens in vertical blanking, where no line is being checked). Armed after the first fill.
+-    // ======================================================================
+-    wire [9:0] done_line_vid;
+-    tau_cdc_gray_bus #(.W(10), .STAGES(3)) u_done_line (.clk_src(clk_sdram), .d_src(fill_done_line), .clk_dst(clk_vid), .q_dst(done_line_vid));
+-    reg [2:0] seen_vid = 3'b0;
+-    always @(posedge clk_vid) seen_vid <= {seen_vid[1:0], fill_seen};
+-    reg uf_pulse = 1'b0;
+-    wire [10:0] vsub_chk = vc - VOFF;
+-    wire        in_active_line = (vc >= VOFF) && (vc < VOFF + V_ACT);
+-    always @(posedge clk_vid) begin
+-        uf_pulse <= 1'b0;
+-        if (hc == HOFF && in_active_line && seen_vid[2]) begin
+-            if (!(done_line_vid == vsub_chk[9:0] || (do_fill && done_line_vid == vsub_chk[9:0] + 10'd1))) uf_pulse <= 1'b1;
+-        end
+-    end
+-    tau_cdc_gray_ctr #(.WIDTH(16)) u_underflow (.clk_src(clk_vid), .rst_src(reset), .inc(uf_pulse),
+-                                                 .clk_dst(clk_sys), .rst_dst(reset), .count_dst(underflow_cnt));
+-
+-endmodule
+-
+-`default_nettype wire
+diff --git a/sim/tb_tau_scanout_diff.v b/sim/tb_tau_scanout_diff.v
+deleted file mode 100644
+index 4b7f374e..00000000
+--- a/sim/tb_tau_scanout_diff.v
++++ /dev/null
+@@ -1,219 +0,0 @@
+-`timescale 1ps/1ps
+-// Differential testbench: the oracle tau_scanout1_oracle (the scanout before the clean-room rewrite) against tau_scanout (Talos 2 T5, contract section 7).
+-// Same random stimulus on three unrelated clocks; every output of both is compared on every edge of its own clock.
+-// +seed=N picks the stimulus; -Ptb_tau_scanout_diff.BUG=n turns on mutant n of tau_scanout (the bench must FAIL).
+-module tb_tau_scanout_diff;
+-    parameter BUG = 0;
+-    parameter NFRAMES = 4;       // frames simulated (one frame = 16.667 ms)
+-
+-    // ---- clocks: 100 MHz, 49.0 MHz-ish, 12 MHz; periods in ps, none an integer multiple of another
+-    reg clk_sdram = 0, clk_sys = 0, clk_vid = 0;
+-    always #5000  clk_sdram = ~clk_sdram;     // 10.000 ns
+-    always #10190 clk_sys   = ~clk_sys;       // 20.380 ns (49.07 MHz)
+-    always #41666 clk_vid   = ~clk_vid;       // 83.332 ns (12.0001 MHz)
+-
+-    integer seed, seed0;
+-    function integer rnd(input integer n);   // 0 .. n-1
+-        integer r;
+-        begin r = $random(seed); if (r < 0) r = -r; if (r < 0) r = 0; rnd = r % n; end
+-    endfunction
+-
+-    // ---- stimulus
+-    reg        reset = 0;
+-    reg        cmd_push = 0;
+-    reg        lb_we = 0;
+-    reg [9:0]  lb_waddr = 0;
+-    reg [15:0] lb_wdata = 0;
+-    reg        fill_done_inc = 0;
+-    reg [9:0]  fill_done_line = 0;
+-    reg        fill_seen = 0;
+-
+-    // ---- the two devices
+-    wire [15:0] o_cnt, n_cnt;
+-    wire        o_rt, n_rt, o_vt, n_vt;
+-    wire [9:0]  o_fl, n_fl;
+-    wire [23:0] o_rgb, n_rgb;
+-    wire        o_de, n_de, o_hs, n_hs, o_vs, n_vs;
+-    wire [8:0]  o_svc, n_svc;
+-
+-    tau_scanout1_oracle o (.reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid), .cmd_push(cmd_push),
+-        .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
+-        .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
+-        .underflow_cnt(o_cnt), .fill_req_tgl(o_rt), .fill_line_req(o_fl), .vblank_tgl(o_vt),
+-        .video_rgb(o_rgb), .video_de(o_de), .video_hs(o_hs), .video_vs(o_vs), .scan_vc(o_svc));
+-
+-    tau_scanout #(
+-        .BUG_ACT_X(BUG==1), .BUG_HS(BUG==2), .BUG_LATENCY(BUG==3), .BUG_PARITY(BUG==4), .BUG_VBLANK(BUG==5),
+-        .BUG_NO_PAINT(BUG==6), .BUG_LATE_HC(BUG==7), .BUG_REQ_EARLY(BUG==8), .BUG_VS(BUG==9),
+-        .BUG_PAINT_SYN(BUG==10), .BUG_NO_NEXT(BUG==11), .BUG_EXPAND(BUG==12)
+-    ) n (.reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid), .cmd_push(cmd_push),
+-        .lb_we(lb_we), .lb_waddr(lb_waddr), .lb_wdata(lb_wdata),
+-        .fill_done_inc(fill_done_inc), .fill_done_line(fill_done_line), .fill_seen(fill_seen),
+-        .underflow_cnt(n_cnt), .fill_req_tgl(n_rt), .fill_line_req(n_fl), .vblank_tgl(n_vt),
+-        .video_rgb(n_rgb), .video_de(n_de), .video_hs(n_hs), .video_vs(n_vs), .scan_vc(n_svc));
+-
+-    // ---- compare: 100 ps after each edge of the output's own clock (outputs have settled, nothing else moves yet)
+-    integer errs = 0, cmp_vid = 0, cmp_sys = 0, cmp_sdram = 0;
+-    task note(input [127:0] what);
+-        begin
+-            errs = errs + 1;
+-            if (errs <= 8) $display("MISMATCH %0s at %0t", what, $time);
+-        end
+-    endtask
+-    // The oracle's de/hs/vs registers start undefined (X) in simulation; the first three vid edges flush the pipeline.
+-    always @(posedge clk_vid) begin
+-        #100;
+-        cmp_vid = cmp_vid + 1;
+-        if (cmp_vid > 3) begin
+-        if (o_rt  !== n_rt)  note("fill_req_tgl");
+-        if (o_fl  !== n_fl)  note("fill_line_req");
+-        if (o_vt  !== n_vt)  note("vblank_tgl");
+-        if (o_rgb !== n_rgb) note("video_rgb");
+-        if (o_de  !== n_de)  note("video_de");
+-        if (o_hs  !== n_hs)  note("video_hs");
+-        if (o_vs  !== n_vs)  note("video_vs");
+-        if (o_svc !== n_svc) note("scan_vc");
+-        end
+-        if (errs >= 8) begin
+-            $display("seed=%0d BUG=%0d stopped at %0t after %0d mismatches", seed0, BUG, $time, errs);
+-            $display("FAILED errors=%0d", errs);
+-            $finish;
+-        end
+-    end
+-    always @(posedge clk_sys) begin
+-        #100;
+-        cmp_sys = cmp_sys + 1;
+-        if (o_cnt !== n_cnt) note("underflow_cnt");
+-    end
+-
+-    // ---- coverage (measured on the new device's outputs)
+-    integer tg_de = 0, tg_hs = 0, tg_vs = 0, tg_rgb = 0, tg_rt = 0, tg_vt = 0, frames = 0, vsyncs = 0;
+-    integer rgb_nonzero_before_paint = 0, rgb_nonzero_after_paint = 0;
+-    reg p_de = 0, p_hs = 0, p_vs = 0, p_rt = 0, p_vt = 0;
+-    reg [23:0] p_rgb = 0;
+-    reg painted_seen = 0;   // cmd_push has happened
+-    integer cnt_at_reset = 0, cnt_end = 0;
+-    always @(posedge clk_vid) begin
+-        #200;
+-        if (n_de !== p_de) tg_de = tg_de + 1;
+-        if (n_hs !== p_hs) tg_hs = tg_hs + 1;
+-        if (n_vs !== p_vs) tg_vs = tg_vs + 1;
+-        if (n_rgb !== p_rgb) tg_rgb = tg_rgb + 1;
+-        if (n_rt !== p_rt) tg_rt = tg_rt + 1;
+-        if (n_vt !== p_vt) tg_vt = tg_vt + 1;
+-        if (n_vs && !p_vs) vsyncs = vsyncs + 1;
+-        if (n_rgb !== 24'd0) begin
+-            if (painted_seen) rgb_nonzero_after_paint = rgb_nonzero_after_paint + 1;
+-            else              rgb_nonzero_before_paint = rgb_nonzero_before_paint + 1;
+-        end
+-        p_de = n_de; p_hs = n_hs; p_vs = n_vs; p_rgb = n_rgb; p_rt = n_rt; p_vt = n_vt;
+-    end
+-
+-    // ---- engine model on clk_sdram: line-buffer write bursts and fill-done events
+-    reg rt_s1 = 0, rt_s2 = 0, rt_prev = 0;
+-    reg [9:0] pend_line [0:63];
+-    integer   pend_due  [0:63];
+-    integer   ph = 0, pt = 0;           // head, tail (counts, index mod 64)
+-    integer   now_ns;
+-    integer   burst_left = 0, burst_gap = 0;
+-    integer   t_seen_ns, t_push_ns, t_reset_ns;
+-    integer   n_req = 0, n_done = 0, n_dup = 0, n_skip = 0, n_late = 0, n_wr = 0;
+-    reg       reset_fired = 0, push_fired = 0, seen_armed = 0;
+-
+-    task enqueue(input [9:0] line, input integer delay_ns);
+-        begin
+-            if (pt - ph < 60) begin
+-                pend_line[pt % 64] = line;
+-                pend_due[pt % 64]  = now_ns + delay_ns;
+-                pt = pt + 1;
+-            end
+-        end
+-    endtask
+-
+-    always @(posedge clk_sdram) begin
+-        now_ns = $time / 1000;
+-        // line-buffer writes: bursts of 1..40 words, random gaps
+-        lb_we <= 1'b0;
+-        if (burst_left > 0) begin
+-            lb_we    <= (rnd(8) != 0);
+-            lb_waddr <= rnd(1024);
+-            lb_wdata <= rnd(65536);
+-            burst_left = burst_left - 1;
+-            n_wr = n_wr + 1;
+-        end else if (burst_gap > 0) burst_gap = burst_gap - 1;
+-        else begin burst_left = 1 + rnd(40); burst_gap = rnd(30); end
+-
+-        // request observation (the engine samples the toggle through two flops)
+-        rt_s1 <= o_rt; rt_s2 <= rt_s1; rt_prev <= rt_s2;
+-        if (rt_s2 !== rt_prev) begin
+-            n_req = n_req + 1;
+-            case (rnd(12))
+-                0: n_skip = n_skip + 1;                                        // missing
+-                1: begin enqueue(o_fl, rnd(2000)); enqueue(o_fl, rnd(6000)); n_dup = n_dup + 1; end  // two for one line
+-                2: begin enqueue(o_fl, 42000 + rnd(30000)); n_late = n_late + 1; end                 // more than a line late
+-                3: begin enqueue(o_fl, 20000 + rnd(20000)); end
+-                default: enqueue(o_fl, rnd(12000));
+-            endcase
+-        end
+-
+-        // deliver the oldest due event
+-        fill_done_inc <= 1'b0;
+-        if (pt > ph && now_ns >= pend_due[ph % 64]) begin
+-            fill_done_inc  <= 1'b1;
+-            fill_done_line <= pend_line[ph % 64];
+-            ph = ph + 1;
+-            n_done = n_done + 1;
+-            if (!fill_seen && now_ns >= t_seen_ns) fill_seen <= 1'b1;  // sticky: 0 until the first fill after t_seen
+-        end
+-    end
+-
+-    // ---- cmd_push (clk_sys) and reset (clk_vid)
+-    always @(posedge clk_sys) begin
+-        cmd_push <= 1'b0;
+-        if (!push_fired && ($time / 1000) >= t_push_ns) begin
+-            cmd_push <= 1'b1; push_fired = 1; painted_seen = 1;
+-        end else if (push_fired && rnd(500) == 0) cmd_push <= 1'b1;   // later pushes are no-ops
+-    end
+-
+-    integer rst_cycles = 0;
+-    always @(posedge clk_vid) begin
+-        if (rst_cycles > 0) begin rst_cycles = rst_cycles - 1; if (rst_cycles == 0) reset <= 1'b0; end
+-        else if (!reset_fired && ($time / 1000) >= t_reset_ns) begin
+-            reset_fired = 1; reset <= 1'b1; rst_cycles = 1 + rnd(9);
+-            cnt_at_reset = n_cnt;
+-        end
+-    end
+-
+-    // ---- run
+-    integer end_ns, k;
+-    integer ok;
+-    initial begin
+-        if (!$value$plusargs("seed=%d", seed)) seed = 1;
+-        seed0 = seed;
+-        for (k = 0; k < 64; k = k + 1) begin pend_line[k] = 0; pend_due[k] = 0; end
+-        // events: push in frame 1, fill_seen shortly after, reset in frame 2
+-        t_push_ns  = 200000 + rnd(6000000);
+-        t_seen_ns  = t_push_ns + rnd(2000000);
+-        t_reset_ns = 10000000 + rnd(5000000);
+-        end_ns     = NFRAMES * 16667000;                 // at least three and a half full frames after the reset
+-        repeat (end_ns / 1000) #1000000;
+-        cnt_end = n_cnt;
+-        $display("seed=%0d BUG=%0d simulated=%0d ns  vid_edges=%0d sys_edges=%0d  vsyncs=%0d", seed0, BUG, end_ns, cmp_vid, cmp_sys, vsyncs);
+-        $display("coverage: de=%0d hs=%0d vs=%0d rgb=%0d fill_req_tgl=%0d vblank_tgl=%0d late_lines(underflow_cnt)=%0d",
+-                 tg_de, tg_hs, tg_vs, tg_rgb, tg_rt, tg_vt, cnt_end);
+-        $display("stimulus: writes=%0d requests=%0d done=%0d dup=%0d skipped=%0d very_late=%0d  push@%0d ns seen@%0d ns reset@%0d ns",
+-                 n_wr, n_req, n_done, n_dup, n_skip, n_late, t_push_ns, t_seen_ns, t_reset_ns);
+-        $display("painted: rgb nonzero before push=%0d after push=%0d (oracle shows black before)", rgb_nonzero_before_paint, rgb_nonzero_after_paint);
+-        ok = (errs == 0);
+-        if (BUG == 0) begin
+-            if (!(tg_de > 0 && tg_hs > 0 && tg_vs > 0 && tg_rgb > 0 && tg_rt > 0 && tg_vt > 0)) begin ok = 0; $display("coverage hole: a video output or toggle never moved"); end
+-            if (!(cnt_end > 0))                     begin ok = 0; $display("coverage hole: no late line was counted"); end
+-            if (!(reset_fired && push_fired))       begin ok = 0; $display("coverage hole: reset or push never fired"); end
+-            if (!(rgb_nonzero_after_paint > 0))     begin ok = 0; $display("coverage hole: picture never showed after painted"); end
+-            if (!(vsyncs >= 3))                     begin ok = 0; $display("coverage hole: fewer than three frames"); end
+-            if (!(n_dup > 0 && n_skip > 0 && n_late > 0)) begin ok = 0; $display("coverage hole: stimulus classes (double/missing/late) not all hit"); end
+-        end
+-        if (ok) $display("PASSED errors=%0d", errs); else $display("FAILED errors=%0d", errs);
+-        $finish;
+-    end
+-endmodule
