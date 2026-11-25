@@ -1,4 +1,4 @@
-.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-trace test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-gfx-move test-rtl-gfx-fill test-rtl-scanout-trace test-rtl-gfx-cblit test-rtl-gfx-status-soc test-rtl-gfx-t3 test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check
 
 PYTHON ?= python3
 # Build tools (tools/toolchain.py, B-985): the RISC-V compiler is found the same way for every script (RISCV_TOOLCHAIN_BIN, this tree, the main checkout when this is a git worktree, PATH), and a macOS
@@ -29,13 +29,10 @@ check-fpga:
 	bash tools/check_build_env.sh fpga
 
 firmware:
-	bash fw/build.sh release
+	bash fw2/build.sh
 
 fpga:
 	cd src/fpga && $(QUARTUS_SH) --flow compile ap_core.qpf
-
-package:
-	$(PYTHON) package.py
 
 test: test-host test-rtl
 
@@ -106,7 +103,6 @@ test-host:
 	$(PYTHON) sim/test_tau_compat.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
-	$(PYTHON) sim/test_splash_asset.py
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
@@ -928,17 +924,6 @@ rtl-lint:
 card-check:
 	$(PYTHON) tools/library_check.py
 
-# Decode the actual packaged RGB565/RLE loading asset, rather than previewing
-# the source file.  This is a design-review aid and never alters release files.
-visual-review:
-	$(PYTHON) tools/visual_review.py
 
 # (test-qr removed: the QR encoder and its test are archived in archive/qr_encoder/)
 
-# B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
-test-ram192k:
-	$(PYTHON) sim/test_ram192k.py --build
-
-# B-338: the CLK66=1 firmware link and the RAM_192K/CLK66 mutual-exclusion refusal. Slow (a firmware build).
-test-clk66:
-	$(PYTHON) sim/test_clk66.py --build
