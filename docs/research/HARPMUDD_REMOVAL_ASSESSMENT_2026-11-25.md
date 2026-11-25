@@ -117,7 +117,7 @@ Total: phases 1 and 2 are cheap and decisive for the number (about -4,600 lines,
 
 ## 8. What is missing before work starts
 1. **Licence and attribution analysis** (R7): nobody has decided what "HarpMudd-origin" means for the licence; `NOTICE.md` and `ATTRIBUTIONS.md` still describe `sim/legacy_sdram` as before; `PROVENANCE.md` says the oracle "is to be deleted".
-2. **A target definition**: "0 %" is neither reachable (third-party and framework files are blamed on HarpMudd) nor meaningful; the owner should name the metric (shipped first-party lineage lines? whole tree?).
+2. **A target definition**: "0 %" on the blame metric is not reachable (third-party and framework files are blamed on HarpMudd because he imported them) and says little. **Proposed target (Claude, 2026-11-25, for the owner to accept or change): no HarpMudd-authored lines in anything that ships.** In scope: the old `fw/` player, the first-party lineage in `src/fpga/core` (about 1,300 lines, including `tau_talos.sv` and `tau_soc.v`), and the tools and harnesses. Out of scope as removal (attribution only, listed in `NOTICE.md`/`ATTRIBUTIONS.md`): Helix MP3, picojpeg, VexRiscv, the Analogue APF files including the `core_top.v` template, agg23 loader/I2S/FIFO, Quartus-generated files. Simulation references (`sim/oracle`, `sim/legacy_sdram`) do not ship, so they do not count against the target but are deleted once their gate is met. Measured as: manifest verdict ORIGINAL-HARPMUDD or MIXED with `shipped = yes` equals zero files, re-run with `measure.py` after each phase. Whether a given file counts as HarpMudd-authored is the licence question (item 1), not decided here.
 3. **Clean-room evidence** for the scanout is honour-based (its record says so); a technical separation is missing.
 4. **Release impact**: phases 1, 2 and 6 do not change the release zip; 3-5 change the bitstream (new `CORE_VERSION`, matched firmware, Omega `tau-compat.json` and persist layout checks).
 5. **Omega/interop**: Omega already links five dead doc paths (`docs/DOC_MAP.md`); a bitstream change must be announced through `docs/interop`.
@@ -127,7 +127,7 @@ Total: phases 1 and 2 are cheap and decisive for the number (about -4,600 lines,
 9. **D-T01 against D-T12**: the engine step is both in scope and parked.
 
 ## 9. Owner decisions needed
-1. The metric and scope of "remove HarpMudd code" (8.2).
+1. The metric and scope of "remove HarpMudd code" (8.2): **proposed answer: no HarpMudd-authored lines in anything that ships (third-party code stays, with attribution)**.
 2. Approve phases 1 and 2 (no fit, no Pocket) and which deletions.
 3. Reopen the engine (phase 5) and the SoC (phase 4), or stop at the current state (D-T12).
 4. Rewrite or retire each old tool and harness (phase 6).
