@@ -108,6 +108,7 @@ test-host:
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
+	$(PYTHON) sim/test_mp3_poly_mono.py
 	$(PYTHON) sim/test_helix_pristine.py
 	$(PYTHON) sim/test_mp3_poly_derive.py
 	$(PYTHON) sim/test_chladni_core.py

@@ -69,34 +69,33 @@ with tempfile.TemporaryDirectory() as td:
               o_lines[:-1] == want, next((f"granule {i}" for i, (a, b) in enumerate(zip(o_lines, want)) if a != b), "length differs"))
     o = subprocess.run([str(hw)], capture_output=True, text=True)
     check("pipelined handoff respects the unit's protocol (no push while busy, no read without a slot in flight)", o.returncode == 0, o.stderr.strip())
-    # Player 2: the unit is REQUIRED (no software stereo window). A healthy unit is exact; a missing or failed one gives SILENCE for the stereo slots from the failure on, counted, and
-    # mono (software window) is untouched.
+    # Player 2: the unit is REQUIRED (no software window of either kind). A healthy unit is exact for stereo AND mono (B-1172: mono is pushed as both channels, left taken); a missing or failed one
+    # gives SILENCE from the failure on, counted, for stereo and mono slots alike (the harness decodes the stereo granules first, then the mono ones: one slot count across both).
     rq = build("rq", 1, 1)
     def run(*a):
         r = subprocess.run([str(rq), *a], capture_output=True, text=True)
         sil = int(r.stderr.split("SILENT")[1].split()[0]) if "SILENT" in r.stderr else -1
         return r.stdout.splitlines(), sil, r.returncode
-    o, sil, rc = run()
-    check("REQUIRED, healthy unit: PCM identical to the shipped decoder, nothing silent", rc == 0 and o[:-1] == ref[:-1] and sil == 0, str(sil))
-    o, sil, rc = run("-1", "-1", "-1", "1")
     stereo_lines = 2 * 48
-    want = [(" ".join(["PCM"] + ["0000"] * (2 * 32 * 18)) if i < stereo_lines else ref[i]) for i in range(len(ref) - 1)]
-    check("REQUIRED, unit absent from the start: every stereo slot is silent and counted, mono still correct", rc == 0 and o[:-1] == want and sil == total_stereo_slots, str(sil))
-    for fs in (0, 5, 100, 431):
-        o, sil, rc = run(str(fs))
-        n_ok = fs
-        gran_ok = n_ok // 18
-        sub = []
+    all_slots = total_stereo_slots + 8 * 18
+    def expect(o, n_ok, finish_fail=False):
+        """granule line i holds 18 slots; stereo lines 64 words per slot, mono lines 32. Slots < n_ok exact, the rest all-zero."""
+        res = []
         for i, l in enumerate(o[:-1]):
-            if i >= stereo_lines: sub.append(l == ref[i]); continue
-            f = l.split()[1:]
-            if i < gran_ok: sub.append(l == ref[i])
-            elif i == gran_ok:
-                cut = (n_ok % 18) * 64
-                sub.append(f[:cut] == ref[i].split()[1:][:cut] and all(x == "0000" for x in f[cut:]))
-            else: sub.append(all(x == "0000" for x in f))
-        check(f"REQUIRED, unit fails at slot {fs}: slots before are exact, the rest of the stereo slots are silent and counted, mono untouched", rc == 0 and all(sub) and sil == total_stereo_slots - fs, f"silent {sil}")
-    o, sil, rc = run("-1", "-1", "100")
-    check("REQUIRED, a slot that never completes is silent, the following ones too, and it is counted", rc == 0 and sil == total_stereo_slots - 100, str(sil))
+            f = l.split()[1:]; rf = ref[i].split()[1:]; w = 64 if i < stereo_lines else 32
+            for s in range(18):
+                gs = 18 * i + s
+                res.append(f[s * w:(s + 1) * w] == (rf[s * w:(s + 1) * w] if gs < n_ok else ["0000"] * w))
+        return all(res) and len(o) - 1 == len(ref) - 1
+    o, sil, rc = run()
+    check("REQUIRED, healthy unit: PCM identical to the shipped decoder (stereo and mono), nothing silent", rc == 0 and o[:-1] == ref[:-1] and sil == 0, str(sil))
+    o, sil, rc = run("-1", "-1", "-1", "1")
+    check("REQUIRED, unit absent from the start: every stereo and mono slot is silent and counted", rc == 0 and expect(o, 0) and sil == all_slots, str(sil))
+    for fs in (0, 5, 100, 431, 1727, 1728, 1800):
+        o, sil, rc = run(str(fs))
+        check(f"REQUIRED, unit fails at slot {fs}: slots before are exact, the rest (stereo and mono) silent and counted", rc == 0 and expect(o, fs) and sil == all_slots - fs, f"silent {sil}")
+    for ff in (100, 1727, 1800):
+        o, sil, rc = run("-1", "-1", str(ff))
+        check(f"REQUIRED, slot {ff} never completes: it and the following ones are silent and counted", rc == 0 and expect(o, ff) and sil == all_slots - ff, f"silent {sil}")
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
