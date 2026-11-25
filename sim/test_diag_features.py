@@ -23,9 +23,19 @@ check("dependencies name real features", all(x in feats for f in feats.values() 
 check("generated header is up to date", gen("--check")[0] == 0)
 hdr = (ROOT / "fw/diag_features.h").read_text()
 check("every converted feature has its macro defaulting to TAU_DIAGNOSTIC (or 0 when the register says default_off)", all(re.search(r"#define TAU_%s_%s %s\b" % (f["kind"].upper(), i.upper(), "0" if f.get("default_off") else "TAU_DIAGNOSTIC"), hdr) for i, f in feats.items()))
+def fw_sources():
+    """The firmware sources the register is checked against: the headers and .inc that stay in fw/, Player 2 (fw2/) and, while it is kept, the archived
+    old player (legacy-harpmudd/fw/, retired by D-T20: sixteen of the register's seventeen features exist only there; delete their entries with the archive)."""
+    out = []
+    for base in (ROOT / "fw", ROOT / "fw2", ROOT / "legacy-harpmudd" / "fw"):
+        if base.is_dir():
+            for ext in ("*.inc", "*.c", "*.h"):
+                out += sorted(base.rglob(ext))
+    return out
+
 # every macro the firmware tests is a registered one (a typo would silently compile the code out)
 used = set()
-for p in list((ROOT / "fw").glob("*.inc")) + list((ROOT / "fw").glob("*.c")) + list((ROOT / "fw").glob("*.h")):
+for p in fw_sources():
     used |= set(re.findall(r"\bTAU_(?:DX|FX)_[A-Z0-9_]+\b", p.read_text()))
 reg = {"TAU_%s_%s" % (f["kind"].upper(), i.upper()) for i, f in feats.items()}
 check("the firmware only tests registered feature macros", used <= reg, str(sorted(used - reg)))
@@ -45,7 +55,7 @@ check("graduating a feature is allowed", gen("--cflags", "", "meter_experimental
 check("dropping a feature gives its macro", gen("--cflags", "stress")[1] == "-DTAU_DX_STRESS=0")
 # agents must register new diagnostic code, not add another bare '#if TAU_DIAGNOSTIC'
 bare = []
-for p in list((ROOT / "fw").glob("*.inc")) + list((ROOT / "fw").glob("*.c")) + list((ROOT / "fw").glob("*.h")):
+for p in fw_sources():
     if p.name == "diag_features.h": continue
     for i, line in enumerate(p.read_text().splitlines(), 1):
         if re.match(r"\s*#\s*(if|elif)\b.*\bTAU_DIAGNOSTIC\b", line) or "defined(TAU_DIAGNOSTIC)" in line: bare.append(f"{p.name}:{i}")
