@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_PSRAM_2026-09-21.md](../../handoffs/SESSION_HANDOFF_PSRAM_2026-09-21.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, PSRAM workstream, 2026-09-21 (P0-P3 done, margin measured, P4 built in simulation, two Quartus builds running)
 
 Read in this order in a fresh session: this file, `CLAUDE.md` (project rules and the execution log), `docs/PSRAM_IMPLEMENTATION_PLAN.md` (plan, corrections, section 8 = impact of the SDRAM work),

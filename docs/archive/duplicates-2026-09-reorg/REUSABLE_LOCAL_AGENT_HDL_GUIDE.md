@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/REUSABLE_LOCAL_AGENT_HDL_GUIDE.md](../../research/REUSABLE_LOCAL_AGENT_HDL_GUIDE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Reusable local agent workflow for HDL projects
 
 This guide captures a reusable, low-cost setup for conversational software and

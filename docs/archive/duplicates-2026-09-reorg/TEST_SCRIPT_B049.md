@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B049.md](../../tests/TEST_SCRIPT_B049.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: Phase G cold code (Diagnostic Build, cold-code variant)
 
 Two stages. Stage 1 can run **now** on the existing P4 bitstream (fail-safe path). Stage 2 needs the G3 bitstream (instruction fetch) once it is built, gated and approved.

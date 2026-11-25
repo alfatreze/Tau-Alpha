@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/ALPHA_BLEND_ANALYSIS.md](../../features/ALPHA_BLEND_ANALYSIS.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Alpha blend (B5, `TAU_BLIT_BLEND`): why timing never closes, and the options
 
 Status: analysis, 2026-09-26 (B-326). Nothing built. Evidence is Quartus STA on three existing fit databases plus Intel documentation.

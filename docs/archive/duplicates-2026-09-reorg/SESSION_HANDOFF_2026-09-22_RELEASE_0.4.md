@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md](../../handoffs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-22 (release v0.4.0 shipped: media library, Phase G cold code, on-device diagnostics)
 
 Read first in a fresh session: this file, then `CLAUDE.md` (project rules and execution log), `docs/CURRENT_STATUS.md`, and audit entries

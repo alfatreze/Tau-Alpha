@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/PSRAM_TIMING_CONTRACT.md](../../memory/PSRAM_TIMING_CONTRACT.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # PSRAM timing contract (P0)
 
 **Status:** checked against the AS1C8M16PL-70BIN datasheet (Alliance Memory, Rev 1.0

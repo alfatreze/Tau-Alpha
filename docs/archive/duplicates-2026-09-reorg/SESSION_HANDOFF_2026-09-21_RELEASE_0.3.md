@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md](../../handoffs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-21 (release v0.3.0 shipped; PSRAM in the product; next: 0.4 media library)
 
 Read first in a fresh session: this file, then `docs/MEDIA_LIBRARY_0.4_BRIEF.md` if the task is the library, `CLAUDE.md` (project rules and execution log),

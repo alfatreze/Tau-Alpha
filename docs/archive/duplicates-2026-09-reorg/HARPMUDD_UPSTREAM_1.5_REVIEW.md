@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/HARPMUDD_UPSTREAM_1.5_REVIEW.md](../../research/HARPMUDD_UPSTREAM_1.5_REVIEW.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # HarpMudd upstream v1.5.0 review — what to port, what to drop
 
 **Scope correction, checked against git, not assumed:** Tau's fork point is `git merge-base main v1.5.0`

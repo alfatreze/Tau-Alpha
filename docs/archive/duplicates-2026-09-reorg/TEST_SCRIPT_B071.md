@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B071.md](../../tests/TEST_SCRIPT_B071.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # User test suite for TAU DEV 28 and 29 (G4: library, settings, playlist and cover-art code as cold code)
 
 Written 2026-09-22 (audit B-071). Run on the Pocket; screenshots with Menu+Start land in `Memories/Screenshots`; results are read from the card afterwards

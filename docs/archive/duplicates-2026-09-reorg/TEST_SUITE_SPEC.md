@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SUITE_SPEC.md](../../tests/TEST_SUITE_SPEC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # On-device automated test suite (Diagnostic Build): specification
 
 **Status:** design only (2026-09-21, audit B-053). No code, card or VM change. Replaces the hand-run scripts (`docs/TEST_SCRIPT_B0xx.md`) with a runner inside the Diagnostic Build.

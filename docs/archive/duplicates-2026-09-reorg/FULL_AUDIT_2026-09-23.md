@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/FULL_AUDIT_2026-09-23.md](../../research/FULL_AUDIT_2026-09-23.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Full audit and review — 2026-09-23
 
 Requested by the owner: "a full audit and review of all the older logic, our current plan, and if

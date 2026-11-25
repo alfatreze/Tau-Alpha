@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: superseded by [docs/features/CYMO_HALCYON_SPEC.md](../../features/CYMO_HALCYON_SPEC.md); kept for history.
+
 # Preset EQ — design outline
 
 How a preset equalizer would fit this core. Written before any code so the
@@ -14,7 +16,7 @@ forward into every later block: **the EQ must not use M10K**, solved with
 `ramstyle = "MLAB, no_rw_check"`. That precedent is now the basis of the block-RAM release
 plan in `docs/PHASE_F_SPEC.md`.
 
-Originally written before any code; see [ROADMAP.md](../ROADMAP.md) for why this ranked
+Originally written before any code; see [ROADMAP.md](../../../ROADMAP.md) for why this ranked
 ahead of new formats.
 
 ## The one-paragraph version
@@ -27,7 +29,7 @@ preset by writing one register.
 
 ## Where it goes
 
-[`src/fpga/core/mp3_soc.v:390-403`](../src/fpga/core/mp3_soc.v#L390-L403) — the
+[`src/fpga/core/mp3_soc.v:390-403`](../../../src/fpga/core/mp3_soc.v#L390-L403) — the
 `pcm_fifo` instance currently drives the module's `audio_l`/`audio_r` outputs
 directly:
 

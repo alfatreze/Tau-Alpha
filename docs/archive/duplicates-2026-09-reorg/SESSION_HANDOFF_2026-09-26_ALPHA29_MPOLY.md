@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-26_ALPHA29_MPOLY.md](../../handoffs/SESSION_HANDOFF_2026-09-26_ALPHA29_MPOLY.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-26 (late): alpha.29 on the card and confirmed good; MP3 window-unit firmware in progress, paused mid-analysis
 
 Supersedes `docs/SESSION_HANDOFF_2026-09-26_ALPHA22.md` for everything below (that file is still right for the earlier decisions and traps it covers -- the wave-meter corruption saga it was written before is now fully resolved, see below). Full detail per step: `docs/AUDIT_TRAIL.md` B-296 through B-306 (this session's arc) and B-307 (started, not finished -- see part 3).

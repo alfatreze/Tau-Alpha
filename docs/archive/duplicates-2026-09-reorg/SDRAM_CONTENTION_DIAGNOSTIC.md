@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/SDRAM_CONTENTION_DIAGNOSTIC.md](../../memory/SDRAM_CONTENTION_DIAGNOSTIC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # SDRAM contention diagnostic
 
 ## Purpose
@@ -41,10 +43,10 @@ The stress core adds only compile-gated controls:
 summary information on the running Pocket build, but it stops playback; press
 A to resume. The current source review does not explain this behavior, so
 reconciling source and packaged ROM remains open under
-[issue 011](issues/011-stress-summary-telemetry-missing.md). Record the exact
+[issue 011](../../issues/011-stress-summary-telemetry-missing.md). Record the exact
 summary values and whether they continue to increment after resuming playback.
 The user has proposed a persistent compact progress/status HUD; see
-[issue 012](issues/012-stress-progress-hud.md).
+[issue 012](../../issues/012-stress-progress-hud.md).
 
 ## 2026-09-14 Pocket visualizer matrix — first HUD run
 

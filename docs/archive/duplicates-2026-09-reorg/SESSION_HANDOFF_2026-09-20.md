@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-20.md](../../handoffs/SESSION_HANDOFF_2026-09-20.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 > **SUPERSEDED by `docs/SESSION_HANDOFF_2026-09-21.md` (state, rules and procedures are current there).** Kept for the history of that day.
 
 # Session handoff, 2026-09-20 (SDRAM CPU window: from root cause to contention pass)

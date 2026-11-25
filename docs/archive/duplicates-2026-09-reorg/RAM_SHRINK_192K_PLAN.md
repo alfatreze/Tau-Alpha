@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/RAM_SHRINK_192K_PLAN.md](../../features/RAM_SHRINK_192K_PLAN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # RAM shrink to 192 KB — what it takes and what it buys
 
 ## Status 2026-09-27 (B-333): PREPARED. Firmware links at 192 KB; the paired bitstream is being fitted; nothing shipped

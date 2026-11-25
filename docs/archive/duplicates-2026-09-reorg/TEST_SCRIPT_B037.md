@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B037.md](../../tests/TEST_SCRIPT_B037.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: media library first Pocket run (TAU PSRAM 07)
 
 **Core:** `TAU PSRAM 07` (library build: settings + Info + `TAU_LIBRARY`, bitstream = the v0.3.0 P4 build, ROM 171,180 B, heap gap 8,320 B). Packaged in `work/diagnostics/tau-psram-07/pocket`; NOT installed.

@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/PLAYLIST_SDRAM_MOVE_SPEC.md](../../features/PLAYLIST_SDRAM_MOVE_SPEC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Spec: move the playlist buffers behind the uncached SDRAM window (A-103)
 
 Status: **design only, nothing built.** Evidence labels: code-review (this survey), plus

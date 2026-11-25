@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/FLAC_BITREADER_KERNEL_SCOPING.md](../../research/FLAC_BITREADER_KERNEL_SCOPING.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # FLAC bit-reader kernel: scoping (nothing built)
 
 Status: scoping only, 2026-09-27 (B-342). Read the real `fw/flac.c` bit-reading code. No RTL, no

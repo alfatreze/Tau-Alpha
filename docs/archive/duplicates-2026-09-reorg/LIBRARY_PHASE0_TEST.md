@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/LIBRARY_PHASE0_TEST.md](../../tests/LIBRARY_PHASE0_TEST.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Library phase 0: absolute-path open test (B-033)
 
 **Purpose:** prove on hardware that the core opens a track named by an **absolute path** in another folder (`/Assets/tau/.../file`), which the whole media library depends on (`docs/MEDIA_LIBRARY_0.4_SPEC.md` section 0.1). Source says it works (`pl_open_try`, `fw/playlist.inc`: a name starting with `/` replaces the whole path); no hardware run has used it. **No firmware, RTL or core change**: a new playlist file only.

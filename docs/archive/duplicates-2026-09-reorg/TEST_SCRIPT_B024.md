@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B024.md](../../tests/TEST_SCRIPT_B024.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: album art in PSRAM (B-024) and the diagnostic build
 
 **Cores on the card:** `TAU PSRAM 03` (release-style: Settings + Info) and `TAU PSRAM 05` (diagnostic: adds Tests, Stress, All Speeds). Both run on the same bitstream. Each has the same music copy.

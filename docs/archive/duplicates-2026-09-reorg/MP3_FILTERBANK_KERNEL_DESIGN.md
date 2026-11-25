@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/MP3_FILTERBANK_KERNEL_DESIGN.md](../../features/MP3_FILTERBANK_KERNEL_DESIGN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # MP3 synthesis filterbank kernel: design, resource fit, and lighter variants
 
 Status: **DESIGN + resource estimate (2026-09-26). Nothing built.** Answers: does it fit with at least one M10K free, and can a lighter

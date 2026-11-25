@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-21.md](../../handoffs/SESSION_HANDOFF_2026-09-21.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-21 (SDRAM window shipped, settings menu, v0.2.2)
 
 Supersedes `docs/SESSION_HANDOFF_2026-09-20.md`. Read in this order in a fresh session: this file, `CLAUDE.md` (rules and

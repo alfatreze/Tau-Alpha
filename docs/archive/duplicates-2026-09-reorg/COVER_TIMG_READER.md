@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/COVER_TIMG_READER.md](../../features/COVER_TIMG_READER.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Cover art from a pre-converted image (TIM1 reader), design and status
 
 Status: **on by default since B-325; host-tested; the first Pocket runs (alpha.22 to alpha.30) never loaded a cover (Info: `TIM1 COVER 0 LOADED ... E6`); the probable causes are fixed and instrumented in B-325 and need one more Pocket run to confirm.** B-285. The 128 px layout is now the default screen (B-286). Format and encoder: `tools/tau_image.py`,

@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-27_V050_AND_06_RTL.md](../../handoffs/SESSION_HANDOFF_2026-09-27_V050_AND_06_RTL.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-27: v0.5.0 shipped, five 0.6.0 RTL changes fit individually, none combined or on hardware
 
 Read this first. Supersedes `docs/SESSION_HANDOFF_2026-09-26_ALPHA29_MPOLY.md` for current state (that doc's own

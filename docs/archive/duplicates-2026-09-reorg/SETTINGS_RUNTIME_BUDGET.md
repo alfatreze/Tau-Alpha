@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/SETTINGS_RUNTIME_BUDGET.md](../../features/SETTINGS_RUNTIME_BUDGET.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Runtime settings feasibility
 
 > **Update 2026-09-21:** the settings screen shipped in v0.2.0 after the playlist buffers moved to SDRAM (A-105); measured cost of the grouped menu about 4.4 KiB, the choice lists and

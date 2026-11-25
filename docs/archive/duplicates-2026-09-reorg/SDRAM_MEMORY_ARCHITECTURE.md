@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/SDRAM_MEMORY_ARCHITECTURE.md](../../memory/SDRAM_MEMORY_ARCHITECTURE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # SDRAM memory architecture decision
 
 **Status:** Phase 1 and Phase 2 (uncached CPU window) accepted on Pocket and shipped in v0.2.x;
@@ -336,7 +338,7 @@ fresh macro-enabled retry passed Quartus (A-055/A-056): 7,796 registers,
 300/308 RAM blocks, 11/66 DSP blocks, zero TNS, and 0.120 ns minimum reported
 hold slack. The Phase 2a feature is not ready for Pocket use until a dedicated
 firmware CPU load/store/byte-lane smoke package passes; see
-[SDRAM_CPU_WINDOW_DIAGNOSTIC.md](SDRAM_CPU_WINDOW_DIAGNOSTIC.md) for its
+[SDRAM_CPU_WINDOW_DIAGNOSTIC.md](../../SDRAM_CPU_WINDOW_DIAGNOSTIC.md) for its
 artifact-provenance and Pocket procedure. Cached SDRAM is decoded as an
 unsupported bus error and remains prohibited; no linker placement, normal ROM,
 or Pocket package may use either SDRAM window yet.
@@ -404,7 +406,7 @@ SDRAM bridge.
 
 The first developer-only fixed/sparse readback sub-gate is implemented in
 `fw/sdram_diag.c` and documented in
-[SDRAM_POCKET_DIAGNOSTIC.md](SDRAM_POCKET_DIAGNOSTIC.md). It deliberately stops
+[SDRAM_POCKET_DIAGNOSTIC.md](../../SDRAM_POCKET_DIAGNOSTIC.md). It deliberately stops
 short of the 1 MiB CRC and concurrent playback requirements below; those remain
 the next hardware gate rather than being implied by a basic `PASS`.
 

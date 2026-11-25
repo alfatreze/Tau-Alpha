@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/TAU_TECHNICAL_SPIKE.md](../../research/TAU_TECHNICAL_SPIKE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Tau alpha technical spike
 
 ## Baseline decision

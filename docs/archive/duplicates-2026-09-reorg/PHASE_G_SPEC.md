@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/PHASE_G_SPEC.md](../../features/PHASE_G_SPEC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Phase G: cold code and data out of on-chip RAM (specification)
 
 **Status:** design only (2026-09-21, audit B-045). No RTL, firmware, card or VM change. Builds on `docs/ARCHITECTURE_ROADMAP.md` phase G and `docs/PSRAM_IMPLEMENTATION_PLAN.md`.

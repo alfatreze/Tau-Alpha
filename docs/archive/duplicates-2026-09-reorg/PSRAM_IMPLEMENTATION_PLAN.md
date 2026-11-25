@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/PSRAM_IMPLEMENTATION_PLAN.md](../../memory/PSRAM_IMPLEMENTATION_PLAN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # PSRAM implementation plan
 
 **Status:** P0-P3 done; P4 built and simulated (B-016) with two Quartus builds running (B-018); **start a new session from `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md`**; read-timing margin measured (B-015: passes from index 7, fails at 6, default 9 keeps two clocks). P3 (B-009..B-011): 10 of 10 Pocket starts PASS on default and slow timing, zero errors, exit gate met. Next is P4 (uncached CPU window), which needs approval and a new build. The new controller/bus RTL and tests

@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/procedures/FPGA_BUILD.md](../../procedures/FPGA_BUILD.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # FPGA build baseline
 
 ## Verified baseline
@@ -75,14 +77,14 @@ Quartus outputs. The VM snapshot has no Git metadata, so the directory label
 This is **Quartus** evidence only, not Pocket validation. The fitted resource
 usage also leaves only nine RAM blocks; the next gate is the controlled Pocket
 diagnostic and concurrency/stability matrix before any SDRAM data migration.
-See [issue 005](issues/005-quartus-assembler-internal-error.md) and
-[audit entry A-024](AUDIT_TRAIL.md).
+See [issue 005](../../issues/005-quartus-assembler-internal-error.md) and
+[audit entry A-024](../../AUDIT_TRAIL.md).
 
 The successful `ap_core.rbf` was copied without modification into the host
 diagnostic staging area. Its SHA-256 is
 `0c00362795f22486af8aece80d1a3c6b1eb857e0783699a7fa6394163b1a6dc7`.
 The side-by-side Pocket diagnostic package and exact firmware procedure are in
-[SDRAM_POCKET_DIAGNOSTIC.md](SDRAM_POCKET_DIAGNOSTIC.md). This artifact copy
+[SDRAM_POCKET_DIAGNOSTIC.md](../../SDRAM_POCKET_DIAGNOSTIC.md). This artifact copy
 does not add a new Quartus result or change the resource/timing evidence above.
 
 ## Build layout

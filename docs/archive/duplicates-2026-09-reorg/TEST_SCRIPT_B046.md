@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B046.md](../../tests/TEST_SCRIPT_B046.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: Phase G1 cold image (TAU PSRAM 13)
 
 **Core:** `TAU PSRAM 13` (library build + `TAU_COLD=1`, P4 bitstream; ROM `07d2c264...`, 168,512 B, heap gap 10,960 B). Packaged in `work/diagnostics/tau-psram-13/pocket` with `Assets/tau_psram_13/common/tau-cold.bin` (5,156 B) and data slot 6. NOT installed.

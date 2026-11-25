@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-26_ALPHA22.md](../../handoffs/SESSION_HANDOFF_2026-09-26_ALPHA22.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff, 2026-09-26 (late): alpha.22 on the card, two hardware blocks waiting for a fit (read this first)
 
 Supersedes `docs/SESSION_HANDOFF_2026-09-26_ALPHA17.md` for everything below (that file is still right for the earlier decisions and traps). Detail per step:

@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-25_BLIT_TEST_ROOT_CAUSE.md](../../handoffs/SESSION_HANDOFF_2026-09-25_BLIT_TEST_ROOT_CAUSE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff — 2026-09-25 (Blit Test root cause found and fixed; a new anomaly opened)
 
 **Read this first**, then `docs/CURRENT_STATUS.md`. `docs/AUDIT_TRAIL.md` entries **B-186 through

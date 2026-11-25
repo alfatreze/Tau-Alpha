@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/UPSTREAM_MEMORY_AUDIO_KNOWLEDGE.md](../../research/UPSTREAM_MEMORY_AUDIO_KNOWLEDGE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Upstream knowledge for full Pocket SDRAM, PSRAM and FPGA audio
 
 **Source:** `harpmudd/HarpMudd.mp3player` at v1.5.0 (`4288dc1`), read from a

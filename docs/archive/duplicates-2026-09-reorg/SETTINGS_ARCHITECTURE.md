@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/SETTINGS_ARCHITECTURE.md](../../features/SETTINGS_ARCHITECTURE.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Tau in-app settings architecture
 
 > **Update 2026-09-21:** Appearance, Audio and Playback are implemented (`fw/settingsui.inc`, opened with Start; multi-option settings open a choice list, A selects), plus a Diagnostics group

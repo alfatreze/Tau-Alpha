@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B039.md](../../tests/TEST_SCRIPT_B039.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: library playlists, MENU/SETTINGS restructure, legacy mode (TAU PSRAM 09)
 
 **Core:** `TAU PSRAM 09` (library build, P4 bitstream; ROM 171,928 B, heap gap 7,568 B). Packaged in `work/diagnostics/tau-psram-09/pocket`; NOT installed (the never-installed 08 is superseded).

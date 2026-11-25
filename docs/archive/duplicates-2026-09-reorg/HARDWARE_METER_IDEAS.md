@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/meters/HARDWARE_METER_IDEAS.md](../../features/meters/HARDWARE_METER_IDEAS.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Hardware helpers for meters: ideas saved for later review (2026-09-26)
 
 Status: **IDEAS, none started** except the two already built (B-263 spectrum bank, B-283 level/scope block, which is prepared but not fitted).

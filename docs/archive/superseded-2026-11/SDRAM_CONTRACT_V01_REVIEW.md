@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: superseded by [docs/features/SDRAM_CONTROLLER_CONTRACT.md](../../features/SDRAM_CONTROLLER_CONTRACT.md); kept for history.
+
 # Review of SDRAM_CONTROLLER_CONTRACT.md v0.1 (a fresh memory-controller expert, read-only, 2026-10-28)
 
 > **Superseded 2026-10-28 by contract v0.2** (`SDRAM_CONTROLLER_CONTRACT.md`), which merges this review; the chip-model and replay agents of the previous session left nothing usable (empty worktree; four uncommitted harness fragments).

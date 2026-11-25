@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md](../../handoffs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff — 2026-09-24 (B8 milestone, Blit Test, and an open hang)
 
 **Read this first**, then `docs/CURRENT_STATUS.md`. `docs/AUDIT_TRAIL.md` entries **B-156 through

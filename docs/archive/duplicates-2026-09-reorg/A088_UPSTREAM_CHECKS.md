@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/A088_UPSTREAM_CHECKS.md](../../research/A088_UPSTREAM_CHECKS.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # A-088 next-run checks from HarpMudd upstream evidence
 
 **Scope:** only the log-write path (APF data slot 5, `0184`). Nothing here

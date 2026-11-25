@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/PSRAM_EVALUATION_PLAN.md](../../memory/PSRAM_EVALUATION_PLAN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # PSRAM early evaluation plan
 
 **Status:** the original evaluation contract (P0-P5). Historical: the work it proposed has progressed to P3 complete and P4 built; the current plan, corrections and

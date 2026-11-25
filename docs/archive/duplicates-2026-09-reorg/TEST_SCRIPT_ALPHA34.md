@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_ALPHA34.md](../../tests/TEST_SCRIPT_ALPHA34.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # User test: TAU 0.5.0-alpha.34 (core `TAU_0_5_0_A_34`)
 
 Bitstream: gamma build (MP3 window unit, wave block, spectrum/beam, `text_light`). Firmware: everything since alpha.30 (theme system, meter modules, palette fix, TIM1 covers).

@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/QA_PLAN.md](../../tests/QA_PLAN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # QA test plan — branch `speed-1.2x`
 
 Firmware **126,844 bytes**. Every debug switch off, so no red rows should

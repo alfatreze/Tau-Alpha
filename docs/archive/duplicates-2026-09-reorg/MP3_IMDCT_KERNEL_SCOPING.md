@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/research/MP3_IMDCT_KERNEL_SCOPING.md](../../research/MP3_IMDCT_KERNEL_SCOPING.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # MP3 IMDCT/AntiAlias kernel: scoping (nothing built)
 
 Status: scoping only, 2026-09-27 (B-341). Read Helix's real `imdct.c`. No RTL, no firmware change,

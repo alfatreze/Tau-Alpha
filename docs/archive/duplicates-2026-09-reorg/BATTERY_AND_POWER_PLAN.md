@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/features/BATTERY_AND_POWER_PLAN.md](../../features/BATTERY_AND_POWER_PLAN.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Battery status and power-efficiency plan
 
 **Status:** Future feature; battery telemetry blocked by the current documented

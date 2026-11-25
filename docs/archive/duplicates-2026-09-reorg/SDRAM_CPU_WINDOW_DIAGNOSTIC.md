@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/SDRAM_CPU_WINDOW_DIAGNOSTIC.md](../../memory/SDRAM_CPU_WINDOW_DIAGNOSTIC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Phase 2 uncached CPU-window SDRAM diagnostic
 
 **Status:** the original CPU-window test no longer stalls after the adapter
@@ -23,7 +25,7 @@ gate, not a player feature.
 **A-065 Pocket result:** the target all-ones write reached the SDRAM-domain
 bridge and both 16-bit controller requests were accepted, yet the later CPU
 readback remained zero (182 failures). The active boundary is now downstream
-of the bridge; see [issue 018](issues/018-phase2-post-bridge-write-readback.md).
+of the bridge; see [issue 018](../../issues/018-phase2-post-bridge-write-readback.md).
 
 ## Purpose and scope
 
@@ -141,7 +143,7 @@ Its matching ROM SHA-256 is
 Package it only through
 `python3 tools/package_sdram_cpu_diagnostic.py --probe-a080`; it includes an
 isolated, zeroed 64-byte `last-result.tlog` under its own `Saves` path. See
-[DIAGNOSTIC_RESULT_LOG.md](DIAGNOSTIC_RESULT_LOG.md) for the record schema and
+[DIAGNOSTIC_RESULT_LOG.md](../../DIAGNOSTIC_RESULT_LOG.md) for the record schema and
 decoder. Do not pair the A-080 ROM with A-079 or another older RBF: the rev-23
 interlock will reject it because target flush support is absent.
 

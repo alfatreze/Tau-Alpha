@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/memory/SDRAM_POCKET_DIAGNOSTIC.md](../../memory/SDRAM_POCKET_DIAGNOSTIC.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Phase 1 SDRAM Pocket diagnostic
 
 ## Purpose and evidence boundary
@@ -73,7 +75,7 @@ installation evidence only; the diagnostic has not yet been launched on Pocket.
 That first package failed at Pocket core setup because its manifest shortname
 used spaces while its core folder used underscores. It is superseded by the
 identity-matched package documented in
-[issue 008](issues/008-diagnostic-core-identity-mismatch.md); do not use the
+[issue 008](../../issues/008-diagnostic-core-identity-mismatch.md); do not use the
 earlier installation as SDRAM evidence.
 
 The corrected identity-matched candidate was subsequently reinstalled and

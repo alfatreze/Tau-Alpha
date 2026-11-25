@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/tests/TEST_SCRIPT_B041.md](../../tests/TEST_SCRIPT_B041.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Test script: library history, load-not-play, list counter, Settings-style lists, library switch (TAU PSRAM 10)
 
 **Core:** `TAU PSRAM 11` (replaces 10 before it was run: the counter now uses the existing transport-row `x / y`, see B-041 addendum; everything else as described for 10) (library build on the P4 bitstream; ROM `878c1f8b...`, 172,012 B, heap gap 7,456 B). Packaged in `work/diagnostics/tau-psram-10/pocket`; NOT installed. Adds four persist words (interact ids 24-27, addresses 0x30-0x3C) to the packaged core only.

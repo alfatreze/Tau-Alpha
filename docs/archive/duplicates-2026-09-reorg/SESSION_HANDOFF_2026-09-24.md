@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-24.md](../../handoffs/SESSION_HANDOFF_2026-09-24.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff — 2026-09-24
 
 **Read this first**, then `docs/CURRENT_STATUS.md`, then `docs/PHASE_F_SPEC.md` sections 5/12/14 for the blit

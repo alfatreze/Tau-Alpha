@@ -1,3 +1,5 @@
+> ARCHIVED 2026-11-25: duplicate of the canonical copy [docs/handoffs/SESSION_HANDOFF_2026-09-25_PHASE_F_CONTINUED.md](../../handoffs/SESSION_HANDOFF_2026-09-25_PHASE_F_CONTINUED.md) (the 2026-09-27 reorg left the old copy here); kept for history.
+
 # Session handoff — 2026-09-25 (Phase F continued: Blit Test root cause closed, meters+picojpeg go cold, B11 built)
 
 **Read this first.** Supersedes nothing (it's a continuation of the same day's earlier
