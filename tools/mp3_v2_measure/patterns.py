@@ -17,7 +17,7 @@ syms = sorted((int(p[0], 16), int(p[1], 16), re.sub(r"\.(constprop|isra|part)\.\
 starts = [s[0] for s in syms]
 ins, cnt = {}, {}
 for l in Path(prof).read_text().splitlines():
-    pc, w, n, c, t = l.split(); ins[int(pc, 16)] = int(w, 16); cnt[int(pc, 16)] = int(n)
+    pc, w, n, c, t = l.split()[:5]; ins[int(pc, 16)] = int(w, 16); cnt[int(pc, 16)] = int(n)   # rvprof writes two more columns (I$ and D$ misses) since WP-05
 def fn(pc):
     i = bisect.bisect_right(starts, pc) - 1
     return syms[i][2] if i >= 0 else "?"
