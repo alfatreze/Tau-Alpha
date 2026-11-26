@@ -267,8 +267,9 @@ test-host:
 	$(PYTHON) sim/test_ram_report.py
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
+	$(PYTHON) tools/talos_v2_model/test_model.py --fast
 
-test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-trace test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-save-ram test-rtl-save-soc test-rtl-wdog test-rtl-wdog-soc test-rtl-i2s-diag-soc test-rtl-rtc-cdc test-rtl-rtc-soc test-rtl-sdr-stat-win test-rtl-sdr-stat-soc test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-gfx-t3 test-rtl-gfx-cblit test-rtl-scanout-trace test-rtl-gfx-fill test-rtl-gfx-move test-rtl-gfx-status-soc test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-talos-v2-diff test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -356,6 +357,19 @@ test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 # itself (once clean, once per mutation).
 test-rtl-blit-reference: | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/test_blit_reference.py
+
+# Talos v2 (audit B-1181, ORACLE SIDE): the differential harness's self-test (11 G1 vectors through the shipped engine and a
+# comparator check). The full runs are manual: talos-v2-model-full (vectors + every model check, about 1.5 min) and
+# talos-v2-diff (1,013 vectors through the old engines, about 4 min on 12 cores; Gallery's engine copied into work/talos_v2_diff/gal/).
+.PHONY: test-rtl-talos-v2-diff talos-v2-model-full talos-v2-diff
+test-rtl-talos-v2-diff:
+	$(PYTHON) tools/talos_v2_model/run_diff.py --selftest
+talos-v2-model-full:
+	$(PYTHON) tools/talos_v2_model/gen_vectors.py
+	$(PYTHON) tools/talos_v2_model/test_model.py
+talos-v2-diff: talos-v2-model-full
+	$(PYTHON) tools/talos_v2_model/run_diff.py
+	$(PYTHON) tools/talos_v2_model/summarize_diff.py
 
 $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
