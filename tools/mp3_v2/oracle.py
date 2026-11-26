@@ -30,8 +30,43 @@ def build(out_dir=None, extra=(), name="oracle"):
     stamp.write_text(key)
     return exe
 
-def decode(exe, mp3, pcm=None, f32=None, frames=None):
+# Stage build (WP-06): an instrumented COPY of minimp3.h (three hook calls inserted at anchors that must each occur exactly once); the vendored file is untouched.
+STAGE_ANCHORS = [
+    "        int n_long_bands = (gr_info->mixed_block_flag ? 2 : 0) << (int)(HDR_GET_MY_SAMPLE_RATE(h->header) == 2);\n",
+    "        L3_change_sign(s->grbuf[ch]);\n",
+    "                mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, pcm, scratch.syn[0]);\n",
+]
+HOOK1 = "        ORACLE_HOOK_SPECTRUM(s->grbuf[ch], gr_info->sfbtab, gr_info->n_long_sfb, gr_info->n_short_sfb, gr_info->block_type, n_long_bands, h->mdct_overlap[ch], ch);\n"
+HOOK2 = "        ORACLE_HOOK_SUBBAND(s->grbuf[ch], ch);\n"
+HOOK3 = "                ORACLE_HOOK_GRANULE(dec->qmf_state, info->channels);\n"
+
+def instrument(text):
+    """instrumented text: hook 1 after the n_long_bands line (spectrum before reorder), hook 2 after change_sign (subband samples), hook 3 before the synthesis call"""
+    for k, a in enumerate(STAGE_ANCHORS):
+        if text.count(a) != 1:
+            raise SystemExit("stage anchor %d occurs %d times in minimp3.h (expected exactly once)" % (k, text.count(a)))
+    text = text.replace(STAGE_ANCHORS[0], STAGE_ANCHORS[0] + HOOK1)
+    text = text.replace(STAGE_ANCHORS[1], STAGE_ANCHORS[1] + HOOK2)
+    text = text.replace(STAGE_ANCHORS[2], HOOK3 + STAGE_ANCHORS[2])
+    return text
+
+def build_stage(out_dir=None):
+    out = Path(out_dir) if out_dir else OUT
+    sdir = out / "stage"; sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "minimp3.h").write_text(instrument((HDR / "minimp3.h").read_text()))
+    exe = out / "oracle_stage"
+    stamp = out / "oracle_stage.stamp"
+    key = hashlib.sha256(SRC.read_bytes() + (HDR / "minimp3.h").read_bytes() + Path(__file__).read_bytes()).hexdigest()
+    if exe.exists() and stamp.exists() and stamp.read_text() == key:
+        return exe
+    cc = os.environ.get("CC", "cc")
+    subprocess.run([cc, *_sdk_args(), *FLAGS, "-DORACLE_STAGE_DUMP", "-I", str(sdir), "-o", str(exe), str(SRC), "-lm"], check=True)
+    stamp.write_text(key)
+    return exe
+
+def decode(exe, mp3, pcm=None, f32=None, frames=None, stage=None):
     cmd = [str(exe), str(mp3)]
+    if stage: cmd += ["--stage", str(stage)]
     if pcm: cmd += ["--pcm", str(pcm)]
     if f32: cmd += ["--f32", str(f32)]
     if frames is not None: cmd += ["--frames", str(frames)]
